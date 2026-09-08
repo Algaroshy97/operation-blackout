@@ -48,6 +48,13 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("camera.position.copy(cameraState.position)", enemy_source)
         self.assertIn("camera.rotation.copy(cameraState.rotation)", enemy_source)
 
+    def test_soldier_probe_uses_a_before_after_pixel_comparison(self) -> None:
+        enemy_source = ENEMIES.read_text()
+        self.assertIn("function readProbePixels", enemy_source)
+        self.assertIn("const before = readProbePixels", enemy_source)
+        self.assertIn("const after = readProbePixels", enemy_source)
+        self.assertIn("painted > before.length / 16", enemy_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

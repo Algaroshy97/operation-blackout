@@ -79,9 +79,20 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
+// Read a centered framebuffer sample. The diagnostic camera aims the soldier at
+// the center, so comparing this sample before and after spawning it avoids
+// guessing sky/fog colours or confusing WebGL's bottom-left pixel origin.
+function readProbePixels(gl, width, height, size) {
+  const pixels = new Uint8Array(size * size * 4);
+  const x = Math.max(0, Math.floor(width / 2 - size / 2));
+  const y = Math.max(0, Math.floor(height / 2 - size / 2));
+  gl.readPixels(x, y, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return pixels;
+}
+
 // One-time GPU probe: some desktop drivers render static meshes fine but
-// silently drop skinned ones. Paint a soldier and verify pixels changed; if not,
-// fall back to the simple enemy mesh everywhere.
+// silently drop skinned ones. Compare the same rendered pixels with and without
+// a soldier; if it does not paint enough pixels, use the simple mesh everywhere.
 function probeSkinnedSoldier() {
   if (!GLB_PARSED.SOLDIER) return;
   // Asset decoding is asynchronous and can finish after a player has begun a wave.
@@ -96,26 +107,25 @@ function probeSkinnedSoldier() {
   };
   let probe = null;
   try {
-    probe = spawnEnemy(0, 0, -35);
     camera.position.set(0, 1.7, -31);
     camera.lookAt(0, 1.0, -35);
     camera.updateMatrixWorld(true);
     camera.aspect = renderer.domElement.width / renderer.domElement.height;
     camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
     const gl = renderer.getContext();
-    const w = renderer.domElement.width, h = renderer.domElement.height;
-    const v = new THREE.Vector3(0, 1.0, -35).project(camera);
-    const cx = Math.max(2, Math.min(w - 3, Math.floor((v.x + 1) / 2 * w)));
-    const cy = Math.max(2, Math.min(h - 3, Math.floor((1 - (v.y + 1) / 2) * h)));
-    const px = new Uint8Array(4 * 9);
-    gl.readPixels(cx - 1, cy - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const width = renderer.domElement.width, height = renderer.domElement.height;
+    const sampleSize = 32;
+    renderer.render(scene, camera);
+    const before = readProbePixels(gl, width, height, sampleSize);
+    probe = spawnEnemy(0, 0, -35);
+    renderer.render(scene, camera);
+    const after = readProbePixels(gl, width, height, sampleSize);
     let painted = 0;
-    for (let i = 0; i < 9; i++) {
-      const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
-      if (!(Math.abs(r - 138) < 30 && Math.abs(g - 164) < 30 && Math.abs(b - 200) < 40)) painted++;
+    for (let i = 0; i < after.length; i += 4) {
+      const difference = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
+      if (difference > 30) painted++;
     }
-    GLB_SOLDIER_BROKEN = painted === 0;
+    GLB_SOLDIER_BROKEN = !(painted > before.length / 16);
     if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
   } catch (err) {
     GLB_SOLDIER_BROKEN = true;
