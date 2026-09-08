@@ -45,9 +45,11 @@ document.addEventListener('pointerlockchange', function () {
   pointerLocked = document.pointerLockElement === canvas;
   if (!pointerLocked && started && !paused && !player.dead && !gameEnded) pauseGame();
 });
+const MAX_MOUSE_EVENT_DELTA = 80; // reject pointer-lock spikes after a lost/stalled frame
 addEventListener('mousemove', function (e) {
   if (!pointerLocked || paused) return;
-  mouseX += e.movementX; mouseY += e.movementY;
+  mouseX += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementX));
+  mouseY += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementY));
 });
 
 // ---- Player state ----

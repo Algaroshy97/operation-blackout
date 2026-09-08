@@ -54,6 +54,17 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("const before = readProbePixels", enemy_source)
         self.assertIn("const after = readProbePixels", enemy_source)
         self.assertIn("painted > before.length / 16", enemy_source)
+    def test_performance_and_visibility_guards_exist(self) -> None:
+        player_source = (ROOT / "src" / "20_player.js").read_text()
+        world_source = (ROOT / "src" / "10_config_world.js").read_text()
+        main_source = MAIN.read_text()
+        self.assertIn("MAX_MOUSE_EVENT_DELTA", player_source)
+        self.assertIn("Math.max(-MAX_MOUSE_EVENT_DELTA", player_source)
+        self.assertIn("const useSimpleProp = mobileSafe || !gltf", world_source)
+        self.assertIn("useSimpleProp ? makeMobileProp", world_source)
+        self.assertIn("const targetFov =", main_source)
+        self.assertIn("camera.fov += (targetFov - camera.fov)", main_source)
+        self.assertIn("qualityAdjustT", main_source)
 
 
 if __name__ == "__main__":
