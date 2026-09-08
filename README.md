@@ -31,9 +31,13 @@ python3 scripts/build.py .   # or: python3 scripts/build.py <repo root>
 
 ## Testing
 
-Every shipped version passes: `node --check` on all modules, a full-parse syntax gate on the assembled file, and a headless browser regression suite — movement axes, aimed-shot ballistics (spawn target dead-ahead via camera-forward math, assert exact damage), wave progression, menu button battery, mobile touch emulation (press/release ownership, multi-finger fire, joystick sprint), grenade cover occlusion, and GPU-geometry stability across resets. See the changelog in the project documentation for per-version verified results.
+Run the fast regression checks with:
 
-Known unverified: real-GPU frame rates, full 15-wave completion, physical Android hardware. Headless CI runs at ~10 FPS software rendering — it verifies mechanics, not performance.
+```bash
+python3 -m unittest tests/test_release_build.py -v
+```
+
+They verify that the release build works from the repository root and that the desktop soldier path has a scale-correct, non-culled GLB plus a guaranteed procedural fallback. The test suite does not measure real-GPU frame rate or replace playtesting on Android hardware.
 
 ## Credits
 

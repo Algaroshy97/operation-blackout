@@ -3,6 +3,9 @@
 // Simple humanoid: body box + head box + limbs, tinted materials, ragdoll-lite death.
 const enemies = [];
 let meleeHits = [];   // timestamps of landed melee hits (global damage cap)
+// Set true by a runtime probe when the GPU/driver fails to paint skinned meshes
+// (world renders, soldiers don't). Once true, all enemies use the simple mesh.
+let GLB_SOLDIER_BROKEN = false;
 
 const EMAT = {
   skin: new THREE.MeshStandardMaterial({ color: 0x9c7a5e, roughness: 0.9 }),
@@ -76,6 +79,66 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
+// One-time GPU probe: some desktop drivers render static meshes fine but
+// silently drop skinned ones. Paint a soldier and verify pixels changed; if not,
+// fall back to the simple enemy mesh everywhere.
+function probeSkinnedSoldier() {
+  if (!GLB_PARSED.SOLDIER) return;
+  // Asset decoding is asynchronous and can finish after a player has begun a wave.
+  // Snapshot state so the invisible diagnostic never changes the live match.
+  const playerState = {
+    pos: player.pos.clone(), vel: player.vel.clone(), yaw: player.yaw, pitch: player.pitch,
+    recoilP: player.recoilP, recoilY: player.recoilY
+  };
+  const cameraState = {
+    position: camera.position.clone(), rotation: camera.rotation.clone(),
+    fov: camera.fov, aspect: camera.aspect
+  };
+  let probe = null;
+  try {
+    probe = spawnEnemy(0, 0, -35);
+    camera.position.set(0, 1.7, -31);
+    camera.lookAt(0, 1.0, -35);
+    camera.updateMatrixWorld(true);
+    camera.aspect = renderer.domElement.width / renderer.domElement.height;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const w = renderer.domElement.width, h = renderer.domElement.height;
+    const v = new THREE.Vector3(0, 1.0, -35).project(camera);
+    const cx = Math.max(2, Math.min(w - 3, Math.floor((v.x + 1) / 2 * w)));
+    const cy = Math.max(2, Math.min(h - 3, Math.floor((1 - (v.y + 1) / 2) * h)));
+    const px = new Uint8Array(4 * 9);
+    gl.readPixels(cx - 1, cy - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let painted = 0;
+    for (let i = 0; i < 9; i++) {
+      const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+      if (!(Math.abs(r - 138) < 30 && Math.abs(g - 164) < 30 && Math.abs(b - 200) < 40)) painted++;
+    }
+    GLB_SOLDIER_BROKEN = painted === 0;
+    if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
+  } catch (err) {
+    GLB_SOLDIER_BROKEN = true;
+    console.warn('Soldier probe threw, using simple enemy models.', err);
+  } finally {
+    if (probe) {
+      scene.remove(probe.parts.group);
+      const idx = enemies.indexOf(probe);
+      if (idx >= 0) enemies.splice(idx, 1);
+      disposeEnemyGeometry(probe);
+    }
+    player.pos.copy(playerState.pos);
+    player.vel.copy(playerState.vel);
+    player.yaw = playerState.yaw; player.pitch = playerState.pitch;
+    player.recoilP = playerState.recoilP; player.recoilY = playerState.recoilY;
+    camera.position.copy(cameraState.position);
+    camera.rotation.copy(cameraState.rotation);
+    camera.fov = cameraState.fov; camera.aspect = cameraState.aspect;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  }
+}
+
 function spawnEnemy(kind, x, z) {
   let parts = null;
   let mixer = null;
@@ -83,18 +146,23 @@ function spawnEnemy(kind, x, z) {
   // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
   // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  if (GLB_PARSED.SOLDIER && !mobileSafe) {
+  // Kenney mini-soldier GLB raw height is ~0.84 m — scale it to human height.
+  // Hitboxes remain outside the scaled root so their world dimensions stay stable.
+  const GLB_SOLDIER_SCALE = 1.85 / 0.84;
+  if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
     const root = gltf.scene.clone(true);
+    root.scale.setScalar(GLB_SOLDIER_SCALE);
+    // Animated skinned bounds can become stale on some GPUs, causing false culling.
+    root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
     // procedural hitboxes for consistent aim behavior
     const hbMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
     hitBody.position.y = 0.95;
     const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), hbMat);
     hitHead.position.y = 1.85;
-    root.add(hitBody); root.add(hitHead);
     const g = new THREE.Group();
-    g.add(root);
+    g.add(root); g.add(hitBody); g.add(hitHead);
     parts = { group: g, body: root, torso: root, head: root, armL: root, armR: root, legL: root, legR: root, hitBody: hitBody, hitHead: hitHead, glb: true };
     // mark every visible mesh as enemy-flesh so bullets treat them as body hits (not walls)
     g.traverse(function (o) {

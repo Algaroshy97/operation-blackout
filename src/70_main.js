@@ -269,7 +269,10 @@ if (typeof IS_TOUCH !== 'undefined' && IS_TOUCH) {
   if (n) console.log('mobile-safe props placed:', n);
 } else {
   loadEmbeddedAssets().then(function (ok) {
-    if (ok && GLB_PARSED.SOLDIER) console.log('soldier asset ready');
+    if (ok && GLB_PARSED.SOLDIER) {
+      probeSkinnedSoldier();
+      if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
+    }
     const n = scatterProps();
     if (n) console.log('props placed:', n);
   });

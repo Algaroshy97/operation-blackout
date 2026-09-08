@@ -5194,12 +5194,23 @@ function makeEnemyMesh(kind) {
 }
 
 // One-time GPU probe: some desktop drivers render static meshes fine but
-// silently drop skinned ones. Paint a soldier into an offscreen corner and
-// verify pixels changed; if not, fall back to the simple enemy mesh everywhere.
+// silently drop skinned ones. Paint a soldier and verify pixels changed; if not,
+// fall back to the simple enemy mesh everywhere.
 function probeSkinnedSoldier() {
   if (!GLB_PARSED.SOLDIER) return;
+  // Asset decoding is asynchronous and can finish after a player has begun a wave.
+  // Snapshot state so the invisible diagnostic never changes the live match.
+  const playerState = {
+    pos: player.pos.clone(), vel: player.vel.clone(), yaw: player.yaw, pitch: player.pitch,
+    recoilP: player.recoilP, recoilY: player.recoilY
+  };
+  const cameraState = {
+    position: camera.position.clone(), rotation: camera.rotation.clone(),
+    fov: camera.fov, aspect: camera.aspect
+  };
+  let probe = null;
   try {
-    const probe = spawnEnemy(0, 0, -35);      // clear strip behind the north barricade
+    probe = spawnEnemy(0, 0, -35);
     camera.position.set(0, 1.7, -31);
     camera.lookAt(0, 1.0, -35);
     camera.updateMatrixWorld(true);
@@ -5208,7 +5219,7 @@ function probeSkinnedSoldier() {
     renderer.render(scene, camera);
     const gl = renderer.getContext();
     const w = renderer.domElement.width, h = renderer.domElement.height;
-    const v = new THREE.Vector3(0, 1.0, -60).project(camera);
+    const v = new THREE.Vector3(0, 1.0, -35).project(camera);
     const cx = Math.max(2, Math.min(w - 3, Math.floor((v.x + 1) / 2 * w)));
     const cy = Math.max(2, Math.min(h - 3, Math.floor((1 - (v.y + 1) / 2) * h)));
     const px = new Uint8Array(4 * 9);
@@ -5216,22 +5227,29 @@ function probeSkinnedSoldier() {
     let painted = 0;
     for (let i = 0; i < 9; i++) {
       const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
-      // sky (0x8aa4c8) / fog counts as NOT painted; anything else does
       if (!(Math.abs(r - 138) < 30 && Math.abs(g - 164) < 30 && Math.abs(b - 200) < 40)) painted++;
     }
-    // remove the probe enemy cleanly (no score/kill side effects)
-    probe.dead = true; probe.deathT = 99; updateEnemies(0);
-    scene.remove(probe.parts.group);
-    const idx = enemies.indexOf(probe);
-    if (idx >= 0) enemies.splice(idx, 1);
     GLB_SOLDIER_BROKEN = painted === 0;
     if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
-    // reset camera to player pose so no frame renders from the probe position
-    player.pos.set(0, CFG.player.height, 24);
-    player.yaw = Math.PI; player.pitch = 0;
   } catch (err) {
-    GLB_SOLDIER_BROKEN = true;   // probe failure = cannot trust skinned path
+    GLB_SOLDIER_BROKEN = true;
     console.warn('Soldier probe threw, using simple enemy models.', err);
+  } finally {
+    if (probe) {
+      scene.remove(probe.parts.group);
+      const idx = enemies.indexOf(probe);
+      if (idx >= 0) enemies.splice(idx, 1);
+      disposeEnemyGeometry(probe);
+    }
+    player.pos.copy(playerState.pos);
+    player.vel.copy(playerState.vel);
+    player.yaw = playerState.yaw; player.pitch = playerState.pitch;
+    player.recoilP = playerState.recoilP; player.recoilY = playerState.recoilY;
+    camera.position.copy(cameraState.position);
+    camera.rotation.copy(cameraState.rotation);
+    camera.fov = cameraState.fov; camera.aspect = cameraState.aspect;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
   }
 }
 
@@ -5242,17 +5260,16 @@ function spawnEnemy(kind, x, z) {
   // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
   // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Kenney mini-soldier GLB raw height is ~0.84 m — must be scaled to human height
-  // (hitboxes assume ~1.85 m). Scale the ROOT (skinned model only); hitboxes stay
-  // OUTSIDE the scaled root so their world sizes never depend on the model scale.
-  const GLB_SOLDIER_SCALE = 1.85 / 0.84;   // ≈ 2.2
+  // Kenney mini-soldier GLB raw height is ~0.84 m — scale it to human height.
+  // Hitboxes remain outside the scaled root so their world dimensions stay stable.
+  const GLB_SOLDIER_SCALE = 1.85 / 0.84;
   if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
     const root = gltf.scene.clone(true);
     root.scale.setScalar(GLB_SOLDIER_SCALE);
-    // skinned bounds can desync from the animated pose on some GPUs -> never cull
+    // Animated skinned bounds can become stale on some GPUs, causing false culling.
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
-    // procedural hitboxes for consistent aim behavior (outside the scaled root)
+    // procedural hitboxes for consistent aim behavior
     const hbMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
     hitBody.position.y = 0.95;
@@ -6194,12 +6211,11 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       resupply();
+      showCenterMsg('WAVE ' + waveNum + ' CLEARED');
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
-      showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }
   } else {
     betweenWaveT -= dt;
-    updateWaveCountdown();
     if (betweenWaveT <= 0) startWave(waveNum + 1);
   }
   hud.enemiesLeft.textContent = (waveQueue + aliveEnemies()) + ' HOSTILE' + (waveQueue + aliveEnemies() === 1 ? '' : 'S');
@@ -6250,23 +6266,11 @@ function resupply() {
   updateHudAmmo(); updateHudHealth();
 }
 
-function showWaveBanner(n, cleared) {
-  // n = wave number; cleared = shown after clearing wave n (stays up for the countdown);
-  // n = 0 = pre-battle "GET READY" banner at deploy (stays up until wave 1 starts).
-  hud.waveBig.textContent = n === 0 ? 'GET READY' : (cleared ? 'WAVE ' + n + ' CLEARED' : 'WAVE ' + n);
-  hud.waveSub.textContent = (cleared || n === 0) ? '' : (n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND');
+function showWaveBanner(n) {
+  hud.waveBig.textContent = 'WAVE ' + n;
+  hud.waveSub.textContent = n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND';
   hud.waveBanner.style.opacity = 1;
-  clearTimeout(hud.waveBanner._t);
-  // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
-  // the sub text and the next startWave() replaces and auto-hides the banner.
-  if (n >= 1 && !cleared) hud.waveBanner._t = setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
-}
-// Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
-// pause with no feedback). Runs from updateWaves only while playing.
-function updateWaveCountdown() {
-  const n = Math.max(1, Math.ceil(betweenWaveT));
-  if (waveNum === 0) hud.waveSub.textContent = 'COMBAT IN ' + n;
-  else hud.waveSub.textContent = 'NEXT WAVE IN ' + n;
+  setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
 }
 function showCenterMsg(txt) {
   hud.centerMsg.textContent = txt;
@@ -6419,8 +6423,6 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
-  clearTimeout(hud.waveBanner._t);
-  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -6451,7 +6453,6 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
-  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
