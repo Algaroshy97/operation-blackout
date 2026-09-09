@@ -29,8 +29,9 @@ const GLB_COLORMAP = {
   COLUMN: TEX_COLORMAP_MINI_ARENA,
   BARREL: TEX_COLORMAP_SURVIVAL
 };
-function loadEmbeddedAssets() {
+function loadEmbeddedAssets(onProgress) {
   const names = Object.keys(GLB_ASSETS_B64);
+  let loaded = 0;
   return Promise.all(names.map(function (name) {
     return new Promise(function (resolve) {
       // one manager per asset so each kit remaps colormap.png to its own texture
@@ -42,9 +43,13 @@ function loadEmbeddedAssets() {
       const loader = new THREE.GLTFLoader(manager);
       loader.parse(glbToArrayBuffer(GLB_ASSETS_B64[name]), '', function (gltf) {
         GLB_PARSED[name] = gltf;
+        loaded++;
+        if (onProgress) onProgress(name, loaded, names.length);
         resolve(true);
       }, function (err) {
         console.warn('GLB parse failed for', name, err);
+        loaded++;
+        if (onProgress) onProgress(name, loaded, names.length);
         resolve(false);
       });
     });
