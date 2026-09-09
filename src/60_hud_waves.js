@@ -129,11 +129,12 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       resupply();
-      showCenterMsg('WAVE ' + waveNum + ' CLEARED');
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
+      showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }
   } else {
     betweenWaveT -= dt;
+    updateWaveCountdown();
     if (betweenWaveT <= 0) startWave(waveNum + 1);
   }
   hud.enemiesLeft.textContent = (waveQueue + aliveEnemies()) + ' HOSTILE' + (waveQueue + aliveEnemies() === 1 ? '' : 'S');
@@ -184,11 +185,23 @@ function resupply() {
   updateHudAmmo(); updateHudHealth();
 }
 
-function showWaveBanner(n) {
-  hud.waveBig.textContent = 'WAVE ' + n;
-  hud.waveSub.textContent = n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND';
+function showWaveBanner(n, cleared) {
+  // n = wave number; cleared = shown after clearing wave n (stays up for the countdown);
+  // n = 0 = pre-battle "GET READY" banner at deploy (stays up until wave 1 starts).
+  hud.waveBig.textContent = n === 0 ? 'GET READY' : (cleared ? 'WAVE ' + n + ' CLEARED' : 'WAVE ' + n);
+  hud.waveSub.textContent = (cleared || n === 0) ? '' : (n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND');
   hud.waveBanner.style.opacity = 1;
-  setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
+  clearTimeout(hud.waveBanner._t);
+  // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
+  // the sub text and the next startWave() replaces and auto-hides the banner.
+  if (n >= 1 && !cleared) hud.waveBanner._t = setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
+}
+// Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
+// pause with no feedback). Runs from updateWaves only while playing.
+function updateWaveCountdown() {
+  const n = Math.max(1, Math.ceil(betweenWaveT));
+  if (waveNum === 0) hud.waveSub.textContent = 'COMBAT IN ' + n;
+  else hud.waveSub.textContent = 'NEXT WAVE IN ' + n;
 }
 function showCenterMsg(txt) {
   hud.centerMsg.textContent = txt;

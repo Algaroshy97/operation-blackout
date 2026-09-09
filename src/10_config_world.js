@@ -316,10 +316,8 @@ function scatterProps() {
     const s = spots[i];
     const gltf = GLB_PARSED[s[0]];
     const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-    // A failed GLB parse must not remove gameplay cover on desktop: use the
-    // same lightweight, visible stand-in already proven on mobile.
-    const useSimpleProp = mobileSafe || !gltf;
-    const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
+    if (!gltf && !mobileSafe) continue;
+    const m = mobileSafe ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
@@ -333,10 +331,10 @@ function scatterProps() {
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Keep stacked cover even when the crate asset did not parse.
-  const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
-  [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
-      const m = useSimpleCrate ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
+  if (GLB_PARSED.CRATE || mobileSafe) {
+    // entries: [x, z, y, yaw]; y is the base height (0 on ground, 1.0 stacked)
+    [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
+      const m = mobileSafe ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
       m.position.set(c[0], c[2], c[1]);
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
@@ -345,8 +343,9 @@ function scatterProps() {
       });
       scene.add(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
-  });
-  placed += 3;
+    });
+    placed += 3;
+  }
   // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
   // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
   // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).

@@ -4180,10 +4180,8 @@ function scatterProps() {
     const s = spots[i];
     const gltf = GLB_PARSED[s[0]];
     const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-    // A failed GLB parse must not remove gameplay cover on desktop: use the
-    // same lightweight, visible stand-in already proven on mobile.
-    const useSimpleProp = mobileSafe || !gltf;
-    const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
+    if (!gltf && !mobileSafe) continue;
+    const m = mobileSafe ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
@@ -4197,10 +4195,10 @@ function scatterProps() {
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Keep stacked cover even when the crate asset did not parse.
-  const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
-  [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
-      const m = useSimpleCrate ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
+  if (GLB_PARSED.CRATE || mobileSafe) {
+    // entries: [x, z, y, yaw]; y is the base height (0 on ground, 1.0 stacked)
+    [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
+      const m = mobileSafe ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
       m.position.set(c[0], c[2], c[1]);
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
@@ -4209,8 +4207,9 @@ function scatterProps() {
       });
       scene.add(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
-  });
-  placed += 3;
+    });
+    placed += 3;
+  }
   // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
   // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
   // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
@@ -4283,11 +4282,9 @@ document.addEventListener('pointerlockchange', function () {
   pointerLocked = document.pointerLockElement === canvas;
   if (!pointerLocked && started && !paused && !player.dead && !gameEnded) pauseGame();
 });
-const MAX_MOUSE_EVENT_DELTA = 80; // reject pointer-lock spikes after a lost/stalled frame
 addEventListener('mousemove', function (e) {
   if (!pointerLocked || paused) return;
-  mouseX += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementX));
-  mouseY += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementY));
+  mouseX += e.movementX; mouseY += e.movementY;
 });
 
 // ---- Player state ----
@@ -5196,73 +5193,45 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
-// Read a centered framebuffer sample. The diagnostic camera aims the soldier at
-// the center, so comparing this sample before and after spawning it avoids
-// guessing sky/fog colours or confusing WebGL's bottom-left pixel origin.
-function readProbePixels(gl, width, height, size) {
-  const pixels = new Uint8Array(size * size * 4);
-  const x = Math.max(0, Math.floor(width / 2 - size / 2));
-  const y = Math.max(0, Math.floor(height / 2 - size / 2));
-  gl.readPixels(x, y, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-  return pixels;
-}
-
 // One-time GPU probe: some desktop drivers render static meshes fine but
-// silently drop skinned ones. Compare the same rendered pixels with and without
-// a soldier; if it does not paint enough pixels, use the simple mesh everywhere.
+// silently drop skinned ones. Paint a soldier into an offscreen corner and
+// verify pixels changed; if not, fall back to the simple enemy mesh everywhere.
 function probeSkinnedSoldier() {
   if (!GLB_PARSED.SOLDIER) return;
-  // Asset decoding is asynchronous and can finish after a player has begun a wave.
-  // Snapshot state so the invisible diagnostic never changes the live match.
-  const playerState = {
-    pos: player.pos.clone(), vel: player.vel.clone(), yaw: player.yaw, pitch: player.pitch,
-    recoilP: player.recoilP, recoilY: player.recoilY
-  };
-  const cameraState = {
-    position: camera.position.clone(), rotation: camera.rotation.clone(),
-    fov: camera.fov, aspect: camera.aspect
-  };
-  let probe = null;
   try {
+    const probe = spawnEnemy(0, 0, -35);      // clear strip behind the north barricade
     camera.position.set(0, 1.7, -31);
     camera.lookAt(0, 1.0, -35);
     camera.updateMatrixWorld(true);
     camera.aspect = renderer.domElement.width / renderer.domElement.height;
     camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
     const gl = renderer.getContext();
-    const width = renderer.domElement.width, height = renderer.domElement.height;
-    const sampleSize = 32;
-    renderer.render(scene, camera);
-    const before = readProbePixels(gl, width, height, sampleSize);
-    probe = spawnEnemy(0, 0, -35);
-    renderer.render(scene, camera);
-    const after = readProbePixels(gl, width, height, sampleSize);
+    const w = renderer.domElement.width, h = renderer.domElement.height;
+    const v = new THREE.Vector3(0, 1.0, -60).project(camera);
+    const cx = Math.max(2, Math.min(w - 3, Math.floor((v.x + 1) / 2 * w)));
+    const cy = Math.max(2, Math.min(h - 3, Math.floor((1 - (v.y + 1) / 2) * h)));
+    const px = new Uint8Array(4 * 9);
+    gl.readPixels(cx - 1, cy - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, px);
     let painted = 0;
-    for (let i = 0; i < after.length; i += 4) {
-      const difference = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
-      if (difference > 30) painted++;
+    for (let i = 0; i < 9; i++) {
+      const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+      // sky (0x8aa4c8) / fog counts as NOT painted; anything else does
+      if (!(Math.abs(r - 138) < 30 && Math.abs(g - 164) < 30 && Math.abs(b - 200) < 40)) painted++;
     }
-    GLB_SOLDIER_BROKEN = !(painted > before.length / 16);
+    // remove the probe enemy cleanly (no score/kill side effects)
+    probe.dead = true; probe.deathT = 99; updateEnemies(0);
+    scene.remove(probe.parts.group);
+    const idx = enemies.indexOf(probe);
+    if (idx >= 0) enemies.splice(idx, 1);
+    GLB_SOLDIER_BROKEN = painted === 0;
     if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
+    // reset camera to player pose so no frame renders from the probe position
+    player.pos.set(0, CFG.player.height, 24);
+    player.yaw = Math.PI; player.pitch = 0;
   } catch (err) {
-    GLB_SOLDIER_BROKEN = true;
+    GLB_SOLDIER_BROKEN = true;   // probe failure = cannot trust skinned path
     console.warn('Soldier probe threw, using simple enemy models.', err);
-  } finally {
-    if (probe) {
-      scene.remove(probe.parts.group);
-      const idx = enemies.indexOf(probe);
-      if (idx >= 0) enemies.splice(idx, 1);
-      disposeEnemyGeometry(probe);
-    }
-    player.pos.copy(playerState.pos);
-    player.vel.copy(playerState.vel);
-    player.yaw = playerState.yaw; player.pitch = playerState.pitch;
-    player.recoilP = playerState.recoilP; player.recoilY = playerState.recoilY;
-    camera.position.copy(cameraState.position);
-    camera.rotation.copy(cameraState.rotation);
-    camera.fov = cameraState.fov; camera.aspect = cameraState.aspect;
-    camera.updateProjectionMatrix();
-    camera.updateMatrixWorld(true);
   }
 }
 
@@ -5273,16 +5242,17 @@ function spawnEnemy(kind, x, z) {
   // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
   // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Kenney mini-soldier GLB raw height is ~0.84 m — scale it to human height.
-  // Hitboxes remain outside the scaled root so their world dimensions stay stable.
-  const GLB_SOLDIER_SCALE = 1.85 / 0.84;
+  // Kenney mini-soldier GLB raw height is ~0.84 m — must be scaled to human height
+  // (hitboxes assume ~1.85 m). Scale the ROOT (skinned model only); hitboxes stay
+  // OUTSIDE the scaled root so their world sizes never depend on the model scale.
+  const GLB_SOLDIER_SCALE = 1.85 / 0.84;   // ≈ 2.2
   if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
     const root = gltf.scene.clone(true);
     root.scale.setScalar(GLB_SOLDIER_SCALE);
-    // Animated skinned bounds can become stale on some GPUs, causing false culling.
+    // skinned bounds can desync from the animated pose on some GPUs -> never cull
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
-    // procedural hitboxes for consistent aim behavior
+    // procedural hitboxes for consistent aim behavior (outside the scaled root)
     const hbMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
     hitBody.position.y = 0.95;
@@ -5863,6 +5833,8 @@ function playSound(name, dest) {
     case 'land':      noise(0.08, 0.12, 300, 0.8); break;
     case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
     case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
+    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
+    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
   }
 }
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
@@ -6066,7 +6038,10 @@ function updatePickups(dt) {
     p.t += dt;
     p.m.rotation.y += dt * 2;
     p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
-    const d = p.m.position.distanceTo(player.pos);
+    // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
+    // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
+    // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
+    const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
     if (d < 1.3) {
       if (p.kind === 'ammo') {
         const s = curS();
@@ -6080,7 +6055,7 @@ function updatePickups(dt) {
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
-      playSound('reload_in');
+      playSound(p.kind === 'ammo' ? 'pickup_ammo' : 'pickup_med');
       scene.remove(p.m);
       pickups.splice(i, 1);
       continue;
@@ -6224,11 +6199,12 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       resupply();
-      showCenterMsg('WAVE ' + waveNum + ' CLEARED');
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
+      showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }
   } else {
     betweenWaveT -= dt;
+    updateWaveCountdown();
     if (betweenWaveT <= 0) startWave(waveNum + 1);
   }
   hud.enemiesLeft.textContent = (waveQueue + aliveEnemies()) + ' HOSTILE' + (waveQueue + aliveEnemies() === 1 ? '' : 'S');
@@ -6279,11 +6255,23 @@ function resupply() {
   updateHudAmmo(); updateHudHealth();
 }
 
-function showWaveBanner(n) {
-  hud.waveBig.textContent = 'WAVE ' + n;
-  hud.waveSub.textContent = n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND';
+function showWaveBanner(n, cleared) {
+  // n = wave number; cleared = shown after clearing wave n (stays up for the countdown);
+  // n = 0 = pre-battle "GET READY" banner at deploy (stays up until wave 1 starts).
+  hud.waveBig.textContent = n === 0 ? 'GET READY' : (cleared ? 'WAVE ' + n + ' CLEARED' : 'WAVE ' + n);
+  hud.waveSub.textContent = (cleared || n === 0) ? '' : (n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND');
   hud.waveBanner.style.opacity = 1;
-  setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
+  clearTimeout(hud.waveBanner._t);
+  // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
+  // the sub text and the next startWave() replaces and auto-hides the banner.
+  if (n >= 1 && !cleared) hud.waveBanner._t = setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
+}
+// Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
+// pause with no feedback). Runs from updateWaves only while playing.
+function updateWaveCountdown() {
+  const n = Math.max(1, Math.ceil(betweenWaveT));
+  if (waveNum === 0) hud.waveSub.textContent = 'COMBAT IN ' + n;
+  else hud.waveSub.textContent = 'NEXT WAVE IN ' + n;
 }
 function showCenterMsg(txt) {
   hud.centerMsg.textContent = txt;
@@ -6436,6 +6424,8 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
+  clearTimeout(hud.waveBanner._t);
+  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -6466,6 +6456,7 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
+  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
@@ -6522,7 +6513,6 @@ $id('btn-v-quit').addEventListener('click', function () {
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
-let qualityAdjustT = 0; // avoid resolution thrashing every half-second
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
 function frame(now) {
@@ -6535,15 +6525,10 @@ function frame(now) {
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;
     hud.fps.textContent = Math.round(fps) + ' FPS';
-    // Adapt deliberately, not every sample: frequent canvas reallocations cause
-    // the camera to appear to hitch on slower GPUs.
-    qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 1.5) {
-      const maxPR = Math.min(window.devicePixelRatio, 1.5);
-      if (fps < 48 && renderer.getPixelRatio() > 0.65) renderer.setPixelRatio(Math.max(0.65, renderer.getPixelRatio() - 0.1));
-      else if (fps > 62 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
-      qualityAdjustT = 0;
-    }
+    // adaptive resolution: scale pixelRatio between 0.6 and device max to hold ~60fps
+    const maxPR = Math.min(window.devicePixelRatio, 1.75);
+    if (fps < 50 && renderer.getPixelRatio() > 0.6) renderer.setPixelRatio(Math.max(0.6, renderer.getPixelRatio() - 0.15));
+    else if (fps > 58 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
     fpsAcc = 0; fpsN = 0;
   }
 
@@ -6588,13 +6573,9 @@ function frame(now) {
     // slide: lower camera + roll tilt + slight FOV widen
     const slideBlend = player.sliding ? 1 : 0;
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
-    // Ease toward one bounded FOV target. The old incremental update let FOV
-    // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = 72 - adsAmount * (curW().type === 'SR' ? 52 : 24);
-    const targetFov = baseFov + slideFov;
-    const previousFov = camera.fov;
-    camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
-    if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
+    if (Math.abs(slideFov) > 0.05 && Math.abs(camera.fov - (72 - adsAmount * (curW().type === 'SR' ? 52 : 24))) > -1) {
+      camera.fov += slideFov * dt * 10;
+    }
     const slideDip = slideBlend * 0.45;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';

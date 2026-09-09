@@ -76,6 +76,8 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
+  clearTimeout(hud.waveBanner._t);
+  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -106,6 +108,7 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
+  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
@@ -162,7 +165,6 @@ $id('btn-v-quit').addEventListener('click', function () {
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
-let qualityAdjustT = 0; // avoid resolution thrashing every half-second
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
 function frame(now) {
@@ -175,15 +177,10 @@ function frame(now) {
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;
     hud.fps.textContent = Math.round(fps) + ' FPS';
-    // Adapt deliberately, not every sample: frequent canvas reallocations cause
-    // the camera to appear to hitch on slower GPUs.
-    qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 1.5) {
-      const maxPR = Math.min(window.devicePixelRatio, 1.5);
-      if (fps < 48 && renderer.getPixelRatio() > 0.65) renderer.setPixelRatio(Math.max(0.65, renderer.getPixelRatio() - 0.1));
-      else if (fps > 62 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
-      qualityAdjustT = 0;
-    }
+    // adaptive resolution: scale pixelRatio between 0.6 and device max to hold ~60fps
+    const maxPR = Math.min(window.devicePixelRatio, 1.75);
+    if (fps < 50 && renderer.getPixelRatio() > 0.6) renderer.setPixelRatio(Math.max(0.6, renderer.getPixelRatio() - 0.15));
+    else if (fps > 58 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
     fpsAcc = 0; fpsN = 0;
   }
 
@@ -228,13 +225,9 @@ function frame(now) {
     // slide: lower camera + roll tilt + slight FOV widen
     const slideBlend = player.sliding ? 1 : 0;
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
-    // Ease toward one bounded FOV target. The old incremental update let FOV
-    // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = 72 - adsAmount * (curW().type === 'SR' ? 52 : 24);
-    const targetFov = baseFov + slideFov;
-    const previousFov = camera.fov;
-    camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
-    if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
+    if (Math.abs(slideFov) > 0.05 && Math.abs(camera.fov - (72 - adsAmount * (curW().type === 'SR' ? 52 : 24))) > -1) {
+      camera.fov += slideFov * dt * 10;
+    }
     const slideDip = slideBlend * 0.45;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';

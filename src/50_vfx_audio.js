@@ -221,6 +221,8 @@ function playSound(name, dest) {
     case 'land':      noise(0.08, 0.12, 300, 0.8); break;
     case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
     case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
+    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
+    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
   }
 }
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.

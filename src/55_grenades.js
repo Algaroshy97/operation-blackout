@@ -161,7 +161,10 @@ function updatePickups(dt) {
     p.t += dt;
     p.m.rotation.y += dt * 2;
     p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
-    const d = p.m.position.distanceTo(player.pos);
+    // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
+    // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
+    // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
+    const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
     if (d < 1.3) {
       if (p.kind === 'ammo') {
         const s = curS();
@@ -175,7 +178,7 @@ function updatePickups(dt) {
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
-      playSound('reload_in');
+      playSound(p.kind === 'ammo' ? 'pickup_ammo' : 'pickup_med');
       scene.remove(p.m);
       pickups.splice(i, 1);
       continue;
