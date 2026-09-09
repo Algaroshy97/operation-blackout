@@ -66,6 +66,19 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("camera.fov += (targetFov - camera.fov)", main_source)
         self.assertIn("qualityAdjustT", main_source)
 
+    def test_embedded_assets_are_preloaded_before_deploy(self) -> None:
+        assets_source = (ROOT / "src" / "05_assets.js").read_text()
+        main_source = MAIN.read_text()
+        head_source = (ROOT / "src" / "00_head.html").read_text()
+        self.assertIn("function loadEmbeddedAssets(onProgress)", assets_source)
+        self.assertIn("onProgress(name, loaded, names.length)", assets_source)
+        self.assertIn("let assetsReady = false", main_source)
+        self.assertIn("function preloadGameAssets()", main_source)
+        self.assertIn("assetsReady = true", main_source)
+        self.assertIn("deploy.classList.toggle('disabled', !ready)", main_source)
+        self.assertIn('id="asset-loading"', head_source)
+        self.assertIn('id="asset-load-progress"', head_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

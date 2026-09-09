@@ -73,6 +73,7 @@
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
   #start-screen h2{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.65);margin:0 0 36px 0;font-weight:400;text-align:center}
   .menu-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;letter-spacing:4px;color:#fff;background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9));border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;transition:all .15s;pointer-events:auto}
+  .menu-btn.disabled{opacity:.45;cursor:wait;pointer-events:none;filter:grayscale(1)}
   .menu-btn:hover{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a;box-shadow:0 0 18px rgba(255,190,60,.25)}
   #start-screen .controls{margin-top:36px;display:grid;grid-template-columns:auto auto;gap:4px 18px;color:rgba(255,255,255,.75);font-size:13px;text-align:left}
   #start-screen .controls b{color:#ffdf8a;font-weight:700;text-align:right}
@@ -145,7 +146,8 @@
   <div>
     <h1>OPERATION BLACKOUT</h1>
     <h2>WAVE DEFENSE FPS</h2>
-    <div class="menu-btn" id="btn-start">DEPLOY</div>
+    <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
+    <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
@@ -3839,8 +3841,9 @@ const GLB_COLORMAP = {
   COLUMN: TEX_COLORMAP_MINI_ARENA,
   BARREL: TEX_COLORMAP_SURVIVAL
 };
-function loadEmbeddedAssets() {
+function loadEmbeddedAssets(onProgress) {
   const names = Object.keys(GLB_ASSETS_B64);
+  let loaded = 0;
   return Promise.all(names.map(function (name) {
     return new Promise(function (resolve) {
       // one manager per asset so each kit remaps colormap.png to its own texture
@@ -3852,9 +3855,13 @@ function loadEmbeddedAssets() {
       const loader = new THREE.GLTFLoader(manager);
       loader.parse(glbToArrayBuffer(GLB_ASSETS_B64[name]), '', function (gltf) {
         GLB_PARSED[name] = gltf;
+        loaded++;
+        if (onProgress) onProgress(name, loaded, names.length);
         resolve(true);
       }, function (err) {
         console.warn('GLB parse failed for', name, err);
+        loaded++;
+        if (onProgress) onProgress(name, loaded, names.length);
         resolve(false);
       });
     });
@@ -4180,8 +4187,10 @@ function scatterProps() {
     const s = spots[i];
     const gltf = GLB_PARSED[s[0]];
     const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-    if (!gltf && !mobileSafe) continue;
-    const m = mobileSafe ? makeMobileProp(s[0]) : gltf.scene.clone(true);
+    // A failed GLB parse must not remove gameplay cover on desktop: use the
+    // same lightweight, visible stand-in already proven on mobile.
+    const useSimpleProp = mobileSafe || !gltf;
+    const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
@@ -4195,10 +4204,10 @@ function scatterProps() {
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  if (GLB_PARSED.CRATE || mobileSafe) {
-    // entries: [x, z, y, yaw]; y is the base height (0 on ground, 1.0 stacked)
-    [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
-      const m = mobileSafe ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
+  // Keep stacked cover even when the crate asset did not parse.
+  const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
+  [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
+      const m = useSimpleCrate ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
       m.position.set(c[0], c[2], c[1]);
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
@@ -4207,9 +4216,8 @@ function scatterProps() {
       });
       scene.add(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
-    });
-    placed += 3;
-  }
+  });
+  placed += 3;
   // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
   // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
   // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
@@ -4282,9 +4290,11 @@ document.addEventListener('pointerlockchange', function () {
   pointerLocked = document.pointerLockElement === canvas;
   if (!pointerLocked && started && !paused && !player.dead && !gameEnded) pauseGame();
 });
+const MAX_MOUSE_EVENT_DELTA = 80; // reject pointer-lock spikes after a lost/stalled frame
 addEventListener('mousemove', function (e) {
   if (!pointerLocked || paused) return;
-  mouseX += e.movementX; mouseY += e.movementY;
+  mouseX += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementX));
+  mouseY += Math.max(-MAX_MOUSE_EVENT_DELTA, Math.min(MAX_MOUSE_EVENT_DELTA, e.movementY));
 });
 
 // ---- Player state ----
@@ -5193,45 +5203,73 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
+// Read a centered framebuffer sample. The diagnostic camera aims the soldier at
+// the center, so comparing this sample before and after spawning it avoids
+// guessing sky/fog colours or confusing WebGL's bottom-left pixel origin.
+function readProbePixels(gl, width, height, size) {
+  const pixels = new Uint8Array(size * size * 4);
+  const x = Math.max(0, Math.floor(width / 2 - size / 2));
+  const y = Math.max(0, Math.floor(height / 2 - size / 2));
+  gl.readPixels(x, y, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return pixels;
+}
+
 // One-time GPU probe: some desktop drivers render static meshes fine but
-// silently drop skinned ones. Paint a soldier into an offscreen corner and
-// verify pixels changed; if not, fall back to the simple enemy mesh everywhere.
+// silently drop skinned ones. Compare the same rendered pixels with and without
+// a soldier; if it does not paint enough pixels, use the simple mesh everywhere.
 function probeSkinnedSoldier() {
   if (!GLB_PARSED.SOLDIER) return;
+  // Asset decoding is asynchronous and can finish after a player has begun a wave.
+  // Snapshot state so the invisible diagnostic never changes the live match.
+  const playerState = {
+    pos: player.pos.clone(), vel: player.vel.clone(), yaw: player.yaw, pitch: player.pitch,
+    recoilP: player.recoilP, recoilY: player.recoilY
+  };
+  const cameraState = {
+    position: camera.position.clone(), rotation: camera.rotation.clone(),
+    fov: camera.fov, aspect: camera.aspect
+  };
+  let probe = null;
   try {
-    const probe = spawnEnemy(0, 0, -35);      // clear strip behind the north barricade
     camera.position.set(0, 1.7, -31);
     camera.lookAt(0, 1.0, -35);
     camera.updateMatrixWorld(true);
     camera.aspect = renderer.domElement.width / renderer.domElement.height;
     camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
     const gl = renderer.getContext();
-    const w = renderer.domElement.width, h = renderer.domElement.height;
-    const v = new THREE.Vector3(0, 1.0, -60).project(camera);
-    const cx = Math.max(2, Math.min(w - 3, Math.floor((v.x + 1) / 2 * w)));
-    const cy = Math.max(2, Math.min(h - 3, Math.floor((1 - (v.y + 1) / 2) * h)));
-    const px = new Uint8Array(4 * 9);
-    gl.readPixels(cx - 1, cy - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const width = renderer.domElement.width, height = renderer.domElement.height;
+    const sampleSize = 32;
+    renderer.render(scene, camera);
+    const before = readProbePixels(gl, width, height, sampleSize);
+    probe = spawnEnemy(0, 0, -35);
+    renderer.render(scene, camera);
+    const after = readProbePixels(gl, width, height, sampleSize);
     let painted = 0;
-    for (let i = 0; i < 9; i++) {
-      const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
-      // sky (0x8aa4c8) / fog counts as NOT painted; anything else does
-      if (!(Math.abs(r - 138) < 30 && Math.abs(g - 164) < 30 && Math.abs(b - 200) < 40)) painted++;
+    for (let i = 0; i < after.length; i += 4) {
+      const difference = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
+      if (difference > 30) painted++;
     }
-    // remove the probe enemy cleanly (no score/kill side effects)
-    probe.dead = true; probe.deathT = 99; updateEnemies(0);
-    scene.remove(probe.parts.group);
-    const idx = enemies.indexOf(probe);
-    if (idx >= 0) enemies.splice(idx, 1);
-    GLB_SOLDIER_BROKEN = painted === 0;
+    GLB_SOLDIER_BROKEN = !(painted > before.length / 16);
     if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
-    // reset camera to player pose so no frame renders from the probe position
-    player.pos.set(0, CFG.player.height, 24);
-    player.yaw = Math.PI; player.pitch = 0;
   } catch (err) {
-    GLB_SOLDIER_BROKEN = true;   // probe failure = cannot trust skinned path
+    GLB_SOLDIER_BROKEN = true;
     console.warn('Soldier probe threw, using simple enemy models.', err);
+  } finally {
+    if (probe) {
+      scene.remove(probe.parts.group);
+      const idx = enemies.indexOf(probe);
+      if (idx >= 0) enemies.splice(idx, 1);
+      disposeEnemyGeometry(probe);
+    }
+    player.pos.copy(playerState.pos);
+    player.vel.copy(playerState.vel);
+    player.yaw = playerState.yaw; player.pitch = playerState.pitch;
+    player.recoilP = playerState.recoilP; player.recoilY = playerState.recoilY;
+    camera.position.copy(cameraState.position);
+    camera.rotation.copy(cameraState.rotation);
+    camera.fov = cameraState.fov; camera.aspect = cameraState.aspect;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
   }
 }
 
@@ -5242,17 +5280,16 @@ function spawnEnemy(kind, x, z) {
   // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
   // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Kenney mini-soldier GLB raw height is ~0.84 m — must be scaled to human height
-  // (hitboxes assume ~1.85 m). Scale the ROOT (skinned model only); hitboxes stay
-  // OUTSIDE the scaled root so their world sizes never depend on the model scale.
-  const GLB_SOLDIER_SCALE = 1.85 / 0.84;   // ≈ 2.2
+  // Kenney mini-soldier GLB raw height is ~0.84 m — scale it to human height.
+  // Hitboxes remain outside the scaled root so their world dimensions stay stable.
+  const GLB_SOLDIER_SCALE = 1.85 / 0.84;
   if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
     const root = gltf.scene.clone(true);
     root.scale.setScalar(GLB_SOLDIER_SCALE);
-    // skinned bounds can desync from the animated pose on some GPUs -> never cull
+    // Animated skinned bounds can become stale on some GPUs, causing false culling.
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
-    // procedural hitboxes for consistent aim behavior (outside the scaled root)
+    // procedural hitboxes for consistent aim behavior
     const hbMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
     hitBody.position.y = 0.95;
@@ -6424,8 +6461,6 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
-  clearTimeout(hud.waveBanner._t);
-  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -6452,11 +6487,17 @@ function pickGun(i) {
   $id('pause-menu').style.display = 'none';
   startGame();
 }
+let assetsReady = false;
+function setDeployReady(ready) {
+  const deploy = $id('btn-start');
+  deploy.classList.toggle('disabled', !ready);
+  deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
+}
 function startGame() {
+  if (!assetsReady) return;
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
-  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
@@ -6478,6 +6519,7 @@ document.addEventListener('click', function (e) {
 });
 // buttons
 $id('btn-start').addEventListener('click', function () {
+  if (!assetsReady) return;
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
   audioCtx(); // unlock audio on user gesture
@@ -6513,6 +6555,7 @@ $id('btn-v-quit').addEventListener('click', function () {
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
+let qualityAdjustT = 0; // avoid resolution thrashing every half-second
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
 function frame(now) {
@@ -6525,10 +6568,15 @@ function frame(now) {
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;
     hud.fps.textContent = Math.round(fps) + ' FPS';
-    // adaptive resolution: scale pixelRatio between 0.6 and device max to hold ~60fps
-    const maxPR = Math.min(window.devicePixelRatio, 1.75);
-    if (fps < 50 && renderer.getPixelRatio() > 0.6) renderer.setPixelRatio(Math.max(0.6, renderer.getPixelRatio() - 0.15));
-    else if (fps > 58 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
+    // Adapt deliberately, not every sample: frequent canvas reallocations cause
+    // the camera to appear to hitch on slower GPUs.
+    qualityAdjustT += fpsAcc;
+    if (qualityAdjustT >= 1.5) {
+      const maxPR = Math.min(window.devicePixelRatio, 1.5);
+      if (fps < 48 && renderer.getPixelRatio() > 0.65) renderer.setPixelRatio(Math.max(0.65, renderer.getPixelRatio() - 0.1));
+      else if (fps > 62 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
+      qualityAdjustT = 0;
+    }
     fpsAcc = 0; fpsN = 0;
   }
 
@@ -6573,9 +6621,13 @@ function frame(now) {
     // slide: lower camera + roll tilt + slight FOV widen
     const slideBlend = player.sliding ? 1 : 0;
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
-    if (Math.abs(slideFov) > 0.05 && Math.abs(camera.fov - (72 - adsAmount * (curW().type === 'SR' ? 52 : 24))) > -1) {
-      camera.fov += slideFov * dt * 10;
-    }
+    // Ease toward one bounded FOV target. The old incremental update let FOV
+    // drift upward after a slide and looked like a camera rotation skip.
+    const baseFov = 72 - adsAmount * (curW().type === 'SR' ? 52 : 24);
+    const targetFov = baseFov + slideFov;
+    const previousFov = camera.fov;
+    camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
+    if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
     const slideDip = slideBlend * 0.45;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';
@@ -6613,21 +6665,30 @@ buildViewmodel();
 updateHudHealth();
 updateHudAmmo();
 requestAnimationFrame(frame);
-// Mobile uses lightweight enemies/props immediately: this avoids local-file GLB
-// decode failures and reduces memory pressure on phone GPUs. Desktop keeps full GLBs.
-if (typeof IS_TOUCH !== 'undefined' && IS_TOUCH) {
-  const n = scatterProps();
-  if (n) console.log('mobile-safe props placed:', n);
-} else {
-  loadEmbeddedAssets().then(function (ok) {
-    if (ok && GLB_PARSED.SOLDIER) {
+// Parse every embedded GLB before deployment. This matters for file:// launches:
+// the previous asynchronous path could render the arena before desktop props were
+// constructed, producing missing cover. The menu remains intentionally blocked
+// until all assets have either parsed or reported a controlled fallback failure.
+function preloadGameAssets() {
+  const progress = $id('asset-load-progress');
+  setDeployReady(false);
+  return loadEmbeddedAssets(function (name, loaded, total) {
+    progress.textContent = loaded + ' / ' + total + ' · ' + name;
+  }).then(function (results) {
+    if (GLB_PARSED.SOLDIER) {
       probeSkinnedSoldier();
       if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
     }
     const n = scatterProps();
-    if (n) console.log('props placed:', n);
+    const failed = results.filter(function (ok) { return !ok; }).length;
+    progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';
+    assetsReady = true;
+    setDeployReady(true);
+    if (n) console.log('preloaded props placed:', n);
+    return results;
   });
 }
+preloadGameAssets();
 
 </script>
 </body>
