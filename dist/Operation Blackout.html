@@ -73,7 +73,6 @@
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
   #start-screen h2{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.65);margin:0 0 36px 0;font-weight:400;text-align:center}
   .menu-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;letter-spacing:4px;color:#fff;background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9));border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;transition:all .15s;pointer-events:auto}
-  .menu-btn.disabled{opacity:.45;cursor:wait;pointer-events:none;filter:grayscale(1)}
   .menu-btn:hover{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a;box-shadow:0 0 18px rgba(255,190,60,.25)}
   #start-screen .controls{margin-top:36px;display:grid;grid-template-columns:auto auto;gap:4px 18px;color:rgba(255,255,255,.75);font-size:13px;text-align:left}
   #start-screen .controls b{color:#ffdf8a;font-weight:700;text-align:right}
@@ -146,8 +145,7 @@
   <div>
     <h1>OPERATION BLACKOUT</h1>
     <h2>WAVE DEFENSE FPS</h2>
-    <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
-    <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-start">DEPLOY</div>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
@@ -3841,9 +3839,8 @@ const GLB_COLORMAP = {
   COLUMN: TEX_COLORMAP_MINI_ARENA,
   BARREL: TEX_COLORMAP_SURVIVAL
 };
-function loadEmbeddedAssets(onProgress) {
+function loadEmbeddedAssets() {
   const names = Object.keys(GLB_ASSETS_B64);
-  let loaded = 0;
   return Promise.all(names.map(function (name) {
     return new Promise(function (resolve) {
       // one manager per asset so each kit remaps colormap.png to its own texture
@@ -3855,13 +3852,9 @@ function loadEmbeddedAssets(onProgress) {
       const loader = new THREE.GLTFLoader(manager);
       loader.parse(glbToArrayBuffer(GLB_ASSETS_B64[name]), '', function (gltf) {
         GLB_PARSED[name] = gltf;
-        loaded++;
-        if (onProgress) onProgress(name, loaded, names.length);
         resolve(true);
       }, function (err) {
         console.warn('GLB parse failed for', name, err);
-        loaded++;
-        if (onProgress) onProgress(name, loaded, names.length);
         resolve(false);
       });
     });
@@ -6461,6 +6454,8 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
+  clearTimeout(hud.waveBanner._t);
+  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -6487,17 +6482,11 @@ function pickGun(i) {
   $id('pause-menu').style.display = 'none';
   startGame();
 }
-let assetsReady = false;
-function setDeployReady(ready) {
-  const deploy = $id('btn-start');
-  deploy.classList.toggle('disabled', !ready);
-  deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
-}
 function startGame() {
-  if (!assetsReady) return;
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
+  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
@@ -6519,7 +6508,6 @@ document.addEventListener('click', function (e) {
 });
 // buttons
 $id('btn-start').addEventListener('click', function () {
-  if (!assetsReady) return;
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
   audioCtx(); // unlock audio on user gesture
@@ -6665,30 +6653,21 @@ buildViewmodel();
 updateHudHealth();
 updateHudAmmo();
 requestAnimationFrame(frame);
-// Parse every embedded GLB before deployment. This matters for file:// launches:
-// the previous asynchronous path could render the arena before desktop props were
-// constructed, producing missing cover. The menu remains intentionally blocked
-// until all assets have either parsed or reported a controlled fallback failure.
-function preloadGameAssets() {
-  const progress = $id('asset-load-progress');
-  setDeployReady(false);
-  return loadEmbeddedAssets(function (name, loaded, total) {
-    progress.textContent = loaded + ' / ' + total + ' · ' + name;
-  }).then(function (results) {
-    if (GLB_PARSED.SOLDIER) {
+// Mobile uses lightweight enemies/props immediately: this avoids local-file GLB
+// decode failures and reduces memory pressure on phone GPUs. Desktop keeps full GLBs.
+if (typeof IS_TOUCH !== 'undefined' && IS_TOUCH) {
+  const n = scatterProps();
+  if (n) console.log('mobile-safe props placed:', n);
+} else {
+  loadEmbeddedAssets().then(function (ok) {
+    if (ok && GLB_PARSED.SOLDIER) {
       probeSkinnedSoldier();
       if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
     }
     const n = scatterProps();
-    const failed = results.filter(function (ok) { return !ok; }).length;
-    progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';
-    assetsReady = true;
-    setDeployReady(true);
-    if (n) console.log('preloaded props placed:', n);
-    return results;
+    if (n) console.log('props placed:', n);
   });
 }
-preloadGameAssets();
 
 </script>
 </body>

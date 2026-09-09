@@ -76,6 +76,8 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
+  clearTimeout(hud.waveBanner._t);
+  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
 // gun select UI
@@ -102,17 +104,11 @@ function pickGun(i) {
   $id('pause-menu').style.display = 'none';
   startGame();
 }
-let assetsReady = false;
-function setDeployReady(ready) {
-  const deploy = $id('btn-start');
-  deploy.classList.toggle('disabled', !ready);
-  deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
-}
 function startGame() {
-  if (!assetsReady) return;
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
+  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   canvas.requestPointerLock();
 }
@@ -134,7 +130,6 @@ document.addEventListener('click', function (e) {
 });
 // buttons
 $id('btn-start').addEventListener('click', function () {
-  if (!assetsReady) return;
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
   audioCtx(); // unlock audio on user gesture
@@ -280,27 +275,18 @@ buildViewmodel();
 updateHudHealth();
 updateHudAmmo();
 requestAnimationFrame(frame);
-// Parse every embedded GLB before deployment. This matters for file:// launches:
-// the previous asynchronous path could render the arena before desktop props were
-// constructed, producing missing cover. The menu remains intentionally blocked
-// until all assets have either parsed or reported a controlled fallback failure.
-function preloadGameAssets() {
-  const progress = $id('asset-load-progress');
-  setDeployReady(false);
-  return loadEmbeddedAssets(function (name, loaded, total) {
-    progress.textContent = loaded + ' / ' + total + ' · ' + name;
-  }).then(function (results) {
-    if (GLB_PARSED.SOLDIER) {
+// Mobile uses lightweight enemies/props immediately: this avoids local-file GLB
+// decode failures and reduces memory pressure on phone GPUs. Desktop keeps full GLBs.
+if (typeof IS_TOUCH !== 'undefined' && IS_TOUCH) {
+  const n = scatterProps();
+  if (n) console.log('mobile-safe props placed:', n);
+} else {
+  loadEmbeddedAssets().then(function (ok) {
+    if (ok && GLB_PARSED.SOLDIER) {
       probeSkinnedSoldier();
       if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
     }
     const n = scatterProps();
-    const failed = results.filter(function (ok) { return !ok; }).length;
-    progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';
-    assetsReady = true;
-    setDeployReady(true);
-    if (n) console.log('preloaded props placed:', n);
-    return results;
+    if (n) console.log('props placed:', n);
   });
 }
-preloadGameAssets();

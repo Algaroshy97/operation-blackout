@@ -73,7 +73,6 @@
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
   #start-screen h2{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.65);margin:0 0 36px 0;font-weight:400;text-align:center}
   .menu-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;letter-spacing:4px;color:#fff;background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9));border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;transition:all .15s;pointer-events:auto}
-  .menu-btn.disabled{opacity:.45;cursor:wait;pointer-events:none;filter:grayscale(1)}
   .menu-btn:hover{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a;box-shadow:0 0 18px rgba(255,190,60,.25)}
   #start-screen .controls{margin-top:36px;display:grid;grid-template-columns:auto auto;gap:4px 18px;color:rgba(255,255,255,.75);font-size:13px;text-align:left}
   #start-screen .controls b{color:#ffdf8a;font-weight:700;text-align:right}
@@ -146,8 +145,7 @@
   <div>
     <h1>OPERATION BLACKOUT</h1>
     <h2>WAVE DEFENSE FPS</h2>
-    <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
-    <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-start">DEPLOY</div>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
