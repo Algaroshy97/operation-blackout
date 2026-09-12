@@ -510,13 +510,13 @@ function hasLOS(en) {
   _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
-  losRay.set(_losFrom, _losTo.sub(_losFrom).normalize());
-  losRay.far = _losFrom.distanceTo(player.pos);
-  const hits = losRay.intersectObjects(worldRayTargets(_losFrom, losRay.ray.direction, losRay.far), true);
-  let blocked = false;
-  for (let i = 0; i < hits.length; i++) {
-    if (hits[i].distance < losRay.far - 0.2) { blocked = true; break; }
-  }
+  // Analytic slab test against the collider AABBs rather than a mesh raycast.
+  // Once static geometry was merged into a few large batches, the mesh version
+  // cost 1.37 ms per frame because three walks every triangle of every candidate;
+  // "is a wall in the way" does not need triangle precision.
+  const blocked = CORE.segmentBlocked(
+    _losFrom.x, _losFrom.y, _losFrom.z,
+    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25);
   en._losCache = !blocked;
   return !blocked;
 }

@@ -29,7 +29,7 @@ The soundtrack is synthesised in-browser and follows the fight: a drone between 
 - `dist/Operation Blackout.html` — the shippable, self-contained game (all assets embedded as base64; works from `file://`)
 - `src/` — modular source: pure core logic, config/world, player, touch input, weapons, enemies/AI, VFX/audio, grenades, HUD/waves, main loop
 - `src/01_core.js` — engine-free gameplay rules (distances, sub-stepping, ballistics, wave scaling, AI navigation). No THREE, no DOM, so it runs unchanged in the browser build *and* under `node --test`.
-- `vendor/` — vendored Three.js + GLTFLoader (MIT)
+- `vendor/` — three.js **r186** + GLTFLoader, bundled to a single IIFE (MIT). See `vendor/README.md` to regenerate.
 - `scripts/build.py` — assembles head + vendor + src into the single file
 - `scripts/probe_live.py` — drives the built file in headless Chromium and probes live gameplay state
 
@@ -73,11 +73,11 @@ Neither suite measures real-GPU frame rate or replaces playtesting on Android ha
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-5 are complete.
+phased plan. Phases 0-6 are complete.
 
 ## Credits
 
-- Three.js (MIT)
+- Three.js r186 (MIT), bundled with esbuild so the game can stay one classic script
 - CC0 models from Kenney (soldier, trees, crates, columns, barrels) embedded as base64
 - All sounds synthesized in-browser with WebAudio — no copyrighted assets
 

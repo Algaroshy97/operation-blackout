@@ -1,5 +1,15 @@
 // ============ CONFIG, RENDERER & WORLD BUILD ============
 'use strict';
+// ---- Engine-era colour compatibility (MUST run before any THREE.Color) -------
+// This scene's palette was authored against three r128, which had no colour
+// management: a hex colour went to the shader as-is and `outputEncoding` then
+// applied a linear->sRGB encode on the way out, which brightened everything.
+// r152+ converts hex from sRGB to linear on input and back on output, so the same
+// numbers round-trip correctly — and render roughly 75% darker than the art was
+// tuned for. Opting out keeps the original look with the current engine; the
+// alternative is re-authoring every colour and light in the game.
+THREE.ColorManagement.enabled = false;
+
 const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
 const CFG = {
   player: { height: 1.7, crouchHeight: 1.05, radius: 0.35, speed: 5.4, sprintMul: 1.65, crouchMul: 0.55, accel: 16, decel: 38, jumpVel: 5.6, gravity: 16, health: 100, armor: 50, regenDelay: 3.5, regenRate: 12, maxStamina: 3.2 },
@@ -81,7 +91,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-renderer.outputEncoding = THREE.sRGBEncoding;
+// r152 renamed the output transform and r165 removed the old spelling.
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 
@@ -98,7 +109,13 @@ addEventListener('resize', () => {
 });
 
 // ---- Lighting ----
-const sun = new THREE.DirectionalLight(0xffd9b0, 1.35);
+// r155 made lighting physically correct and r165 removed `useLegacyLights`, the
+// switch that used to restore the old behaviour. The difference for ambient,
+// hemisphere and directional lights is exactly the pi factor legacy mode folded
+// in, so reapplying it here reproduces the original exposure on the current
+// engine. Verified against r128 screenshots at four fixed camera poses.
+const LIGHT_COMPAT = Math.PI;
+const sun = new THREE.DirectionalLight(0xffd9b0, 1.35 * LIGHT_COMPAT);
 sun.position.set(45, 55, -30);
 sun.castShadow = true;
 sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
@@ -121,8 +138,8 @@ function updateSunShadow(targetX, targetZ) {
   sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
   sun.target.updateMatrixWorld();
 }
-scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55));
-scene.add(new THREE.AmbientLight(0x606070, 0.35));
+scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55 * LIGHT_COMPAT));
+scene.add(new THREE.AmbientLight(0x606070, 0.35 * LIGHT_COMPAT));
 
 // ---- Sky gradient dome + sun disc + horizon haze (graphics pass) ----
 (function makeSky() {

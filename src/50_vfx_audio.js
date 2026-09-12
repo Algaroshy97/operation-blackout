@@ -241,16 +241,17 @@ function spawnSlideDust(pos) {
 let muzzleLight = null;
 function flashMuzzleLight() {
   if (!muzzleLight) {
+    // Punctual lights are in candela since r155; decay 2 is now the default.
     muzzleLight = new THREE.PointLight(0xffcc88, 0, 9, 2);
     muzzleLight.userData.vfx = true;
     scene.add(muzzleLight);
   }
   muzzleLight.position.copy(camera.position);
-  muzzleLight.intensity = 3.2;
+  muzzleLight.intensity = 3.2 * LIGHT_COMPAT * 4;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {
-    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 26);
+    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 26 * LIGHT_COMPAT * 4);
   }
 }
 function updateVfx(dt) {

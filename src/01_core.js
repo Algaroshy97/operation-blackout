@@ -396,6 +396,62 @@ const CORE = (function () {
     return batches;
   }
 
+  // ---- Analytic segment-vs-AABB occlusion ------------------------------------
+  // AI line of sight only needs to know whether something solid is in the way, not
+  // exactly which triangle. Testing meshes cost 1.37 ms per frame once static
+  // geometry was merged into a few large batches, because three walks every
+  // triangle of every candidate. A slab test against the collider AABBs answers
+  // the same question in a few operations per box.
+  function segmentHitsBox(ox, oy, oz, dx, dy, dz, maxDist, box) {
+    let t0 = 0, t1 = maxDist;
+    // x
+    if (dx * dx < 1e-12) { if (ox < box.min.x || ox > box.max.x) return false; }
+    else {
+      const inv = 1 / dx;
+      let a = (box.min.x - ox) * inv, b = (box.max.x - ox) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return false;
+    }
+    // y
+    if (dy * dy < 1e-12) { if (oy < box.min.y || oy > box.max.y) return false; }
+    else {
+      const inv = 1 / dy;
+      let a = (box.min.y - oy) * inv, b = (box.max.y - oy) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return false;
+    }
+    // z
+    if (dz * dz < 1e-12) { if (oz < box.min.z || oz > box.max.z) return false; }
+    else {
+      const inv = 1 / dz;
+      let a = (box.min.z - oz) * inv, b = (box.max.z - oz) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return false;
+    }
+    return t1 >= 0 && t0 <= maxDist;
+  }
+  // True when any collider blocks the segment. `slack` pulls both ends in so a box
+  // the endpoints are standing on/next to does not self-occlude.
+  function segmentBlocked(ax, ay, az, bx, by, bz, boxes, slack) {
+    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1e-6) return false;
+    dx /= len; dy /= len; dz /= len;
+    const s = slack === undefined ? 0.2 : slack;
+    const maxDist = len - s;
+    if (maxDist <= 0) return false;
+    for (let i = 0; i < boxes.length; i++) {
+      if (segmentHitsBox(ax, ay, az, dx, dy, dz, maxDist, boxes[i])) return true;
+    }
+    return false;
+  }
+
   // ---- Ray broad-phase grid --------------------------------------------------
   // r128 has no BVH, so intersectObjects() walks every root's triangles once its
   // bounding sphere passes. Bullets and AI line-of-sight both fire rays through a
@@ -722,6 +778,8 @@ const CORE = (function () {
     validateCheckpoint: validateCheckpoint,
     regionKey: regionKey,
     planStaticBatches: planStaticBatches,
+    segmentHitsBox: segmentHitsBox,
+    segmentBlocked: segmentBlocked,
     buildRayGrid: buildRayGrid,
     rayGridClear: rayGridClear,
     rayGridInsert: rayGridInsert,

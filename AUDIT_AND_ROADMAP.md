@@ -1,9 +1,9 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-5 complete (2026-09-12)
+> ## Status — Phases 0-6 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
-> engine-free pure functions; `tests/test_core.js` executes them under `node --test` (54 tests).
+> engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
 > `tests/test_release_build.py` was rewritten from ~40 source-text greps into 7 artifact-integrity
 > checks and now also drives the node suite. Mutation-checked: reintroducing BUG-03, BUG-04 or
 > BUG-07 fails the suite. CI workflow added.
@@ -142,26 +142,63 @@
 > ever arrived) because the flank bias never expired — now time-boxed, back to
 > **100%** across all five archetypes, 48/48 each.
 >
-> **Still not done:** the wave-15 boss, and the three.js r128 upgrade. The boss was
-> dropped deliberately in favour of spreading variety across the whole curve; the
-> engine upgrade needs its own verification pass and would also mean replacing the
-> vendored GLTFLoader.
+> **Phase 6 — three.js r128 to r186.**
+>
+> The blocker was never the API churn, it was packaging: three stopped shipping a
+> UMD build after r159 and the non-module `examples/js` GLTFLoader after r147, and
+> this game is one classic `<script>`. Solved by bundling three + GLTFLoader to a
+> single IIFE with esbuild (`vendor/README.md` has the one-line command), which
+> keeps the architecture and gets a current engine. 700 KB of vendor became 788 KB.
+>
+> Two global rendering behaviours changed underneath the art:
+>
+> - **r152 colour management.** r128 had none: a hex colour went to the shader raw
+>   and `outputEncoding` applied an sRGB encode on the way out, brightening
+>   everything. The palette was tuned against that. With management on, the same
+>   numbers round-trip correctly and render **~75% darker** — measured, not
+>   guessed. `ColorManagement.enabled = false` keeps the authored look; the
+>   alternative is re-authoring every colour in the game.
+> - **r155 physical lighting**, with `useLegacyLights` removed outright in r165.
+>   The delta for ambient/hemisphere/directional is exactly the pi factor legacy
+>   mode folded in, so `LIGHT_COMPAT = Math.PI` restores the original exposure.
+>   Verified against r128 screenshots at matched camera poses.
+>
+> **A performance finding that had nothing to do with the upgrade.** Profiling the
+> new build showed `updateEnemies` at **1.744 ms**, 4x worse than before. It was not
+> r186 — it was the prop batching from Phase 5. Merging static geometry into a few
+> large meshes made every AI line-of-sight raycast walk thousands of triangles,
+> because three has no BVH. But "is a wall in the way" never needed triangle
+> precision: an analytic slab test against the collider AABBs answers it in a few
+> operations per box. `updateEnemies` went **1.744 ms → 0.224 ms**, better than the
+> pre-upgrade 0.396 ms.
+>
+> | | r128 | r186 |
+> |---|---|---|
+> | revision | 128 (2021) | **186** |
+> | draw calls, wave 15 | 106 | **97** |
+> | `updateEnemies`, 14 enemies | 0.396 ms | **0.224 ms** |
+> | `fireShot` | 0.287 ms | **0.263 ms** |
+> | vendor bytes | 700 KB | 788 KB |
+> | geometry growth, 3 passes | 0 / 0 / 0 | **0 / 0 / 0** |
+>
+> **Still not done:** the wave-15 boss, dropped deliberately in favour of spreading
+> variety across the whole curve.
 >
 > Closed: BUG-01, BUG-02, BUG-03, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09,
 > BUG-10, UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, ROB-01, ROB-02, ROB-03,
 > ROB-04, ROB-05, PERF-01, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08,
 > PERF-09, GAP-01, GAP-02, GAP-03, GAP-05, GAP-06, GAP-08, GAP-09,
 > ENG-01, ENG-02, ENG-03, ENG-06, ENG-08.
-> **Still open:** the wave-15 boss, BUG-11 (latent ceiling clipping), ENG-04
-> (three.js r128), ENG-05 (278 globals, mitigated by the bundle-parse test), and the
-> two carried-forward Phase 2 criteria (<60 draw calls — now 106; <0.1 ms `fireShot`
-> — now 0.287 ms, floored by one synthesised gunshot per shot).
+> **Still open:** the wave-15 boss, BUG-11 (latent ceiling clipping), ENG-05 (278
+> globals, mitigated by the bundle-parse test), and the two carried-forward Phase 2
+> criteria (<60 draw calls — now 97; <0.1 ms `fireShot` — now 0.263 ms, floored by
+> one synthesised gunshot per shot). ENG-04 is closed by Phase 6.
 > Sections below are the original audit, unedited except where a correction is noted.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
 `scripts/build.py` output modulo line endings.
-**Engine:** three.js **r128** (vendored, 2021).
+**Engine at audit time:** three.js **r128** (vendored, 2021). Now **r186** — see Phase 6.
 **Method:** static read of all 11 `src/` modules, plus live instrumentation of the running game in Chromium —
 scripted AI simulations, collision stress tests, renderer counters, DOM/rect measurement at desktop and
 375×812, and isolated leak tests.

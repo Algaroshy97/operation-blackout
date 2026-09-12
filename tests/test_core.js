@@ -703,3 +703,40 @@ test('progress tracking does not fire for slow but real progress', () => {
   }
   assert.ok(!flagged, 'steady approach must never be treated as a stall');
 });
+
+// ---------------------------------------------------------------- LOS occlusion
+test('segment occlusion detects a wall between two points', () => {
+  const wall = [{ min: { x: -5, y: 0, z: -0.4 }, max: { x: 5, y: 4, z: 0.4 } }];
+  // straight through the wall
+  assert.strictEqual(CORE.segmentBlocked(0, 1.5, -6, 0, 1.5, 6, wall), true);
+  // around the end of it
+  assert.strictEqual(CORE.segmentBlocked(9, 1.5, -6, 9, 1.5, 6, wall), false);
+  // over the top
+  assert.strictEqual(CORE.segmentBlocked(0, 6, -6, 0, 6, 6, wall), false);
+  // parallel to it, never crossing
+  assert.strictEqual(CORE.segmentBlocked(-6, 1.5, 3, 6, 1.5, 3, wall), false);
+});
+
+test('segment occlusion agrees with the real arena geometry', () => {
+  // Through the central building from one side to the other: blocked.
+  assert.strictEqual(CORE.segmentBlocked(0, 1.5, -25, 0, 1.5, 25, ARENA), true);
+  // Open ground well away from anything: clear.
+  assert.strictEqual(CORE.segmentBlocked(-40, 1.5, 15, -40, 1.5, 25, ARENA), false);
+});
+
+test('segment occlusion ignores geometry beyond the endpoint', () => {
+  const farWall = [{ min: { x: -5, y: 0, z: 20 }, max: { x: 5, y: 4, z: 21 } }];
+  // target stops short of the wall
+  assert.strictEqual(CORE.segmentBlocked(0, 1.5, 0, 0, 1.5, 10, farWall), false);
+  // target past it
+  assert.strictEqual(CORE.segmentBlocked(0, 1.5, 0, 0, 1.5, 30, farWall), true);
+});
+
+test('segment occlusion handles degenerate and axis-aligned rays', () => {
+  const box = [{ min: { x: -1, y: 0, z: -1 }, max: { x: 1, y: 2, z: 1 } }];
+  assert.strictEqual(CORE.segmentBlocked(0, 1, 0, 0, 1, 0, box), false, 'zero-length segment');
+  assert.strictEqual(CORE.segmentBlocked(0, 1, -5, 0, 1, 5, box), true, 'straight +z');
+  assert.strictEqual(CORE.segmentBlocked(-5, 1, 0, 5, 1, 0, box), true, 'straight +x');
+  assert.strictEqual(CORE.segmentBlocked(0, -5, 0, 0, 5, 0, box), true, 'straight +y');
+  assert.strictEqual(CORE.segmentBlocked(0, 9, -5, 0, 9, 5, box), false, 'passes above');
+});
