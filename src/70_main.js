@@ -190,6 +190,8 @@ $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
   audioCtx(); // unlock audio on user gesture
 });
 $id('btn-resume').addEventListener('click', resumeGame);
@@ -203,6 +205,8 @@ $id('btn-restart').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
 });
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
@@ -213,6 +217,8 @@ $id('btn-v-restart').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
   buildGunSelect();
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
 });
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
