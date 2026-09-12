@@ -30,6 +30,88 @@
   .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
+  /* Credits sit under the score because they are the same kind of number to the
+     player: one is the run's record, the other is what they can spend on it. */
+  #credit-hud{top:78px;right:30px;text-align:right}
+  /* Buy prompt sits low-centre: close to the crosshair without covering it, and
+     clear of both thumb clusters on touch. */
+  #buy-prompt{bottom:120px;left:50%;transform:translateX(-50%);text-align:center;opacity:0;
+    transition:opacity .12s;color:#ffd24a;font-size:15px;font-weight:700;letter-spacing:2px;
+    text-shadow:0 1px 5px #000;white-space:nowrap}
+  #buy-prompt-bar{width:180px;height:3px;margin:5px auto 0;background:rgba(0,0,0,.55);border-radius:2px;overflow:hidden}
+  #buy-prompt-fill{height:100%;width:0;background:#ffd24a}
+  /* Plates read as a row of slots next to the armor bar they refill. */
+  #plate-hud{bottom:52px;left:calc(28px + min(220px,38vw) + 46px);display:flex;gap:5px;align-items:center}
+  #plate-hud i{width:13px;height:7px;border:1px solid rgba(255,255,255,.35);border-radius:1px;display:block}
+  #plate-hud i.on{background:#4fa3d8;border-color:#4fa3d8}
+  #perk-hud{bottom:78px;left:28px;display:flex;gap:6px}
+  /* Streaks sit under the credits: both answer "what can I spend right now". */
+  #streak-hud{top:134px;right:30px;display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;max-width:190px}
+  #streak-hud span{font-size:10px;letter-spacing:1px;font-weight:700;padding:2px 6px;border-radius:2px;text-shadow:none}
+  #streak-hud span.ready{background:#ffd24a;color:#231a00}
+  #streak-hud span.field{background:#8fd66a;color:#0f2008}
+  #streak-hud span.next{background:rgba(0,0,0,.45);color:rgba(255,255,255,.7);font-weight:600}
+  /* Rank bar and challenge list on the main menu. Rank is derived from XP, so the
+     bar is the only place either number is shown. */
+  .rank-row{display:flex;align-items:center;gap:10px;justify-content:center;margin:0 0 8px}
+  .rank-label{font-size:12px;letter-spacing:2px;color:#ffdf8a;white-space:nowrap}
+  .rank-bar{display:block;width:min(220px,44vw);height:6px;background:rgba(0,0,0,.5);
+    border:1px solid rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
+  .rank-bar i{display:block;height:100%;background:linear-gradient(90deg,#c9a227,#ffdf8a)}
+  #challenge-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:6px;margin:14px auto 0;max-width:620px;text-align:left}
+  #challenge-list .chal{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);
+    border-radius:3px;padding:6px 9px;font-size:11px;line-height:1.45}
+  #challenge-list .chal b{display:block;font-size:11px;letter-spacing:2px;color:#e8ffe8}
+  #challenge-list .chal span{display:block;color:rgba(255,255,255,.55)}
+  #challenge-list .chal i{font-style:normal;color:#ffdf8a;font-size:10px;letter-spacing:1px}
+  #challenge-list .chal.done{border-color:rgba(143,214,106,.5)}
+  #challenge-list .chal.done i{color:#8fd66a}
+  /* Gunsmith. Same overlay treatment as settings, including the scroll fix and the
+     safe-area padding the Phase 7 mobile pass established. */
+  #gunsmith-screen{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    z-index:31;background:rgba(6,10,14,.93);overflow-y:auto;overscroll-behavior:contain;
+    justify-content:center;justify-content:safe center;box-sizing:border-box;
+    padding:calc(20px + var(--sa-t)) calc(20px + var(--sa-r)) calc(20px + var(--sa-b)) calc(20px + var(--sa-l))}
+  #gunsmith-screen>div{text-align:center;max-width:760px;width:100%}
+  #gunsmith-screen h2{color:#ffdf8a;font-size:30px;letter-spacing:8px;font-weight:900;margin:0 0 18px;text-shadow:0 2px 10px #000}
+  #gs-weapons{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 16px}
+  #gs-weapons button{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);color:#e8ffe8;
+    font-family:inherit;font-size:12px;letter-spacing:2px;padding:7px 14px;border-radius:3px;cursor:pointer}
+  #gs-weapons button.on{border-color:#ffdf8a;color:#ffdf8a}
+  #gs-weapons button:disabled{opacity:.4;cursor:not-allowed}
+  #gs-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:0 0 18px;text-align:left}
+  .gs-slot{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:3px;padding:9px 11px}
+  .gs-slot>b{display:block;font-size:10px;letter-spacing:3px;color:rgba(255,255,255,.5);margin-bottom:6px}
+  .gs-opt{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+    color:#cfe0cf;font-family:inherit;font-size:12px;padding:5px 7px;border-radius:2px;cursor:pointer;margin-bottom:3px}
+  .gs-opt:hover{border-color:rgba(255,255,255,.25)}
+  .gs-opt.on{border-color:#ffdf8a;color:#ffdf8a}
+  .gs-opt:disabled{opacity:.4;cursor:not-allowed}
+  .gs-opt i{display:block;font-style:normal;font-size:10px;color:rgba(255,255,255,.45);letter-spacing:1px}
+  .gs-opt .up{color:#8fd66a}
+  .gs-opt .down{color:#ff8a70}
+  .gun-card.locked{opacity:.45;cursor:not-allowed}
+  .gun-card.locked .gc-lock{margin-top:6px;font-size:11px;letter-spacing:2px;color:#ffdf8a}
+  @media (max-height:640px){#challenge-list{display:none}}
+  #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
+    padding:2px 6px;border-radius:2px;text-shadow:none}
+  /* Objective bar sits under the wave banner, where the wave's own information is. */
+  #objective-hud{top:104px;left:50%;transform:translateX(-50%);text-align:center;opacity:0;
+    transition:opacity .2s;color:#4fd08a;font-size:12px;font-weight:700;letter-spacing:3px;
+    text-shadow:0 1px 5px #000;white-space:nowrap}
+  #objective-bar{width:190px;height:4px;margin:4px auto 0;background:rgba(0,0,0,.55);border-radius:2px;overflow:hidden}
+  #objective-fill{height:100%;width:0;background:#4fd08a}
+  body.touch #objective-hud{top:calc(96px + var(--sa-t))}
+  body.reduced-motion #objective-hud{transition:none}
+  #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
+    letter-spacing:4px;text-shadow:0 2px 10px #000;opacity:0;transition:opacity .2s;white-space:nowrap}
+  body.reduced-motion #buy-prompt,body.reduced-motion #down-timer{transition:none}
+  #credit-hud .val{color:#ffd24a}
+  #power-banner{top:22%;left:50%;transform:translate(-50%,-50%);color:#ffd24a;font-size:26px;
+    font-weight:800;letter-spacing:7px;text-shadow:0 2px 12px #000;opacity:0;transition:opacity .25s;
+    text-align:center;white-space:nowrap}
+  body.reduced-motion #power-banner{transition:none}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
   #ammo-mag.low{color:#ff5f4a}
   #ammo-res{color:rgba(255,255,255,.75);font-size:16px;font-weight:600;text-shadow:0 1px 4px #000}
@@ -145,6 +227,13 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px}
+  /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
+  body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
@@ -217,6 +306,7 @@
 <div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
+<div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
@@ -228,6 +318,13 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="objective-hud" class="hud"><div id="objective-txt"></div><div id="objective-bar"><div id="objective-fill"></div></div></div>
+<div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
+<div id="plate-hud" class="hud"></div>
+<div id="perk-hud" class="hud"></div>
+<div id="streak-hud" class="hud"></div>
+<div id="down-timer" class="hud"></div>
+<div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">
   <div>
@@ -237,8 +334,10 @@
     <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
     <div class="menu-btn" id="btn-resume-run" style="display:none">RESUME RUN</div>
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-gunsmith">GUNSMITH</div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
     <p id="menu-stats"></p>
+    <div id="challenge-list"></div>
     <p id="save-note"></p>
     <div class="controls">
       <b>WASD</b><span>Move</span>
@@ -256,6 +355,7 @@
 </div>
 <div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
 <div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>

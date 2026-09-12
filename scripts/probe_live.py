@@ -88,6 +88,17 @@ def main() -> int:
             checks.append(("enemies-grounded", False))
 
         # 5) Scoped raycast colliders registered (fix #1 live sanity).
+        # Every station must have somewhere to stand. Two wall buys shipped inside
+        # corner-district geometry the first time this ran, which is exactly the
+        # failure this catches: unreachable, and invisible to a unit test because
+        # it needs the built arena.
+        bad = page.evaluate("() => window.__unreachableStations || []")
+        if bad:
+            console_errors.append("unreachable stations: %s" % bad)
+        checks.append(("stations-all-reachable", bad == []))
+        n_st = page.evaluate("() => typeof stations !== 'undefined' ? stations.length : -1")
+        checks.append(("stations-built", n_st > 0))
+
         n = page.evaluate("() => typeof raycastColliders !== 'undefined' ? raycastColliders.length : -1")
         checks.append(("raycast-colliders-live", n > 0))
 
@@ -113,12 +124,162 @@ def main() -> int:
         checks.append(("casing-burst-capped-at-24", casing_check["count"] == 24))
         checks.append(("casings-expire", casing_check["remaining"] == 0))
 
-        # 7) Clean console throughout gameplay.
+        # 7) The two reported through-floor bugs, as end-to-end guards.
+        #
+        # Both have unit tests in CORE, and neither of those would have caught the
+        # real defect: the melee one was a horizontal-distance check in the engine
+        # layer, and the bullet one was a setTimeout callback. They only show up with
+        # the real arena geometry and the real update loop, which is what this probe
+        # exists for.
+        #
+        # Every check below carries a CONTROL. "0 damage taken" is also what a broken
+        # shooter looks like, and a guard that cannot fail is not a guard.
+        melee = page.evaluate("""() => {
+            const step = 1 / 60;
+            const SLAB_EYE = 4.15 + CFG.player.height;
+            const real = damagePlayer;
+            function run(playerY) {
+                for (const e of enemies) e.dead = true;
+                enemies.length = 0;
+                if (typeof resetRagdolls === 'function') resetRagdolls();
+                player.pos.set(0, playerY, 0);
+                player.dead = false; player.downed = false;
+                player.health = 100; player.armor = 0; godMode = false;
+                spawnEnemy(0, 0, 0);
+                const en = enemies[0];
+                en.pos.set(0, 0, 0);
+                en.parts.group.position.copy(en.pos);
+                en.dead = false; en.state = 'chase';
+                let hits = 0;
+                damagePlayer = function () { hits++; };
+                try { for (let t = 0; t < 8; t += step) updateEnemies(step); }
+                finally { damagePlayer = real; }
+                return hits;
+            }
+            const upstairs = run(SLAB_EYE);
+            const sameFloor = run(CFG.player.height);
+            player.health = 100;
+            return { upstairs, sameFloor };
+        }""")
+        checks.append(("no-melee-through-floor", melee["upstairs"] == 0))
+        checks.append(("melee-still-works-same-floor", melee["sameFloor"] > 0))
+
+        # Rounds land through setTimeout, so the counter has to outlive the call that
+        # fires them: install it, fire, wait for the impacts, then read and restore.
+        page.evaluate("""() => {
+            const SLAB_EYE = 4.15 + CFG.player.height;
+            for (const e of enemies) e.dead = true;
+            enemies.length = 0;
+            player.pos.set(0, CFG.player.height, 0);
+            player.dead = false; player.downed = false;
+            player.health = 100; player.armor = 0; godMode = false;
+            spawnEnemy(1, 0, 5);
+            const g = enemies[0];
+            g.pos.set(0, 0, 5); g.parts.group.position.copy(g.pos); g.dead = false;
+            window.__realDamage = damagePlayer;
+            window.__hits = 0;
+            damagePlayer = function () { window.__hits++; };
+            for (let i = 0; i < 60; i++) {
+                player.pos.set(0, CFG.player.height, 0);
+                enemyShoot(g, 5);
+                player.pos.set(0, SLAB_EYE, 0);      // climb before the round lands
+            }
+        }""")
+        page.wait_for_timeout(1000)
+        climbed = page.evaluate("() => { const n = window.__hits; window.__hits = 0; return n; }")
+        page.evaluate("""() => {
+            const g = enemies[0];
+            for (let i = 0; i < 60; i++) {
+                player.pos.set(0, CFG.player.height, 0);
+                enemyShoot(g, 5);
+            }
+        }""")
+        page.wait_for_timeout(1000)
+        stayed = page.evaluate("""() => {
+            const n = window.__hits;
+            damagePlayer = window.__realDamage;
+            player.health = 100;
+            return n;
+        }""")
+        checks.append(("no-bullets-through-floor", climbed == 0))
+        checks.append(("bullets-still-land-in-the-open", stayed > 0))
+
+        # 8) Ragdolls: corpses appear, stay capped, settle, and clean themselves up.
+        rag = page.evaluate("""() => {
+            const step = 1 / 60;
+            for (const e of enemies) e.dead = true;
+            enemies.length = 0;
+            resetRagdolls();
+            godMode = true;
+            player.pos.set(0, CFG.player.height, 24);
+            for (let i = 0; i < 12; i++) {
+                spawnEnemy(1, -8 + i * 1.4, 30);
+                const en = enemies[enemies.length - 1];
+                en.pos.set(-8 + i * 1.4, 0, 30);
+                en.parts.group.position.copy(en.pos);
+                en.health = 1;
+                damageEnemy(en, 200, new THREE.Vector3(en.pos.x, 1.2, en.pos.z + 0.3), false);
+            }
+            updateEnemies(step);
+            const spawned = ragdollCount();
+            const aiListCleared = enemies.length;
+            let lowest = Infinity, settledAll = true, casters = 0;
+            for (let t = 0; t < 6; t += step) updateRagdolls(step);
+            for (const r of ragdolls) {
+                if (!r.rag.settled) settledAll = false;
+                for (const q of r.rag.order) if (q.y < lowest) lowest = q.y;
+                r.en.parts.group.traverse(function (o) { if (o.isMesh && o.castShadow) casters++; });
+            }
+            for (let t = 0; t < 20; t += step) updateRagdolls(step);
+            const after = ragdollCount();
+            godMode = false;
+            return { spawned, aiListCleared, settledAll, casters,
+                     lowest: isFinite(lowest) ? lowest : 0, after, cap: RAGDOLL_MAX };
+        }""")
+        checks.append(("corpses-capped", rag["spawned"] == rag["cap"]))
+        checks.append(("dead-leave-the-ai-list", rag["aiListCleared"] == 0))
+        checks.append(("corpses-settle", rag["settledAll"]))
+        checks.append(("corpses-stay-above-ground", rag["lowest"] >= -0.01))
+        checks.append(("corpses-cast-no-shadows", rag["casters"] == 0))
+        checks.append(("corpses-clean-up", rag["after"] == 0))
+
+        # 9) No GPU geometry growth across sustained combat. ROB-04 leaked one
+        #    geometry per grenade for the life of the session; this is the guard.
+        leak = page.evaluate("""() => {
+            const step = 1 / 60;
+            const before = renderer.info.memory.geometries;
+            godMode = true;
+            for (let n = 0; n < 3; n++) {
+                for (let i = 0; i < 6; i++) {
+                    throwGrenade(9, CORE.LETHALS[0]);
+                    for (let t = 0; t < 3; t += step) updateGrenades(step);
+                }
+                for (let t = 0; t < 2; t += step) { updateGrenades(step); updateRagdolls(step); }
+            }
+            godMode = false;
+            return renderer.info.memory.geometries - before;
+        }""")
+        checks.append(("no-geometry-growth", leak <= 0))
+
+        # 10) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
 
     passed = sum(1 for _, ok in checks if ok)
+    failed = [name for name, ok in checks if not ok]
+    # Human-readable summary FIRST, on stderr, so a CI log shows what broke without
+    # anyone reading 28 JSON entries. The JSON still follows for machine consumers.
+    if failed:
+        print("PROBE FAILED: %d of %d checks" % (len(failed), len(checks)), file=sys.stderr)
+        for name in failed:
+            print("  x %s" % name, file=sys.stderr)
+        if console_errors:
+            print("  console errors:", file=sys.stderr)
+            for e in console_errors[:5]:
+                print("    %s" % e, file=sys.stderr)
+    else:
+        print("PROBE OK: %d checks passed" % len(checks), file=sys.stderr)
     print(json.dumps({
         "build": str(args.build),
         "checks": [{"name": n, "ok": ok} for n, ok in checks],

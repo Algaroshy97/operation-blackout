@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-8 complete (2026-09-12)
+> ## Status — Phases 0-13 complete, plus two physics passes (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -329,6 +329,474 @@
 > soldiers cannot be merged and cost up to 56 colour-pass calls on their own.
 > ENG-04 is closed by Phase 6; the `fireShot` criterion by Phase 8.
 > Sections below are the original audit, unedited except where a correction is noted.
+
+> **Phase 9 — gunfeel, and the first half of the economy.** The first phase driven by
+> `COD_ROADMAP.md` rather than the defect register: nothing here was broken, and all of it
+> was missing. Measured before → after:
+>
+> | | before | after |
+> |---|---|---|
+> | recoil, two identical 10-shot M4 bursts | random walk, sign differs ~half the time | **+0.0210 / +0.0222 yaw** — same shape twice |
+> | horizontal recoil mean | **0** by construction | a learnable right-hand drift |
+> | compensating for recoil | correction kept, kick decays → aiming low | **absorbed**: counter-input cancels the kick |
+> | hipfire spread, shot 1 vs shot 30 | identical | **0 → 0.0224** bloom, recovers in ~0.9 s |
+> | 3 AR rounds through a wood slab | 78 (slab ignored) | **46** |
+> | the same slab as concrete | 78 | **0** |
+> | a runner inside 1.9 m | no counter but backpedalling | **knife, one shot**, 60 credits |
+> | a 1.5 m crate | unclimbable | **mantle**, feet 0 → 1.50 m |
+> | score | a number nothing read back | **credits**, earned and spent |
+> | power-ups | none | MAX AMMO / DOUBLE POINTS / INSTA-KILL / NUKE |
+>
+> **GUN-01 was two defects, not one.** The obvious half is that recoil was noise:
+> `(Math.random() - 0.5) * 2 * recoilH` has zero mean and no memory, so no amount of
+> practice could improve a burst. `CORE.recoilAt` replaces it with a per-weapon shape —
+> the M4 climbs nearly straight for six shots then leans right and holds — walked by a
+> shot index that resets after 0.35 s off the trigger, with ±15% jitter so it is not
+> mechanical. Two independent 10-shot bursts now finish at +0.0210 and +0.0222 yaw.
+>
+> The second half only shows up once the first is fixed. Recoil is an additive camera
+> offset (`camera.rotation.x = player.pitch + player.recoilP`) that decays to zero, so a
+> player who pulled down to compensate kept the correction in `player.pitch` and finished
+> the burst aiming at the floor — the kick went away, their compensation did not.
+> `CORE.absorbRecoil` spends counter-input against the outstanding offset first and passes
+> only the remainder to the aim. Same-sign input is never absorbed, because looking further
+> up while the gun climbs is the player choosing to.
+>
+> **Penetration is resolved against the colliders, not the meshes** — and that is the whole
+> reason it works. The static arena was merged into batched meshes in Phase 2, so a mesh
+> raycast reports the entry *and* exit faces of every box in a batch and cannot tell one
+> wall from two. `colliders[]` is exactly one entry per box, and the material tag is derived
+> from the render material in `addBox()`, so no call site had to change: 27 wood, 27 metal
+> and 75 concrete colliders were classified by that one mapping. Anything unmapped stays
+> concrete, which is the conservative default — an untagged surface stops a round exactly as
+> it did before the feature existed.
+>
+> **Two things measured rather than assumed.** The first penetration test read 0 damage and
+> looked like a broken feature; the enemy had been relocated by spawn validation and was
+> standing behind a real concrete wall, so 0 was correct. The second read a stale camera at
+> (-20, -37) while `player.pos` was (0, 24) — the preview pane backgrounds the tab, so the
+> rAF loop was not ticking and the camera had never followed. Neither was a code defect, and
+> quoting either as one would have been wrong.
+>
+> 36 new node tests, all mutation-checked: **17 of 17 deliberate breakages fail the suite**,
+> including reverting recoil to random noise, making `absorbRecoil` a no-op, removing the
+> penetration surface limit, and letting untagged colliders become free passage.
+>
+> **Still open from `COD_ROADMAP.md`:** 9.7 tactical sprint and slide cancel shipped with
+> this phase; wall buys, the armory, perks, plates and last stand (10.2-10.7), all of
+> Phase 11 (equipment and streaks), Phase 12 (wave and map design) and Phase 13 (meta
+> progression) are not started.
+
+> **Phase 10 — the economy.** Credits shipped in Phase 9 with nothing to spend them
+> on. Eleven stations now sit in the arena, deliberately placed to pull the player out
+> of the central building, which was otherwise the whole game. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | the deploy loadout | what you die with | **wall buy**: M4 -> MK18 for 1000 CR, live |
+> | owning the wall weapon | n/a | **refill at 333 CR**, and a full reserve is refused free |
+> | a weapon at wave 15 | identical to wave 1 | **MK2**: 18 -> 32.4 dmg, 32 -> 48 mag, 5000 CR |
+> | the armory before wave 8 | n/a | locked, and charges nothing while locked |
+> | perks | none | **3 of 5 slots**, blocked buys say why |
+> | JUGGERNAUT | n/a | max health **100 -> 150** |
+> | armor | one 50-point buffer, +15 per medkit | **3 plates**, refill to full, none wasted at full |
+> | a lethal hit | run over | **downed**, 10 s bleed-out |
+> | downed movement | n/a | **0.35x** (1.89 vs 5.40 m/s, interleaved trials) |
+> | SECOND WIND | n/a | revives once at 35 HP, **and is consumed** |
+> | draw calls at deploy | 64 | **64** — housings join the existing static batches |
+>
+> **The bug this phase produced was a good one.** `buildStations()` was called from
+> `buildArena()`, which reads correctly and is wrong: every module is concatenated into
+> ONE script scope, and `STATION_LAYOUT` is a top-level `const` in a *later* module, so
+> the call ran before that module's declarations and died in the temporal dead zone —
+> `Cannot access 'STATION_LAYOUT' before initialization`. That is ENG-05 exactly, and it
+> behaved exactly as the audit predicted: one throw took out every module after it and
+> the whole game went dark. `node --check` passes it, because it is a runtime error, not
+> a parse error. The bootstrap now lives in the module that owns the data.
+>
+> **Two wall buys shipped inside corner-district geometry** — measured zero clear
+> stand-points on the buy ring, i.e. shop signs painted on solid walls. Hand-checking
+> coordinates against a 140-collider arena does not scale, so `unreachableStations()`
+> now runs at load and `scripts/probe_live.py` asserts on it. Repositioned by scanning
+> the live collider set for cells with at least 10 of 12 clear stand-points.
+>
+> 28 new node tests (134 total). Mutation-checked: 25 of 27 breakages fail the suite,
+> and the two survivors were confirmed **equivalent mutants** — `platesAffordable` has
+> two redundant guards, so removing either alone leaves the function correct; removing
+> both is caught. A third apparent survivor was a broken mutation: its anchor string
+> appeared twice in the file, so it had patched `penetrate()` instead of the bleed-out
+> clock. Re-run with a unique anchor, it kills.
+>
+> **Still open from `COD_ROADMAP.md`:** all of Phase 11 (tacticals, lethal variants,
+> field upgrade, scorestreaks), Phase 12 (special waves, gated map areas, elite variants,
+> objective waves) and Phase 13 (XP, unlocks, attachments, camos).
+
+> **Phase 11 — equipment and streaks.** The grenade was the most reusable system in
+> the project and the only thing mounted on it was a single frag. Charge-throw, the
+> trajectory preview, bounce physics and blast line-of-sight are all payload-agnostic,
+> so every variant below is a payload rather than a subsystem. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | equipment | 2 frags | **4 lethals + 3 tacticals**, all reachable by cycling a board |
+> | a flashbang, looking at it / turned away / at range | n/a | **3.86 s / 0.19 s / 1.93 s** blind |
+> | a blinded enemy | n/a | **fires 0 tracers**, vs 1 with sight |
+> | a stun | n/a | speedMul **1.10 -> 0.38**, restored on expiry |
+> | enemy sight through smoke | always clear | **blocked**, and clear again on expiry |
+> | thermite burning ground | n/a | **110 damage over 2 s** at 55 dps, expires |
+> | semtex | n/a | **sticks on contact**; a frag in the same throw does not |
+> | a claymore at 0 / 75 / 180 degrees | n/a | **fires / holds / holds** |
+> | a precision airstrike | n/a | **956 damage across 6 targets** down the lane |
+> | a sentry gun | n/a | kills a 60 HP target in 1.2 s, expires at 45 s |
+> | the field upgrade | n/a | reserve **0 -> 45**, grenades **0 -> 2** |
+> | minimap detection | the whole arena, always | **26 m**, lifted to everything by the UAV |
+>
+> **The UAV is the interesting one**, because it is the cheapest item here and it
+> changes something that already existed: the minimap drew every enemy in the arena
+> unconditionally, so it had no value to add. Baseline detection is now 26 m, and the
+> streak lifts it. The same 30 seconds of information is worth having only because the
+> baseline is worth less.
+>
+> **Smoke is affordable because of a Phase 6 decision.** Enemy line-of-sight became an
+> analytic slab test against collider AABBs when prop batching made mesh raycasts cost
+> 1.37 ms/frame. Adding a sphere to an analytic path is a few operations; adding one to
+> a mesh raycast pass would have been a second full raycast per enemy per tick.
+>
+> **One real bug, found by measuring rather than by reading.** The claymore's facing was
+> captured in the object literal *after* `vel: dir.multiplyScalar(speed)` had already
+> mutated `dir` in place, so it stored the velocity — magnitude ~6.7 — instead of a unit
+> vector. The cone test `dot / d >= 0.5` then meant `cos >= 0.075`: an **86-degree**
+> half-angle instead of 60, which is most of a hemisphere and not a directional mine at
+> all. Fixed by moving the cone test into `CORE.coneHit`, which normalises the facing
+> itself, so no caller can reintroduce it.
+>
+> 22 new node tests (156 total). Mutation-checked 15 of 15, including reverting smoke to
+> an infinite-line test, making the flash ignore facing, and re-granting a streak on
+> every kill past its threshold. One apparent survivor was a broken mutation that added
+> an unused field instead of changing the one under test; corrected, it kills.
+>
+> **Still open from `COD_ROADMAP.md`:** Phase 12 (special waves, gated map areas, elite
+> variants, objective waves) and Phase 13 (XP, unlocks, attachments, camos).
+
+> **Phase 12 — wave and map design.** The last behaviour unlock was at wave 12 and the
+> last archetype at wave 9, so waves 13-30 were the same fight with larger numbers — the
+> exact failure Phase 4 diagnosed at wave 8 and fixed once. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | wave 5 / 10 / 15 / 20 | identical in kind | **BLITZ / BLACKOUT / IRONCLAD / MARKSMAN**, cycling |
+> | composition, a normal wave 14 | all 6 kinds | unchanged |
+> | composition, Blitz | n/a | **runners and scouts only** |
+> | composition, Ironclad | n/a | **tanks and shielded only**, HP x1.15 measured |
+> | composition, Marksman | n/a | **riflemen only**, +0.12 accuracy |
+> | Blackout | n/a | 3 lights to **10%**, fog 150 -> 42 m, fully reversible |
+> | Blitz movement | n/a | speedMul **x1.147** over 40 spawns (target 1.15) |
+> | elites | none | from wave 11, **6% -> 28%** capped, HP **x2.2**, score **x3** |
+> | map | all open at deploy | **two districts gated**, 1500 and 750 CR |
+> | gated weapons | n/a | **SV-98 and MK18 behind doors** |
+> | spawn ring while sealed | 12 points | **10**, and the two removed are exactly the sealed ones |
+> | draw calls, wave-15 load | 86 | **111-130** |
+>
+> **Gating an arena risks re-opening BUG-01**, so it was measured against the Phase 1
+> criterion rather than assumed. Spawning into a sealed district would queue bodies in a
+> space nothing can path out of, so sealed districts are excluded from the spawn ring and
+> `usableSpawnPoints` guarantees the ring survives. Reachability through the real
+> `updateEnemies` path, three trials each: **100% of agents within 5 m, 0 stranded, 0
+> frames inside the player, max enemy Y = 0** — sealed *and* open. A single agent stops at
+> 1.82 m either way.
+>
+> An earlier reading of "83% sealed vs 75% open" at a 3 m threshold was a bad threshold,
+> not a defect: with 10-12 agents converging on one 1.9 m stop ring, the outer ones sit at
+> 3.1-4.6 m by geometry. Sealing was never the variable — the open case scored *lower*.
+>
+> **A real bug the measurement caught: the queue cap was applied before the multiplier.**
+> `endlessEnemyCount` capped the raw curve at 60 and a Blitz wave then doubled the capped
+> number, so wave 25 queued **120** bodies against a ceiling meant to be 60. One function,
+> `CORE.waveQueueSize`, now owns the final count with the cap last.
+>
+> **Draw calls are up, and that is content, not a regression in the batcher.** 15 stations,
+> two barrier walls and two door meshes are spread across spatial regions, and
+> `planStaticBatches` keys on material *x region* — 38 batches became 70. Sharing one
+> material per station kind was correct but moved nothing, because the split is spatial.
+> Raising `regionSize` would merge more at the cost of the frustum culling and raycast
+> rejection Phase 2 deliberately preserved; that is a tuning decision, not a cleanup, and
+> is left open.
+>
+> 18 new node tests (172 total). Mutation-checked 14 of 14 after strengthening two weak
+> ones — a district bounds test that only pinned X, and a queue floor never exercised at a
+> small enough multiplier.
+>
+> **Not done, deliberately:** 12.4 objective waves. `COD_ROADMAP.md` scheduled them after
+> special waves proved out, and they now have a proven mechanism to build on.
+> **Still open:** Phase 13 (XP, unlocks, attachments, camos).
+
+> **Physics pass — a reported bug, ragdolls, and fall damage.** Player-reported: shots
+> land through the second-floor slab after climbing the stairs. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | 60 shots fired, player climbs before impact | **36 land** | **0 land** |
+> | 60 shots fired, player stays in the open | 36 land | **36 land**, unchanged |
+> | enemy death | one clip, identical every time | **7-node verlet ragdoll** |
+> | same enemy shot from -z / +z / -x / +x | identical fall | **4 distinct outcomes** |
+> | headshot vs body shot vs graze | identical | 0.75 m / 0.66 m / 0.49 m travel |
+> | corpse on a 1.5 m crate | sank through the floor | **drapes over it**, 0 nodes inside |
+> | a 6.9 m drop off the roof | free | **damage and a landing stun** |
+>
+> **The bug was not the line-of-sight test, which was correct.** A ground-floor agent
+> cannot see a player on the slab: sampling all 441 ground cells against a player at the
+> centre of the second floor, exactly 9 have a sightline and none is inside the building -
+> all nine line up with the external staircases, which is a real opening. The defect was
+> that `enemyShoot` schedules its damage through `setTimeout`, up to 300 ms out, and
+> re-checked only `runId`, `started` and `paused`. A sprinting player covers ~2.7 m in
+> that window - up the stairs and behind the slab. Cover is now re-tested at impact,
+> against both geometry and smoke.
+>
+> **Deaths are simulated, not animated.** `CORE.makeRagdoll` builds seven particles -
+> pelvis, chest, head, two arms, two legs - matching the GLB rig bone for bone, and solves
+> distance constraints with verlet integration. Verlet rather than force/velocity because
+> position-based dynamics is unconditionally stable under the stiff constraints a skeleton
+> needs; a spring stiff enough to look like a bone explodes at 60 Hz. The killing shot
+> direction, magnitude and body part become the impulse, weighted by inverse mass.
+>
+> One simulation drives two bodies: the GLB rig is steered bone by bone in parent space,
+> and the box-man parts are reparented to the scene and driven in world space. If the rig
+> ever stops matching, bone aiming is skipped and the body still tumbles from the root.
+>
+> The first pass splayed corpses into a starfish - a seven-point chain with weak
+> cross-links has nothing resisting the limbs swinging flat. Stiffening the braces fixed
+> it; the body now holds a silhouette and still drapes over whatever it lands on.
+>
+> **Fall damage exists now.** The original code said "fall damage: none (arena is flat)",
+> which stopped being true the moment the Phase 9 mantle put the player on crates,
+> containers and the roof. The curve is quadratic with a soft shoulder rather than a cliff -
+> putting a damage cliff back would repeat BUG-07 exactly. A hard landing also costs
+> momentum and a quarter-second of sprint and jump.
+>
+> 33 new node tests (187 total). Mutation-checked 12 of 12 after strengthening one weak
+> test that compared the struck node against an unstruck one, where the spread factor
+> already differentiated them and inverse mass was never exercised.
+
+> **Phase 13 — meta progression.** Career stats already survived a reload and nothing
+> was ever unlocked by them, so a second run started exactly like the first. Measured:
+>
+> | | before | after |
+> |---|---|---|
+> | a fresh career | 4 weapons, no progression | **rank 1, 2 of 4 weapons, 8 challenges** |
+> | one run (wave 12, 180 kills, 55% acc) | nothing changed | **+4600 XP, rank 1 -> 4**, SCAR-H unlocked |
+> | a locked weapon | n/a | shown as **LOCKED - RANK 6**, not clickable |
+> | the menu | best score / wave / accuracy | **rank bar + XP + 8 challenge cards** |
+>
+> **Rank is derived from XP rather than stored**, so a corrupt rank cannot exist — only
+> a corrupt XP total, which `sanitizeStats` already clamps. The curve is quadratic: rank
+> 2 costs 1098 and rank 20 costs 88578, so early ranks land inside the first two runs and
+> the last ones still mean something.
+>
+> **XP rewards difficulty rather than duration.** Headshots pay more than body shots,
+> accuracy pays quadratically, and wave value accelerates so wave 10 beats wave 5 twice
+> over. Accuracy is clamped at 100 so a bogus 900% cannot mint XP.
+>
+> Locked weapons are shown rather than hidden: knowing what is coming is most of what a
+> progression system is for.
+>
+> **One of my own assertions was wrong and was removed rather than worked around.** It
+> compared one deep run against fourteen shallow ones and required the deep one to win —
+> fourteen runs bank fourteen runs of kills, so that can never hold and should not. The
+> test now pins the property that matters: each wave is worth more than the one before.
+>
+> 24 new node tests (211 total). Mutation-checked 16 of 17; the survivor is a confirmed
+> equivalent mutant, because the rank loop never advances on negative input and
+> `rankProgress` clamps separately.
+>
+> **Still open, and the last two items in `COD_ROADMAP.md`:** 12.4 objective waves, and
+> 13.3 attachments — the largest single task in the document, and one that wants its own
+> pass now that recoil patterns and bloom exist for it to modify.
+
+> **Attachments and objective waves — the roadmap is complete.** The last two items,
+> and attachments were sequenced last on purpose: one that modifies a *random* recoil
+> value modifies nothing a player can perceive. Measured with a full five-slot loadout
+> on the M4:
+>
+> | | base | with attachments |
+> |---|---|---|
+> | magazine / reserve | 30 / 150 | **42 / 180** |
+> | reload | 2.10 s | **2.56 s** |
+> | range | 120 m | **150 m** |
+> | vertical / horizontal recoil | 0.01400 / 0.00600 | **0.00967 / 0.00420** |
+> | ADS speed / sway / ADS movement | 1.00 | **0.92 / 0.60 / 0.85** |
+> | penetration budget (AR) | 0.75 | **0.975** |
+>
+> Every mod is a multiplier on a named field, so nothing in CORE knows what a weapon
+> is, and the base is never mutated. **Every attachment is a trade** — a test asserts
+> that none has an empty downside, because an all-upside attachment turns the choice
+> into a checklist.
+>
+> The gunsmith is a screen off the **main menu**, not a step in the deploy flow: a
+> loadout is a career choice, and adding a step would have broken
+> `scripts/probe_live.py` for the second time. Loadouts are re-sanitised against the
+> current rank on every read, so one saved at a higher rank cannot be carried by a wiped
+> career.
+>
+> **Objective waves** land on waves 4, 8, 12, 16, 24 — never on a special wave, because
+> two announced modifiers at once reads as noise. Verified: 3 s outside banks nothing,
+> 5 s inside banks 5.02, leaving drains 5.02 → 3.01 over 4 s, and a completed hold pays
+> 900 credits. Progress **drains** when the player leaves; without that it is "stand here
+> once", which is not a hold.
+>
+> 21 new node tests (232 total). Mutation-checked 15 of 15 — but only after three
+> survivors turned out to be weak tests rather than equivalent mutants: a magazine floor
+> never exercised because 1 × 0.85 rounds back to 1; a type guard tested with values that
+> silently coerce instead of producing NaN; and a minimum-distance floor that agrees with
+> the placement scoring on every normal input, so only a contrived arrangement separates
+> them.
+
+> **Melee through the floor, and a 9x cheaper ragdoll.** The through-floor report was
+> still valid: the earlier fix was real but addressed the wrong path. Enumerating every
+> `damagePlayer()` call site found the one that mattered.
+>
+> | | before | after |
+> |---|---|---|
+> | enemy below, player on the slab — melee hits | **1 in 8 s** | **0** |
+> | same, enemy shoved through the slab | **1.83 m** | **0 m** |
+> | player on the ground, same enemy — control | 1 hit, held at 1.82 m | **unchanged** |
+> | ragdoll cost, 10 corpses per frame | **0.407 ms** | **0.043 ms** (9.4x) |
+> | box tests per corpse per frame | 6,216 | **~80** |
+>
+> **Melee was vertical-blind.** `distToPlayer()` is horizontal by design — BUG-02 made
+> every gameplay radius horizontal because `player.pos` sits at eye height, and a 3-D
+> distance read 1.7 m of pure height as separation. That was right, and is still right
+> for the push-out. It is only half the answer for REACH: horizontal-only makes a whole
+> storey invisible, so an agent on the ground floor measured **0.000 m** from a player
+> 5.85 m above it and swung through the concrete. No line of sight was involved, which is
+> exactly why the bullet fix did nothing for it.
+>
+> `CORE.withinReach` now gates melee and the stop-and-hold on both axes, with a
+> deliberately generous 2.0 m vertical allowance: an agent on a crate must still reach a
+> player beside it, and only a storey should break contact.
+>
+> **Checked and not broken:** the grenade path already blocks correctly (0 damage from a
+> blast one floor below, 43 from the same floor).
+>
+> **The ragdoll was doing 6,216 box tests per corpse per frame** — six iterations, a full
+> collision pass inside each, every pass walking all 148 colliders, up to ten corpses at
+> once. Colliders are now narrowed to those near the body before the solve, collision
+> runs on the last two iterations rather than all of them, and four iterations hold the
+> skeleton as well as six. A test asserts the broad phase is invisible in the result: a
+> body settles identically with 200 distant boxes in the list and without them.
+>
+> 9 new node tests (241 total). Mutation-checked 10 of 10.
+
+> **Integration pass.** Thirteen phases had been tested system by system and never
+> together. A scripted run drove the whole update stack at a fixed timestep; a second
+> measurement rendered a worst case with every system live at once.
+>
+> | | |
+> |---|---|
+> | simulated frames, zero console errors | **108,000** |
+> | geometry growth over that run | **0** |
+> | worst case: 14 enemies + 8 corpses + smoke + thermite + sentry + munitions + objective + UAV | **3.3–3.7 ms/frame, 268–284 draw calls, ~46k triangles** |
+>
+> Two defects, both only visible with everything running. **`killPlayer()` left
+> `player.downed` set** — a second lethal hit while already down arrives there directly
+> rather than through `updateDowned()`, the only path that cleared it, so the
+> "BLEEDING OUT" timer stayed on screen behind the death screen. Found because the
+> harness reported `dead:true` and `downed:true` at once, a combination that cannot
+> legitimately exist. And **corpses kept whatever shadow-caster state they died with**:
+> `updateEnemyShadowBudget` walks only the live roster, and an agent leaves it the
+> moment it dies, so a soldier killed while it was one of the nearest N paid for a
+> shadow pass forever while lying flat on the floor.
+>
+> **Two things measured badly and reported as such rather than estimated.** The
+> draw-call saving from the corpse shadow fix could not be A/B'd: corpses expire after
+> about five seconds, shorter than a stable measurement window, so the second arm ran
+> with zero corpses every time. And nothing here says anything about mid-range Android,
+> because the emulator runs a desktop GPU.
+>
+> A harness limitation worth not mistaking for a balance signal: the scripted bot fired
+> exactly its 180 rounds, ran dry and stalled, because it never walks to the ammo cache
+> `updateAmmoRelief` drops for it. A bot that cannot move is not a difficulty test.
+
+> **Draw-call pass.** The one open performance risk from the integration check, and the
+> reason to act on it is that mobile is an advertised platform. Where the calls went, at
+> a wave-15 load with everything live: **70 static batches, 56 live enemy meshes, 32
+> shadow-pass, 32 corpse meshes.** Corpses were the surprise — more draw calls than the
+> live roster's entire shadow pass, for bodies lying flat on the floor.
+>
+> `RAGDOLL_BUDGET` only limited how many corpses were *stepped*; every corpse still
+> rendered and nothing capped how many existed. `RAGDOLL_MAX` caps the count at six
+> (three on touch) and retires the oldest.
+>
+> `STATIC_REGION_SIZE` was 30 m, chosen in Phase 2 without measuring the trade — and
+> Phase 2 chose region batching precisely so frustum culling and raycast rejection keep
+> working, so both had to be measured, not just the draw calls:
+>
+> | region | batches | draw calls (centre/spawn/corner) | AI LOS | fireShot |
+> |---|---|---|---|---|
+> | 30 m | 70 | 219 / 137 / 136 | 0.0165 ms | 0.267 ms |
+> | **45 m** | **49** | **194 / 120 / 118** | 0.0222 ms | 0.267 ms |
+> | 90 m (one region) | 47 | 194 / 118 / 117 | 0.0228 ms | 0.280 ms |
+>
+> 45 m buys 21 fewer batches and 25 fewer draw calls for **0.0057 ms** of extra
+> line-of-sight work against a 16.7 ms budget. Collapsing to a single region buys
+> nothing more and costs more on *both* raycast paths — the culling loss Phase 2 was
+> protecting against, showing up on the measurement.
+>
+> Full worst case on the final build — 14 enemies with elites, 6 corpses, smoke,
+> thermite, a sentry, a munitions box, a live objective and a UAV: **275 draw calls,
+> ~50k triangles, 3.31 ms/frame.** 302 fps on a desktop GPU, and still silent on phones.
+>
+> **Methodology note:** the region comparison is the trustworthy number because the
+> three builds were measured back to back on the same scene. Every attempt to A/B the
+> corpse changes over a timed window failed the same way — corpses expire in about five
+> seconds, shorter than a stable window, so the second arm ran with zero bodies. The
+> corpse cap is therefore claimed as a count reduction, not a timing one.
+
+> **The live probe, extended — and what it caught.** With Playwright's browsers
+> installed, `scripts/probe_live.py` runs again. It passed **17/17** against everything
+> built in Phases 9-13 unchanged.
+>
+> It was then extended by eleven checks, because the two bugs that actually bit had unit
+> tests in CORE that could not have caught either: the melee one was a
+> horizontal-distance check in the engine layer, the bullet one a `setTimeout` callback.
+> Neither is reachable from a pure function. **Every new check carries a control** —
+> "0 damage taken" is also what a broken shooter looks like.
+>
+> | | |
+> |---|---|
+> | `no-melee-through-floor` | with `melee-still-works-same-floor` |
+> | `no-bullets-through-floor` | with `bullets-still-land-in-the-open` |
+> | corpses: capped, cleared from the AI list, settle, stay above ground, cast no shadows, clean up | |
+> | `no-geometry-growth` | across sustained grenade combat |
+>
+> **The new checks found a defect immediately.** `corpses-stay-above-ground` failed with
+> legs at **y = −0.11**. For a node resting inside a crate that stands *on* the ground,
+> the box's bottom face is usually the shallowest way out — 0.59 m down against 1.13 m
+> up — so the push-out chose it and drove the node below zero. The ground clamp could not
+> help, because it runs earlier in the same call. The downward exit is now unavailable
+> when it would breach the ground, and remains available when the box is genuinely
+> overhead.
+>
+> It reproduced on the real crates at z = 30 and **not** in any synthetic box tried
+> first, which is precisely why it belonged in the probe rather than a unit test.
+>
+> Probe **28/28**, zero console errors. 243 node + 15 python tests.
+
+> **CI: the probe was already wired; what it needed was proving.** The workflow has run
+> `scripts/probe_live.py` on every push since Phase 0, so the eleven checks added above
+> were enforced the moment they landed. The useful work was verification, not plumbing.
+>
+> **A regression guard nobody has watched go red is a guess.** Reintroducing the melee
+> vertical gate — the exact bug reported twice — produced `PROBE FAILED: 1 of 28 checks /
+> x no-melee-through-floor`, exit code 1. The control passed in the same run, so the
+> failure is specific rather than the whole probe collapsing.
+>
+> A failing check used to be one `"ok": false` buried in a 28-entry JSON dump, which in a
+> CI log gets re-run rather than fixed. The probe now prints a summary to stderr first —
+> count, names, console errors — with the JSON still following for machine consumers.
+>
+> The job also had no `timeout-minutes`, so a hung Chromium would have burned the default
+> six-hour limit on a run that could never finish. Capped at twenty, against a suite that
+> takes about two.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

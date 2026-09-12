@@ -187,7 +187,8 @@ function skClone(source) {
   return clone;
 }
 
-function spawnEnemy(kind, x, z) {
+function spawnEnemy(kind, x, z, opts) {
+  const spawnOpts = opts || {};
   let parts = null;
   let mixer = null;
   let actions = null;
@@ -244,11 +245,19 @@ function spawnEnemy(kind, x, z) {
     : 320;
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const waveMul = CORE.endlessHpMultiplier(Math.max(1, curWave), CFG.wave.victoryWave);
-  const hp = Math.round(baseHp * waveMul * diff().hp);
+  // Special waves and elite rolls both scale the same base rather than adding a
+  // parallel stat path: an Ironclad elite tank is one multiply, not a special case.
+  const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
+    ? waveSpecial.hpMul : 1;
+  const isElite = !!spawnOpts.elite;
+  const hp = Math.round(baseHp * waveMul * diff().hp * specialHp * (isElite ? CORE.ELITE.hpMul : 1));
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
-    kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    blindT: 0, stunT: 0,      // flashbang / stun grenade timers
+    elite: isElite,
+    kind: kind,
+    eliteRing: null,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
     yaw: initYaw,
@@ -274,7 +283,10 @@ function spawnEnemy(kind, x, z) {
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
-    speedMul: 0.85 + Math.random() * 0.3,
+    // speedMul is the single knob every movement state multiplies through, so a
+    // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
+    speedMul: (0.85 + Math.random() * 0.3) * (isElite ? CORE.ELITE.speedMul : 1)
+      * ((typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
     attackT: 0,
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
@@ -341,12 +353,29 @@ function shieldMultiplier(en, point) {
   return facing > SHIELD_ARC ? 0.15 : 1;                   // 85% absorbed head-on
 }
 
-function damageEnemy(en, dmg, point, isHead) {
+function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
+  // Remember where this shot came from and what it struck. If it turns out to be
+  // the killing blow, the ragdoll is launched along it.
+  en._lastHitNode = isHead ? 'head' : 'chest';
+  if (point) {
+    const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
+    const hl = Math.hypot(hx, hz) || 1;
+    en._lastHitDirX = hx / hl;
+    en._lastHitDirZ = hz / hl;
+  }
+  en._lastHitForce = dmg;
   const shield = isHead ? 1 : shieldMultiplier(en, point);
   if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
-  en.health -= dmg * shield;
-  showHitmarker(isHead);
+  // INSTA-KILL turns any connecting shot lethal, including one that a shield
+  // would otherwise have absorbed.
+  const lethal = typeof powerActive === 'function' && powerActive('instakill');
+  en.health -= lethal ? en.health + 1 : dmg * shield;
+  // Feedback tiers: a blocked shot used to give the identical ping to a clean body
+  // hit, so the shield mechanic was invisible unless you read the patch notes.
+  showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
+  addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
+  addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
   else {
@@ -358,11 +387,28 @@ function damageEnemy(en, dmg, point, isHead) {
 
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
-  addScore(CFG.score.kill + (isHead ? CFG.score.headshot : 0), isHead ? 'Headshot kill' : 'Hostile down');
+  // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
+  // rather than firing it across the arena.
+  const force = Math.min(0.085, 0.012 + (en._lastHitForce || 20) * 0.00035);
+  spawnRagdoll(en, {
+    node: en._lastHitNode || 'chest',
+    x: (en._lastHitDirX || 0) * force,
+    y: (isHead ? 0.030 : 0.016) + Math.random() * 0.008,
+    z: (en._lastHitDirZ || 0) * force,
+    spread: 0.3
+  });
+  const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
+  addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
+    en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
+  if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
   registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
   kills++;
   if (isHead) headshots++;
-  dropPickup(en.pos);
+  // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
+  // dropped a magazine would waste the drop.
+  if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
+  else dropPickup(en.pos);
+  registerStreakKill();
   playSound('kill');
 }
 
@@ -374,6 +420,14 @@ function killEnemy(en, isHead) {
 // they must all be measured horizontally or enemies walk into the player's body.
 function distToPlayer(en) {
   return CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
+}
+
+// Feet-to-feet vertical separation. distToPlayer is horizontal by design (BUG-02),
+// which makes a whole storey invisible to it: an agent on the ground floor measures
+// zero distance from a player on the slab above. Anything that means "can touch"
+// has to consult this as well.
+function vertGapToPlayer(en) {
+  return (player.pos.y - eyeHeight()) - en.pos.y;
 }
 
 // ---- Shared flow field ------------------------------------------------------
@@ -516,7 +570,12 @@ function hasLOS(en) {
   // "is a wall in the way" does not need triangle precision.
   const blocked = CORE.segmentBlocked(
     _losFrom.x, _losFrom.y, _losFrom.z,
-    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25);
+    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25)
+    // Smoke is one sphere test on a path that is already analytic, which is the
+    // only reason it is affordable — a second mesh raycast per enemy per tick
+    // would not have been.
+    || CORE.smokeBlocks(_losFrom.x, _losFrom.y, _losFrom.z,
+        _losTo.x, _losTo.y, _losTo.z, smokeVolumes());
   en._losCache = !blocked;
   return !blocked;
 }
@@ -552,7 +611,31 @@ function updateEnemyShadowBudget(dt) {
   for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
 }
 
+// A stun slows; a flash stops the agent shooting and scrambles its facing. Both
+// are read by moveEnemy (speedMul) and enemyShoot (blindT) rather than by a new
+// state, so no archetype needs to know they exist.
+function updateStatusEffects(dt) {
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (en.stunT > 0) {
+      en.stunT = Math.max(0, en.stunT - dt);
+      en.speedMul = en.baseSpeedMul === undefined ? (en.speedMul || 1) : en.baseSpeedMul;
+      if (en.baseSpeedMul === undefined) en.baseSpeedMul = en.speedMul;
+      en.speedMul = en.baseSpeedMul * 0.35;
+    } else if (en.baseSpeedMul !== undefined) {
+      en.speedMul = en.baseSpeedMul;
+      en.baseSpeedMul = undefined;
+    }
+    if (en.blindT > 0) {
+      en.blindT = Math.max(0, en.blindT - dt);
+      en.yaw += dt * 1.6;          // wanders instead of holding an aim
+    }
+  }
+}
+
 function updateEnemies(dt) {
+  updateStatusEffects(dt);
   losFrame++;
   updateFlowField(dt);
   updateEnemyShadowBudget(dt);
@@ -560,21 +643,9 @@ function updateEnemies(dt) {
     const en = enemies[i];
     if (en._losSkip === undefined) en._losSkip = i % 3;
     if (en.dead) {
-      // death animation: GLB die clip or fall-over for box-man, then sink+remove
-      en.deathT += dt;
-      const p = en.parts;
-      if (en.actions) {
-        setEnemyAnim(en, 'die', 0.1);
-        if (en.mixer) en.mixer.update(dt);
-      } else {
-        p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
-      }
-      p.group.position.y = en.pos.y - Math.max(0, en.deathT - 1.2) * 0.6;
-      if (en.deathT > 4) {
-        scene.remove(p.group);
-        disposeEnemyGeometry(en);
-        enemies.splice(i, 1);
-      }
+      // The corpse belongs to the ragdoll simulation from here; drop it from the
+      // AI list immediately so nothing pathfinds, shoots or collides on its behalf.
+      enemies.splice(i, 1);
       continue;
     }
     // DEAD PLAYER: stop all AI activity — enemies wander/idle, never attack a corpse
@@ -660,7 +731,10 @@ function updateEnemies(dt) {
     // Applies to every kind, not a hand-kept list: anything that can reach the
     // player must be pushed back out, or it occupies the player's position.
     const stopDist = CORE.enemyStopDistance(en.kind);
-    if (dist < stopDist) {
+    // Only hold and push out against a player on the same level. Without the
+    // vertical gate a player upstairs shoves agents around on the floor below —
+    // measured at 1.83 m of displacement through a concrete slab.
+    if (CORE.withinReach(dist, vertGapToPlayer(en), stopDist)) {
       // back off slightly if overlapping the player capsule
       const overlap = stopDist - dist;
       if (overlap > 0) {
@@ -685,7 +759,7 @@ function updateEnemies(dt) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
         // swing lands — only if still in reach and player alive
-        if (dist < reach + 0.35 && !player.dead) {
+        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           const now = gameT;
           meleeHits = meleeHits.filter(t => now - t < 0.8);
@@ -813,21 +887,40 @@ function showCenterMsgThrottled(txt) {
 const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
+  if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  const eliteDmg = en.elite ? CORE.ELITE.dmgMul : 1;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   const to = _eshotTo.copy(player.pos);
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
-  const acc = Math.min(CFG.ai.accMax, CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave);
+  const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
+    ? waveSpecial.accBonus : 0;
+  const acc = Math.min(CFG.ai.accMax + accBonus,
+    CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
   if (Math.random() < acc) {
-    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg;
+    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg * eliteDmg;
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;
+    // `from` is a shared scratch vector that the next shot overwrites, so capture
+    // scalars. Same for the hit direction: the shooter may have moved by impact.
+    const ox = from.x, oy = from.y, oz = from.z;
+    const hitDeg = dirToDeg(en);
     setTimeout(function () {
       if (runId !== firedInRun) return;
-      if (!player.dead && started && !paused) damagePlayer(dmg, dirToDeg(en));
+      if (player.dead || !started || paused) return;
+      // Re-check cover at IMPACT, not only at the trigger pull. The shot is
+      // delayed by up to 300 ms for feel, and a sprinting player covers ~2.7 m in
+      // that time — enough to climb the stairs and get behind the second-floor
+      // slab. Without this, rounds fired a moment ago land through the floor the
+      // player has already reached, which reads as being shot through the ceiling.
+      if (CORE.segmentBlocked(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+      if (CORE.smokeBlocks(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+      damagePlayer(dmg, hitDeg);
     }, Math.min(300, dist * 2.2));
   }
 }

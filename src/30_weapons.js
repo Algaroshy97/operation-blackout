@@ -12,8 +12,38 @@ function initWeapons() {
     const w = CFG.weapons[gi];
     wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
   }
+  refreshAllWeaponStats();
+  // Attachments can raise the magazine, and a fresh deploy should start full.
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || !wState[i].eff) continue;
+    wState[i].ammo = wState[i].eff.mag;
+    wState[i].reserve = wState[i].eff.reserveMax;
+  }
 }
-function curW() { return CFG.weapons[weaponsOwned[curWeapon]]; }
+// Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
+// ~30 call sites without touching any of them. `s.up` is a whole stat block built
+// by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
+// runs and an in-place upgrade would leak into the next one.
+// Returns the EFFECTIVE weapon: base, then the armory upgrade, then attachments.
+// Cached on the slot rather than recomputed, because curW() is called many times a
+// frame and applyAttachments allocates.
+function curW() {
+  const s = wState[curWeapon];
+  if (s && s.eff) return s.eff;
+  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+}
+// Recompute a slot's effective stats. Must be called whenever the loadout, the
+// weapon or the armory upgrade changes — there is no other path that updates it.
+function refreshWeaponStats(slot) {
+  const s = wState[slot];
+  if (!s || weaponsOwned[slot] < 0) return;
+  const base = s.up || CFG.weapons[weaponsOwned[slot]];
+  s.eff = CORE.applyAttachments(base, getLoadout(weaponsOwned[slot]));
+  // An extended magazine must not leave the weapon holding more than it can.
+  if (s.ammo > s.eff.mag) s.ammo = s.eff.mag;
+  if (s.reserve > s.eff.reserveMax) s.reserve = s.eff.reserveMax;
+}
+function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
@@ -56,7 +86,7 @@ function updateWeapons(dt) {
   const w = curW();
   if (s.reloading) {
     s.reloadT += dt;
-    if (s.reloadT >= w.reload) {
+    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
       const need = w.mag - s.ammo;
       const take = Math.min(need, s.reserve);
       s.ammo += take; s.reserve -= take;
@@ -75,6 +105,14 @@ function updateWeapons(dt) {
       if (s.reserve > 0) tryReload();
     }
   } else { dryPlayed = false; }
+  // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
+  // hipfire number while scoped would recover an ADS bloom far too fast.
+  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
+  bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
+  if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
+  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+  // KeyF became USE when stations landed, which is where CoD players expect it.
+  if ((pressed['KeyV'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
@@ -104,7 +142,7 @@ function updateSway(dt) {
   steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
   if (steadyActive) steadyT = Math.max(0, steadyT - dt);
   else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1);
+  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (curW().sway || 1);
   swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
   swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
 }
@@ -171,15 +209,22 @@ function fireShot() {
   shotsFired++;
   s.ammo--;
   s.nextShot = gameT + 60 / w.rpm;
-  // spread
-  const spread = adsDown() ? w.adsSpread : w.spread;
-  const spreadMul = 1 + Math.min(1.2, hSpeedForSpread * 0.25) + (player.onGround ? 0 : 0.8);
+  // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
+  // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
+  // shot 30, so there was no reason to ever tap-fire and no cost to holding.
+  const ads = adsDown();
+  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  bp.cap *= CORE.perkBloomMul(perks);
+  const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
+    hSpeedForSpread, !player.onGround);
+  bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _shootDir.x += (Math.random() - 0.5) * 2 * spread * spreadMul;
-  _shootDir.y += (Math.random() - 0.5) * 2 * spread * spreadMul;
-  _shootDir.z += (Math.random() - 0.5) * 2 * spread * spreadMul * 0.3;
+  _shootDir.x += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.y += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.z += (Math.random() - 0.5) * 2 * spreadNow * 0.3;
   _shootDir.normalize();
   // bullet magnetism (small snap onto enemy center-mass)
   _shootDir.copy(magnetizeBullet(_shootDir, _from));
@@ -194,25 +239,31 @@ function fireShot() {
   }
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
   const enemyHits = raycaster.intersectObjects(targets, true);
-  let hit = null, isEnemy = false, isHead = false;
-  if (enemyHits.length && worldHits.length) {
-    const w0 = worldHits[0];
-    if (enemyHits[0].distance <= w0.distance) {
-      hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
-    } else {
-      hit = w0;
+  // Penetration is resolved against the collider AABBs rather than the rendered
+  // meshes, and deliberately: the static arena is merged into batched meshes, so a
+  // mesh raycast reports the entry AND exit faces of every box in a batch and
+  // cannot tell one wall from two. The colliders are one entry per box and carry
+  // the material tag.
+  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
+  const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
+    _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
+  let hit = null, isEnemy = false, isHead = false, penMul = 1;
+  if (enemyHits.length) {
+    const m = CORE.penetrationMulAt(penWalk, enemyHits[0].distance);
+    if (m > 0) {
+      hit = enemyHits[0]; isEnemy = true;
+      isHead = !!hit.object.userData.isHead;
+      penMul = m;
     }
-  } else if (enemyHits.length) {
-    hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
-  } else if (worldHits.length) {
-    hit = worldHits[0];
   }
+  if (!isEnemy && worldHits.length) hit = worldHits[0];
 
   if (hit && isEnemy) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
-    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(hit.distance, w.range);
-    damageEnemy(en, dmg, hit.point, isHead);
+    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1)
+      * distanceFalloff(hit.distance, w.range) * penMul;
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
@@ -223,20 +274,62 @@ function fireShot() {
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') { adsAmount *= 0.45; }
   // recoil
-  player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
-  player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
+  // Learnable pattern, not noise. The old model was +/-20% random vertical and a
+  // zero-mean random horizontal, so there was no shape to pull against and no
+  // amount of practice could improve a burst. The same burst now traces the same
+  // shape every time, with a few percent of jitter so it is not mechanical.
+  recoilShot = CORE.recoilShotIndex(recoilShot, gameT - lastShotT);
+  lastShotT = gameT;
+  const rk = CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
+    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
+  player.recoilP += w.recoilV * rk.y;
+  player.recoilY += w.recoilH * rk.x;
   shotKick = Math.min(shotKick + 0.5, 1.4);
   if (w.type === 'SR') playSound('sniper'); else playSound('shot');
   triggerMuzzleFlash();
   flashMuzzleLight();
   updateHudAmmo();
 }
+// ---- Melee ----
+// A runner that had closed inside its 1.9 m stop distance had no counter but
+// backpedalling, which is exactly the situation a knife exists to solve. Targets
+// are filtered by a forward cone rather than taken nearest-first, so the swing
+// goes where the player is looking.
+function doMelee() {
+  meleeT = CORE.MELEE_COOLDOWN;
+  meleeSwing = 1;
+  playSound('melee');
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  _meleeTargets.length = 0;
+  for (let i = 0; i < enemies.length; i++) {
+    _meleeTargets.push({ x: enemies[i].pos.x, z: enemies[i].pos.z, dead: enemies[i].dead });
+  }
+  const idx = CORE.meleeTarget(_meleeTargets, player.pos.x, player.pos.z,
+    dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  if (idx < 0) return;
+  const en = enemies[idx];
+  _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
+  damageEnemy(en, CORE.MELEE_DAMAGE, _meleePoint, false);
+}
+
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
 // version was a binary step: an M4 did 26 damage at 71 m and 16.9 at 72 m, moving
 // shots-to-kill from 4 to 6 across a single metre with no feedback to the player.
 function distanceFalloff(dist, range) { return CORE.distanceFalloff(dist, range); }
 let hSpeedForSpread = 0;
 let shotKick = 0;
+
+// ---- Recoil pattern + bloom state ----
+// recoilShot indexes the current weapon's pattern; it resets after a gap off the
+// trigger so shot 1 of every burst behaves like shot 1. bloom is carried in the
+// same units as the weapon's base spread and simply adds to it.
+let recoilShot = 0;
+let lastShotT = -99;
+let bloom = 0;
+let meleeT = 0;        // cooldown / lockout
+let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
+const _meleeTargets = [];
+const _meleePoint = new THREE.Vector3();
 
 // ---- Viewmodel (procedural low-poly gun) ----
 // Rendered as a child of the camera in the MAIN render pass (single-pass, driver-proof).
@@ -346,7 +439,8 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * dt);
+  adsAmount += ((aimAds ? 1 : 0) - adsAmount)
+    * Math.min(1, 12 * CORE.perkAdsMul(perks) * (curW().adsSpeed || 1) * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;

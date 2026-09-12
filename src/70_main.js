@@ -22,6 +22,10 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  // A second lethal hit while already down comes straight here, so the bleed-out
+  // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
+  // stays on screen behind the death screen until the next deploy.
+  if (typeof clearDowned === 'function') clearDowned();
   stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
@@ -33,7 +37,8 @@ function killPlayer() {
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   clearCheckpoint();   // a lost run is not resumable
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: false });
   $id('ds-stats').innerHTML =
     'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
@@ -50,7 +55,8 @@ function victory() {
   if (document.pointerLockElement) document.exitPointerLock();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: true });
   $id('vs-stats').innerHTML =
     'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
@@ -121,11 +127,22 @@ function resetGame() {
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
   player.health = CFG.player.health; player.armor = CFG.player.armor;
+  player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
+  player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
+  resetRagdolls();
+  player.airSpeedY = 0; player.landStunT = 0;
+  updateHudPlates(); updateHudPerks();
+  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
+  credits = 0;
+  powerUntil.double = -99; powerUntil.instakill = -99;
+  if (hud.credits) hud.credits.textContent = '0';
   runId++;   // invalidate anything the previous run scheduled
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
@@ -150,6 +167,79 @@ function resetGame() {
 // ---- Settings panel ---------------------------------------------------------
 // Built from CORE.SETTINGS_SCHEMA so a new setting needs one schema entry, not a
 // schema entry plus a hand-written row plus a hand-written validator.
+// ---- Gunsmith ----------------------------------------------------------------
+// Which weapon the screen is currently editing. Per-screen state, not per-run.
+let gunsmithWeapon = 0;
+
+function openGunsmith() {
+  $id('start-screen').style.display = 'none';
+  $id('gunsmith-screen').style.display = 'flex';
+  buildGunsmith();
+}
+function closeGunsmith() {
+  $id('gunsmith-screen').style.display = 'none';
+  $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+}
+
+function buildGunsmith() {
+  const rank = playerRank();
+  const wrap = $id('gs-weapons');
+  wrap.innerHTML = '';
+  CFG.weapons.forEach(function (w, i) {
+    const b = document.createElement('button');
+    const unlocked = CORE.weaponUnlocked(i, rank);
+    b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
+    b.className = i === gunsmithWeapon ? 'on' : '';
+    b.disabled = !unlocked;
+    if (unlocked) b.addEventListener('click', function () { gunsmithWeapon = i; buildGunsmith(); });
+    wrap.appendChild(b);
+  });
+  if (!CORE.weaponUnlocked(gunsmithWeapon, rank)) {
+    gunsmithWeapon = 0;
+  }
+  const slots = $id('gs-slots');
+  slots.innerHTML = '';
+  const loadout = getLoadout(gunsmithWeapon);
+  CORE.ATTACH_SLOTS.forEach(function (slot) {
+    const box = document.createElement('div');
+    box.className = 'gs-slot';
+    const title = document.createElement('b');
+    title.textContent = CORE.ATTACH_SLOT_NAME[slot];
+    box.appendChild(title);
+    // "None" is a real option, not an absence: an empty slot is often the right call
+    // once every attachment is a trade.
+    box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
+    CORE.attachmentsForSlot(slot).forEach(function (a) {
+      box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+    });
+    slots.appendChild(box);
+  });
+}
+
+function gunsmithOption(slot, a, current, rank) {
+  const btn = document.createElement('button');
+  btn.className = 'gs-opt' + ((a ? a.key : null) === (current || null) ? ' on' : '');
+  if (!a) {
+    btn.innerHTML = 'NONE<i>No attachment</i>';
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, null); buildGunsmith(); });
+    return btn;
+  }
+  const unlocked = CORE.attachmentUnlocked(a.key, rank);
+  const d = CORE.attachmentDelta(a);
+  // Show the trade, not just the name: an attachment nobody can read the cost of is
+  // a coin flip.
+  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
+  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
+  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i>';
+  btn.disabled = !unlocked;
+  if (unlocked) {
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
+  }
+  return btn;
+}
+
 let settingsReturnTo = 'menu';
 function buildSettingsUI() {
   const list = $id('settings-list');
@@ -209,7 +299,9 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = statsSummaryHtml();
+  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  const ch = $id('challenge-list');
+  if (ch) ch.innerHTML = challengesHtml();
 }
 
 // gun select UI
@@ -226,16 +318,21 @@ function buildGunSelect(slot) {
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
+  const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
-    card.className = 'gun-card';
-    enableMenuKeyboard(card);
+    card.className = 'gun-card' + (unlocked ? '' : ' locked');
+    // A locked card is shown rather than hidden: knowing what is coming is most of
+    // what a progression system is for.
+    if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
       '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>';
-    card.addEventListener('click', function () { pickGun(i); });
+      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
+    if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
 }
@@ -307,13 +404,20 @@ function resumeRun() {
   initWeapons();
   for (let i = 0; i < 2; i++) {
     if (!wState[i] || !cp.weapons[i]) continue;
-    wState[i].ammo = Math.min(CFG.weapons[weaponsOwned[i]].mag, cp.weapons[i].ammo);
+    refreshWeaponStats(i);
+    const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
+    wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
     wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
   }
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  credits = cp.credits || 0;
+  if (hud.credits) hud.credits.textContent = credits;
+  perks = (cp.perks || []).slice();
+  plates = cp.plates || 0;
+  updateHudPerks(); updateHudPlates();
   grenades.count = cp.grenades;
   waveNum = cp.wave;                  // next startWave() call is wave+1
   waveActive = false; betweenWaveT = CFG.wave.startDelay;
@@ -372,6 +476,8 @@ $id('btn-start').addEventListener('click', function () {
   prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
+$id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';
   openSettings('pause');
@@ -499,6 +605,10 @@ function frame(now) {
     updateGrenades(dt);
     updatePickups(dt);
     updateAmmoRelief(dt);
+    updateStations(dt);
+    updateDowned(dt);
+    updateStreaks(dt);
+    updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

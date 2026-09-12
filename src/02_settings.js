@@ -111,9 +111,45 @@ function recordRun(run) {
   const merged = CORE.mergeRunIntoStats(STATS, run);
   STATS = merged.stats;
   saveStats();
+  // The caller wants the XP and rank too, so the end screen can say what the run
+  // earned rather than only what it beat.
+  merged.beat.xpGained = merged.xpGained;
+  merged.beat.rank = merged.beat.rank;
+  merged.beat.rankNow = merged.rank;
+  merged.beat.rankBefore = merged.rankBefore;
   return merged.beat;
 }
 function getStats() { return STATS; }
+function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
+
+// ---- Gunsmith loadouts --------------------------------------------------------
+// One attachment loadout per weapon index, persisted like settings. Kept out of the
+// checkpoint on purpose: a loadout is a career choice, not run state, and a resumed
+// run should use whatever the player has configured since.
+const STORE_KEY_LOADOUTS = 'ob_loadouts_v1';
+let LOADOUTS = (function () {
+  const raw = storageGet(STORE_KEY_LOADOUTS);
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const k in raw) out[k] = CORE.sanitizeLoadout(raw[k]);
+  }
+  return out;
+})();
+function getLoadout(weaponIndex) {
+  // Sanitised against the CURRENT rank on every read, so a loadout saved at a higher
+  // rank cannot be carried by a wiped career, and a removed attachment cannot
+  // resurrect.
+  return CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
+}
+function setAttachment(weaponIndex, slot, key) {
+  const cur = LOADOUTS[weaponIndex] || {};
+  const next = {};
+  for (const k in cur) next[k] = cur[k];
+  if (key) next[slot] = key; else delete next[slot];
+  LOADOUTS[weaponIndex] = CORE.sanitizeLoadout(next, playerRank());
+  storageSet(STORE_KEY_LOADOUTS, LOADOUTS);
+  return LOADOUTS[weaponIndex];
+}
 
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
@@ -134,4 +170,27 @@ function statsSummaryHtml() {
     '</b> &nbsp;·&nbsp; Best accuracy <b>' + Math.round(STATS.bestAccuracy) + '%</b><br>' +
     '<span style="opacity:.65">' + STATS.runs + ' deployment' + (STATS.runs === 1 ? '' : 's') +
     ' · ' + STATS.totalKills + ' total kills</span>';
+}
+
+// Rank bar for the main menu. Rank is derived from XP rather than stored, so there
+// is no such thing as a corrupt rank — only a corrupt XP total, which is clamped.
+function rankBarHtml() {
+  const p = CORE.rankProgress(CORE.sanitizeStats(STATS).xp);
+  const pct = Math.round(p.pct * 100);
+  const label = p.max ? 'RANK ' + p.rank + ' — MAX'
+    : 'RANK ' + p.rank + '  ·  ' + Math.round(p.into) + ' / ' + Math.round(p.need) + ' XP';
+  return '<div class="rank-row"><span class="rank-label">' + label + '</span>' +
+    '<span class="rank-bar"><i style="width:' + pct + '%"></i></span></div>';
+}
+
+function challengesHtml() {
+  const stats = CORE.sanitizeStats(STATS);
+  let out = '';
+  for (let i = 0; i < CORE.CHALLENGES.length; i++) {
+    const c = CORE.challengeProgress(stats, CORE.CHALLENGES[i]);
+    out += '<div class="chal' + (c.done ? ' done' : '') + '">' +
+      '<b>' + c.name + '</b><span>' + c.blurb + '</span>' +
+      '<i>' + (c.done ? 'COMPLETE' : Math.floor(c.have) + ' / ' + c.target) + '</i></div>';
+  }
+  return out;
 }

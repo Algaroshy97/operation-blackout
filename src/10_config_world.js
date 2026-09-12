@@ -202,8 +202,21 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 raycastColliders.push(ground);
-function addCollider(x, y, z, w, h, d) {
-  colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
+function addCollider(x, y, z, w, h, d, mat) {
+  colliders.push({
+    min: new THREE.Vector3(x - w/2, y - h/2, z - d/2),
+    max: new THREE.Vector3(x + w/2, y + h/2, z + d/2),
+    mat: mat || 'concrete'
+  });
+}
+// Penetration class per collider. Derived from the RENDER material so no call site
+// has to carry it: plywood cover and a concrete pillar are the same addBox() call
+// today, and a round should not treat them the same (GUN-03). Populated just after
+// MAT is declared, which is before buildArena() runs.
+const PEN_MATERIAL = new Map();
+function penMaterialFor(mat) {
+  const m = PEN_MATERIAL.get(mat);
+  return m === undefined ? 'concrete' : m;
 }
 // ---- Static geometry batching ----------------------------------------------
 // addBox() used to create one Mesh + one BoxGeometry per box, which is why a
@@ -211,7 +224,19 @@ function addCollider(x, y, z, w, h, d) {
 // one mesh per (material x spatial region) by flushStaticBatches(); the AABB in
 // `colliders[]` is still added immediately, so collision is completely unaffected.
 const staticQueue = [];
-const STATIC_REGION_SIZE = 30;   // 3x3 regions across the 90 m arena
+// 2x2 regions across the 90 m arena. Phase 2 chose region batching over a plain
+// merge-by-material so frustum culling and raycast bounding-sphere rejection keep
+// working, and 30 m was picked without measuring the trade. Measured now, at a
+// wave-15 load with six corpses:
+//               batches   draw calls (centre/spawn/corner)   AI LOS    fireShot
+//   30 m          70          219 / 137 / 136                0.0165 ms  0.267 ms
+//   45 m          49          194 / 120 / 118                0.0222 ms  0.267 ms
+//   90 m (one)    47          194 / 118 / 117                0.0228 ms  0.280 ms
+// 45 m buys 21 fewer batches and ~25 fewer draw calls for six microseconds of
+// extra line-of-sight work. Collapsing to a single region buys nothing beyond it
+// and costs more on both raycast paths, which is exactly the culling loss Phase 2
+// was protecting against.
+const STATIC_REGION_SIZE = 45;
 // Queue a piece of static world geometry. `geo` must already be baked into world
 // space (the batch mesh itself sits at the origin); x/z decide its region.
 function queueStatic(geo, x, z, mat, noShadow) {
@@ -222,7 +247,7 @@ function addBox(x, y, z, w, h, d, mat, opts) {
   const g = new THREE.BoxGeometry(w, h, d);
   g.translate(x, y, z);
   queueStatic(g, x, z, mat, opts.noShadow);
-  if (!opts.noCollide) addCollider(x, y, z, w, h, d);
+  if (!opts.noCollide) addCollider(x, y, z, w, h, d, opts.pen || penMaterialFor(mat));
 }
 
 // Concatenate several BufferGeometries that share an attribute layout.
@@ -297,6 +322,13 @@ const MAT = {
   accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
   red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
 };
+// Anything not listed is concrete, which is the conservative default: an untagged
+// surface stops a round exactly as it did before this feature existed.
+PEN_MATERIAL.set(MAT.wood, 'wood');
+PEN_MATERIAL.set(MAT.metal, 'metal');
+PEN_MATERIAL.set(MAT.dark, 'metal');
+PEN_MATERIAL.set(MAT.accent, 'metal');
+PEN_MATERIAL.set(MAT.red, 'metal');
 
 // ---- Build urban arena ----
 function buildArena() {
@@ -429,7 +461,7 @@ function buildArena() {
     m.userData.oldBarrel = true;
     scene.add(m);
     raycastColliders.push(m);
-    addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
+    addCollider(x, 0.75, z, 1.1, 1.5, 1.1, 'metal');
   }
   barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
   barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);

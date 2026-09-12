@@ -13,6 +13,9 @@ const hud = {
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
   minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
+  credits: $id('credit-val'),
+  streaks: $id('streak-hud'),
+  powerBanner: $id('power-banner'),
   grenadeCharge: $id('grenade-charge'),
   grenadeChargeTxt: $id('grenade-charge-txt'),
   grenadeChargeFill: $id('grenade-charge-fill')
@@ -39,10 +42,11 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 let _hudHp = -1, _hudArmor = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
+  const pct = Math.round(Math.max(0, player.health / playerMaxHealth() * 100));
   const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
   if (hp !== _hudHp) {
     _hudHp = hp;
-    hud.healthBar.style.width = hp + '%';
+    hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
   }
   if (armor !== _hudArmor) {
@@ -54,7 +58,12 @@ function updateHudAmmo() {
   const s = curS();
   if (!s) { hud.ammoMag.textContent = '—'; hud.ammoRes.textContent = ''; return; }
   hud.ammoMag.textContent = s.ammo;
-  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + grenades.count + ' Frag';
+  const lname = (CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]).name;
+  let eq = grenades.count + ' ' + lname;
+  if (equippedTactical) {
+    eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
+  }
+  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
   hud.ammoMag.classList.toggle('low', s.ammo <= curW().mag * 0.25);
   hud.weaponName.textContent = curW().name;
   // Distinguish an empty reserve from an ordinary reload on both input paths.
@@ -63,12 +72,21 @@ function updateHudAmmo() {
   hud.reloadHint.style.opacity = s.reloading || empty ? 1 : 0;
 }
 
-function showHitmarker(isHead) {
+// Feedback tiers. The marker had two states, so a shot absorbed by a shielded
+// advancer's 85% frontal plate looked exactly like a clean body hit — the player
+// could only learn the mechanic by reading the patch notes. `tier` is 'block' for
+// an absorbed hit, 'cover' for one that punched through a surface first.
+const HITMARK_COLOR = { block: '#6fa8ff', cover: '#ffd24a' };
+function showHitmarker(isHead, tier) {
   hud.hitmark.style.opacity = 1;
-  hud.hitmark.style.transform = 'rotate(45deg) scale(' + (isHead ? 1.6 : 1) + ')';
+  const scale = isHead ? 1.6 : tier === 'block' ? 0.75 : 1;
+  hud.hitmark.style.transform = 'rotate(45deg) scale(' + scale + ')';
+  const col = HITMARK_COLOR[tier] || '#ff4a3d';
+  const marks = hud.hitmark.children;
+  for (let i = 0; i < marks.length; i++) marks[i].style.background = col;
   clearTimeout(hud.hitmark._t);
   hud.hitmark._t = setTimeout(function () { hud.hitmark.style.opacity = 0; }, 90);
-  playSound(isHead ? 'headshot' : 'hit');
+  playSound(tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
 }
 
 function showDamageFx(dirDeg, amount) {
@@ -129,6 +147,58 @@ function addScore(pts, label) {
   if (label) pushKillfeed(label + ' <span class="xp">+' + pts + '</span>');
 }
 
+// ---- Credits ----------------------------------------------------------------
+// Score only ever went up, and nothing in the game ever read it back, so a
+// 30-minute run had no shape. Credits are earned in parallel and are SPENT. Score
+// stays the leaderboard number so career bests remain comparable across versions.
+let credits = 0;
+function addCredits(n) {
+  credits += Math.round(n * (powerActive('double') ? 2 : 1));
+  if (hud.credits) hud.credits.textContent = credits;
+}
+function spendCredits(n) {
+  if (credits < n) return false;
+  credits -= n;
+  if (hud.credits) hud.credits.textContent = credits;
+  return true;
+}
+
+// ---- Power-ups --------------------------------------------------------------
+// Timers run on gameT, which does not advance while paused, so a DOUBLE POINTS
+// window cannot be burned by opening the pause menu.
+const powerUntil = { double: -99, instakill: -99 };
+function powerActive(key) { return gameT < powerUntil[key]; }
+function activatePowerUp(def) {
+  if (def.dur > 0) powerUntil[def.key] = gameT + def.dur;
+  if (def.key === 'maxammo') {
+    for (let i = 0; i < wState.length; i++) {
+      if (!wState[i] || weaponsOwned[i] < 0) continue;
+      const cw = CFG.weapons[weaponsOwned[i]];
+      wState[i].ammo = cw.mag;
+      wState[i].reserve = cw.reserveMax;
+    }
+    grenades.count = Math.max(grenades.count, CFG.grenade.count);
+    updateHudAmmo();
+  } else if (def.key === 'nuke') {
+    // Everything currently alive, credited as kills so the wave still completes
+    // through the normal path rather than being force-cleared.
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!enemies[i].dead) killEnemy(enemies[i], false);
+    }
+  }
+  showPowerBanner(def.label);
+  playSound('powerup');
+}
+function showPowerBanner(txt) {
+  if (!hud.powerBanner) return;
+  hud.powerBanner.textContent = txt;
+  hud.powerBanner.style.opacity = '1';
+  clearTimeout(hud.powerBanner._t);
+  hud.powerBanner._t = setTimeout(function () {
+    if (hud.powerBanner) hud.powerBanner.style.opacity = '0';
+  }, 1800);
+}
+
 // ---- Bounded killfeed ----
 // One <div> + one setTimeout per kill was unbounded under a multi-kill streak.
 // Cap the list and drop the oldest instead; the CSS animation still fades it out.
@@ -175,6 +245,15 @@ let endlessMode = false;
 function diff() { return CORE.difficulty(runDifficulty); }
 // Behaviour unlocks replace the accuracy ramp that capped out at wave 8.
 let waveBehaviours = {};
+// The wave-15 boss was dropped in favour of spreading variety across the curve.
+// This is that decision carried through: every fifth wave is an announced modifier.
+let waveSpecial = null;
+// Task 12.4, held back until special waves proved the mechanism. A held zone on some
+// waves, borrowed from Hardpoint: it works here for the same reason it works there —
+// it pulls the player off whatever corner they have decided is safe.
+let objective = null;
+// Districts the player has paid to open. Per-run, like credits.
+let openDistricts = [];
 
 function getWaveNum() { return waveNum; }
 
@@ -190,6 +269,7 @@ function captureRunState() {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
+    credits: credits, perks: perks.slice(), plates: plates,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons
   };
 }
@@ -197,8 +277,17 @@ function captureRunState() {
 function startWave(n) {
   waveNum = n;
   waveBehaviours = CORE.behavioursAtWave(n);
-  waveQueue = Math.max(1, Math.round(
-    CORE.endlessEnemyCount(n, CFG.wave.baseCount, CFG.wave.growth, CFG.wave.victoryWave, 60) * diff().count));
+  waveSpecial = CORE.specialWaveAt(n);
+  applySpecialLighting(waveSpecial);
+  startObjective(n);
+  waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
+    CFG.wave.victoryWave, diff().count, waveSpecial);
+  if (waveSpecial) {
+    setTimeout(function () {
+      showCenterMsg(waveSpecial.name);
+      pushKillfeed('<span class="xp">' + waveSpecial.name + '</span> — ' + waveSpecial.blurb);
+    }, 700);
+  }
   // Announce what changed, so escalation is legible instead of just "more of them".
   CORE.newBehavioursAtWave(n).forEach(function (b) {
     setTimeout(function () { showCenterMsg(b.label.toUpperCase()); }, 1400);
@@ -213,7 +302,93 @@ function startWave(n) {
   playSound('wave');
 }
 
+// Blackout drops the scene lights instead of adding an enemy type: the wave is
+// harder because the player cannot see, not because there is more of it. Saved and
+// restored rather than recomputed, so a retune of the lighting never desynchronises
+// from this.
+let _lightBackup = null;
+let _fogBackup = null;
+function applySpecialLighting(special) {
+  const dark = !!(special && special.dark);
+  if (dark && !_lightBackup) {
+    // Only `sun` is a named binding; the hemisphere and ambient lights were added
+    // anonymously, so collect every light in the scene rather than naming them and
+    // leaving a future third light silently un-dimmed.
+    _lightBackup = [];
+    scene.traverse(function (o) {
+      if (o.isLight) { _lightBackup.push({ l: o, i: o.intensity }); o.intensity *= 0.10; }
+    });
+    if (scene.fog) { _fogBackup = scene.fog.far; scene.fog.far = 42; }
+  } else if (!dark && _lightBackup) {
+    for (let i = 0; i < _lightBackup.length; i++) {
+      _lightBackup[i].l.intensity = _lightBackup[i].i;
+    }
+    _lightBackup = null;
+    if (scene.fog && _fogBackup !== null) { scene.fog.far = _fogBackup; _fogBackup = null; }
+  }
+}
+
+// ---- Objective zone ----------------------------------------------------------
+const objRingGeo = new THREE.RingGeometry(CORE.OBJECTIVE_RADIUS - 0.25, CORE.OBJECTIVE_RADIUS, 48);
+const objRingMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+const objPillarGeo = new THREE.BoxGeometry(0.5, 4, 0.5);
+const objPillarMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.3 });
+let objRing = null, objPillar = null;
+
+function startObjective(n) {
+  clearObjective();
+  if (!CORE.objectiveWaveAt(n)) return;
+  // Reuse the spawn ring as candidate spots: they are already validated open ground,
+  // already excluded from sealed districts, and already spread around the arena.
+  const ring = openSpawnPoints();
+  const idx = CORE.pickObjectiveSpot(ring, player.pos.x, player.pos.z);
+  if (idx < 0) return;
+  const spot = ring[idx];
+  objective = { x: spot[0], z: spot[1], t: 0, done: false };
+  objRing = new THREE.Mesh(objRingGeo, objRingMat);
+  objRing.rotation.x = -Math.PI / 2;
+  objRing.position.set(spot[0], 0.05, spot[1]);
+  scene.add(objRing);
+  objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
+  objPillar.position.set(spot[0], 2, spot[1]);
+  scene.add(objPillar);
+  setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
+}
+
+function clearObjective() {
+  objective = null;
+  if (objRing) { scene.remove(objRing); objRing = null; }
+  if (objPillar) { scene.remove(objPillar); objPillar = null; }
+  const el = $id('objective-hud');
+  if (el) el.style.opacity = '0';
+}
+
+function updateObjective(dt) {
+  const el = $id('objective-hud');
+  if (!objective || objective.done || player.dead) { if (el) el.style.opacity = '0'; return; }
+  const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
+  objective.t = CORE.objectiveProgress(objective.t, dt, inside);
+  const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
+  if (el) {
+    el.style.opacity = '1';
+    const bar = $id('objective-fill');
+    if (bar) bar.style.width = pct + '%';
+    const txt = $id('objective-txt');
+    if (txt) txt.textContent = inside ? 'HOLDING — ' + pct + '%' : 'RETURN TO THE ZONE — ' + pct + '%';
+  }
+  if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
+  if (CORE.objectiveComplete(objective.t)) {
+    objective.done = true;
+    addCredits(CORE.OBJECTIVE_CREDITS);
+    addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
+    showCenterMsg('ZONE SECURED');
+    playSound('powerup');
+    clearObjective();
+  }
+}
+
 function updateWaves(dt) {
+  updateObjective(dt);
   if (gameEnded || player.dead) return;
   if (waveActive) {
     // spawn queue drains in bursts of 3-4 enemies, respecting max active
@@ -241,6 +416,9 @@ function updateWaves(dt) {
       waveActive = false;
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      addCredits(CORE.creditsForWave(waveNum));
+      clearObjective();   // the zone belongs to the wave that spawned it
+      reviveFromDown();   // holding out to the wave clear is the other way back up
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
@@ -308,14 +486,17 @@ const spawnPoints = [];
 function spawnFromQueue() {
   waveQueue--;
   // pick spawn point far from player but capped so waves arrive quickly
+  // A sealed district is excluded from the ring. Spawning into one queues bodies
+  // in a space nothing can path out of, which is BUG-01 by another route.
+  const ring = openSpawnPoints();
   let best = 0, bestScore = -Infinity;
-  for (let i = 0; i < spawnPoints.length; i++) {
-    const d = Math.hypot(spawnPoints[i][0] - player.pos.x, spawnPoints[i][1] - player.pos.z);
+  for (let i = 0; i < ring.length; i++) {
+    const d = Math.hypot(ring[i][0] - player.pos.x, ring[i][1] - player.pos.z);
     // sweet spot: 18-35m from player
     const score = -Math.abs(d - 26) - Math.random() * 6;
     if (score > bestScore) { bestScore = score; best = i; }
   }
-  const sp = spawnPoints[best];
+  const sp = ring[best];
   // Jitter, but never into a wall: ~2% of raw jittered points land inside solid
   // geometry, which is roughly 7 enemies per full run spawning clipped in a crate.
   // Resample, then fall back to the unjittered ring point.
@@ -325,8 +506,21 @@ function spawnFromQueue() {
     const jz = sp[1] + (Math.random() - 0.5) * 6;
     if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
   }
-  // kind distribution by wave: runners early, riflemen from w2, tanks from w4
-  spawnEnemy(CORE.pickEnemyKind(waveNum, Math.random()), x, z);
+  // A special wave draws from its own kind list, falling back to the normal table
+  // when none of its kinds has unlocked yet.
+  let kind = null;
+  if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+  if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
+  const elite = CORE.rollElite(waveNum, Math.random());
+  spawnEnemy(kind, x, z, { elite: elite });
+}
+
+// A sealed district must be excluded from the spawn ring. `usableSpawnPoints`
+// guarantees at least one point survives, but fall back to the full ring anyway —
+// a wave that cannot start is worse than a wave that starts somewhere awkward.
+function openSpawnPoints() {
+  const usable = CORE.usableSpawnPoints(spawnPoints, openDistricts);
+  return usable.length ? usable : spawnPoints;
 }
 
 function resupply() {
@@ -354,6 +548,9 @@ function unlockSecondary() {
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.
   wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  refreshWeaponStats(1);
+  wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
+  wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound('draw');
@@ -387,6 +584,12 @@ function showCenterMsg(txt) {
 // ---- Minimap + compass ----
 const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
+const MM_STATION_COLOR = {
+  wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd',
+  lethal: '#ff8a6a', tactical: '#6fd8e8', door: '#e8c46a'
+};
+// Metres of unaided detection. The UAV lifts this to the whole minimap.
+const MM_BASE_DETECT = 26;
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -405,14 +608,42 @@ function drawMinimap() {
     if (x * x + z * z > R * R * 2.4) continue;
     mmCtx.fillRect(x, z, w, h);
   }
+  // Baseline detection is near-only; the UAV reveals the whole arena. That split
+  // is what gives the minimap — and the streak — any meaning at all.
+  const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
+  if (objective && !objective.done) {
+    const ox = (objective.x - px) * scale, oz = (objective.z - pz) * scale;
+    mmCtx.strokeStyle = '#4fd08a';
+    mmCtx.lineWidth = 2;
+    mmCtx.beginPath();
+    mmCtx.arc(ox, oz, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
+    mmCtx.stroke();
+  }
+  // Stations. Drawn under the enemies: a hostile marker must never be hidden by
+  // a shop marker.
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    const x = (st.x - px) * scale, z = (st.z - pz) * scale;
+    if (x * x + z * z > R * R) continue;
+    mmCtx.fillStyle = MM_STATION_COLOR[st.kind] || '#ffffff';
+    mmCtx.fillRect(x - 2.5, z - 2.5, 5, 5);
+    mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
+    mmCtx.lineWidth = 1;
+    mmCtx.strokeRect(x - 2.5, z - 2.5, 5, 5);
+  }
   // enemies
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.dead) continue;
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
-    if (x * x + z * z > R * R) continue;
+    if (x * x + z * z > Math.min(R * R, detect)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
-    mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
+    const rad = (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3;
+    mmCtx.beginPath(); mmCtx.arc(x, z, rad, 0, 7); mmCtx.fill();
+    if (e.elite) {
+      mmCtx.strokeStyle = '#ffd24a'; mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath(); mmCtx.arc(x, z, rad + 2.5, 0, 7); mmCtx.stroke();
+    }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
     if (getSetting('colorblindMarkers') && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
