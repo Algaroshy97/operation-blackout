@@ -8279,7 +8279,7 @@ const _casingRight = new THREE.Vector3();
 const _casingUp = new THREE.Vector3();
 const _casingFwd = new THREE.Vector3();
 function spawnCasing(camPos, camQ) {
-  if (casings.length > 24) {
+  if (casings.length >= 24) {
     const old = casings.shift();
     scene.remove(old.m);
     old.m.visible = false;

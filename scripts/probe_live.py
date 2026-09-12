@@ -102,6 +102,17 @@ def main() -> int:
         }""")
         checks.append(("fireshot-runs", shot))
 
+        # Casings must obey the documented 24-mesh budget even in a burst.
+        casing_check = page.evaluate("""() => {
+            updateCasings(10);
+            for (let i = 0; i < 60; i++) spawnCasing(camera.position, camera.quaternion);
+            const count = casings.length;
+            updateCasings(10);
+            return {count, remaining: casings.length};
+        }""")
+        checks.append(("casing-burst-capped-at-24", casing_check["count"] == 24))
+        checks.append(("casings-expire", casing_check["remaining"] == 0))
+
         # 7) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
