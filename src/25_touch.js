@@ -91,15 +91,39 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   function holdBtn(id, on, off) {
     const el = document.getElementById(id);
     const fingers = new Set();
+    let startTime = 0;
+    let pendingTimer = null;
     function release(e) {
       e.preventDefault(); for (const t of e.changedTouches) fingers.delete(t.identifier);
-      if (!fingers.size) { el.classList.remove('on'); off(); }
+      if (!fingers.size) {
+        const elapsed = performance.now() - startTime;
+        if (elapsed < 40) {
+          if (pendingTimer) clearTimeout(pendingTimer);
+          pendingTimer = setTimeout(function () {
+            pendingTimer = null;
+            if (!fingers.size) {
+              el.classList.remove('on');
+              off();
+            }
+          }, 40 - elapsed);
+        } else {
+          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+          el.classList.remove('on');
+          off();
+        }
+      }
     }
     el.addEventListener('touchstart', function (e) {
-      e.preventDefault(); for (const t of e.changedTouches) fingers.add(t.identifier);
+      e.preventDefault();
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+      if (!fingers.size) startTime = performance.now();
+      for (const t of e.changedTouches) fingers.add(t.identifier);
       el.classList.add('on'); on(); playSound('click');
     }, { passive: false });
-    addEventListener('blur', function () { fingers.clear(); el.classList.remove('on'); off(); });
+    addEventListener('blur', function () {
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+      fingers.clear(); el.classList.remove('on'); off();
+    });
     el.addEventListener('touchend', release, { passive: false });
     el.addEventListener('touchcancel', release, { passive: false });
   }
