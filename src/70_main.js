@@ -368,6 +368,13 @@ function preloadGameAssets() {
     const n = scatterProps();
     const failed = results.filter(function (ok) { return !ok; }).length;
     progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';
+    // the status line sits over the DEPLOY button: fade it out once the menu is interactive
+    const note = $id('asset-loading');
+    if (note) {
+      note.dataset.state = failed ? 'warn' : 'ok';
+      setTimeout(function () { note.classList.add('hidden'); }, failed ? 4000 : 1200);
+      setTimeout(function () { note.style.display = 'none'; }, failed ? 4600 : 1800);
+    }
     assetsReady = true;
     setDeployReady(true);
     if (n) console.log('preloaded props placed:', n);

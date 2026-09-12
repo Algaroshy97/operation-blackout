@@ -76,6 +76,9 @@
   #menu-emblem{display:block;margin:0 auto 14px auto;width:112px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.75))}
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
   #start-screen h2{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.65);margin:0 0 36px 0;font-weight:400;text-align:center}
+  #asset-loading{font-size:12px;letter-spacing:2px;color:rgba(255,255,255,.72);margin:14px 0 0 0;text-align:center;pointer-events:none;transition:opacity .6s ease}
+  #asset-loading.hidden{opacity:0}
+  #asset-loading[data-state="warn"]{color:#ffd24a}
   .menu-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;letter-spacing:4px;color:#fff;background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9));border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;transition:all .15s;pointer-events:auto}
   .menu-btn.disabled{opacity:.45;cursor:wait;pointer-events:none;filter:grayscale(1)}
   .menu-btn:hover{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a;box-shadow:0 0 18px rgba(255,190,60,.25)}
