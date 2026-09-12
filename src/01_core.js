@@ -1719,15 +1719,21 @@ const CORE = (function () {
       // Push out along the shallowest axis — the same resolution the player
       // controller uses, so corpses and players agree about where a wall is.
       const dxp = b.max.x + p.r - p.x, dxn = p.x - (b.min.x - p.r);
-      const dyp = b.max.y + p.r - p.y, dyn = p.y - (b.min.y - p.r);
+      let dyp = b.max.y + p.r - p.y, dyn = p.y - (b.min.y - p.r);
       const dzp = b.max.z + p.r - p.z, dzn = p.z - (b.min.z - p.r);
+      // Downward is not an exit if it would put the node under the world. For a box
+      // standing ON the ground the bottom face is usually the SHALLOWEST way out, so
+      // without this a leg resting inside a crate gets shoved to b.min.y - r and ends
+      // up below zero — measured at y = -0.11 on the crates at z = 30. The ground
+      // clamp above cannot save it, because it has already run this call.
+      if (b.min.y - p.r < groundY) dyn = Infinity;
       const mx = Math.min(dxp, dxn), my = Math.min(dyp, dyn), mz = Math.min(dzp, dzn);
       if (my <= mx && my <= mz) {
-        if (dyp < dyn) { p.y = b.max.y + p.r; p.px += (p.x - p.px) * RAGDOLL_FRICTION;
-                         p.pz += (p.z - p.pz) * RAGDOLL_FRICTION; }
+        if (dyp <= dyn) { p.y = b.max.y + p.r; p.px += (p.x - p.px) * RAGDOLL_FRICTION;
+                          p.pz += (p.z - p.pz) * RAGDOLL_FRICTION; }
         else p.y = b.min.y - p.r;
         const vy = p.y - p.py;
-        if ((dyp < dyn) === (vy < 0)) p.py = p.y + vy * RAGDOLL_RESTITUTION;
+        if ((dyp <= dyn) === (vy < 0)) p.py = p.y + vy * RAGDOLL_RESTITUTION;
       } else if (mx <= mz) {
         p.x = dxp < dxn ? b.max.x + p.r : b.min.x - p.r;
         p.px = p.x + (p.x - p.px) * RAGDOLL_RESTITUTION;

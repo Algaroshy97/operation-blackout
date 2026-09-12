@@ -751,6 +751,36 @@
 > seconds, shorter than a stable window, so the second arm ran with zero bodies. The
 > corpse cap is therefore claimed as a count reduction, not a timing one.
 
+> **The live probe, extended — and what it caught.** With Playwright's browsers
+> installed, `scripts/probe_live.py` runs again. It passed **17/17** against everything
+> built in Phases 9-13 unchanged.
+>
+> It was then extended by eleven checks, because the two bugs that actually bit had unit
+> tests in CORE that could not have caught either: the melee one was a
+> horizontal-distance check in the engine layer, the bullet one a `setTimeout` callback.
+> Neither is reachable from a pure function. **Every new check carries a control** —
+> "0 damage taken" is also what a broken shooter looks like.
+>
+> | | |
+> |---|---|
+> | `no-melee-through-floor` | with `melee-still-works-same-floor` |
+> | `no-bullets-through-floor` | with `bullets-still-land-in-the-open` |
+> | corpses: capped, cleared from the AI list, settle, stay above ground, cast no shadows, clean up | |
+> | `no-geometry-growth` | across sustained grenade combat |
+>
+> **The new checks found a defect immediately.** `corpses-stay-above-ground` failed with
+> legs at **y = −0.11**. For a node resting inside a crate that stands *on* the ground,
+> the box's bottom face is usually the shallowest way out — 0.59 m down against 1.13 m
+> up — so the push-out chose it and drove the node below zero. The ground clamp could not
+> help, because it runs earlier in the same call. The downward exit is now unavailable
+> when it would breach the ground, and remains available when the box is genuinely
+> overhead.
+>
+> It reproduced on the real crates at z = 30 and **not** in any synthetic box tried
+> first, which is precisely why it belonged in the probe rather than a unit test.
+>
+> Probe **28/28**, zero console errors. 243 node + 15 python tests.
+
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
 `scripts/build.py` output modulo line endings.

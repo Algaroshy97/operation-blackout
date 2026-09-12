@@ -2507,3 +2507,32 @@ test('collision runs on the iterations that matter', () => {
       p.key + ' at y=' + p.y.toFixed(2) + ' sank into a floor box with no ground plane');
   }
 });
+
+test('a box standing on the ground never pushes a corpse under the world', () => {
+  // The bottom face of a ground-level crate is usually the SHALLOWEST exit for a
+  // node resting inside it, so the push-out chose it and drove legs to
+  // b.min.y - radius. Measured at y = -0.11 on the crates at z = 30, and the ground
+  // clamp cannot save it because that runs earlier in the same call.
+  const crate = ragBox(0, 0.75, 0, 3, 1.5, 3);   // sits ON the ground, y 0..1.5
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);      // spawned standing inside it
+  for (let i = 0; i < 600; i++) {
+    CORE.ragdollStep(rag, 1 / 60, [crate], 0);
+    for (const p of rag.order) {
+      assert.ok(p.y >= -1e-6, p.key + ' went under the world at y=' + p.y.toFixed(3));
+    }
+  }
+});
+
+test('a box floating above the ground can still push downward', () => {
+  // The fix must only block the downward exit when it would breach the ground, not
+  // disable it outright - a node under an overhang has to be pushed clear.
+  const shelf = ragBox(0, 3, 0, 4, 1, 4);        // y 2.5..3.5, well clear
+  // Sitting below the shelf's mid-height, so DOWN is the shallower exit: 0.55 m out
+  // versus 0.75 m up. Accepting either direction would not notice the downward exit
+  // being disabled outright, which is the mutation this pins.
+  const p = { x: 0, y: 2.9, z: 0, px: 0, py: 2.9, pz: 0, r: 0.15, key: 'test' };
+  CORE.ragdollCollide(p, [shelf], 0);
+  assert.ok(Math.abs(p.y - (shelf.min.y - p.r)) < 1e-9,
+    'it must take the shallower downward exit, not be forced up: y=' + p.y.toFixed(3));
+  assert.ok(p.y > 0, 'and it must still be above the ground');
+});
