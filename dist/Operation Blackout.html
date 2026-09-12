@@ -3975,15 +3975,16 @@ const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a47, roughness: 0
   tex.repeat.set(30, 30);
   groundMat.map = tex; groundMat.needsUpdate = true;
 })();
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
-
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
 const raycastColliders = []; // world geometry meshes for scoped raycasting
 const mapBounds = CFG.world.size / 2 - 2;
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+raycastColliders.push(ground);
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
 }
@@ -4790,7 +4791,7 @@ function updateWeapons(dt) {
     }
   }
   // fire
-  if (mouse1Down && !s.reloading && !player.dead && started && !paused) {
+  if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
       if (!w.auto) mouse1Down = false;
       fireShot();
@@ -4838,30 +4839,41 @@ function isScoped() {
   return adsAmount > 0.82 && curW().type === 'SR';
 }
 
+const _assistTo = new THREE.Vector3();
+const _assistToH = new THREE.Vector3();
+const _assistBestTo = new THREE.Vector3();
+const _assistNudged = new THREE.Vector3();
+
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
   if (adsAmount < 0.8) return dir;
-  let best = null, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
+  let hasBest = false, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
     _aimTgt.set(en.pos.x, en.pos.y + 1.15, en.pos.z);   // chest
-    const to = _aimTgt.clone().sub(from);
-    const d = to.length();
-    to.normalize();
-    const ang = dir.angleTo(to);
-    if (ang < bestAng) { bestAng = ang; best = { to: to, d: d, en: en, head: false }; }
+    _assistTo.subVectors(_aimTgt, from).normalize();
+    const ang = dir.angleTo(_assistTo);
+    if (ang < bestAng) {
+      bestAng = ang;
+      _assistBestTo.copy(_assistTo);
+      hasBest = true;
+    }
     // head magnet (smaller box)
     _aimTgt.set(en.pos.x, en.pos.y + 1.72, en.pos.z);
-    const toH = _aimTgt.clone().sub(from).normalize();
-    const angH = dir.angleTo(toH);
-    if (angH < bestAng * 0.55) { bestAng = angH * 1.8; best = { to: toH, d: d, en: en, head: true }; }
+    _assistToH.subVectors(_aimTgt, from).normalize();
+    const angH = dir.angleTo(_assistToH);
+    if (angH < bestAng * 0.55) {
+      bestAng = angH * 1.8;
+      _assistBestTo.copy(_assistToH);
+      hasBest = true;
+    }
   }
-  if (!best) return dir;
+  if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
   const pull = Math.min(1, CFG.assist.strength * 0.25);
-  const nudged = dir.clone().lerp(best.to, pull).normalize();
-  return nudged;
+  _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
+  return _assistNudged;
 }
 // bullet magnetism: at fire time, snap within a small cone
 function magnetizeBullet(dir, from) {
@@ -4964,7 +4976,13 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 function buildViewmodel() {
   if (gunGroup) {
     camera.remove(gunGroup);
-    gunGroup.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+    gunGroup.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); });
+        else o.material.dispose();
+      }
+    });
   }
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];
@@ -5183,8 +5201,8 @@ function makeEnemyMesh(kind) {
   egun.position.set(0.18, E_DIM.pelvisH + 0.35, -0.25);
   // hitboxes (invisible, slightly larger)
   const hbMat = new THREE.MeshBasicMaterial({ visible: false });
-  const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
-  hitBody.position.y = E_DIM.pelvisH + 0.5;
+  const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.60, 0.5), hbMat);
+  hitBody.position.y = 1.24;
   const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), hbMat);
   hitHead.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.16;
 
@@ -5453,7 +5471,7 @@ let losFrame = 0;   // round-robin: each enemy checks LOS at most every 3 frames
 function hasLOS(en) {
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
-  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return true; return en._losCache; }
+  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
   _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
@@ -5677,6 +5695,8 @@ const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
 const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
 const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
+const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
 // Mesh pools
 const tracerPool = [];
@@ -5684,6 +5704,7 @@ const impactPool = [];
 const sparkPool = [];
 const bloodPool = [];
 const casingPool = [];
+const dustPool = [];
 
 function warmupVfx() {
   for (let i = 0; i < 30; i++) {
@@ -5711,6 +5732,11 @@ function warmupVfx() {
     m.userData.vfx = true; m.visible = false;
     casingPool.push(m);
   }
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(dustGeo, dustMat);
+    m.userData.vfx = true; m.visible = false;
+    dustPool.push(m);
+  }
 }
 warmupVfx();
 
@@ -5732,6 +5758,11 @@ function getSparkMesh() {
 }
 function getBloodMesh() {
   const m = bloodPool.length > 0 ? bloodPool.pop() : new THREE.Mesh(bloodGeo, bloodMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getDustMesh() {
+  const m = dustPool.length > 0 ? dustPool.pop() : new THREE.Mesh(dustGeo, dustMat);
   m.userData.vfx = true; m.visible = true;
   return m;
 }
@@ -5825,6 +5856,9 @@ function spawnBlood(point, isHead) {
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
 const casings = [];
+const _casingRight = new THREE.Vector3();
+const _casingUp = new THREE.Vector3();
+const _casingFwd = new THREE.Vector3();
 function spawnCasing(camPos, camQ) {
   if (casings.length > 24) {
     const old = casings.shift();
@@ -5834,10 +5868,13 @@ function spawnCasing(camPos, camQ) {
   }
   const m = getCasingMesh();
   m.position.copy(camPos);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQ);
-  m.position.addScaledVector(right, 0.25).addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(camQ), -0.15);
-  m.position.addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camQ), 0.3);
-  const v = right.clone().multiplyScalar(1.6 + Math.random()).add(new THREE.Vector3(0, 1.4 + Math.random(), 0));
+  _casingRight.set(1, 0, 0).applyQuaternion(camQ);
+  _casingUp.set(0, 1, 0).applyQuaternion(camQ);
+  _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
+  m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
+  m.position.addScaledVector(_casingFwd, 0.3);
+  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(1.6 + Math.random());
+  v.y += 1.4 + Math.random();
   const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
   scene.add(m);
   casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
@@ -5872,16 +5909,12 @@ function updateCasings(dt) {
 }
 
 // ---- Slide dust ----
-const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
-const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 function spawnSlideDust(pos) {
-  // Share dustMat across puffs (unmutated per particle) to avoid leaking GPU materials on slide
   for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(dustGeo, dustMat);
+    const m = getDustMesh();
     m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
-    m.userData.vfx = true;
     scene.add(m);
-    vfx.blood.push({ m: m, v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2), life: 0.55, grav: 2.5, dust: true });
+    vfx.blood.push({ m: m, v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2), life: 0.55, grav: 2.5, isDust: true });
   }
 }
 
@@ -5939,6 +5972,7 @@ function updateVfx(dt) {
       b.m.visible = false;
       if (b.isSpark) sparkPool.push(b.m);
       else if (b.isBlood) bloodPool.push(b.m);
+      else if (b.isDust) dustPool.push(b.m);
       vfx.blood.splice(i, 1);
     }
   }
@@ -6038,12 +6072,19 @@ function playSound3D(name, x, y, z) {
   const vol = 0.15 + 0.85 * Math.pow(1 - dist / maxDist, 2);
   const g = ctx.createGain();
   g.gain.value = vol;
+  let p = null;
   if (ctx.createStereoPanner) {
-    const p = ctx.createStereoPanner();
+    p = ctx.createStereoPanner();
     p.pan.value = pan;
     g.connect(p); p.connect(ctx.destination);
   } else g.connect(ctx.destination);
   playSound(name, g);
+  setTimeout(() => {
+    try {
+      if (p) p.disconnect();
+      g.disconnect();
+    } catch (e) {}
+  }, 700);
 }
 
 // footstep timing
@@ -6129,6 +6170,7 @@ function updateGrenades(dt) {
 
 const grenadeLosRay = new THREE.Raycaster();
 const grenadeLosDir = new THREE.Vector3();
+const grenadeTargets = [];
 function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.copy(to).sub(from);
   const dist = grenadeLosDir.length();
@@ -6136,7 +6178,16 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  const hit = grenadeLosRay.intersectObjects(scene.children, true).filter(function (h) {
+  grenadeTargets.length = 0;
+  for (let i = 0; i < raycastColliders.length; i++) {
+    grenadeTargets.push(raycastColliders[i]);
+  }
+  for (let i = 0; i < enemies.length; i++) {
+    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
+      grenadeTargets.push(enemies[i].parts.group);
+    }
+  }
+  const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
     return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
   })[0];
   if (!hit || hit.distance >= dist - 0.05) return true;
@@ -6233,6 +6284,7 @@ function updatePickups(dt) {
         const s = curS();
         if (s) {
           s.reserve = Math.min(CFG.weapons[weaponsOwned[curWeapon]].reserveMax, s.reserve + Math.round(CFG.weapons[weaponsOwned[curWeapon]].mag * 1.5));
+          updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
@@ -6628,6 +6680,7 @@ function resetGame() {
     b.m.visible = false;
     if (b.isSpark) sparkPool.push(b.m);
     else if (b.isBlood) bloodPool.push(b.m);
+    else if (b.isDust) dustPool.push(b.m);
   }
   vfx.blood.length = 0;
   for (let i = casings.length - 1; i >= 0; i--) {
@@ -6658,8 +6711,9 @@ function resetGame() {
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  initWeapons();
+  weaponsOwned[1] = -1;
   curWeapon = 0;
+  initWeapons();
   gunSwitchT = 1;
   buildViewmodel();
   updateHudHealth(); updateHudAmmo();

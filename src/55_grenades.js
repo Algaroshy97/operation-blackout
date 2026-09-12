@@ -67,6 +67,7 @@ function updateGrenades(dt) {
 
 const grenadeLosRay = new THREE.Raycaster();
 const grenadeLosDir = new THREE.Vector3();
+const grenadeTargets = [];
 function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.copy(to).sub(from);
   const dist = grenadeLosDir.length();
@@ -74,7 +75,16 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  const hit = grenadeLosRay.intersectObjects(scene.children, true).filter(function (h) {
+  grenadeTargets.length = 0;
+  for (let i = 0; i < raycastColliders.length; i++) {
+    grenadeTargets.push(raycastColliders[i]);
+  }
+  for (let i = 0; i < enemies.length; i++) {
+    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
+      grenadeTargets.push(enemies[i].parts.group);
+    }
+  }
+  const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
     return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
   })[0];
   if (!hit || hit.distance >= dist - 0.05) return true;
@@ -171,6 +181,7 @@ function updatePickups(dt) {
         const s = curS();
         if (s) {
           s.reserve = Math.min(CFG.weapons[weaponsOwned[curWeapon]].reserveMax, s.reserve + Math.round(CFG.weapons[weaponsOwned[curWeapon]].mag * 1.5));
+          updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {

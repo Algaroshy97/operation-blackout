@@ -50,7 +50,7 @@ function updateWeapons(dt) {
     }
   }
   // fire
-  if (mouse1Down && !s.reloading && !player.dead && started && !paused) {
+  if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
       if (!w.auto) mouse1Down = false;
       fireShot();
@@ -98,30 +98,41 @@ function isScoped() {
   return adsAmount > 0.82 && curW().type === 'SR';
 }
 
+const _assistTo = new THREE.Vector3();
+const _assistToH = new THREE.Vector3();
+const _assistBestTo = new THREE.Vector3();
+const _assistNudged = new THREE.Vector3();
+
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
   if (adsAmount < 0.8) return dir;
-  let best = null, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
+  let hasBest = false, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
     _aimTgt.set(en.pos.x, en.pos.y + 1.15, en.pos.z);   // chest
-    const to = _aimTgt.clone().sub(from);
-    const d = to.length();
-    to.normalize();
-    const ang = dir.angleTo(to);
-    if (ang < bestAng) { bestAng = ang; best = { to: to, d: d, en: en, head: false }; }
+    _assistTo.subVectors(_aimTgt, from).normalize();
+    const ang = dir.angleTo(_assistTo);
+    if (ang < bestAng) {
+      bestAng = ang;
+      _assistBestTo.copy(_assistTo);
+      hasBest = true;
+    }
     // head magnet (smaller box)
     _aimTgt.set(en.pos.x, en.pos.y + 1.72, en.pos.z);
-    const toH = _aimTgt.clone().sub(from).normalize();
-    const angH = dir.angleTo(toH);
-    if (angH < bestAng * 0.55) { bestAng = angH * 1.8; best = { to: toH, d: d, en: en, head: true }; }
+    _assistToH.subVectors(_aimTgt, from).normalize();
+    const angH = dir.angleTo(_assistToH);
+    if (angH < bestAng * 0.55) {
+      bestAng = angH * 1.8;
+      _assistBestTo.copy(_assistToH);
+      hasBest = true;
+    }
   }
-  if (!best) return dir;
+  if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
   const pull = Math.min(1, CFG.assist.strength * 0.25);
-  const nudged = dir.clone().lerp(best.to, pull).normalize();
-  return nudged;
+  _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
+  return _assistNudged;
 }
 // bullet magnetism: at fire time, snap within a small cone
 function magnetizeBullet(dir, from) {
@@ -224,7 +235,13 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 function buildViewmodel() {
   if (gunGroup) {
     camera.remove(gunGroup);
-    gunGroup.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+    gunGroup.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); });
+        else o.material.dispose();
+      }
+    });
   }
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];

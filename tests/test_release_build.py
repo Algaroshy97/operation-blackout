@@ -119,6 +119,56 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertNotIn("targets.push(enemies[i].hitBody)", weapons_src)
         self.assertNotIn("targets.push(enemies[i].hitHead)", weapons_src)
 
+        # 8) Ammo pickup HUD update
+        self.assertIn("updateHudAmmo();", grenades_src)
+
+        # 9) Secondary weapon reset across runs
+        self.assertIn("weaponsOwned[1] = -1;\n  curWeapon = 0;\n  initWeapons();", main_src)
+
+        # 10) Audio node disconnect in playSound3D
+        self.assertIn("p.disconnect()", vfx_src)
+        self.assertIn("g.disconnect()", vfx_src)
+
+        # 11) Slide dust pooling
+        self.assertIn("dustPool.push(m)", vfx_src)
+        self.assertIn("getDustMesh()", vfx_src)
+        self.assertIn("dustPool.push(b.m)", main_src)
+
+        # 12) Uncached LOS defaults to false
+        self.assertIn("if (en._losCache === undefined) return false;", enemies_src)
+
+        # 13) Viewmodel material disposal
+        self.assertIn("if (o.material)", weapons_src)
+
+        # 14) Weapon raise blocks firing
+        self.assertIn("gunSwitchT >= 1", weapons_src)
+
+    def test_box_man_hitbox_invariant(self) -> None:
+        import re
+        enemy_source = ENEMIES.read_text()
+        body_match = re.search(r"hitBody\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);\s*hitBody\.position\.y\s*=\s*([\d.]+);", enemy_source)
+        self.assertIsNotNone(body_match, "Could not find box-man hitBody definition")
+        body_h = float(body_match.group(1))
+        body_y = float(body_match.group(2))
+        body_top = body_y + body_h / 2
+
+        head_match = re.search(r"hitHead\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);", enemy_source)
+        self.assertIsNotNone(head_match, "Could not find box-man hitHead definition")
+        head_h = float(head_match.group(1))
+
+        pelvis_h = float(re.search(r"pelvisH:\s*([\d.]+)", enemy_source).group(1))
+        body_dim_h = float(re.search(r"bodyH:\s*([\d.]+)", enemy_source).group(1))
+        head_y = pelvis_h + body_dim_h + 0.16
+        head_bottom = head_y - head_h / 2
+
+        self.assertLess(body_top, head_bottom, f"hitBody top ({body_top}) must be below hitHead bottom ({head_bottom})")
+
+    def test_ground_mesh_in_raycast_colliders(self) -> None:
+        world_source = (ROOT / "src" / "10_config_world.js").read_text()
+        self.assertIn("raycastColliders.push(ground);", world_source)
+        self.assertNotIn("colliders.push(ground)", world_source)
+        self.assertIn("scene.add(ground);\nraycastColliders.push(ground);", world_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

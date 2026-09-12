@@ -71,6 +71,7 @@ function resetGame() {
     b.m.visible = false;
     if (b.isSpark) sparkPool.push(b.m);
     else if (b.isBlood) bloodPool.push(b.m);
+    else if (b.isDust) dustPool.push(b.m);
   }
   vfx.blood.length = 0;
   for (let i = casings.length - 1; i >= 0; i--) {
@@ -101,8 +102,9 @@ function resetGame() {
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  initWeapons();
+  weaponsOwned[1] = -1;
   curWeapon = 0;
+  initWeapons();
   gunSwitchT = 1;
   buildViewmodel();
   updateHudHealth(); updateHudAmmo();

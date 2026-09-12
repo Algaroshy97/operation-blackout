@@ -13,6 +13,8 @@ const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
 const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
 const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
+const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
 // Mesh pools
 const tracerPool = [];
@@ -20,6 +22,7 @@ const impactPool = [];
 const sparkPool = [];
 const bloodPool = [];
 const casingPool = [];
+const dustPool = [];
 
 function warmupVfx() {
   for (let i = 0; i < 30; i++) {
@@ -47,6 +50,11 @@ function warmupVfx() {
     m.userData.vfx = true; m.visible = false;
     casingPool.push(m);
   }
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(dustGeo, dustMat);
+    m.userData.vfx = true; m.visible = false;
+    dustPool.push(m);
+  }
 }
 warmupVfx();
 
@@ -68,6 +76,11 @@ function getSparkMesh() {
 }
 function getBloodMesh() {
   const m = bloodPool.length > 0 ? bloodPool.pop() : new THREE.Mesh(bloodGeo, bloodMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getDustMesh() {
+  const m = dustPool.length > 0 ? dustPool.pop() : new THREE.Mesh(dustGeo, dustMat);
   m.userData.vfx = true; m.visible = true;
   return m;
 }
@@ -161,6 +174,9 @@ function spawnBlood(point, isHead) {
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
 const casings = [];
+const _casingRight = new THREE.Vector3();
+const _casingUp = new THREE.Vector3();
+const _casingFwd = new THREE.Vector3();
 function spawnCasing(camPos, camQ) {
   if (casings.length > 24) {
     const old = casings.shift();
@@ -170,10 +186,13 @@ function spawnCasing(camPos, camQ) {
   }
   const m = getCasingMesh();
   m.position.copy(camPos);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQ);
-  m.position.addScaledVector(right, 0.25).addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(camQ), -0.15);
-  m.position.addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camQ), 0.3);
-  const v = right.clone().multiplyScalar(1.6 + Math.random()).add(new THREE.Vector3(0, 1.4 + Math.random(), 0));
+  _casingRight.set(1, 0, 0).applyQuaternion(camQ);
+  _casingUp.set(0, 1, 0).applyQuaternion(camQ);
+  _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
+  m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
+  m.position.addScaledVector(_casingFwd, 0.3);
+  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(1.6 + Math.random());
+  v.y += 1.4 + Math.random();
   const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
   scene.add(m);
   casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
@@ -208,16 +227,12 @@ function updateCasings(dt) {
 }
 
 // ---- Slide dust ----
-const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
-const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 function spawnSlideDust(pos) {
-  // Share dustMat across puffs (unmutated per particle) to avoid leaking GPU materials on slide
   for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(dustGeo, dustMat);
+    const m = getDustMesh();
     m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
-    m.userData.vfx = true;
     scene.add(m);
-    vfx.blood.push({ m: m, v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2), life: 0.55, grav: 2.5, dust: true });
+    vfx.blood.push({ m: m, v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2), life: 0.55, grav: 2.5, isDust: true });
   }
 }
 
@@ -275,6 +290,7 @@ function updateVfx(dt) {
       b.m.visible = false;
       if (b.isSpark) sparkPool.push(b.m);
       else if (b.isBlood) bloodPool.push(b.m);
+      else if (b.isDust) dustPool.push(b.m);
       vfx.blood.splice(i, 1);
     }
   }
@@ -374,12 +390,19 @@ function playSound3D(name, x, y, z) {
   const vol = 0.15 + 0.85 * Math.pow(1 - dist / maxDist, 2);
   const g = ctx.createGain();
   g.gain.value = vol;
+  let p = null;
   if (ctx.createStereoPanner) {
-    const p = ctx.createStereoPanner();
+    p = ctx.createStereoPanner();
     p.pan.value = pan;
     g.connect(p); p.connect(ctx.destination);
   } else g.connect(ctx.destination);
   playSound(name, g);
+  setTimeout(() => {
+    try {
+      if (p) p.disconnect();
+      g.disconnect();
+    } catch (e) {}
+  }, 700);
 }
 
 // footstep timing

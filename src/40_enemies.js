@@ -64,8 +64,8 @@ function makeEnemyMesh(kind) {
   egun.position.set(0.18, E_DIM.pelvisH + 0.35, -0.25);
   // hitboxes (invisible, slightly larger)
   const hbMat = new THREE.MeshBasicMaterial({ visible: false });
-  const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
-  hitBody.position.y = E_DIM.pelvisH + 0.5;
+  const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.60, 0.5), hbMat);
+  hitBody.position.y = 1.24;
   const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), hbMat);
   hitHead.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.16;
 
@@ -334,7 +334,7 @@ let losFrame = 0;   // round-robin: each enemy checks LOS at most every 3 frames
 function hasLOS(en) {
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
-  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return true; return en._losCache; }
+  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
   _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;

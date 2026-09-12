@@ -104,15 +104,16 @@ const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a47, roughness: 0
   tex.repeat.set(30, 30);
   groundMat.map = tex; groundMat.needsUpdate = true;
 })();
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
-
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
 const raycastColliders = []; // world geometry meshes for scoped raycasting
 const mapBounds = CFG.world.size / 2 - 2;
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+raycastColliders.push(ground);
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
 }
