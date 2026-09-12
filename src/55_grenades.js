@@ -404,6 +404,27 @@ function dropPickup(pos) {
   pickups.push({ m: g, kind: kind, t: 0 });
 }
 
+// ---- Power-up drops ----------------------------------------------------------
+// A new pickup KIND rather than a new system: spawn, bob, blink and despawn are
+// all already handled by updatePickups().
+const powerGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
+const POWER_COLOR = { maxammo: 0x6fa8ff, double: 0xffd24a, instakill: 0xff4030, nuke: 0x8fd66a };
+const powerMats = {};
+function powerMaterial(key) {
+  if (!powerMats[key]) {
+    powerMats[key] = new THREE.MeshBasicMaterial({ color: POWER_COLOR[key] || 0xffffff });
+  }
+  return powerMats[key];
+}
+function dropPowerUp(pos) {
+  const def = CORE.pickPowerUp(Math.random());
+  const g = new THREE.Mesh(powerGeo, powerMaterial(def.key));
+  g.position.set(pos.x, 0.55, pos.z);
+  g.userData.pickup = 'power';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'power', power: def, t: 0 });
+}
+
 // Drop an ammo box at a specific spot, bypassing the random roll.
 function forceAmmoPickup(x, z) {
   const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
@@ -418,13 +439,24 @@ function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    p.m.rotation.y += dt * 2;
-    p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    p.m.rotation.y += dt * (p.kind === 'power' ? 4 : 2);
+    if (p.kind === 'power') {
+      p.m.rotation.x += dt * 1.6;
+      p.m.position.y = 0.55 + Math.sin(p.t * 3) * 0.12;
+    } else {
+      p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    }
     // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
     // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
     // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
     const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
     if (d < 1.3) {
+      if (p.kind === 'power') {
+        activatePowerUp(p.power);
+        scene.remove(p.m);
+        pickups.splice(i, 1);
+        continue;
+      }
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {

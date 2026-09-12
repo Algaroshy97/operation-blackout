@@ -358,6 +358,7 @@ const CORE = (function () {
       wave: state.wave, score: state.score, kills: state.kills, headshots: state.headshots,
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
+      credits: state.credits || 0,
       difficulty: state.difficulty, endless: !!state.endless,
       weapons: state.weapons,            // [{gi, ammo, reserve}, ...]
       savedAt: state.savedAt || 0
@@ -393,6 +394,7 @@ const CORE = (function () {
       shotsHit: Math.round(num(raw.shotsHit, 0, 1e7, 0)),
       health: num(raw.health, 1, 100, 100),
       armor: num(raw.armor, 0, 200, 0),
+      credits: num(raw.credits, 0, 1e9, 0),
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
@@ -764,6 +766,308 @@ const CORE = (function () {
     return 'ok';
   }
 
+  // ---- Recoil ----------------------------------------------------------------
+  // The shipped model was `recoilV * (0.8 + rand * 0.4)` vertically and
+  // `(rand - 0.5) * 2 * recoilH` horizontally. The horizontal term had zero mean
+  // and no memory, so there was no shape to pull against: sustained fire was a
+  // dice roll rather than a skill, and no amount of practice could improve it.
+  //
+  // A pattern is a list of [x, y] kicks walked one shot at a time and HELD at the
+  // last entry, so a long burst settles into a steady drift instead of wandering
+  // forever. Entries are multipliers on the weapon's own recoilH / recoilV, so
+  // magnitude still comes from CFG and only the shape lives here.
+  const RECOIL_PATTERNS = {
+    // M4: climbs nearly straight for six, then leans right and holds.
+    ar:  [[0, 1], [0.05, 1.05], [-0.05, 1.10], [0.10, 1.05], [0.20, 1.00],
+          [0.35, 0.95], [0.55, 0.90], [0.70, 0.85], [0.80, 0.80], [0.90, 0.75]],
+    // MK18: shallower climb, wide alternating wander — controllable, never still.
+    smg: [[0, 0.85], [-0.25, 0.90], [0.30, 0.95], [-0.45, 0.90], [0.55, 0.85],
+          [-0.60, 0.80], [0.65, 0.80], [-0.70, 0.75]],
+    // SCAR-H: hard vertical, very little lateral. Punishes holding the trigger.
+    br:  [[0, 1.15], [0.08, 1.20], [-0.06, 1.25], [0.12, 1.20], [0.10, 1.15],
+          [-0.10, 1.10], [0.15, 1.05]],
+    // SV-98: one heavy kick. There is no second shot inside the recovery window,
+    // so there is no pattern to learn and none is invented.
+    sr:  [[0, 1]]
+  };
+  const RECOIL_JITTER = 0.15;   // +/- 15%: learnable, but not robotic
+  const RECOIL_RESET = 0.35;    // seconds off the trigger before shot 1 is shot 1
+  function recoilPatternFor(type) {
+    const k = String(type || '').toLowerCase();
+    return RECOIL_PATTERNS[k] ? k : 'ar';
+  }
+  // jx / jy are in [-1, 1]; pass 0 for a deterministic trace.
+  function recoilAt(pattern, shotIndex, jx, jy) {
+    const p = RECOIL_PATTERNS[pattern] || RECOIL_PATTERNS.ar;
+    let i = Math.floor(shotIndex);
+    if (!(i >= 0)) i = 0;
+    if (i >= p.length) i = p.length - 1;
+    const ax = jx === undefined ? 0 : jx, ay = jy === undefined ? 0 : jy;
+    return {
+      x: p[i][0] * (1 + ax * RECOIL_JITTER),
+      y: p[i][1] * (1 + ay * RECOIL_JITTER)
+    };
+  }
+  // The pattern only means anything if the index resets between bursts: a player
+  // who releases the trigger, re-centres and fires again expects shot 1 to behave
+  // like shot 1.
+  function recoilShotIndex(prevIndex, sinceLastShot, resetAfter) {
+    const gap = resetAfter === undefined ? RECOIL_RESET : resetAfter;
+    if (!(sinceLastShot < gap)) return 0;
+    return prevIndex + 1;
+  }
+  // Pulling down while the view is kicked up should CANCEL the kick, not stack
+  // with it. Recoil is an additive camera offset that decays back to zero, so a
+  // player who compensated kept the compensation in their real pitch and finished
+  // the burst aiming at the floor — the recoil went away, their correction did
+  // not. Spend counter-input against the outstanding offset first and pass only
+  // the remainder through to the aim. Same-sign input is the player choosing to
+  // move and is never absorbed.
+  function absorbRecoil(offset, lookDelta) {
+    if (offset > 0 && lookDelta < 0) {
+      const used = Math.min(offset, -lookDelta);
+      return { offset: offset - used, delta: lookDelta + used };
+    }
+    if (offset < 0 && lookDelta > 0) {
+      const used = Math.min(-offset, lookDelta);
+      return { offset: offset + used, delta: lookDelta - used };
+    }
+    return { offset: offset, delta: lookDelta };
+  }
+
+  // ---- Hipfire bloom ----------------------------------------------------------
+  // Spread was `ads ? adsSpread : spread` scaled by movement and airborne state
+  // only. It did not grow under sustained fire and did not recover, so holding the
+  // trigger at range cost nothing and tap-firing bought nothing. Bloom is carried
+  // in the same units as the base spread and simply adds to it.
+  //
+  // Parameters are derived from each weapon's own spread rather than stored as
+  // four more CFG columns: the ratios are what make a weapon feel controllable,
+  // and deriving them means a spread retune cannot leave a stale bloom cap behind.
+  const BLOOM_PER_SHOT = 0.18;   // base spreads added per shot
+  const BLOOM_CAP_HIP = 1.6;     // hipfire ceiling, in base spreads
+  const BLOOM_CAP_ADS = 0.35;    // ADS ceiling — far tighter, which is the point
+  const BLOOM_RECOVER = 2.2;     // base spreads per second once the trigger is up
+  function bloomParams(baseSpread, adsSpread, ads) {
+    const base = ads ? adsSpread : baseSpread;
+    return {
+      perShot: base * BLOOM_PER_SHOT,
+      cap: base * (ads ? BLOOM_CAP_ADS : BLOOM_CAP_HIP),
+      recover: base * BLOOM_RECOVER
+    };
+  }
+  function bloomAfterShot(bloom, perShot, cap) {
+    const b = bloom + perShot;
+    return b > cap ? cap : b;
+  }
+  function bloomDecay(bloom, dt, recover) {
+    const b = bloom - recover * dt;
+    return b < 0 ? 0 : b;
+  }
+  function effectiveSpread(base, bloom, speed, airborne) {
+    const moveMul = 1 + Math.min(1.2, speed * 0.25) + (airborne ? 0.8 : 0);
+    return base * moveMul + (bloom > 0 ? bloom : 0);
+  }
+
+  // ---- Penetration ------------------------------------------------------------
+  // Every surface in the arena stopped a bullet identically: plywood was cover in
+  // exactly the way concrete was. Each material spends part of the round's
+  // penetration budget; a round with budget left continues and does proportionally
+  // less damage on the far side.
+  const PENETRATION_COST = { concrete: 1.0, metal: 0.7, wood: 0.3, glass: 0.1 };
+  const PENETRATION_DEFAULT = 1.0;
+  const MAX_PENETRATIONS = 2;
+  // Budget by weapon class: a .308 marksman round goes through what an SMG will not.
+  const PENETRATION_POWER = { sr: 1.6, br: 1.0, ar: 0.75, smg: 0.4 };
+  function penetrationCost(material) {
+    const c = PENETRATION_COST[material];
+    return c === undefined ? PENETRATION_DEFAULT : c;
+  }
+  function penetrationPower(type) {
+    const p = PENETRATION_POWER[String(type || '').toLowerCase()];
+    return p === undefined ? PENETRATION_POWER.ar : p;
+  }
+  // Returns the budget remaining after passing through `material`, or 0 if the
+  // round stops there.
+  function penetrate(power, material) {
+    const left = power - penetrationCost(material);
+    return left > 0 ? left : 0;
+  }
+  // Damage surviving a penetration, as a fraction of the budget still unspent.
+  // Never a full-damage wallbang: shooting through cover should be a real option
+  // and never the better one.
+  function penetrationDamageMul(powerLeft, powerStart) {
+    if (!(powerStart > 0)) return 0;
+    const f = powerLeft / powerStart;
+    return f <= 0 ? 0 : 0.35 + 0.4 * Math.min(1, f);
+  }
+
+  // Entry distance of a ray into a box, or -1 for a miss inside maxDist. Same slab
+  // test as segmentHitsBox, but it reports WHERE rather than WHETHER, which is
+  // what ordering penetrations needs.
+  function rayBoxEntry(ox, oy, oz, dx, dy, dz, maxDist, box) {
+    let t0 = 0, t1 = maxDist;
+    if (dx * dx < 1e-12) { if (ox < box.min.x || ox > box.max.x) return -1; }
+    else {
+      const inv = 1 / dx;
+      let a = (box.min.x - ox) * inv, b = (box.max.x - ox) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (dy * dy < 1e-12) { if (oy < box.min.y || oy > box.max.y) return -1; }
+    else {
+      const inv = 1 / dy;
+      let a = (box.min.y - oy) * inv, b = (box.max.y - oy) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (dz * dz < 1e-12) { if (oz < box.min.z || oz > box.max.z) return -1; }
+    else {
+      const inv = 1 / dz;
+      let a = (box.min.z - oz) * inv, b = (box.max.z - oz) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (t1 < 0 || t0 > maxDist) return -1;
+    return t0 < 0 ? 0 : t0;
+  }
+
+  // Ordered walk of the surfaces a round crosses.
+  //
+  // Analytic against the collider AABBs rather than the rendered meshes, and
+  // deliberately so: the static arena is merged into a few batched meshes (Phase 2),
+  // so a mesh raycast reports the entry AND exit faces of every box in a batch and
+  // cannot tell one wall from two. The colliders are exactly one entry per box and
+  // are where the material tag lives.
+  //
+  // Returns { stopAt, tiers }. `tiers` is [{ at, mul }]: a target beyond `at` takes
+  // `mul` damage. A target nearer than the first entry takes full damage.
+  function penetrationWalk(ox, oy, oz, dx, dy, dz, maxDist, boxes, power) {
+    const hits = [];
+    for (let i = 0; i < boxes.length; i++) {
+      const t = rayBoxEntry(ox, oy, oz, dx, dy, dz, maxDist, boxes[i]);
+      if (t >= 0) hits.push({ t: t, box: boxes[i] });
+    }
+    hits.sort(function (a, b) { return a.t - b.t; });
+    const tiers = [];
+    let left = power, crossed = 0;
+    for (let i = 0; i < hits.length; i++) {
+      if (crossed >= MAX_PENETRATIONS) return { stopAt: hits[i].t, tiers: tiers };
+      const next = penetrate(left, hits[i].box.mat);
+      if (next <= 0) return { stopAt: hits[i].t, tiers: tiers };
+      left = next; crossed++;
+      tiers.push({ at: hits[i].t, mul: penetrationDamageMul(left, power) });
+    }
+    return { stopAt: maxDist, tiers: tiers };
+  }
+  // Damage multiplier for a target at `dist` given a walk. 0 means blocked.
+  function penetrationMulAt(walk, dist) {
+    if (dist > walk.stopAt) return 0;
+    let mul = 1;
+    for (let i = 0; i < walk.tiers.length; i++) {
+      if (dist >= walk.tiers[i].at) mul = walk.tiers[i].mul; else break;
+    }
+    return mul;
+  }
+
+  // ---- Melee ------------------------------------------------------------------
+  // A runner inside its 1.9 m stop distance had no counter but backpedalling.
+  // Pick the nearest target inside a forward cone rather than the nearest target
+  // outright, so the knife goes where the player is looking.
+  // `targets` is [{ x, z, dead }]; dirX/dirZ is the player's forward on XZ.
+  function meleeTarget(targets, px, pz, dirX, dirZ, reach, cosHalfAngle) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      if (!t || t.dead) continue;
+      const dx = t.x - px, dz = t.z - pz;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d > reach || d < 1e-6) continue;
+      if ((dx * dirX + dz * dirZ) / d < cosHalfAngle) continue;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+  const MELEE_REACH = 2.2;
+  const MELEE_CONE = Math.cos(Math.PI / 4);   // 45 degrees either side
+  const MELEE_DAMAGE = 150;
+  const MELEE_COOLDOWN = 0.9;
+
+  // ---- Mantle -----------------------------------------------------------------
+  // Step-up capped at STEP_H = 0.60 m, so a 1 m crate was scenery rather than a
+  // route. The probe is analytic against the collider AABBs — no raycast — and
+  // returns the ledge to lerp onto, or null.
+  function mantleTarget(feetY, px, pz, dirX, dirZ, boxes, opts) {
+    const o = opts || {};
+    const reach = o.reach === undefined ? 0.85 : o.reach;
+    const minRise = o.minRise === undefined ? 0.45 : o.minRise;
+    const maxRise = o.maxRise === undefined ? 1.7 : o.maxRise;
+    const headroom = o.headroom === undefined ? 1.3 : o.headroom;
+    const radius = o.radius === undefined ? 0.35 : o.radius;
+    const tx = px + dirX * reach, tz = pz + dirZ * reach;
+    let ledge = -Infinity;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (tx < b.min.x - radius || tx > b.max.x + radius) continue;
+      if (tz < b.min.z - radius || tz > b.max.z + radius) continue;
+      const rise = b.max.y - feetY;
+      if (rise < minRise || rise > maxRise) continue;
+      if (b.max.y > ledge) ledge = b.max.y;
+    }
+    if (ledge === -Infinity) return null;
+    // Nothing may occupy the volume the player would stand in — mantling into the
+    // underside of a slab is worse than not mantling at all.
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (tx < b.min.x - radius || tx > b.max.x + radius) continue;
+      if (tz < b.min.z - radius || tz > b.max.z + radius) continue;
+      if (b.max.y > ledge + 0.02 && b.min.y < ledge + headroom) return null;
+    }
+    return { x: tx, z: tz, y: ledge };
+  }
+
+  // ---- Credits ----------------------------------------------------------------
+  // Score only ever went up and nothing in the game read it back, so a 30-minute
+  // run had no shape. Credits are earned in parallel and SPENT. Score stays the
+  // leaderboard number so career bests remain comparable across versions.
+  const CREDITS = { hit: 10, kill: 60, headshotKill: 100, waveClear: 250 };
+  function creditsForDamage(isKill, isHead) {
+    if (!isKill) return CREDITS.hit;
+    return isHead ? CREDITS.headshotKill : CREDITS.kill;
+  }
+  function creditsForWave(n) { return CREDITS.waveClear * Math.max(1, n); }
+
+  // ---- Power-ups --------------------------------------------------------------
+  // Weighted so MAX AMMO — the one that answers the ammo economy directly — is the
+  // common drop and NUKE is a genuine event rather than a routine one.
+  const POWERUPS = [
+    { key: 'maxammo',   weight: 1.00, label: 'MAX AMMO',      dur: 0 },
+    { key: 'double',    weight: 0.75, label: 'DOUBLE POINTS', dur: 30 },
+    { key: 'instakill', weight: 0.55, label: 'INSTA-KILL',    dur: 10 },
+    { key: 'nuke',      weight: 0.22, label: 'NUKE',          dur: 0 }
+  ];
+  const POWERUP_CHANCE = 0.035;
+  function powerUpDropped(roll, chance) {
+    return roll < (chance === undefined ? POWERUP_CHANCE : chance);
+  }
+  function pickPowerUp(roll) {
+    let total = 0;
+    for (let i = 0; i < POWERUPS.length; i++) total += POWERUPS[i].weight;
+    const target = Math.max(0, Math.min(0.999999, roll)) * total;
+    let acc = 0;
+    for (let i = 0; i < POWERUPS.length; i++) {
+      acc += POWERUPS[i].weight;
+      if (target < acc) return POWERUPS[i];
+    }
+    return POWERUPS[0];
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -828,6 +1132,43 @@ const CORE = (function () {
     updateStuck: updateStuck,
     updateProgress: updateProgress,
     isClosingDistance: isClosingDistance,
+    RECOIL_PATTERNS: RECOIL_PATTERNS,
+    RECOIL_JITTER: RECOIL_JITTER,
+    RECOIL_RESET: RECOIL_RESET,
+    recoilPatternFor: recoilPatternFor,
+    recoilAt: recoilAt,
+    recoilShotIndex: recoilShotIndex,
+    absorbRecoil: absorbRecoil,
+    BLOOM_PER_SHOT: BLOOM_PER_SHOT,
+    BLOOM_CAP_HIP: BLOOM_CAP_HIP,
+    BLOOM_CAP_ADS: BLOOM_CAP_ADS,
+    BLOOM_RECOVER: BLOOM_RECOVER,
+    bloomParams: bloomParams,
+    bloomAfterShot: bloomAfterShot,
+    bloomDecay: bloomDecay,
+    effectiveSpread: effectiveSpread,
+    PENETRATION_COST: PENETRATION_COST,
+    MAX_PENETRATIONS: MAX_PENETRATIONS,
+    penetrationCost: penetrationCost,
+    penetrationPower: penetrationPower,
+    penetrate: penetrate,
+    penetrationDamageMul: penetrationDamageMul,
+    meleeTarget: meleeTarget,
+    MELEE_REACH: MELEE_REACH,
+    MELEE_CONE: MELEE_CONE,
+    MELEE_DAMAGE: MELEE_DAMAGE,
+    MELEE_COOLDOWN: MELEE_COOLDOWN,
+    mantleTarget: mantleTarget,
+    CREDITS: CREDITS,
+    creditsForDamage: creditsForDamage,
+    creditsForWave: creditsForWave,
+    POWERUPS: POWERUPS,
+    POWERUP_CHANCE: POWERUP_CHANCE,
+    powerUpDropped: powerUpDropped,
+    pickPowerUp: pickPowerUp,
+    rayBoxEntry: rayBoxEntry,
+    penetrationWalk: penetrationWalk,
+    penetrationMulAt: penetrationMulAt,
     UNREACHABLE: UNREACHABLE
   };
 })();

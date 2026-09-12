@@ -126,6 +126,11 @@ function resetGame() {
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
+  player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
+  credits = 0;
+  powerUntil.double = -99; powerUntil.instakill = -99;
+  if (hud.credits) hud.credits.textContent = '0';
   runId++;   // invalidate anything the previous run scheduled
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
@@ -314,6 +319,8 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  credits = cp.credits || 0;
+  if (hud.credits) hud.credits.textContent = credits;
   grenades.count = cp.grenades;
   waveNum = cp.wave;                  // next startWave() call is wave+1
   waveActive = false; betweenWaveT = CFG.wave.startDelay;

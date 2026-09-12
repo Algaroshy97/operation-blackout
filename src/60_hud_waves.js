@@ -13,6 +13,8 @@ const hud = {
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
   minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
+  credits: $id('credit-val'),
+  powerBanner: $id('power-banner'),
   grenadeCharge: $id('grenade-charge'),
   grenadeChargeTxt: $id('grenade-charge-txt'),
   grenadeChargeFill: $id('grenade-charge-fill')
@@ -63,12 +65,21 @@ function updateHudAmmo() {
   hud.reloadHint.style.opacity = s.reloading || empty ? 1 : 0;
 }
 
-function showHitmarker(isHead) {
+// Feedback tiers. The marker had two states, so a shot absorbed by a shielded
+// advancer's 85% frontal plate looked exactly like a clean body hit — the player
+// could only learn the mechanic by reading the patch notes. `tier` is 'block' for
+// an absorbed hit, 'cover' for one that punched through a surface first.
+const HITMARK_COLOR = { block: '#6fa8ff', cover: '#ffd24a' };
+function showHitmarker(isHead, tier) {
   hud.hitmark.style.opacity = 1;
-  hud.hitmark.style.transform = 'rotate(45deg) scale(' + (isHead ? 1.6 : 1) + ')';
+  const scale = isHead ? 1.6 : tier === 'block' ? 0.75 : 1;
+  hud.hitmark.style.transform = 'rotate(45deg) scale(' + scale + ')';
+  const col = HITMARK_COLOR[tier] || '#ff4a3d';
+  const marks = hud.hitmark.children;
+  for (let i = 0; i < marks.length; i++) marks[i].style.background = col;
   clearTimeout(hud.hitmark._t);
   hud.hitmark._t = setTimeout(function () { hud.hitmark.style.opacity = 0; }, 90);
-  playSound(isHead ? 'headshot' : 'hit');
+  playSound(tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
 }
 
 function showDamageFx(dirDeg, amount) {
@@ -127,6 +138,58 @@ function addScore(pts, label) {
   score += pts;
   hud.scoreVal.textContent = score;
   if (label) pushKillfeed(label + ' <span class="xp">+' + pts + '</span>');
+}
+
+// ---- Credits ----------------------------------------------------------------
+// Score only ever went up, and nothing in the game ever read it back, so a
+// 30-minute run had no shape. Credits are earned in parallel and are SPENT. Score
+// stays the leaderboard number so career bests remain comparable across versions.
+let credits = 0;
+function addCredits(n) {
+  credits += Math.round(n * (powerActive('double') ? 2 : 1));
+  if (hud.credits) hud.credits.textContent = credits;
+}
+function spendCredits(n) {
+  if (credits < n) return false;
+  credits -= n;
+  if (hud.credits) hud.credits.textContent = credits;
+  return true;
+}
+
+// ---- Power-ups --------------------------------------------------------------
+// Timers run on gameT, which does not advance while paused, so a DOUBLE POINTS
+// window cannot be burned by opening the pause menu.
+const powerUntil = { double: -99, instakill: -99 };
+function powerActive(key) { return gameT < powerUntil[key]; }
+function activatePowerUp(def) {
+  if (def.dur > 0) powerUntil[def.key] = gameT + def.dur;
+  if (def.key === 'maxammo') {
+    for (let i = 0; i < wState.length; i++) {
+      if (!wState[i] || weaponsOwned[i] < 0) continue;
+      const cw = CFG.weapons[weaponsOwned[i]];
+      wState[i].ammo = cw.mag;
+      wState[i].reserve = cw.reserveMax;
+    }
+    grenades.count = Math.max(grenades.count, CFG.grenade.count);
+    updateHudAmmo();
+  } else if (def.key === 'nuke') {
+    // Everything currently alive, credited as kills so the wave still completes
+    // through the normal path rather than being force-cleared.
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!enemies[i].dead) killEnemy(enemies[i], false);
+    }
+  }
+  showPowerBanner(def.label);
+  playSound('powerup');
+}
+function showPowerBanner(txt) {
+  if (!hud.powerBanner) return;
+  hud.powerBanner.textContent = txt;
+  hud.powerBanner.style.opacity = '1';
+  clearTimeout(hud.powerBanner._t);
+  hud.powerBanner._t = setTimeout(function () {
+    if (hud.powerBanner) hud.powerBanner.style.opacity = '0';
+  }, 1800);
 }
 
 // ---- Bounded killfeed ----
@@ -190,6 +253,7 @@ function captureRunState() {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
+    credits: credits,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons
   };
 }
@@ -241,6 +305,7 @@ function updateWaves(dt) {
       waveActive = false;
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      addCredits(CORE.creditsForWave(waveNum));
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }

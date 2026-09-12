@@ -22,6 +22,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-reload" class="tbtn tbtn-sm">RLD</div>
     <div id="tbtn-nade" class="tbtn tbtn-sm">NADE</div>
     <div id="tbtn-swap" class="tbtn tbtn-sm">SWAP</div>
+    <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -137,6 +138,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
+  holdBtn('tbtn-melee', function () { pressed['__melee'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');

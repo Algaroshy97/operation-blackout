@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-8 complete (2026-09-12)
+> ## Status — Phases 0-9 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -329,6 +329,63 @@
 > soldiers cannot be merged and cost up to 56 colour-pass calls on their own.
 > ENG-04 is closed by Phase 6; the `fireShot` criterion by Phase 8.
 > Sections below are the original audit, unedited except where a correction is noted.
+
+> **Phase 9 — gunfeel, and the first half of the economy.** The first phase driven by
+> `COD_ROADMAP.md` rather than the defect register: nothing here was broken, and all of it
+> was missing. Measured before → after:
+>
+> | | before | after |
+> |---|---|---|
+> | recoil, two identical 10-shot M4 bursts | random walk, sign differs ~half the time | **+0.0210 / +0.0222 yaw** — same shape twice |
+> | horizontal recoil mean | **0** by construction | a learnable right-hand drift |
+> | compensating for recoil | correction kept, kick decays → aiming low | **absorbed**: counter-input cancels the kick |
+> | hipfire spread, shot 1 vs shot 30 | identical | **0 → 0.0224** bloom, recovers in ~0.9 s |
+> | 3 AR rounds through a wood slab | 78 (slab ignored) | **46** |
+> | the same slab as concrete | 78 | **0** |
+> | a runner inside 1.9 m | no counter but backpedalling | **knife, one shot**, 60 credits |
+> | a 1.5 m crate | unclimbable | **mantle**, feet 0 → 1.50 m |
+> | score | a number nothing read back | **credits**, earned and spent |
+> | power-ups | none | MAX AMMO / DOUBLE POINTS / INSTA-KILL / NUKE |
+>
+> **GUN-01 was two defects, not one.** The obvious half is that recoil was noise:
+> `(Math.random() - 0.5) * 2 * recoilH` has zero mean and no memory, so no amount of
+> practice could improve a burst. `CORE.recoilAt` replaces it with a per-weapon shape —
+> the M4 climbs nearly straight for six shots then leans right and holds — walked by a
+> shot index that resets after 0.35 s off the trigger, with ±15% jitter so it is not
+> mechanical. Two independent 10-shot bursts now finish at +0.0210 and +0.0222 yaw.
+>
+> The second half only shows up once the first is fixed. Recoil is an additive camera
+> offset (`camera.rotation.x = player.pitch + player.recoilP`) that decays to zero, so a
+> player who pulled down to compensate kept the correction in `player.pitch` and finished
+> the burst aiming at the floor — the kick went away, their compensation did not.
+> `CORE.absorbRecoil` spends counter-input against the outstanding offset first and passes
+> only the remainder to the aim. Same-sign input is never absorbed, because looking further
+> up while the gun climbs is the player choosing to.
+>
+> **Penetration is resolved against the colliders, not the meshes** — and that is the whole
+> reason it works. The static arena was merged into batched meshes in Phase 2, so a mesh
+> raycast reports the entry *and* exit faces of every box in a batch and cannot tell one
+> wall from two. `colliders[]` is exactly one entry per box, and the material tag is derived
+> from the render material in `addBox()`, so no call site had to change: 27 wood, 27 metal
+> and 75 concrete colliders were classified by that one mapping. Anything unmapped stays
+> concrete, which is the conservative default — an untagged surface stops a round exactly as
+> it did before the feature existed.
+>
+> **Two things measured rather than assumed.** The first penetration test read 0 damage and
+> looked like a broken feature; the enemy had been relocated by spawn validation and was
+> standing behind a real concrete wall, so 0 was correct. The second read a stale camera at
+> (-20, -37) while `player.pos` was (0, 24) — the preview pane backgrounds the tab, so the
+> rAF loop was not ticking and the camera had never followed. Neither was a code defect, and
+> quoting either as one would have been wrong.
+>
+> 36 new node tests, all mutation-checked: **17 of 17 deliberate breakages fail the suite**,
+> including reverting recoil to random noise, making `absorbRecoil` a no-op, removing the
+> penetration surface limit, and letting untagged colliders become free passage.
+>
+> **Still open from `COD_ROADMAP.md`:** 9.7 tactical sprint and slide cancel shipped with
+> this phase; wall buys, the armory, perks, plates and last stand (10.2-10.7), all of
+> Phase 11 (equipment and streaks), Phase 12 (wave and map design) and Phase 13 (meta
+> progression) are not started.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

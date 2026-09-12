@@ -341,12 +341,18 @@ function shieldMultiplier(en, point) {
   return facing > SHIELD_ARC ? 0.15 : 1;                   // 85% absorbed head-on
 }
 
-function damageEnemy(en, dmg, point, isHead) {
+function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
   const shield = isHead ? 1 : shieldMultiplier(en, point);
   if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
-  en.health -= dmg * shield;
-  showHitmarker(isHead);
+  // INSTA-KILL turns any connecting shot lethal, including one that a shield
+  // would otherwise have absorbed.
+  const lethal = typeof powerActive === 'function' && powerActive('instakill');
+  en.health -= lethal ? en.health + 1 : dmg * shield;
+  // Feedback tiers: a blocked shot used to give the identical ping to a clean body
+  // hit, so the shield mechanic was invisible unless you read the patch notes.
+  showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
+  addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
   else {
@@ -362,7 +368,10 @@ function killEnemy(en, isHead) {
   registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
   kills++;
   if (isHead) headshots++;
-  dropPickup(en.pos);
+  // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
+  // dropped a magazine would waste the drop.
+  if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
+  else dropPickup(en.pos);
   playSound('kill');
 }
 

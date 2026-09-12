@@ -824,3 +824,321 @@ test('shadow budget measures horizontally, like every other gameplay radius', ()
 test('shadow budget handles an empty roster', () => {
   assert.deepStrictEqual(CORE.shadowCasters([], 0, 0, 8), []);
 });
+
+// ============================================================================
+// Phase 9 — gunfeel
+// ============================================================================
+
+// ---- Recoil patterns (GUN-01) ----
+// The point of a pattern is that it can be LEARNED. The shipped model was
+// zero-mean random horizontally, so these tests would have been impossible to
+// write against it — which is the defect stated as a test.
+test('recoil pattern is deterministic with no jitter', () => {
+  const a = [], b = [];
+  for (let i = 0; i < 12; i++) {
+    a.push(CORE.recoilAt('ar', i, 0, 0));
+    b.push(CORE.recoilAt('ar', i, 0, 0));
+  }
+  assert.deepStrictEqual(a, b, 'the same burst must trace the same shape');
+});
+
+test('recoil pattern holds at its last entry instead of wrapping', () => {
+  const p = CORE.RECOIL_PATTERNS.ar;
+  const last = CORE.recoilAt('ar', p.length - 1, 0, 0);
+  for (const i of [p.length, p.length + 5, 400]) {
+    assert.deepStrictEqual(CORE.recoilAt('ar', i, 0, 0), last,
+      'a long burst must settle into a steady drift, not wrap to shot 1');
+  }
+});
+
+test('recoil pattern climbs before it drifts', () => {
+  // The M4 shape: nearly straight up for the first few, leaning right later.
+  const early = CORE.recoilAt('ar', 1, 0, 0);
+  const late = CORE.recoilAt('ar', 8, 0, 0);
+  assert.ok(Math.abs(early.x) < 0.2, 'early shots are near-vertical');
+  assert.ok(late.x > 0.5, 'late shots lean right');
+  assert.ok(late.y < early.y, 'vertical kick eases off as the drift takes over');
+});
+
+test('recoil jitter stays inside the declared band', () => {
+  for (let i = 0; i < CORE.RECOIL_PATTERNS.smg.length; i++) {
+    const base = CORE.recoilAt('smg', i, 0, 0);
+    for (const j of [-1, -0.5, 0.5, 1]) {
+      const k = CORE.recoilAt('smg', i, j, j);
+      assert.ok(Math.abs(k.y - base.y) <= Math.abs(base.y) * CORE.RECOIL_JITTER + 1e-9);
+      assert.ok(Math.abs(k.x - base.x) <= Math.abs(base.x) * CORE.RECOIL_JITTER + 1e-9);
+    }
+  }
+});
+
+test('recoil index resets between bursts but not inside one', () => {
+  assert.strictEqual(CORE.recoilShotIndex(6, 0.08), 7, 'inside a burst the index advances');
+  assert.strictEqual(CORE.recoilShotIndex(6, 0.9), 0, 'after a gap, shot 1 is shot 1 again');
+  assert.strictEqual(CORE.recoilShotIndex(6, CORE.RECOIL_RESET), 0, 'boundary resets');
+});
+
+test('every weapon type maps to a real pattern', () => {
+  for (const t of ['AR', 'SMG', 'BR', 'SR']) {
+    const key = CORE.recoilPatternFor(t);
+    assert.ok(CORE.RECOIL_PATTERNS[key], t + ' must have a pattern');
+  }
+  assert.strictEqual(CORE.recoilPatternFor('nonsense'), 'ar', 'unknown types fall back, never crash');
+});
+
+// ---- Recoil absorption (GUN-01, second half) ----
+test('pulling down against recoil cancels it instead of stacking', () => {
+  const r = CORE.absorbRecoil(0.05, -0.02);
+  assert.ok(Math.abs(r.offset - 0.03) < 1e-9, 'the kick shrinks by what the player pulled');
+  assert.strictEqual(r.delta, 0, 'and none of that pull reaches the real aim');
+});
+
+test('over-compensating passes the remainder through to the aim', () => {
+  const r = CORE.absorbRecoil(0.02, -0.05);
+  assert.strictEqual(r.offset, 0, 'the kick is fully cancelled');
+  assert.ok(Math.abs(r.delta - -0.03) < 1e-9, 'the excess still moves the aim');
+});
+
+test('same-sign input is never absorbed', () => {
+  // Looking further UP while the gun is kicking up is the player choosing to;
+  // absorbing it would fight their input.
+  const r = CORE.absorbRecoil(0.05, 0.02);
+  assert.strictEqual(r.offset, 0.05);
+  assert.strictEqual(r.delta, 0.02);
+});
+
+test('recoil absorption works in both directions', () => {
+  const r = CORE.absorbRecoil(-0.04, 0.03);
+  assert.ok(Math.abs(r.offset - -0.01) < 1e-9);
+  assert.strictEqual(r.delta, 0);
+});
+
+// ---- Bloom (GUN-02) ----
+test('bloom grows per shot and stops at the cap', () => {
+  const bp = CORE.bloomParams(0.014, 0.004, false);
+  let b = 0;
+  for (let i = 0; i < 200; i++) b = CORE.bloomAfterShot(b, bp.perShot, bp.cap);
+  assert.ok(Math.abs(b - bp.cap) < 1e-12, 'sustained fire reaches the ceiling and stays there');
+});
+
+test('bloom recovers to zero off the trigger', () => {
+  const bp = CORE.bloomParams(0.014, 0.004, false);
+  let b = bp.cap;
+  for (let i = 0; i < 600; i++) b = CORE.bloomDecay(b, 1 / 60, bp.recover);
+  assert.strictEqual(b, 0, 'and never goes negative');
+});
+
+test('tap-firing is more accurate than holding', () => {
+  // The defect stated as a test: before bloom existed these two were identical.
+  const bp = CORE.bloomParams(0.014, 0.004, false);
+  let held = 0, tapped = 0;
+  for (let i = 0; i < 10; i++) {
+    held = CORE.bloomAfterShot(held, bp.perShot, bp.cap);
+    tapped = CORE.bloomAfterShot(tapped, bp.perShot, bp.cap);
+    tapped = CORE.bloomDecay(tapped, 0.25, bp.recover);   // pause between taps
+  }
+  assert.ok(tapped < held, 'a tapped burst must end tighter than a held one');
+  assert.ok(CORE.effectiveSpread(0.014, tapped, 0, false) <
+            CORE.effectiveSpread(0.014, held, 0, false));
+});
+
+test('ADS caps bloom far tighter than hipfire', () => {
+  const hip = CORE.bloomParams(0.014, 0.004, false);
+  const ads = CORE.bloomParams(0.014, 0.004, true);
+  assert.ok(ads.cap < hip.cap * 0.2, 'aiming is the accurate option, not just the zoomed one');
+});
+
+test('movement and airborne still widen the cone', () => {
+  const still = CORE.effectiveSpread(0.014, 0, 0, false);
+  assert.ok(CORE.effectiveSpread(0.014, 0, 6, false) > still, 'running widens it');
+  assert.ok(CORE.effectiveSpread(0.014, 0, 0, true) > still, 'jumping widens it');
+});
+
+// ---- Penetration (GUN-03) ----
+function box(x, y, z, w, h, d, mat) {
+  return { min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 },
+           max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 }, mat: mat };
+}
+
+test('plywood and concrete are no longer the same cover', () => {
+  const wood = [box(0, 1, 5, 4, 2, 0.8, 'wood')];
+  const conc = [box(0, 1, 5, 4, 2, 0.8, 'concrete')];
+  const power = CORE.penetrationPower('AR');
+  const w = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, wood, power);
+  const c = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, conc, power);
+  assert.ok(CORE.penetrationMulAt(w, 10) > 0, 'an AR punches plywood');
+  assert.strictEqual(CORE.penetrationMulAt(c, 10), 0, 'and is stopped by concrete');
+});
+
+test('a wallbang always does less damage than a clean shot', () => {
+  const boxes = [box(0, 1, 5, 4, 2, 0.8, 'wood')];
+  const walk = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, boxes, CORE.penetrationPower('AR'));
+  const through = CORE.penetrationMulAt(walk, 10);
+  assert.ok(through > 0 && through < 1,
+    'shooting through cover must be a real option and never the better one');
+  assert.strictEqual(CORE.penetrationMulAt(walk, 2), 1, 'a target in front of the wall is unaffected');
+});
+
+test('penetration budget scales with weapon class', () => {
+  const boxes = [box(0, 1, 5, 4, 2, 0.8, 'wood'), box(0, 1, 10, 4, 2, 0.8, 'concrete')];
+  const at = (t) => CORE.penetrationMulAt(
+    CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, boxes, CORE.penetrationPower(t)), 20);
+  assert.strictEqual(at('SMG'), 0, 'an SMG does not get through wood AND concrete');
+  assert.strictEqual(at('AR'), 0);
+  assert.ok(at('SR') > 0, 'a marksman round does');
+});
+
+test('penetration stops at the declared surface limit', () => {
+  const boxes = [];
+  for (let i = 1; i <= 6; i++) boxes.push(box(0, 1, i * 3, 4, 2, 0.2, 'glass'));
+  const walk = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, boxes, 99);
+  assert.strictEqual(walk.tiers.length, CORE.MAX_PENETRATIONS,
+    'budget alone must not allow unlimited pass-through');
+  assert.strictEqual(CORE.penetrationMulAt(walk, 50), 0);
+});
+
+test('an unobstructed shot is untouched by the penetration path', () => {
+  const walk = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, [], CORE.penetrationPower('AR'));
+  assert.strictEqual(CORE.penetrationMulAt(walk, 40), 1);
+  assert.strictEqual(walk.tiers.length, 0);
+});
+
+test('an untagged collider defaults to concrete, not to free passage', () => {
+  const boxes = [box(0, 1, 5, 4, 2, 0.8, undefined)];
+  const walk = CORE.penetrationWalk(0, 1, 0, 0, 0, 1, 60, boxes, CORE.penetrationPower('AR'));
+  assert.strictEqual(CORE.penetrationMulAt(walk, 10), 0,
+    'the conservative default keeps pre-feature behaviour for anything untagged');
+});
+
+// ---- Melee (GUN-04) ----
+test('melee picks the nearest target inside the cone, not the nearest overall', () => {
+  const targets = [
+    { x: 0.4, z: -1.0, dead: false },   // closer, but behind the player
+    { x: 0, z: 1.8, dead: false }       // in front
+  ];
+  const i = CORE.meleeTarget(targets, 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  assert.strictEqual(i, 1, 'the knife goes where the player is looking');
+});
+
+test('melee respects reach and ignores the dead', () => {
+  assert.strictEqual(
+    CORE.meleeTarget([{ x: 0, z: 3.5, dead: false }], 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE),
+    -1, 'out of reach');
+  assert.strictEqual(
+    CORE.meleeTarget([{ x: 0, z: 1.5, dead: true }], 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE),
+    -1, 'already down');
+  assert.strictEqual(CORE.meleeTarget([], 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE), -1);
+});
+
+test('melee one-shots a base runner but not a tank', () => {
+  // Runner base health is 100, tank 320: the knife has to answer the rusher that
+  // closed inside the stop distance without trivialising the heavy.
+  assert.ok(CORE.MELEE_DAMAGE >= 100, 'a runner dies to one knife');
+  assert.ok(CORE.MELEE_DAMAGE < 320, 'a tank does not');
+});
+
+// ---- Mantle (MOV-01) ----
+test('a crate above step height becomes climbable', () => {
+  const t = CORE.mantleTarget(0, 0, 0, 0, 1, [box(0, 0.5, 1, 2, 1, 2, 'wood')]);
+  assert.ok(t, 'a 1 m crate is a route, not scenery');
+  assert.ok(Math.abs(t.y - 1) < 1e-9, 'and the player lands on top of it');
+});
+
+test('mantle refuses a ledge with no headroom above it', () => {
+  const boxes = [box(0, 0.5, 1, 2, 1, 2, 'wood'), box(0, 1.6, 1, 2, 0.4, 2, 'concrete')];
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, boxes), null,
+    'mantling into the underside of a slab is worse than not mantling');
+});
+
+test('mantle ignores anything step-up already handles or nothing can reach', () => {
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, [box(0, 0.15, 1, 2, 0.3, 2, 'wood')]), null,
+    'a kerb is step-up territory');
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, [box(0, 2.5, 1, 2, 5, 2, 'concrete')]), null,
+    'a wall is a wall');
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, []), null);
+});
+
+test('mantle picks the highest qualifying ledge under the probe', () => {
+  const boxes = [box(0, 0.35, 1, 2, 0.7, 2, 'wood'), box(0, 0.6, 1, 2, 1.2, 2, 'wood')];
+  const t = CORE.mantleTarget(0, 0, 0, 0, 1, boxes);
+  assert.ok(Math.abs(t.y - 1.2) < 1e-9, 'stacked cover mantles to the top, not the first hit');
+});
+
+// ============================================================================
+// Phase 10 — economy
+// ============================================================================
+
+test('credits reward precision over volume', () => {
+  assert.ok(CORE.creditsForDamage(true, true) > CORE.creditsForDamage(true, false),
+    'a headshot kill pays more than a body kill');
+  assert.ok(CORE.creditsForDamage(true, false) > CORE.creditsForDamage(false, false),
+    'a kill pays more than a hit');
+  assert.ok(CORE.creditsForDamage(false, true) === CORE.creditsForDamage(false, false),
+    'a non-lethal headshot is still just a hit');
+});
+
+test('wave credits scale with the wave', () => {
+  assert.ok(CORE.creditsForWave(10) > CORE.creditsForWave(1));
+  assert.strictEqual(CORE.creditsForWave(0), CORE.creditsForWave(1), 'never zero or negative');
+  assert.strictEqual(CORE.creditsForWave(-5), CORE.creditsForWave(1));
+});
+
+test('power-up table covers the whole roll range and is stable at the edges', () => {
+  const seen = new Set();
+  for (let i = 0; i < 1000; i++) seen.add(CORE.pickPowerUp(i / 1000).key);
+  assert.strictEqual(seen.size, CORE.POWERUPS.length, 'every power-up must be reachable');
+  assert.ok(CORE.pickPowerUp(0).key, 'roll 0 returns something');
+  assert.ok(CORE.pickPowerUp(1).key, 'roll 1 does not fall off the end');
+  assert.ok(CORE.pickPowerUp(-3).key && CORE.pickPowerUp(9).key, 'out-of-range rolls are clamped');
+});
+
+test('MAX AMMO is the common drop and NUKE is rare', () => {
+  const count = {};
+  for (let i = 0; i < 10000; i++) {
+    const k = CORE.pickPowerUp(i / 10000).key;
+    count[k] = (count[k] || 0) + 1;
+  }
+  assert.ok(count.maxammo > count.nuke * 3,
+    'the drop that answers the ammo economy has to be the one you actually see');
+});
+
+test('power-ups are a rare drop, not a routine one', () => {
+  assert.ok(CORE.POWERUP_CHANCE > 0 && CORE.POWERUP_CHANCE < 0.1);
+  assert.strictEqual(CORE.powerUpDropped(0.9), false);
+  assert.strictEqual(CORE.powerUpDropped(0.001), true);
+});
+
+test('timed power-ups declare a duration and instant ones do not', () => {
+  for (const p of CORE.POWERUPS) {
+    assert.ok(typeof p.label === 'string' && p.label.length, p.key + ' needs a banner label');
+    assert.ok(p.dur >= 0, p.key + ' duration must not be negative');
+  }
+  const byKey = {};
+  CORE.POWERUPS.forEach((p) => { byKey[p.key] = p; });
+  assert.strictEqual(byKey.maxammo.dur, 0, 'MAX AMMO is instant');
+  assert.ok(byKey.double.dur > 0, 'DOUBLE POINTS is timed');
+  assert.ok(byKey.instakill.dur > 0, 'INSTA-KILL is timed');
+});
+
+test('a checkpoint carries credits across a resume', () => {
+  const cp = CORE.makeCheckpoint({
+    wave: 6, score: 4200, kills: 40, headshots: 9, shotsFired: 300, shotsHit: 150,
+    health: 80, armor: 20, grenades: 2, credits: 3175,
+    difficulty: 'veteran', endless: false, weapons: [{ gi: 0, ammo: 12, reserve: 90 }, null]
+  });
+  assert.strictEqual(CORE.validateCheckpoint(cp).credits, 3175,
+    'resuming must neither refund nor confiscate what the player banked');
+});
+
+test('a corrupt credit field is clamped, not trusted', () => {
+  const good = CORE.makeCheckpoint({
+    wave: 3, score: 100, kills: 5, headshots: 1, shotsFired: 30, shotsHit: 12,
+    health: 90, armor: 10, grenades: 1, credits: 500,
+    difficulty: 'regular', endless: false, weapons: [{ gi: 0, ammo: 30, reserve: 60 }, null]
+  });
+  for (const bad of ['lots', -500, NaN, Infinity, null, undefined, {}]) {
+    const raw = Object.assign({}, good, { credits: bad });
+    const out = CORE.validateCheckpoint(raw);
+    assert.ok(out, 'a bad credit value must not reject an otherwise valid save');
+    assert.strictEqual(out.credits, 0, 'it is clamped to zero instead of trusted: ' + String(bad));
+  }
+});

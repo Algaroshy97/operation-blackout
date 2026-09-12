@@ -30,6 +30,14 @@
   .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
+  /* Credits sit under the score because they are the same kind of number to the
+     player: one is the run's record, the other is what they can spend on it. */
+  #credit-hud{top:78px;right:30px;text-align:right}
+  #credit-hud .val{color:#ffd24a}
+  #power-banner{top:22%;left:50%;transform:translate(-50%,-50%);color:#ffd24a;font-size:26px;
+    font-weight:800;letter-spacing:7px;text-shadow:0 2px 12px #000;opacity:0;transition:opacity .25s;
+    text-align:center;white-space:nowrap}
+  body.reduced-motion #power-banner{transition:none}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
   #ammo-mag.low{color:#ff5f4a}
   #ammo-res{color:rgba(255,255,255,.75);font-size:16px;font-weight:600;text-shadow:0 1px 4px #000}
@@ -145,6 +153,7 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
@@ -217,6 +226,7 @@
 <div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
+<div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
@@ -228,6 +238,7 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">
   <div>

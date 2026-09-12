@@ -376,6 +376,10 @@ const SOUND_RECIPES = {
   draw:        [['noise', 0.05, 0.15, 1800, 2]],
   melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
   hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  // Dull, low and short: a blocked round has to sound like nothing happened,
+  // because that is exactly the information the player needs.
+  block:       [['osc', 'square', 340, 260, 0.05, 0.10], ['noise', 0.05, 0.12, 500, 1.2]],
+  powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
   headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
   kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
   hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],

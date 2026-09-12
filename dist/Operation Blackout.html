@@ -30,6 +30,14 @@
   .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
+  /* Credits sit under the score because they are the same kind of number to the
+     player: one is the run's record, the other is what they can spend on it. */
+  #credit-hud{top:78px;right:30px;text-align:right}
+  #credit-hud .val{color:#ffd24a}
+  #power-banner{top:22%;left:50%;transform:translate(-50%,-50%);color:#ffd24a;font-size:26px;
+    font-weight:800;letter-spacing:7px;text-shadow:0 2px 12px #000;opacity:0;transition:opacity .25s;
+    text-align:center;white-space:nowrap}
+  body.reduced-motion #power-banner{transition:none}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
   #ammo-mag.low{color:#ff5f4a}
   #ammo-res{color:rgba(255,255,255,.75);font-size:16px;font-weight:600;text-shadow:0 1px 4px #000}
@@ -145,6 +153,7 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
@@ -217,6 +226,7 @@
 <div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
+<div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
@@ -228,6 +238,7 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">
   <div>
@@ -4846,6 +4857,7 @@ const CORE = (function () {
       wave: state.wave, score: state.score, kills: state.kills, headshots: state.headshots,
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
+      credits: state.credits || 0,
       difficulty: state.difficulty, endless: !!state.endless,
       weapons: state.weapons,            // [{gi, ammo, reserve}, ...]
       savedAt: state.savedAt || 0
@@ -4881,6 +4893,7 @@ const CORE = (function () {
       shotsHit: Math.round(num(raw.shotsHit, 0, 1e7, 0)),
       health: num(raw.health, 1, 100, 100),
       armor: num(raw.armor, 0, 200, 0),
+      credits: num(raw.credits, 0, 1e9, 0),
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
@@ -5252,6 +5265,308 @@ const CORE = (function () {
     return 'ok';
   }
 
+  // ---- Recoil ----------------------------------------------------------------
+  // The shipped model was `recoilV * (0.8 + rand * 0.4)` vertically and
+  // `(rand - 0.5) * 2 * recoilH` horizontally. The horizontal term had zero mean
+  // and no memory, so there was no shape to pull against: sustained fire was a
+  // dice roll rather than a skill, and no amount of practice could improve it.
+  //
+  // A pattern is a list of [x, y] kicks walked one shot at a time and HELD at the
+  // last entry, so a long burst settles into a steady drift instead of wandering
+  // forever. Entries are multipliers on the weapon's own recoilH / recoilV, so
+  // magnitude still comes from CFG and only the shape lives here.
+  const RECOIL_PATTERNS = {
+    // M4: climbs nearly straight for six, then leans right and holds.
+    ar:  [[0, 1], [0.05, 1.05], [-0.05, 1.10], [0.10, 1.05], [0.20, 1.00],
+          [0.35, 0.95], [0.55, 0.90], [0.70, 0.85], [0.80, 0.80], [0.90, 0.75]],
+    // MK18: shallower climb, wide alternating wander — controllable, never still.
+    smg: [[0, 0.85], [-0.25, 0.90], [0.30, 0.95], [-0.45, 0.90], [0.55, 0.85],
+          [-0.60, 0.80], [0.65, 0.80], [-0.70, 0.75]],
+    // SCAR-H: hard vertical, very little lateral. Punishes holding the trigger.
+    br:  [[0, 1.15], [0.08, 1.20], [-0.06, 1.25], [0.12, 1.20], [0.10, 1.15],
+          [-0.10, 1.10], [0.15, 1.05]],
+    // SV-98: one heavy kick. There is no second shot inside the recovery window,
+    // so there is no pattern to learn and none is invented.
+    sr:  [[0, 1]]
+  };
+  const RECOIL_JITTER = 0.15;   // +/- 15%: learnable, but not robotic
+  const RECOIL_RESET = 0.35;    // seconds off the trigger before shot 1 is shot 1
+  function recoilPatternFor(type) {
+    const k = String(type || '').toLowerCase();
+    return RECOIL_PATTERNS[k] ? k : 'ar';
+  }
+  // jx / jy are in [-1, 1]; pass 0 for a deterministic trace.
+  function recoilAt(pattern, shotIndex, jx, jy) {
+    const p = RECOIL_PATTERNS[pattern] || RECOIL_PATTERNS.ar;
+    let i = Math.floor(shotIndex);
+    if (!(i >= 0)) i = 0;
+    if (i >= p.length) i = p.length - 1;
+    const ax = jx === undefined ? 0 : jx, ay = jy === undefined ? 0 : jy;
+    return {
+      x: p[i][0] * (1 + ax * RECOIL_JITTER),
+      y: p[i][1] * (1 + ay * RECOIL_JITTER)
+    };
+  }
+  // The pattern only means anything if the index resets between bursts: a player
+  // who releases the trigger, re-centres and fires again expects shot 1 to behave
+  // like shot 1.
+  function recoilShotIndex(prevIndex, sinceLastShot, resetAfter) {
+    const gap = resetAfter === undefined ? RECOIL_RESET : resetAfter;
+    if (!(sinceLastShot < gap)) return 0;
+    return prevIndex + 1;
+  }
+  // Pulling down while the view is kicked up should CANCEL the kick, not stack
+  // with it. Recoil is an additive camera offset that decays back to zero, so a
+  // player who compensated kept the compensation in their real pitch and finished
+  // the burst aiming at the floor — the recoil went away, their correction did
+  // not. Spend counter-input against the outstanding offset first and pass only
+  // the remainder through to the aim. Same-sign input is the player choosing to
+  // move and is never absorbed.
+  function absorbRecoil(offset, lookDelta) {
+    if (offset > 0 && lookDelta < 0) {
+      const used = Math.min(offset, -lookDelta);
+      return { offset: offset - used, delta: lookDelta + used };
+    }
+    if (offset < 0 && lookDelta > 0) {
+      const used = Math.min(-offset, lookDelta);
+      return { offset: offset + used, delta: lookDelta - used };
+    }
+    return { offset: offset, delta: lookDelta };
+  }
+
+  // ---- Hipfire bloom ----------------------------------------------------------
+  // Spread was `ads ? adsSpread : spread` scaled by movement and airborne state
+  // only. It did not grow under sustained fire and did not recover, so holding the
+  // trigger at range cost nothing and tap-firing bought nothing. Bloom is carried
+  // in the same units as the base spread and simply adds to it.
+  //
+  // Parameters are derived from each weapon's own spread rather than stored as
+  // four more CFG columns: the ratios are what make a weapon feel controllable,
+  // and deriving them means a spread retune cannot leave a stale bloom cap behind.
+  const BLOOM_PER_SHOT = 0.18;   // base spreads added per shot
+  const BLOOM_CAP_HIP = 1.6;     // hipfire ceiling, in base spreads
+  const BLOOM_CAP_ADS = 0.35;    // ADS ceiling — far tighter, which is the point
+  const BLOOM_RECOVER = 2.2;     // base spreads per second once the trigger is up
+  function bloomParams(baseSpread, adsSpread, ads) {
+    const base = ads ? adsSpread : baseSpread;
+    return {
+      perShot: base * BLOOM_PER_SHOT,
+      cap: base * (ads ? BLOOM_CAP_ADS : BLOOM_CAP_HIP),
+      recover: base * BLOOM_RECOVER
+    };
+  }
+  function bloomAfterShot(bloom, perShot, cap) {
+    const b = bloom + perShot;
+    return b > cap ? cap : b;
+  }
+  function bloomDecay(bloom, dt, recover) {
+    const b = bloom - recover * dt;
+    return b < 0 ? 0 : b;
+  }
+  function effectiveSpread(base, bloom, speed, airborne) {
+    const moveMul = 1 + Math.min(1.2, speed * 0.25) + (airborne ? 0.8 : 0);
+    return base * moveMul + (bloom > 0 ? bloom : 0);
+  }
+
+  // ---- Penetration ------------------------------------------------------------
+  // Every surface in the arena stopped a bullet identically: plywood was cover in
+  // exactly the way concrete was. Each material spends part of the round's
+  // penetration budget; a round with budget left continues and does proportionally
+  // less damage on the far side.
+  const PENETRATION_COST = { concrete: 1.0, metal: 0.7, wood: 0.3, glass: 0.1 };
+  const PENETRATION_DEFAULT = 1.0;
+  const MAX_PENETRATIONS = 2;
+  // Budget by weapon class: a .308 marksman round goes through what an SMG will not.
+  const PENETRATION_POWER = { sr: 1.6, br: 1.0, ar: 0.75, smg: 0.4 };
+  function penetrationCost(material) {
+    const c = PENETRATION_COST[material];
+    return c === undefined ? PENETRATION_DEFAULT : c;
+  }
+  function penetrationPower(type) {
+    const p = PENETRATION_POWER[String(type || '').toLowerCase()];
+    return p === undefined ? PENETRATION_POWER.ar : p;
+  }
+  // Returns the budget remaining after passing through `material`, or 0 if the
+  // round stops there.
+  function penetrate(power, material) {
+    const left = power - penetrationCost(material);
+    return left > 0 ? left : 0;
+  }
+  // Damage surviving a penetration, as a fraction of the budget still unspent.
+  // Never a full-damage wallbang: shooting through cover should be a real option
+  // and never the better one.
+  function penetrationDamageMul(powerLeft, powerStart) {
+    if (!(powerStart > 0)) return 0;
+    const f = powerLeft / powerStart;
+    return f <= 0 ? 0 : 0.35 + 0.4 * Math.min(1, f);
+  }
+
+  // Entry distance of a ray into a box, or -1 for a miss inside maxDist. Same slab
+  // test as segmentHitsBox, but it reports WHERE rather than WHETHER, which is
+  // what ordering penetrations needs.
+  function rayBoxEntry(ox, oy, oz, dx, dy, dz, maxDist, box) {
+    let t0 = 0, t1 = maxDist;
+    if (dx * dx < 1e-12) { if (ox < box.min.x || ox > box.max.x) return -1; }
+    else {
+      const inv = 1 / dx;
+      let a = (box.min.x - ox) * inv, b = (box.max.x - ox) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (dy * dy < 1e-12) { if (oy < box.min.y || oy > box.max.y) return -1; }
+    else {
+      const inv = 1 / dy;
+      let a = (box.min.y - oy) * inv, b = (box.max.y - oy) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (dz * dz < 1e-12) { if (oz < box.min.z || oz > box.max.z) return -1; }
+    else {
+      const inv = 1 / dz;
+      let a = (box.min.z - oz) * inv, b = (box.max.z - oz) * inv;
+      if (a > b) { const t = a; a = b; b = t; }
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return -1;
+    }
+    if (t1 < 0 || t0 > maxDist) return -1;
+    return t0 < 0 ? 0 : t0;
+  }
+
+  // Ordered walk of the surfaces a round crosses.
+  //
+  // Analytic against the collider AABBs rather than the rendered meshes, and
+  // deliberately so: the static arena is merged into a few batched meshes (Phase 2),
+  // so a mesh raycast reports the entry AND exit faces of every box in a batch and
+  // cannot tell one wall from two. The colliders are exactly one entry per box and
+  // are where the material tag lives.
+  //
+  // Returns { stopAt, tiers }. `tiers` is [{ at, mul }]: a target beyond `at` takes
+  // `mul` damage. A target nearer than the first entry takes full damage.
+  function penetrationWalk(ox, oy, oz, dx, dy, dz, maxDist, boxes, power) {
+    const hits = [];
+    for (let i = 0; i < boxes.length; i++) {
+      const t = rayBoxEntry(ox, oy, oz, dx, dy, dz, maxDist, boxes[i]);
+      if (t >= 0) hits.push({ t: t, box: boxes[i] });
+    }
+    hits.sort(function (a, b) { return a.t - b.t; });
+    const tiers = [];
+    let left = power, crossed = 0;
+    for (let i = 0; i < hits.length; i++) {
+      if (crossed >= MAX_PENETRATIONS) return { stopAt: hits[i].t, tiers: tiers };
+      const next = penetrate(left, hits[i].box.mat);
+      if (next <= 0) return { stopAt: hits[i].t, tiers: tiers };
+      left = next; crossed++;
+      tiers.push({ at: hits[i].t, mul: penetrationDamageMul(left, power) });
+    }
+    return { stopAt: maxDist, tiers: tiers };
+  }
+  // Damage multiplier for a target at `dist` given a walk. 0 means blocked.
+  function penetrationMulAt(walk, dist) {
+    if (dist > walk.stopAt) return 0;
+    let mul = 1;
+    for (let i = 0; i < walk.tiers.length; i++) {
+      if (dist >= walk.tiers[i].at) mul = walk.tiers[i].mul; else break;
+    }
+    return mul;
+  }
+
+  // ---- Melee ------------------------------------------------------------------
+  // A runner inside its 1.9 m stop distance had no counter but backpedalling.
+  // Pick the nearest target inside a forward cone rather than the nearest target
+  // outright, so the knife goes where the player is looking.
+  // `targets` is [{ x, z, dead }]; dirX/dirZ is the player's forward on XZ.
+  function meleeTarget(targets, px, pz, dirX, dirZ, reach, cosHalfAngle) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      if (!t || t.dead) continue;
+      const dx = t.x - px, dz = t.z - pz;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d > reach || d < 1e-6) continue;
+      if ((dx * dirX + dz * dirZ) / d < cosHalfAngle) continue;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+  const MELEE_REACH = 2.2;
+  const MELEE_CONE = Math.cos(Math.PI / 4);   // 45 degrees either side
+  const MELEE_DAMAGE = 150;
+  const MELEE_COOLDOWN = 0.9;
+
+  // ---- Mantle -----------------------------------------------------------------
+  // Step-up capped at STEP_H = 0.60 m, so a 1 m crate was scenery rather than a
+  // route. The probe is analytic against the collider AABBs — no raycast — and
+  // returns the ledge to lerp onto, or null.
+  function mantleTarget(feetY, px, pz, dirX, dirZ, boxes, opts) {
+    const o = opts || {};
+    const reach = o.reach === undefined ? 0.85 : o.reach;
+    const minRise = o.minRise === undefined ? 0.45 : o.minRise;
+    const maxRise = o.maxRise === undefined ? 1.7 : o.maxRise;
+    const headroom = o.headroom === undefined ? 1.3 : o.headroom;
+    const radius = o.radius === undefined ? 0.35 : o.radius;
+    const tx = px + dirX * reach, tz = pz + dirZ * reach;
+    let ledge = -Infinity;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (tx < b.min.x - radius || tx > b.max.x + radius) continue;
+      if (tz < b.min.z - radius || tz > b.max.z + radius) continue;
+      const rise = b.max.y - feetY;
+      if (rise < minRise || rise > maxRise) continue;
+      if (b.max.y > ledge) ledge = b.max.y;
+    }
+    if (ledge === -Infinity) return null;
+    // Nothing may occupy the volume the player would stand in — mantling into the
+    // underside of a slab is worse than not mantling at all.
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (tx < b.min.x - radius || tx > b.max.x + radius) continue;
+      if (tz < b.min.z - radius || tz > b.max.z + radius) continue;
+      if (b.max.y > ledge + 0.02 && b.min.y < ledge + headroom) return null;
+    }
+    return { x: tx, z: tz, y: ledge };
+  }
+
+  // ---- Credits ----------------------------------------------------------------
+  // Score only ever went up and nothing in the game read it back, so a 30-minute
+  // run had no shape. Credits are earned in parallel and SPENT. Score stays the
+  // leaderboard number so career bests remain comparable across versions.
+  const CREDITS = { hit: 10, kill: 60, headshotKill: 100, waveClear: 250 };
+  function creditsForDamage(isKill, isHead) {
+    if (!isKill) return CREDITS.hit;
+    return isHead ? CREDITS.headshotKill : CREDITS.kill;
+  }
+  function creditsForWave(n) { return CREDITS.waveClear * Math.max(1, n); }
+
+  // ---- Power-ups --------------------------------------------------------------
+  // Weighted so MAX AMMO — the one that answers the ammo economy directly — is the
+  // common drop and NUKE is a genuine event rather than a routine one.
+  const POWERUPS = [
+    { key: 'maxammo',   weight: 1.00, label: 'MAX AMMO',      dur: 0 },
+    { key: 'double',    weight: 0.75, label: 'DOUBLE POINTS', dur: 30 },
+    { key: 'instakill', weight: 0.55, label: 'INSTA-KILL',    dur: 10 },
+    { key: 'nuke',      weight: 0.22, label: 'NUKE',          dur: 0 }
+  ];
+  const POWERUP_CHANCE = 0.035;
+  function powerUpDropped(roll, chance) {
+    return roll < (chance === undefined ? POWERUP_CHANCE : chance);
+  }
+  function pickPowerUp(roll) {
+    let total = 0;
+    for (let i = 0; i < POWERUPS.length; i++) total += POWERUPS[i].weight;
+    const target = Math.max(0, Math.min(0.999999, roll)) * total;
+    let acc = 0;
+    for (let i = 0; i < POWERUPS.length; i++) {
+      acc += POWERUPS[i].weight;
+      if (target < acc) return POWERUPS[i];
+    }
+    return POWERUPS[0];
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -5316,6 +5631,43 @@ const CORE = (function () {
     updateStuck: updateStuck,
     updateProgress: updateProgress,
     isClosingDistance: isClosingDistance,
+    RECOIL_PATTERNS: RECOIL_PATTERNS,
+    RECOIL_JITTER: RECOIL_JITTER,
+    RECOIL_RESET: RECOIL_RESET,
+    recoilPatternFor: recoilPatternFor,
+    recoilAt: recoilAt,
+    recoilShotIndex: recoilShotIndex,
+    absorbRecoil: absorbRecoil,
+    BLOOM_PER_SHOT: BLOOM_PER_SHOT,
+    BLOOM_CAP_HIP: BLOOM_CAP_HIP,
+    BLOOM_CAP_ADS: BLOOM_CAP_ADS,
+    BLOOM_RECOVER: BLOOM_RECOVER,
+    bloomParams: bloomParams,
+    bloomAfterShot: bloomAfterShot,
+    bloomDecay: bloomDecay,
+    effectiveSpread: effectiveSpread,
+    PENETRATION_COST: PENETRATION_COST,
+    MAX_PENETRATIONS: MAX_PENETRATIONS,
+    penetrationCost: penetrationCost,
+    penetrationPower: penetrationPower,
+    penetrate: penetrate,
+    penetrationDamageMul: penetrationDamageMul,
+    meleeTarget: meleeTarget,
+    MELEE_REACH: MELEE_REACH,
+    MELEE_CONE: MELEE_CONE,
+    MELEE_DAMAGE: MELEE_DAMAGE,
+    MELEE_COOLDOWN: MELEE_COOLDOWN,
+    mantleTarget: mantleTarget,
+    CREDITS: CREDITS,
+    creditsForDamage: creditsForDamage,
+    creditsForWave: creditsForWave,
+    POWERUPS: POWERUPS,
+    POWERUP_CHANCE: POWERUP_CHANCE,
+    powerUpDropped: powerUpDropped,
+    pickPowerUp: pickPowerUp,
+    rayBoxEntry: rayBoxEntry,
+    penetrationWalk: penetrationWalk,
+    penetrationMulAt: penetrationMulAt,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -5759,8 +6111,21 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 raycastColliders.push(ground);
-function addCollider(x, y, z, w, h, d) {
-  colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
+function addCollider(x, y, z, w, h, d, mat) {
+  colliders.push({
+    min: new THREE.Vector3(x - w/2, y - h/2, z - d/2),
+    max: new THREE.Vector3(x + w/2, y + h/2, z + d/2),
+    mat: mat || 'concrete'
+  });
+}
+// Penetration class per collider. Derived from the RENDER material so no call site
+// has to carry it: plywood cover and a concrete pillar are the same addBox() call
+// today, and a round should not treat them the same (GUN-03). Populated just after
+// MAT is declared, which is before buildArena() runs.
+const PEN_MATERIAL = new Map();
+function penMaterialFor(mat) {
+  const m = PEN_MATERIAL.get(mat);
+  return m === undefined ? 'concrete' : m;
 }
 // ---- Static geometry batching ----------------------------------------------
 // addBox() used to create one Mesh + one BoxGeometry per box, which is why a
@@ -5779,7 +6144,7 @@ function addBox(x, y, z, w, h, d, mat, opts) {
   const g = new THREE.BoxGeometry(w, h, d);
   g.translate(x, y, z);
   queueStatic(g, x, z, mat, opts.noShadow);
-  if (!opts.noCollide) addCollider(x, y, z, w, h, d);
+  if (!opts.noCollide) addCollider(x, y, z, w, h, d, opts.pen || penMaterialFor(mat));
 }
 
 // Concatenate several BufferGeometries that share an attribute layout.
@@ -5854,6 +6219,13 @@ const MAT = {
   accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
   red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
 };
+// Anything not listed is concrete, which is the conservative default: an untagged
+// surface stops a round exactly as it did before this feature existed.
+PEN_MATERIAL.set(MAT.wood, 'wood');
+PEN_MATERIAL.set(MAT.metal, 'metal');
+PEN_MATERIAL.set(MAT.dark, 'metal');
+PEN_MATERIAL.set(MAT.accent, 'metal');
+PEN_MATERIAL.set(MAT.red, 'metal');
 
 // ---- Build urban arena ----
 function buildArena() {
@@ -5986,7 +6358,7 @@ function buildArena() {
     m.userData.oldBarrel = true;
     scene.add(m);
     raycastColliders.push(m);
-    addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
+    addCollider(x, 0.75, z, 1.1, 1.5, 1.1, 'metal');
   }
   barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
   barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
@@ -6303,13 +6675,28 @@ const player = {
   // slide state
   sliding: false, slideT: 0, slideDir: new THREE.Vector3(),
   // jump feel
-  coyoteT: 0, jumpBufT: 0, lastGroundT: 0
+  coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
+  // mantle (see tryMantle) and tactical-sprint burst
+  mantleT: 0, mantleFrom: new THREE.Vector3(), mantleTo: new THREE.Vector3(),
+  tacT: 0
 };
 
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
+// route and the arena's scattered cover could not be used as one.
+const MANTLE_TIME = 0.35;
+const MANTLE_REACH = 0.9;
+const MANTLE_MAX_RISE = 1.7;
+// Tactical sprint: a short burst at higher speed, paid for with a faster stamina
+// burn. Sprint was one speed, which made every rotation feel the same length.
+const TAC_TAP_WINDOW = 0.32;
+const TAC_DURATION = 2.5;
+const TAC_MUL = 1.25;
+const TAC_DRAIN = 2.2;
+let lastSprintTap = -99;
 // Distance from the eye to the top of the head. The ceiling resolve keeps this
 // much space between the camera and any slab overhead.
 const HEAD_CLEARANCE = 0.20;
@@ -6393,14 +6780,35 @@ function updatePlayer(dt) {
     if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
     if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
   }
-  player.yaw -= mouseX * sens;                     // base look
+  // Counter-input spends the outstanding recoil BEFORE it moves the real aim.
+  // Recoil is an additive camera offset that decays back to zero, so a player who
+  // pulled down used to keep the correction in player.pitch and finish the burst
+  // aiming at the floor: the kick went away, their compensation did not.
+  const yawDelta = -mouseX * sens;
+  const pitchDelta = -mouseY * sens * invertY;
+  const absY = CORE.absorbRecoil(player.recoilY, yawDelta);
+  const absP = CORE.absorbRecoil(player.recoilP, pitchDelta);
+  player.recoilY = absY.offset;
+  player.recoilP = absP.offset;
+  player.yaw += absY.delta;
   player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
-  player.pitch -= mouseY * sens * invertY;
+  player.pitch += absP.delta;
   player.pitch += assistPitch * 3.5 * dt;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
-  // recoil decay
+  // recoil decay — now only what the player did NOT compensate for
   player.recoilP *= Math.pow(0.02, dt); player.recoilY *= Math.pow(0.02, dt);
+
+  // A mantle owns movement while it runs. Looking around stays live, which is why
+  // this sits after the look block rather than at the top of the function.
+  if (player.mantleT > 0) {
+    player.mantleT = Math.max(0, player.mantleT - dt);
+    const k = 1 - player.mantleT / MANTLE_TIME;
+    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, k < 1 ? k : 1);
+    player.vel.set(0, 0, 0);
+    if (player.mantleT === 0) { player.onGround = true; player.coyoteT = 0.12; }
+    return;
+  }
 
   // ---- Slide (C/Ctrl while sprinting on ground) ----
   const crouchKey = !!(keys['KeyC'] || keys['ControlLeft'] || keys['ControlRight']);
@@ -6428,6 +6836,15 @@ function updatePlayer(dt) {
     const slideSpeed = startSpd + (endSpd - startSpd) * t;
     player.vel.x = player.slideDir.x * slideSpeed;
     player.vel.z = player.slideDir.z * slideSpeed;
+    // Slide cancel. The slide used to commit for a full 0.9 s with no early-out
+    // except releasing crouch, which removed the one piece of movement tech that
+    // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
+    // cannot also cancel it on the same frame.
+    if (player.slideT > 0.12 && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
+      player.sliding = false;
+      player.crouching = !!crouchKey;
+      spawnSlideDust(player.pos);
+    }
     // slide ends: timeout, released crouch, or stopped
     if (player.slideT > 0.9 || !crouchKey || (movingInput === false && player.slideT > 0.25)) {
       player.sliding = false;
@@ -6470,10 +6887,17 @@ function updatePlayer(dt) {
   }
 
   // stamina & sprint (movingInput already declared in slide block above)
+  // Tactical sprint: a double-tap inside TAC_TAP_WINDOW opens a short burst.
+  if (pressed['ShiftLeft'] || pressed['__tacsprint']) {
+    if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
+    lastSprintTap = gameT;
+  }
   const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown();
+  if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
+  else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
     player.sprinting = true;
-    player.stamina -= dt;
+    player.stamina -= dt * (player.tacT > 0 ? TAC_DRAIN : 1);
     if (player.stamina <= 0) { player.stamina = 0; player.exhausted = true; player.sprinting = false; }
   } else {
     player.sprinting = false;
@@ -6502,7 +6926,7 @@ function updatePlayer(dt) {
   const len = Math.hypot(ix, iz);
   if (len > 0) { ix /= len; iz /= len; }
   let speed = CFG.player.speed * (window.__analogMag || 1);
-  if (player.sprinting) speed *= CFG.player.sprintMul;
+  if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
   if (player.crouching) speed *= CFG.player.crouchMul;
   if (adsDown()) speed *= 0.65;
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -6532,7 +6956,11 @@ function updatePlayer(dt) {
   else player.coyoteT = Math.max(0, player.coyoteT - dt);
   if (pressed['Space']) player.jumpBufT = 0.15;
   else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
-  if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
+  // A mantle beats a jump: if there is a ledge in front, climbing it is what the
+  // player meant. Anything under STEP_H is already handled by step-up.
+  if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
+    player.jumpBufT = 0;
+  } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
     player.vel.y = CFG.player.jumpVel;
     player.onGround = false; player.coyoteT = 0; player.jumpBufT = 0;
     playSound('jump');
@@ -6587,6 +7015,29 @@ function damagePlayer(amount, dirDeg) {
 
 let godMode = false;
 
+// ---- Mantle ----
+function tryMantle() {
+  if (player.mantleT > 0) return false;
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const feet = player.pos.y - eyeHeight();
+  const t = CORE.mantleTarget(feet, player.pos.x, player.pos.z, dirX, dirZ, colliders, {
+    reach: MANTLE_REACH,
+    minRise: STEP_H,
+    maxRise: MANTLE_MAX_RISE,
+    headroom: CFG.player.crouchHeight,
+    radius: CFG.player.radius
+  });
+  if (!t) return false;
+  player.mantleT = MANTLE_TIME;
+  player.mantleFrom.set(player.pos.x, player.pos.y, player.pos.z);
+  player.mantleTo.set(t.x, t.y + eyeHeight(), t.z);
+  player.sliding = false;
+  player.onGround = false;
+  playSound('jump');
+  spawnSlideDust(player.pos);
+  return true;
+}
+
 // ---- Slide helpers ----
 function startSlide() {
   player.sliding = true;
@@ -6623,6 +7074,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-reload" class="tbtn tbtn-sm">RLD</div>
     <div id="tbtn-nade" class="tbtn tbtn-sm">NADE</div>
     <div id="tbtn-swap" class="tbtn tbtn-sm">SWAP</div>
+    <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -6738,6 +7190,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
+  holdBtn('tbtn-melee', function () { pressed['__melee'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
@@ -6850,6 +7303,13 @@ function updateWeapons(dt) {
       if (s.reserve > 0) tryReload();
     }
   } else { dryPlayed = false; }
+  // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
+  // hipfire number while scoped would recover an ADS bloom far too fast.
+  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
+  bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
+  if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
+  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+  if ((pressed['KeyV'] || pressed['KeyF'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
@@ -6946,15 +7406,20 @@ function fireShot() {
   shotsFired++;
   s.ammo--;
   s.nextShot = gameT + 60 / w.rpm;
-  // spread
-  const spread = adsDown() ? w.adsSpread : w.spread;
-  const spreadMul = 1 + Math.min(1.2, hSpeedForSpread * 0.25) + (player.onGround ? 0 : 0.8);
+  // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
+  // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
+  // shot 30, so there was no reason to ever tap-fire and no cost to holding.
+  const ads = adsDown();
+  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
+    hSpeedForSpread, !player.onGround);
+  bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _shootDir.x += (Math.random() - 0.5) * 2 * spread * spreadMul;
-  _shootDir.y += (Math.random() - 0.5) * 2 * spread * spreadMul;
-  _shootDir.z += (Math.random() - 0.5) * 2 * spread * spreadMul * 0.3;
+  _shootDir.x += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.y += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.z += (Math.random() - 0.5) * 2 * spreadNow * 0.3;
   _shootDir.normalize();
   // bullet magnetism (small snap onto enemy center-mass)
   _shootDir.copy(magnetizeBullet(_shootDir, _from));
@@ -6969,25 +7434,31 @@ function fireShot() {
   }
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
   const enemyHits = raycaster.intersectObjects(targets, true);
-  let hit = null, isEnemy = false, isHead = false;
-  if (enemyHits.length && worldHits.length) {
-    const w0 = worldHits[0];
-    if (enemyHits[0].distance <= w0.distance) {
-      hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
-    } else {
-      hit = w0;
+  // Penetration is resolved against the collider AABBs rather than the rendered
+  // meshes, and deliberately: the static arena is merged into batched meshes, so a
+  // mesh raycast reports the entry AND exit faces of every box in a batch and
+  // cannot tell one wall from two. The colliders are one entry per box and carry
+  // the material tag.
+  const penStart = CORE.penetrationPower(w.type);
+  const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
+    _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
+  let hit = null, isEnemy = false, isHead = false, penMul = 1;
+  if (enemyHits.length) {
+    const m = CORE.penetrationMulAt(penWalk, enemyHits[0].distance);
+    if (m > 0) {
+      hit = enemyHits[0]; isEnemy = true;
+      isHead = !!hit.object.userData.isHead;
+      penMul = m;
     }
-  } else if (enemyHits.length) {
-    hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
-  } else if (worldHits.length) {
-    hit = worldHits[0];
   }
+  if (!isEnemy && worldHits.length) hit = worldHits[0];
 
   if (hit && isEnemy) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
-    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(hit.distance, w.range);
-    damageEnemy(en, dmg, hit.point, isHead);
+    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1)
+      * distanceFalloff(hit.distance, w.range) * penMul;
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
@@ -6998,20 +7469,62 @@ function fireShot() {
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') { adsAmount *= 0.45; }
   // recoil
-  player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
-  player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
+  // Learnable pattern, not noise. The old model was +/-20% random vertical and a
+  // zero-mean random horizontal, so there was no shape to pull against and no
+  // amount of practice could improve a burst. The same burst now traces the same
+  // shape every time, with a few percent of jitter so it is not mechanical.
+  recoilShot = CORE.recoilShotIndex(recoilShot, gameT - lastShotT);
+  lastShotT = gameT;
+  const rk = CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
+    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
+  player.recoilP += w.recoilV * rk.y;
+  player.recoilY += w.recoilH * rk.x;
   shotKick = Math.min(shotKick + 0.5, 1.4);
   if (w.type === 'SR') playSound('sniper'); else playSound('shot');
   triggerMuzzleFlash();
   flashMuzzleLight();
   updateHudAmmo();
 }
+// ---- Melee ----
+// A runner that had closed inside its 1.9 m stop distance had no counter but
+// backpedalling, which is exactly the situation a knife exists to solve. Targets
+// are filtered by a forward cone rather than taken nearest-first, so the swing
+// goes where the player is looking.
+function doMelee() {
+  meleeT = CORE.MELEE_COOLDOWN;
+  meleeSwing = 1;
+  playSound('melee');
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  _meleeTargets.length = 0;
+  for (let i = 0; i < enemies.length; i++) {
+    _meleeTargets.push({ x: enemies[i].pos.x, z: enemies[i].pos.z, dead: enemies[i].dead });
+  }
+  const idx = CORE.meleeTarget(_meleeTargets, player.pos.x, player.pos.z,
+    dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  if (idx < 0) return;
+  const en = enemies[idx];
+  _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
+  damageEnemy(en, CORE.MELEE_DAMAGE, _meleePoint, false);
+}
+
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
 // version was a binary step: an M4 did 26 damage at 71 m and 16.9 at 72 m, moving
 // shots-to-kill from 4 to 6 across a single metre with no feedback to the player.
 function distanceFalloff(dist, range) { return CORE.distanceFalloff(dist, range); }
 let hSpeedForSpread = 0;
 let shotKick = 0;
+
+// ---- Recoil pattern + bloom state ----
+// recoilShot indexes the current weapon's pattern; it resets after a gap off the
+// trigger so shot 1 of every burst behaves like shot 1. bloom is carried in the
+// same units as the weapon's base spread and simply adds to it.
+let recoilShot = 0;
+let lastShotT = -99;
+let bloom = 0;
+let meleeT = 0;        // cooldown / lockout
+let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
+const _meleeTargets = [];
+const _meleePoint = new THREE.Vector3();
 
 // ---- Viewmodel (procedural low-poly gun) ----
 // Rendered as a child of the camera in the MAIN render pass (single-pass, driver-proof).
@@ -7542,12 +8055,18 @@ function shieldMultiplier(en, point) {
   return facing > SHIELD_ARC ? 0.15 : 1;                   // 85% absorbed head-on
 }
 
-function damageEnemy(en, dmg, point, isHead) {
+function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
   const shield = isHead ? 1 : shieldMultiplier(en, point);
   if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
-  en.health -= dmg * shield;
-  showHitmarker(isHead);
+  // INSTA-KILL turns any connecting shot lethal, including one that a shield
+  // would otherwise have absorbed.
+  const lethal = typeof powerActive === 'function' && powerActive('instakill');
+  en.health -= lethal ? en.health + 1 : dmg * shield;
+  // Feedback tiers: a blocked shot used to give the identical ping to a clean body
+  // hit, so the shield mechanic was invisible unless you read the patch notes.
+  showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
+  addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
   else {
@@ -7563,7 +8082,10 @@ function killEnemy(en, isHead) {
   registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
   kills++;
   if (isHead) headshots++;
-  dropPickup(en.pos);
+  // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
+  // dropped a magazine would waste the drop.
+  if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
+  else dropPickup(en.pos);
   playSound('kill');
 }
 
@@ -8476,6 +8998,10 @@ const SOUND_RECIPES = {
   draw:        [['noise', 0.05, 0.15, 1800, 2]],
   melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
   hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  // Dull, low and short: a blocked round has to sound like nothing happened,
+  // because that is exactly the information the player needs.
+  block:       [['osc', 'square', 340, 260, 0.05, 0.10], ['noise', 0.05, 0.12, 500, 1.2]],
+  powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
   headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
   kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
   hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
@@ -9142,6 +9668,27 @@ function dropPickup(pos) {
   pickups.push({ m: g, kind: kind, t: 0 });
 }
 
+// ---- Power-up drops ----------------------------------------------------------
+// A new pickup KIND rather than a new system: spawn, bob, blink and despawn are
+// all already handled by updatePickups().
+const powerGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
+const POWER_COLOR = { maxammo: 0x6fa8ff, double: 0xffd24a, instakill: 0xff4030, nuke: 0x8fd66a };
+const powerMats = {};
+function powerMaterial(key) {
+  if (!powerMats[key]) {
+    powerMats[key] = new THREE.MeshBasicMaterial({ color: POWER_COLOR[key] || 0xffffff });
+  }
+  return powerMats[key];
+}
+function dropPowerUp(pos) {
+  const def = CORE.pickPowerUp(Math.random());
+  const g = new THREE.Mesh(powerGeo, powerMaterial(def.key));
+  g.position.set(pos.x, 0.55, pos.z);
+  g.userData.pickup = 'power';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'power', power: def, t: 0 });
+}
+
 // Drop an ammo box at a specific spot, bypassing the random roll.
 function forceAmmoPickup(x, z) {
   const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
@@ -9156,13 +9703,24 @@ function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    p.m.rotation.y += dt * 2;
-    p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    p.m.rotation.y += dt * (p.kind === 'power' ? 4 : 2);
+    if (p.kind === 'power') {
+      p.m.rotation.x += dt * 1.6;
+      p.m.position.y = 0.55 + Math.sin(p.t * 3) * 0.12;
+    } else {
+      p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    }
     // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
     // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
     // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
     const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
     if (d < 1.3) {
+      if (p.kind === 'power') {
+        activatePowerUp(p.power);
+        scene.remove(p.m);
+        pickups.splice(i, 1);
+        continue;
+      }
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {
@@ -9204,6 +9762,8 @@ const hud = {
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
   minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
+  credits: $id('credit-val'),
+  powerBanner: $id('power-banner'),
   grenadeCharge: $id('grenade-charge'),
   grenadeChargeTxt: $id('grenade-charge-txt'),
   grenadeChargeFill: $id('grenade-charge-fill')
@@ -9254,12 +9814,21 @@ function updateHudAmmo() {
   hud.reloadHint.style.opacity = s.reloading || empty ? 1 : 0;
 }
 
-function showHitmarker(isHead) {
+// Feedback tiers. The marker had two states, so a shot absorbed by a shielded
+// advancer's 85% frontal plate looked exactly like a clean body hit — the player
+// could only learn the mechanic by reading the patch notes. `tier` is 'block' for
+// an absorbed hit, 'cover' for one that punched through a surface first.
+const HITMARK_COLOR = { block: '#6fa8ff', cover: '#ffd24a' };
+function showHitmarker(isHead, tier) {
   hud.hitmark.style.opacity = 1;
-  hud.hitmark.style.transform = 'rotate(45deg) scale(' + (isHead ? 1.6 : 1) + ')';
+  const scale = isHead ? 1.6 : tier === 'block' ? 0.75 : 1;
+  hud.hitmark.style.transform = 'rotate(45deg) scale(' + scale + ')';
+  const col = HITMARK_COLOR[tier] || '#ff4a3d';
+  const marks = hud.hitmark.children;
+  for (let i = 0; i < marks.length; i++) marks[i].style.background = col;
   clearTimeout(hud.hitmark._t);
   hud.hitmark._t = setTimeout(function () { hud.hitmark.style.opacity = 0; }, 90);
-  playSound(isHead ? 'headshot' : 'hit');
+  playSound(tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
 }
 
 function showDamageFx(dirDeg, amount) {
@@ -9318,6 +9887,58 @@ function addScore(pts, label) {
   score += pts;
   hud.scoreVal.textContent = score;
   if (label) pushKillfeed(label + ' <span class="xp">+' + pts + '</span>');
+}
+
+// ---- Credits ----------------------------------------------------------------
+// Score only ever went up, and nothing in the game ever read it back, so a
+// 30-minute run had no shape. Credits are earned in parallel and are SPENT. Score
+// stays the leaderboard number so career bests remain comparable across versions.
+let credits = 0;
+function addCredits(n) {
+  credits += Math.round(n * (powerActive('double') ? 2 : 1));
+  if (hud.credits) hud.credits.textContent = credits;
+}
+function spendCredits(n) {
+  if (credits < n) return false;
+  credits -= n;
+  if (hud.credits) hud.credits.textContent = credits;
+  return true;
+}
+
+// ---- Power-ups --------------------------------------------------------------
+// Timers run on gameT, which does not advance while paused, so a DOUBLE POINTS
+// window cannot be burned by opening the pause menu.
+const powerUntil = { double: -99, instakill: -99 };
+function powerActive(key) { return gameT < powerUntil[key]; }
+function activatePowerUp(def) {
+  if (def.dur > 0) powerUntil[def.key] = gameT + def.dur;
+  if (def.key === 'maxammo') {
+    for (let i = 0; i < wState.length; i++) {
+      if (!wState[i] || weaponsOwned[i] < 0) continue;
+      const cw = CFG.weapons[weaponsOwned[i]];
+      wState[i].ammo = cw.mag;
+      wState[i].reserve = cw.reserveMax;
+    }
+    grenades.count = Math.max(grenades.count, CFG.grenade.count);
+    updateHudAmmo();
+  } else if (def.key === 'nuke') {
+    // Everything currently alive, credited as kills so the wave still completes
+    // through the normal path rather than being force-cleared.
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!enemies[i].dead) killEnemy(enemies[i], false);
+    }
+  }
+  showPowerBanner(def.label);
+  playSound('powerup');
+}
+function showPowerBanner(txt) {
+  if (!hud.powerBanner) return;
+  hud.powerBanner.textContent = txt;
+  hud.powerBanner.style.opacity = '1';
+  clearTimeout(hud.powerBanner._t);
+  hud.powerBanner._t = setTimeout(function () {
+    if (hud.powerBanner) hud.powerBanner.style.opacity = '0';
+  }, 1800);
 }
 
 // ---- Bounded killfeed ----
@@ -9381,6 +10002,7 @@ function captureRunState() {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
+    credits: credits,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons
   };
 }
@@ -9432,6 +10054,7 @@ function updateWaves(dt) {
       waveActive = false;
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      addCredits(CORE.creditsForWave(waveNum));
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
@@ -9779,6 +10402,11 @@ function resetGame() {
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
+  player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
+  credits = 0;
+  powerUntil.double = -99; powerUntil.instakill = -99;
+  if (hud.credits) hud.credits.textContent = '0';
   runId++;   // invalidate anything the previous run scheduled
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
@@ -9967,6 +10595,8 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  credits = cp.credits || 0;
+  if (hud.credits) hud.credits.textContent = credits;
   grenades.count = cp.grenades;
   waveNum = cp.wave;                  // next startWave() call is wave+1
   waveActive = false; betweenWaveT = CFG.wave.startDelay;

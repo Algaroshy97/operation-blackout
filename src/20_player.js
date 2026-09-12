@@ -66,13 +66,28 @@ const player = {
   // slide state
   sliding: false, slideT: 0, slideDir: new THREE.Vector3(),
   // jump feel
-  coyoteT: 0, jumpBufT: 0, lastGroundT: 0
+  coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
+  // mantle (see tryMantle) and tactical-sprint burst
+  mantleT: 0, mantleFrom: new THREE.Vector3(), mantleTo: new THREE.Vector3(),
+  tacT: 0
 };
 
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
+// route and the arena's scattered cover could not be used as one.
+const MANTLE_TIME = 0.35;
+const MANTLE_REACH = 0.9;
+const MANTLE_MAX_RISE = 1.7;
+// Tactical sprint: a short burst at higher speed, paid for with a faster stamina
+// burn. Sprint was one speed, which made every rotation feel the same length.
+const TAC_TAP_WINDOW = 0.32;
+const TAC_DURATION = 2.5;
+const TAC_MUL = 1.25;
+const TAC_DRAIN = 2.2;
+let lastSprintTap = -99;
 // Distance from the eye to the top of the head. The ceiling resolve keeps this
 // much space between the camera and any slab overhead.
 const HEAD_CLEARANCE = 0.20;
@@ -156,14 +171,35 @@ function updatePlayer(dt) {
     if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
     if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
   }
-  player.yaw -= mouseX * sens;                     // base look
+  // Counter-input spends the outstanding recoil BEFORE it moves the real aim.
+  // Recoil is an additive camera offset that decays back to zero, so a player who
+  // pulled down used to keep the correction in player.pitch and finish the burst
+  // aiming at the floor: the kick went away, their compensation did not.
+  const yawDelta = -mouseX * sens;
+  const pitchDelta = -mouseY * sens * invertY;
+  const absY = CORE.absorbRecoil(player.recoilY, yawDelta);
+  const absP = CORE.absorbRecoil(player.recoilP, pitchDelta);
+  player.recoilY = absY.offset;
+  player.recoilP = absP.offset;
+  player.yaw += absY.delta;
   player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
-  player.pitch -= mouseY * sens * invertY;
+  player.pitch += absP.delta;
   player.pitch += assistPitch * 3.5 * dt;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
-  // recoil decay
+  // recoil decay — now only what the player did NOT compensate for
   player.recoilP *= Math.pow(0.02, dt); player.recoilY *= Math.pow(0.02, dt);
+
+  // A mantle owns movement while it runs. Looking around stays live, which is why
+  // this sits after the look block rather than at the top of the function.
+  if (player.mantleT > 0) {
+    player.mantleT = Math.max(0, player.mantleT - dt);
+    const k = 1 - player.mantleT / MANTLE_TIME;
+    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, k < 1 ? k : 1);
+    player.vel.set(0, 0, 0);
+    if (player.mantleT === 0) { player.onGround = true; player.coyoteT = 0.12; }
+    return;
+  }
 
   // ---- Slide (C/Ctrl while sprinting on ground) ----
   const crouchKey = !!(keys['KeyC'] || keys['ControlLeft'] || keys['ControlRight']);
@@ -191,6 +227,15 @@ function updatePlayer(dt) {
     const slideSpeed = startSpd + (endSpd - startSpd) * t;
     player.vel.x = player.slideDir.x * slideSpeed;
     player.vel.z = player.slideDir.z * slideSpeed;
+    // Slide cancel. The slide used to commit for a full 0.9 s with no early-out
+    // except releasing crouch, which removed the one piece of movement tech that
+    // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
+    // cannot also cancel it on the same frame.
+    if (player.slideT > 0.12 && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
+      player.sliding = false;
+      player.crouching = !!crouchKey;
+      spawnSlideDust(player.pos);
+    }
     // slide ends: timeout, released crouch, or stopped
     if (player.slideT > 0.9 || !crouchKey || (movingInput === false && player.slideT > 0.25)) {
       player.sliding = false;
@@ -233,10 +278,17 @@ function updatePlayer(dt) {
   }
 
   // stamina & sprint (movingInput already declared in slide block above)
+  // Tactical sprint: a double-tap inside TAC_TAP_WINDOW opens a short burst.
+  if (pressed['ShiftLeft'] || pressed['__tacsprint']) {
+    if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
+    lastSprintTap = gameT;
+  }
   const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown();
+  if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
+  else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
     player.sprinting = true;
-    player.stamina -= dt;
+    player.stamina -= dt * (player.tacT > 0 ? TAC_DRAIN : 1);
     if (player.stamina <= 0) { player.stamina = 0; player.exhausted = true; player.sprinting = false; }
   } else {
     player.sprinting = false;
@@ -265,7 +317,7 @@ function updatePlayer(dt) {
   const len = Math.hypot(ix, iz);
   if (len > 0) { ix /= len; iz /= len; }
   let speed = CFG.player.speed * (window.__analogMag || 1);
-  if (player.sprinting) speed *= CFG.player.sprintMul;
+  if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
   if (player.crouching) speed *= CFG.player.crouchMul;
   if (adsDown()) speed *= 0.65;
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -295,7 +347,11 @@ function updatePlayer(dt) {
   else player.coyoteT = Math.max(0, player.coyoteT - dt);
   if (pressed['Space']) player.jumpBufT = 0.15;
   else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
-  if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
+  // A mantle beats a jump: if there is a ledge in front, climbing it is what the
+  // player meant. Anything under STEP_H is already handled by step-up.
+  if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
+    player.jumpBufT = 0;
+  } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
     player.vel.y = CFG.player.jumpVel;
     player.onGround = false; player.coyoteT = 0; player.jumpBufT = 0;
     playSound('jump');
@@ -349,6 +405,29 @@ function damagePlayer(amount, dirDeg) {
 }
 
 let godMode = false;
+
+// ---- Mantle ----
+function tryMantle() {
+  if (player.mantleT > 0) return false;
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const feet = player.pos.y - eyeHeight();
+  const t = CORE.mantleTarget(feet, player.pos.x, player.pos.z, dirX, dirZ, colliders, {
+    reach: MANTLE_REACH,
+    minRise: STEP_H,
+    maxRise: MANTLE_MAX_RISE,
+    headroom: CFG.player.crouchHeight,
+    radius: CFG.player.radius
+  });
+  if (!t) return false;
+  player.mantleT = MANTLE_TIME;
+  player.mantleFrom.set(player.pos.x, player.pos.y, player.pos.z);
+  player.mantleTo.set(t.x, t.y + eyeHeight(), t.z);
+  player.sliding = false;
+  player.onGround = false;
+  playSound('jump');
+  spawnSlideDust(player.pos);
+  return true;
+}
 
 // ---- Slide helpers ----
 function startSlide() {
