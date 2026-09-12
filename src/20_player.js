@@ -73,6 +73,11 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Collision is discrete AABB overlap, not swept, so one long frame can teleport
+// straight through a wall. The thinnest collidable wall in the arena is 0.8 m and
+// dt is clamped at 0.1 s, which at sprint speed is 0.89 m of travel — enough to
+// pass clean through. Cap per-substep travel well under that.
+const MAX_MOVE_STEP = 0.30;
 
 // Horizontal AABB resolve with step-up allowance
 function resolveXZ(pos, r) {
@@ -126,7 +131,8 @@ function updatePlayer(dt) {
   // mobile: joystick axes -> keys/look accumulators
   applyTouchInput();
   // look
-  const sens = 0.0022 * (adsAmount > 0.5 ? 0.6 : 1);
+  const sens = CORE.lookSensitivity(getSetting('sensitivity'), adsAmount);
+  const invertY = getSetting('invertY') ? -1 : 1;
   // aim assist: when ADS/scoped and near an enemy, add a gentle pull toward chest
   let assistYaw = 0, assistPitch = 0;
   if (adsAmount > 0.8 && enemies.length) {
@@ -140,9 +146,9 @@ function updatePlayer(dt) {
     if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
     if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
   }
-  player.yaw -= (mouseX - assistYaw * 0) * sens;   // base look
+  player.yaw -= mouseX * sens;                     // base look
   player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
-  player.pitch -= mouseY * sens;
+  player.pitch -= mouseY * sens * invertY;
   player.pitch += assistPitch * 3.5 * dt;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
@@ -285,17 +291,22 @@ function updatePlayer(dt) {
     playSound('jump');
   }
 
-  // gravity + integrate
-  player.vel.y -= CFG.player.gravity * dt;
-  player.pos.x += player.vel.x * dt;
-  player.pos.z += player.vel.z * dt;
-  player.pos.y += player.vel.y * dt;
-  resolveXZ(player.pos, CFG.player.radius);
-  resolveVertical(player.pos, CFG.player.radius);
+  // gravity + integrate, sub-stepped so a long frame cannot tunnel a thin wall
+  const moveSpeedNow = Math.max(Math.hypot(player.vel.x, player.vel.z), Math.abs(player.vel.y));
+  const steps = CORE.subStepCount(moveSpeedNow, dt, MAX_MOVE_STEP);
+  const sdt = dt / steps;
+  for (let s = 0; s < steps; s++) {
+    player.vel.y -= CFG.player.gravity * sdt;
+    player.pos.x += player.vel.x * sdt;
+    player.pos.z += player.vel.z * sdt;
+    player.pos.y += player.vel.y * sdt;
+    resolveXZ(player.pos, CFG.player.radius);
+    resolveVertical(player.pos, CFG.player.radius);
+  }
 
   // health regen
   if (gameT - player.lastDamageT > CFG.player.regenDelay && player.health < CFG.player.health) {
-    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * dt);
+    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * diff().regen * dt);
   }
 
   // head bob

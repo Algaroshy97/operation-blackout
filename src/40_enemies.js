@@ -49,7 +49,6 @@ function makeEnemyMesh(kind) {
     const upper = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.armR * 2, E_DIM.armH / 2, E_DIM.armR * 2), EMAT.cloth);
     upper.position.y = -E_DIM.armH / 4;
     a.add(upper);
-    g.add ? null : null;
   }
   // legs
   const legL = new THREE.Group(); legL.position.set(-0.12, E_DIM.pelvisH, 0);
@@ -79,14 +78,20 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
-// Read a centered framebuffer sample. The diagnostic camera aims the soldier at
-// the center, so comparing this sample before and after spawning it avoids
-// guessing sky/fog colours or confusing WebGL's bottom-left pixel origin.
-function readProbePixels(gl, width, height, size) {
+// Read a centered sample from an off-screen render target.
+//
+// This used to read the DEFAULT framebuffer, which is undefined to sample once the
+// browser has composited the frame (the drawing buffer is cleared unless
+// preserveDrawingBuffer is set). At startup, when compositing is busiest, both
+// samples came back identical — a difference of exactly 0 — so a perfectly good
+// GPU was reported as broken and every desktop player was silently downgraded to
+// the fallback box-man. An FBO has well-defined read semantics.
+const PROBE_SIZE = 32;
+function readProbePixels(target, size) {
   const pixels = new Uint8Array(size * size * 4);
-  const x = Math.max(0, Math.floor(width / 2 - size / 2));
-  const y = Math.max(0, Math.floor(height / 2 - size / 2));
-  gl.readPixels(x, y, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const x = Math.max(0, Math.floor(target.width / 2 - size / 2));
+  const y = Math.max(0, Math.floor(target.height / 2 - size / 2));
+  renderer.readRenderTargetPixels(target, x, y, size, size, pixels);
   return pixels;
 }
 
@@ -107,6 +112,7 @@ function probeSkinnedSoldier() {
   };
   const gunVisible = typeof gunGroup !== 'undefined' ? gunGroup.visible : true;
   let probe = null;
+  let probeTarget = null;
   try {
     if (typeof gunGroup !== 'undefined') gunGroup.visible = false;
     camera.position.set(0, 1.7, -31);
@@ -114,25 +120,35 @@ function probeSkinnedSoldier() {
     camera.updateMatrixWorld(true);
     camera.aspect = renderer.domElement.width / renderer.domElement.height;
     camera.updateProjectionMatrix();
-    const gl = renderer.getContext();
-    const width = renderer.domElement.width, height = renderer.domElement.height;
-    const sampleSize = 32;
+    probeTarget = new THREE.WebGLRenderTarget(256, 256);
+    camera.aspect = 1;
+    camera.updateProjectionMatrix();
+    // Warm the renderer first: this runs on the session's very first frames, when
+    // every material still needs compiling.
+    renderer.setRenderTarget(probeTarget);
     renderer.render(scene, camera);
-    const before = readProbePixels(gl, width, height, sampleSize);
+    const before = readProbePixels(probeTarget, PROBE_SIZE);
+
     probe = spawnEnemy(0, 0, -35);
     renderer.render(scene, camera);
-    const after = readProbePixels(gl, width, height, sampleSize);
+    const after = readProbePixels(probeTarget, PROBE_SIZE);
+    renderer.setRenderTarget(null);
+
     let painted = 0;
     for (let i = 0; i < after.length; i += 4) {
       const difference = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
       if (difference > 30) painted++;
     }
-    GLB_SOLDIER_BROKEN = !(painted > before.length / 16);
-    if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models.');
+    const threshold = before.length / 16;
+    GLB_SOLDIER_BROKEN = !(painted > threshold);
+    if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models. (painted ' + painted + ' / need >' + threshold + ')');
+    else console.log('soldier paint probe OK (' + painted + ' px)');
   } catch (err) {
     GLB_SOLDIER_BROKEN = true;
     console.warn('Soldier probe threw, using simple enemy models.', err);
   } finally {
+    renderer.setRenderTarget(null);
+    if (probeTarget) probeTarget.dispose();
     if (typeof gunGroup !== 'undefined') gunGroup.visible = gunVisible;
     if (probe) {
       scene.remove(probe.parts.group);
@@ -190,11 +206,14 @@ function spawnEnemy(kind, x, z) {
     // Animated skinned bounds can become stale on some GPUs, causing false culling.
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
     // procedural hitboxes for consistent aim behavior
+    // Calibrated against the scaled model: total height 1.84 m. The head box used
+    // to span 1.68-2.02, floating 0.18 m of hittable air above the soldier's head
+    // while leaving a 0.21 m gap over the body box. Chest 0.45-1.52, head 1.52-1.84.
     const hbMat = new THREE.MeshBasicMaterial({ visible: false });
-    const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.5), hbMat);
-    hitBody.position.y = 0.95;
-    const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), hbMat);
-    hitHead.position.y = 1.85;
+    const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.07, 0.5), hbMat);
+    hitBody.position.y = 0.985;
+    const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.32, 0.30), hbMat);
+    hitHead.position.y = 1.68;
     const g = new THREE.Group();
     g.add(root); g.add(hitBody); g.add(hitHead);
     parts = { group: g, body: root, torso: root, head: root, armL: root, armR: root, legL: root, legR: root, hitBody: hitBody, hitHead: hitHead, glb: true };
@@ -215,12 +234,17 @@ function spawnEnemy(kind, x, z) {
   } else {
     parts = makeEnemyMesh(kind);
   }
-  const scale = kind === 2 ? 1.25 : 1;
+  const scale = kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1;
   parts.group.scale.set(scale, scale, scale);
-  const baseHp = kind === 0 ? CFG.ai.maxHealth : kind === 1 ? CFG.ai.maxHealth * 1.35 : 320;
+  const baseHp = kind === 0 ? CFG.ai.maxHealth
+    : kind === 1 ? CFG.ai.maxHealth * 1.35
+    : kind === 3 ? CFG.ai.maxHealth * 2.2      // shielded advancer
+    : kind === 4 ? CFG.ai.maxHealth * 0.55     // scout: fast and fragile
+    : kind === 5 ? CFG.ai.maxHealth * 1.2      // grenadier
+    : 320;
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
-  const waveMul = Math.min(2.2, 1 + 0.06 * (Math.max(1, curWave) - 1));
-  const hp = Math.round(baseHp * waveMul);
+  const waveMul = CORE.endlessHpMultiplier(Math.max(1, curWave), CFG.wave.victoryWave);
+  const hp = Math.round(baseHp * waveMul * diff().hp);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
@@ -239,6 +263,15 @@ function spawnEnemy(kind, x, z) {
     stateT: 0,
     nextShot: 0,
     strafeDir: Math.random() < 0.5 ? 1 : -1,
+    // Set at spawn from the wave's unlocked behaviours; shielded units never flank
+    // (their whole point is a frontal push you have to get around).
+    // Scouts flank by definition — that is their whole job. Shielded units and
+    // grenadiers never do. Everyone else flanks once the wave-8 behaviour unlocks.
+    flanker: kind === 4 ? true
+      : (kind === 3 || kind === 5) ? false
+      : !!(typeof waveBehaviours !== 'undefined' && waveBehaviours.flanking) && Math.random() < 0.45,
+    // Flank for a while, then commit. Without a window a fast flanker orbits forever.
+    flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
     speedMul: 0.85 + Math.random() * 0.3,
@@ -246,6 +279,19 @@ function spawnEnemy(kind, x, z) {
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
   };
+  // Visual tell: the shielded unit is steel-blue and slightly larger, so a player
+  // knows to flank before they have wasted a magazine on the plate.
+  const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a };
+  if (KIND_TINT[kind] !== undefined) {
+    const tint = new THREE.Color(KIND_TINT[kind]);
+    parts.group.traverse(function (o) {
+      if (o.isMesh && o !== parts.hitBody && o !== parts.hitHead && o.material) {
+        o.material = o.material.clone();
+        if (o.material.color) o.material.color.lerp(tint, 0.55);
+        o.userData.clonedTint = true;
+      }
+    });
+  }
   parts.hitBody.userData = { enemyRef: en, isHead: false };
   parts.hitHead.userData = { enemyRef: en, isHead: true };
   // tag ALL visible meshes with the enemy ref too, so raycast world-hits resolve as enemy body hits
@@ -272,15 +318,34 @@ function disposeEnemyGeometry(en) {
     }
     en.glbSkeletons.length = 0;
   }
+  // Tinted shielded units own cloned materials; everything else shares them.
+  en.parts.group.traverse(function (o) {
+    if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
+  });
   if (en.parts.glb) {
     // GLB model geometry is shared, but each enemy owns its two hitboxes.
     en.hitBody.geometry.dispose(); en.hitHead.geometry.dispose();
   } else en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
 }
 
+// Shielded advancers (kind 3) carry a frontal plate: shots into the front arc are
+// mostly absorbed, so they have to be flanked, headshot or grenaded. This is the
+// wave-9+ answer to "the back half is the same fight with more bodies".
+const SHIELD_ARC = Math.cos(Math.PI / 3);   // 60 degrees either side of facing
+function shieldMultiplier(en, point) {
+  if (en.kind !== 3 || !point) return 1;
+  const fx = Math.sin(en.yaw), fz = Math.cos(en.yaw);      // facing the player
+  const dx = point.x - en.pos.x, dz = point.z - en.pos.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const facing = (dx / len) * fx + (dz / len) * fz;
+  return facing > SHIELD_ARC ? 0.15 : 1;                   // 85% absorbed head-on
+}
+
 function damageEnemy(en, dmg, point, isHead) {
   if (en.dead) return;
-  en.health -= dmg;
+  const shield = isHead ? 1 : shieldMultiplier(en, point);
+  if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
+  en.health -= dmg * shield;
   showHitmarker(isHead);
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
@@ -301,20 +366,76 @@ function killEnemy(en, isHead) {
   playSound('kill');
 }
 
-// Simple steering: move toward player with obstacle pushout (same resolve as player)
+// Horizontal distance from an enemy to the player.
+//
+// player.pos is anchored at EYE height (1.7 m) while en.pos is anchored at the
+// feet (y = 0), so a 3-D distance reads 1.7 m of pure height as separation. Every
+// gameplay radius — melee reach, stop distance, ranged range — is horizontal, so
+// they must all be measured horizontally or enemies walk into the player's body.
+function distToPlayer(en) {
+  return CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
+}
+
+// ---- Shared flow field ------------------------------------------------------
+// One breadth-first flood from the player's cell serves every enemy, so pathing
+// cost is independent of enemy count. Recomputed on a fixed cadence, or
+// immediately when the player crosses into a different cell.
+let flowT = 0, flowCellX = -9999, flowCellZ = -9999;
+const FLOW_INTERVAL = 0.25;
+const _flowDir = { x: 0, z: 0 };
+function updateFlowField(dt) {
+  if (!navGrid) return;
+  flowT -= dt;
+  const cx = Math.floor(player.pos.x), cz = Math.floor(player.pos.z);
+  if (flowT > 0 && cx === flowCellX && cz === flowCellZ) return;
+  flowT = FLOW_INTERVAL;
+  flowCellX = cx; flowCellZ = cz;
+  CORE.computeFlowField(navGrid, player.pos.x, player.pos.z);
+}
+
+// Steering: follow the flow field when closing distance, fall back to a direct
+// vector when the field has nothing for this cell (e.g. an enemy shoved outside
+// the walkable set by the separation pass).
 function moveEnemy(en, dt) {
   const cfg = CFG.ai;
-  const toPlayer = tmpV2.copy(player.pos).sub(en.pos); toPlayer.y = 0;
+  const toPlayer = tmpV2.set(player.pos.x - en.pos.x, 0, player.pos.z - en.pos.z);
   const dist = toPlayer.length();
   let speed = 0;
-  if (en.state === 'chase') speed = (en.kind === 0 ? cfg.chaseSpeed : en.kind === 2 ? 2.2 : cfg.speed) * en.speedMul;
+  if (en.state === 'fallback') speed = cfg.rangedSpeed * 1.25 * en.speedMul;
+  else if (en.state === 'chase') speed = (en.kind === 0 ? cfg.chaseSpeed
+    : en.kind === 2 ? 2.2
+    : en.kind === 3 ? 2.0
+    : en.kind === 4 ? cfg.chaseSpeed * 1.35    // scout
+    : en.kind === 5 ? 2.6                      // grenadier repositions slowly
+    : cfg.speed) * en.speedMul;
   else if (en.state === 'strafe') speed = cfg.rangedSpeed * en.speedMul;
   else speed = cfg.speed * 0.5 * en.speedMul;
   if (en.kind === 1 && dist < cfg.rangedRange && en.state !== 'idle') speed = cfg.rangedSpeed;
   // desired velocity
   if (dist > 0.01) toPlayer.normalize();
   let mvx = toPlayer.x, mvz = toPlayer.z;
-  if (en.state === 'strafe') {
+  if (en.state === 'chase') {
+    // Straight-line seek wedges on every wall corner in this arena; route instead.
+    // Close in, steer directly so the final approach does not snap to cell centres.
+    const routed = dist > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
+    if (routed) { mvx = routed.x; mvz = routed.z; }
+    // Flankers (wave 8+) bias sideways until they are close, so a pack stops
+    // arriving as one clump down a single corridor.
+    if (en.flanker) {
+      en.flankT -= dt;
+      const bias = CORE.flankBiasNow(en.flankT, dist) * 0.45;
+      if (bias > 0.001) {
+        const px = -mvz * en.strafeDir, pz = mvx * en.strafeDir;
+        mvx = mvx * (1 - bias) + px * bias; mvz = mvz * (1 - bias) + pz * bias;
+        const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
+      }
+    }
+  } else if (en.state === 'fallback') {
+    // straight back, with a sideways bias so it does not reverse into a corner
+    mvx = -toPlayer.x * 0.8 - toPlayer.z * 0.6 * en.strafeDir;
+    mvz = -toPlayer.z * 0.8 + toPlayer.x * 0.6 * en.strafeDir;
+    const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
+  } else if (en.state === 'strafe') {
     // circle-strafe the player
     mvx = -toPlayer.z * en.strafeDir; mvz = toPlayer.x * en.strafeDir;
     en.strafeT -= dt;
@@ -322,30 +443,37 @@ function moveEnemy(en, dt) {
   }
   en.vel.x = mvx * speed;
   en.vel.z = mvz * speed;
-  en.pos.x += en.vel.x * dt;
-  en.pos.z += en.vel.z * dt;
   // obstacle pushout (AABB vs point with radius) + step-up allowance
   const r = 0.4 * (en.kind === 2 ? 1.4 : 1);
   const stepH = 0.60;
-  const feet = en.pos.y;
   const head = en.pos.y + (en.kind === 2 ? 2.3 : 1.85);
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (c.min.y >= head + 0.2) continue;
-    if (c.max.y <= feet + stepH) continue;
-    if (feet >= c.max.y - 0.001) continue;
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-    const dx = en.pos.x - cx, dz = en.pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
-    const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
-    if (px < pz) en.pos.x = cx + (dx >= 0 ? ex : -ex);
-    else en.pos.z = cz + (dz >= 0 ? ez : -ez);
+  // Sub-stepped for the same reason the player is: a 0.1 s frame at chase speed
+  // is half a metre of travel against 0.8 m walls.
+  const nSteps = CORE.subStepCount(speed, dt, 0.3);
+  const sdt = dt / nSteps;
+  for (let s = 0; s < nSteps; s++) {
+    en.pos.x += en.vel.x * sdt;
+    en.pos.z += en.vel.z * sdt;
+    const feet = en.pos.y;
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (c.min.y >= head + 0.2) continue;
+      if (c.max.y <= feet + stepH) continue;
+      if (feet >= c.max.y - 0.001) continue;
+      const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
+      const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
+      const dx = en.pos.x - cx, dz = en.pos.z - cz;
+      if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
+      const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
+      if (px < pz) en.pos.x = cx + (dx >= 0 ? ex : -ex);
+      else en.pos.z = cz + (dz >= 0 ? ez : -ez);
+    }
   }
   en.pos.x = Math.max(-mapBounds, Math.min(mapBounds, en.pos.x));
   en.pos.z = Math.max(-mapBounds, Math.min(mapBounds, en.pos.z));
 
   // Vertical resolve: find highest floor below feet + stepH
+  const feet = en.pos.y;
   let floorY = GROUND;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
@@ -374,12 +502,17 @@ function hasLOS(en) {
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
   if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
+  // Riflemen ask twice on their own frame — once in the state machine, once in the
+  // ranged-attack block. The old throttle only cached on SKIPPED frames, so the
+  // second call redid a full-scene raycast. Cache per tick, not just per skip.
+  if (en._losTick === losFrame) return en._losCache;
+  en._losTick = losFrame;
   _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
   losRay.set(_losFrom, _losTo.sub(_losFrom).normalize());
   losRay.far = _losFrom.distanceTo(player.pos);
-  const hits = losRay.intersectObjects(raycastColliders, true);
+  const hits = losRay.intersectObjects(worldRayTargets(_losFrom, losRay.ray.direction, losRay.far), true);
   let blocked = false;
   for (let i = 0; i < hits.length; i++) {
     if (hits[i].distance < losRay.far - 0.2) { blocked = true; break; }
@@ -391,6 +524,7 @@ const tmpV2 = new THREE.Vector3();
 
 function updateEnemies(dt) {
   losFrame++;
+  updateFlowField(dt);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const en = enemies[i];
     if (en._losSkip === undefined) en._losSkip = i % 3;
@@ -415,7 +549,7 @@ function updateEnemies(dt) {
     // DEAD PLAYER: stop all AI activity — enemies wander/idle, never attack a corpse
     const playerGone = player.dead;
     en.stateT += dt;
-    const dist = en.pos.distanceTo(player.pos);
+    const dist = distToPlayer(en);
     // state machine
     if (playerGone) {
       if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
@@ -433,11 +567,44 @@ function updateEnemies(dt) {
         if (en.state !== 'strafe' && en.state !== 'shoot') { en.state = 'strafe'; en.strafeT = 2; }
       } else if (en.state !== 'chase') { en.state = 'chase'; }
       if (en.state === 'strafe' && en.stateT > 6) { en.state = 'chase'; en.stateT = 0; }
+    } else if (en.kind === 3) {
+      // shielded advancer: walks straight at you, plate forward, never strafes
+      en.state = 'chase';
+    } else if (en.kind === 4) {
+      // scout: pure rusher, but flanks the whole way in
+      en.state = 'chase';
+    } else if (en.kind === 5) {
+      // grenadier: holds a throwing distance and lobs. Push it and it RETREATS —
+      // it must never close, or it ends up standing on top of the player.
+      if (dist < CORE.enemyPreferredRange(5)) en.state = 'fallback';
+      else if (dist < 34 && hasLOS(en)) { if (en.state !== 'strafe') { en.state = 'strafe'; en.strafeT = 2.5; } }
+      else en.state = 'chase';
     } else {
       // tank: slow chase always
       en.state = 'chase';
     }
     moveEnemy(en, dt);
+    // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
+    // the separation pass can still pin itself. Repath first; if it is still pinned
+    // well past that, relocate it to a valid ring point rather than leaving a
+    // hostile the wave counter is waiting on parked against a wall forever.
+    // Only while actually trying to CLOSE distance. An enemy holding at melee
+    // range, or a rifleman holding an angle with line of sight, is stationary on
+    // purpose — treating that as stuck teleports arrived attackers away and the
+    // wave never resolves.
+    const closing = CORE.isClosingDistance(en.state, dist, en.kind === 2 ? 2.6 : 1.9);
+    if (closing) {
+      if (!en.stuck) en.stuck = {};
+      const verdict = CORE.updateStuck(en.stuck, en.pos.x, en.pos.z, dt);
+      if (verdict === 'repath') {
+        flowT = 0; flowCellX = -9999;              // force a fresh flood next tick
+        en.strafeDir *= -1;
+      } else if (verdict === 'teleport') {
+        relocateStuckEnemy(en);
+      }
+    } else if (en.stuck) {
+      en.stuck = null;                             // arrived: forget the stall history
+    }
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
     if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
     if (en.state !== 'spawn' && dist < 30 && !en.dead) {
@@ -451,17 +618,24 @@ function updateEnemies(dt) {
     const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
     en.yaw = Math.atan2(dx, dz);
     // keep enemies out of the player's body: stop-and-hold at melee distance
-    const stopDist = en.kind === 2 ? 2.6 : 1.9;
-    if (dist < stopDist && (en.kind === 0 || en.kind === 2)) {
+    // Applies to every kind, not a hand-kept list: anything that can reach the
+    // player must be pushed back out, or it occupies the player's position.
+    const stopDist = CORE.enemyStopDistance(en.kind);
+    if (dist < stopDist) {
       // back off slightly if overlapping the player capsule
       const overlap = stopDist - dist;
       if (overlap > 0) {
-        const nx = (en.pos.x - player.pos.x) / (dist || 1), nz = (en.pos.z - player.pos.z) / (dist || 1);
+        // dist is horizontal, so a body-overlap really is a near-zero separation:
+        // fall back to the enemy's own facing rather than dividing by ~0 and
+        // producing a garbage normal that leaves it standing inside the player.
+        let nx, nz;
+        if (dist > 0.05) { nx = (en.pos.x - player.pos.x) / dist; nz = (en.pos.z - player.pos.z) / dist; }
+        else { nx = -Math.sin(en.yaw); nz = -Math.cos(en.yaw); }
         en.pos.x += nx * overlap; en.pos.z += nz * overlap;
       }
     }
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
-    const canMelee = en.kind === 0 || en.kind === 2;
+    const canMelee = en.kind === 0 || en.kind === 2 || en.kind === 3 || en.kind === 4;
     const reach = en.kind === 2 ? CFG.ai.attackRange + 0.9 : CFG.ai.attackRange + 0.4;
     if (canMelee && dist < reach && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
@@ -477,7 +651,7 @@ function updateEnemies(dt) {
           const now = gameT;
           meleeHits = meleeHits.filter(t => now - t < 0.8);
           if (meleeHits.length < 2) {
-            damagePlayer(CFG.ai.meleeDamage + (en.kind === 2 ? 10 : 0) + waveNum * 0.4, dirToDeg(en));
+            damagePlayer((CFG.ai.meleeDamage + (en.kind === 2 ? 10 : 0) + waveNum * 0.4) * diff().dmg, dirToDeg(en));
             playSound('melee');
             meleeHits.push(now);
           }
@@ -490,11 +664,33 @@ function updateEnemies(dt) {
     // ranged attack (rifleman)
     if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
       if (hasLOS(en)) {
-        en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
+        if (waveBehaviours.burstFire) {
+          // Bursts of 3 with a longer recovery: same average output, far more
+          // pressure to break line of sight instead of trading in the open.
+          if (en.burst === undefined || en.burst <= 0) en.burst = 3;
+          en.burst--;
+          en.nextShot = gameT + (en.burst > 0 ? 0.12 : CFG.ai.rangedROF * 1.6 * (0.8 + Math.random() * 0.4));
+        } else {
+          en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
+        }
         enemyShoot(en, dist);
       } else {
         en.nextShot = gameT + 0.4;
+        en.burst = 0;
       }
+    }
+    // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
+    // that is the point of the unit: it denies a position rather than duelling.
+    if (en.kind === 5 && !player.dead && dist > 9 && dist < 36 && gameT > (en.nextNade || 3)) {
+      en.nextNade = gameT + 5.5 + Math.random() * 4;
+      throwEnemyGrenade(en);
+    }
+    // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
+    // flush a player who is actually behind cover.
+    if (waveBehaviours.enemyNades && en.kind === 1 && !player.dead &&
+        dist > 8 && dist < 32 && gameT > (en.nextNade || 6)) {
+      en.nextNade = gameT + 11 + Math.random() * 9;
+      if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
     // animate
     animateEnemy(en, dt, dist);
@@ -519,17 +715,81 @@ function updateEnemies(dt) {
   }
 }
 
+// Last-resort unstick: drop the enemy on the nearest walkable cell that can
+// actually reach the player, preferring somewhere off-screen behind them.
+function relocateStuckEnemy(en) {
+  if (!navGrid) return;
+  let best = null, bestScore = -Infinity;
+  for (let a = 0; a < 16; a++) {
+    const ang = a / 16 * Math.PI * 2;
+    for (let rad = 14; rad <= 30; rad += 4) {
+      const x = player.pos.x + Math.cos(ang) * rad;
+      const z = player.pos.z + Math.sin(ang) * rad;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) continue;
+      if (CORE.navDistanceAt(navGrid, x, z) === CORE.UNREACHABLE) continue;
+      // prefer roughly 20 m out, and behind the player's current facing
+      const toX = x - player.pos.x, toZ = z - player.pos.z;
+      const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
+      const behind = -(toX * fwdX + toZ * fwdZ) / (rad || 1);
+      const score = -Math.abs(rad - 20) + behind * 5;
+      if (score > bestScore) { bestScore = score; best = [x, z]; }
+    }
+  }
+  if (!best) return;
+  en.pos.set(best[0], 0, best[1]);
+  en.vel.set(0, 0, 0);
+  en.stuck = {};
+  en.state = 'chase';
+  en.stateT = 0;
+}
+
+// Enemy frag: reuses the player's grenade physics and blast, with its own mesh so
+// the existing pickup/HUD accounting is untouched.
+function throwEnemyGrenade(en) {
+  if (typeof liveGrenades === 'undefined' || liveGrenades.length > 6) return;
+  const m = new THREE.Mesh(grenadeGeo, grenadeMat);
+  const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
+  blink.position.y = 0.1; m.add(blink);
+  m.position.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
+  const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  // lobbed, deliberately imprecise — it is a flush, not a snipe
+  const speed = Math.min(13, 6 + d * 0.32);
+  const vel = new THREE.Vector3(dx / d, 0.62, dz / d).normalize().multiplyScalar(speed);
+  vel.x += (Math.random() - 0.5) * 1.2; vel.z += (Math.random() - 0.5) * 1.2;
+  liveGrenades.push({ m: m, vel: vel, fuse: CFG.grenade.fuse + 0.4, blink: blink,
+    atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
+  scene.add(m);
+  playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);
+  pushKillfeed('<span class="xp">INCOMING GRENADE</span>');
+}
+
+let _shieldMsgT = -99;
+function showCenterMsgThrottled(txt) {
+  if (gameT - _shieldMsgT < 3) return;
+  _shieldMsgT = gameT;
+  showCenterMsg(txt);
+}
+
+const _eshotFrom = new THREE.Vector3();
+const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
-  const from = new THREE.Vector3(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
-  const to = player.pos.clone();
+  const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
+  const to = _eshotTo.copy(player.pos);
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
   const acc = Math.min(CFG.ai.accMax, CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave);
   if (Math.random() < acc) {
-    const dmg = CFG.ai.rangedDamage + waveNum * 0.35;
-    setTimeout(function () { if (!player.dead && started && !paused) damagePlayer(dmg, dirToDeg(en)); }, Math.min(300, dist * 2.2));
+    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg;
+    // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
+    // bullet fired in the previous run could land in the first 300 ms of the next.
+    const firedInRun = runId;
+    setTimeout(function () {
+      if (runId !== firedInRun) return;
+      if (!player.dead && started && !paused) damagePlayer(dmg, dirToDeg(en));
+    }, Math.min(300, dist * 2.2));
   }
 }
 

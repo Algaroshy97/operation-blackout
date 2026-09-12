@@ -20,7 +20,63 @@ const $id = (i) => document.getElementById(i);
 
 // ---- Renderer / scene ----
 const canvas = $id('game-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+// Every module is concatenated into ONE <script>, so an unguarded throw here kills
+// the entire remaining file: no menu, no message, just a black page and a console
+// error the player will never open. Fail loudly and legibly instead.
+function showFatalError(title, detail) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;inset:0;z-index:999;display:flex;align-items:center;' +
+    'justify-content:center;flex-direction:column;background:#0a0e0a;color:#e8ffe8;' +
+    'font-family:Segoe UI,Arial,sans-serif;text-align:center;padding:32px;box-sizing:border-box';
+  const h = document.createElement('h1');
+  h.style.cssText = 'color:#ffdf8a;font-size:26px;letter-spacing:4px;margin:0 0 14px';
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.style.cssText = 'max-width:520px;line-height:1.6;color:rgba(255,255,255,.75);font-size:14px;margin:0';
+  p.textContent = detail;
+  el.appendChild(h); el.appendChild(p);
+  document.body.appendChild(el);
+}
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  showFatalError('WEBGL UNAVAILABLE',
+    'This game needs WebGL, and your browser could not start it. Try Chrome or Edge, ' +
+    'enable hardware acceleration in your browser settings, or update your graphics driver. ' +
+    '(' + (err && err.message ? err.message : String(err)) + ')');
+  throw err;
+}
+// Mobile browsers drop WebGL contexts routinely on tab-switch. Without these the
+// game renders black forever with no way back.
+canvas.addEventListener('webglcontextlost', function (e) {
+  e.preventDefault();                       // required, or the context never restores
+  contextLost = true;
+  if (typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
+    if (typeof pauseGame === 'function') pauseGame();
+  }
+  showContextNotice(true);
+}, false);
+canvas.addEventListener('webglcontextrestored', function () {
+  contextLost = false;
+  showContextNotice(false);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.needsUpdate = true;
+}, false);
+let contextLost = false;
+let _ctxNotice = null;
+function showContextNotice(show) {
+  if (show && !_ctxNotice) {
+    _ctxNotice = document.createElement('div');
+    _ctxNotice.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'z-index:998;background:rgba(6,10,6,.92);color:#ffdf8a;padding:18px 26px;border-radius:6px;' +
+      'font-family:Segoe UI,Arial,sans-serif;font-size:14px;letter-spacing:2px;text-align:center';
+    _ctxNotice.textContent = 'GRAPHICS CONTEXT LOST — RESTORING…';
+    document.body.appendChild(_ctxNotice);
+  } else if (!show && _ctxNotice) {
+    _ctxNotice.remove(); _ctxNotice = null;
+  }
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -46,11 +102,25 @@ const sun = new THREE.DirectionalLight(0xffd9b0, 1.35);
 sun.position.set(45, 55, -30);
 sun.castShadow = true;
 sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
-sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
-sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+// The shadow frustum used to span the whole 120x120 arena, so a 2048 map spent
+// most of its resolution on geometry nowhere near the player. Follow the player
+// with a tight box instead: same map, far sharper shadows, less to re-render.
+const SHADOW_EXTENT = IS_TOUCH ? 26 : 38;
+sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
 sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
+const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
+// Snap to whole texels so the shadow map does not shimmer as the player walks.
+const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+function updateSunShadow(targetX, targetZ) {
+  const sx = Math.round(targetX / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const sz = Math.round(targetZ / SHADOW_TEXEL) * SHADOW_TEXEL;
+  sun.target.position.set(sx, 0, sz);
+  sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
+  sun.target.updateMatrixWorld();
+}
 scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55));
 scene.add(new THREE.AmbientLight(0x606070, 0.35));
 
@@ -118,16 +188,85 @@ raycastColliders.push(ground);
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
 }
+// ---- Static geometry batching ----------------------------------------------
+// addBox() used to create one Mesh + one BoxGeometry per box, which is why a
+// ~15k-triangle arena cost ~200 draw calls. Boxes are now queued and merged into
+// one mesh per (material x spatial region) by flushStaticBatches(); the AABB in
+// `colliders[]` is still added immediately, so collision is completely unaffected.
+const staticQueue = [];
+const STATIC_REGION_SIZE = 30;   // 3x3 regions across the 90 m arena
+// Queue a piece of static world geometry. `geo` must already be baked into world
+// space (the batch mesh itself sits at the origin); x/z decide its region.
+function queueStatic(geo, x, z, mat, noShadow) {
+  staticQueue.push({ geo: geo, x: x, z: z, mat: mat, noShadow: !!noShadow });
+}
 function addBox(x, y, z, w, h, d, mat, opts) {
   opts = opts || {};
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y, z);
-  m.castShadow = opts.noShadow ? false : true;
-  m.receiveShadow = true;
-  scene.add(m);
-  raycastColliders.push(m);
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  queueStatic(g, x, z, mat, opts.noShadow);
   if (!opts.noCollide) addCollider(x, y, z, w, h, d);
-  return m;
+}
+
+// Concatenate several BufferGeometries that share an attribute layout.
+// r128's build does not actually ship BufferGeometryUtils (it is an examples
+// module), and BufferGeometry.merge() is lossy, so do it by hand.
+function mergeGeometries(geos) {
+  let vCount = 0, iCount = 0;
+  for (let i = 0; i < geos.length; i++) {
+    vCount += geos[i].attributes.position.count;
+    iCount += geos[i].index ? geos[i].index.count : geos[i].attributes.position.count;
+  }
+  const pos = new Float32Array(vCount * 3);
+  const nor = new Float32Array(vCount * 3);
+  const uv = new Float32Array(vCount * 2);
+  const idx = vCount > 65535 ? new Uint32Array(iCount) : new Uint16Array(iCount);
+  let vo = 0, io = 0;
+  for (let g = 0; g < geos.length; g++) {
+    const geo = geos[g];
+    const p = geo.attributes.position, n = geo.attributes.normal, u = geo.attributes.uv;
+    pos.set(p.array, vo * 3);
+    if (n) nor.set(n.array, vo * 3);
+    if (u) uv.set(u.array, vo * 2);
+    const gi = geo.index;
+    if (gi) { for (let i = 0; i < gi.count; i++) idx[io + i] = gi.array[i] + vo; io += gi.count; }
+    else { for (let i = 0; i < p.count; i++) idx[io + i] = i + vo; io += p.count; }
+    vo += p.count;
+    geo.dispose();   // the per-box source geometry never reaches the GPU
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeBoundingSphere();
+  out.computeBoundingBox();
+  return out;
+}
+
+function flushStaticBatches() {
+  if (!staticQueue.length) return 0;
+  // Shadow-casting and non-casting boxes cannot share a mesh, so fold that into
+  // the batch key alongside the material.
+  const items = staticQueue.map(function (b, i) {
+    return { x: b.x, z: b.z, mat: b.mat.uuid + (b.noShadow ? ':ns' : ':s') };
+  });
+  const plan = CORE.planStaticBatches(items, STATIC_REGION_SIZE);
+  let meshes = 0;
+  plan.forEach(function (indices) {
+    const first = staticQueue[indices[0]];
+    const geos = [];
+    for (let k = 0; k < indices.length; k++) geos.push(staticQueue[indices[k]].geo);
+    const merged = new THREE.Mesh(mergeGeometries(geos), first.mat);
+    merged.castShadow = !first.noShadow;
+    merged.receiveShadow = true;
+    merged.userData.staticBatch = true;
+    scene.add(merged);
+    raycastColliders.push(merged);
+    meshes++;
+  });
+  staticQueue.length = 0;
+  return meshes;
 }
 
 // ---- Materials ----
@@ -218,15 +357,20 @@ function buildArena() {
     const winMat = new THREE.MeshStandardMaterial({ color: 0x2b3d55, roughness: 0.15, metalness: 0.6, emissive: 0x1a2436, emissiveIntensity: 0.5 });
     const winGeoE = new THREE.PlaneGeometry(1.6, 1.1);
     const winGeoS = new THREE.PlaneGeometry(1.3, 1.1);
+    const _winM = new THREE.Matrix4();
+    const _winE = new THREE.Euler();
+    const _winP = new THREE.Vector3();
     function winRow(x, z, ry, n, geo, y) {
       for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(geo, winMat);
-        m.position.set(x, y, z);
-        if (ry === 0) m.position.x = x + i * 3.1 - (n - 1) * 1.55;
-        else m.position.z = z + i * 3.1 - (n - 1) * 1.55;
-        m.rotation.y = ry;
-        scene.add(m);
-        raycastColliders.push(m);
+        let px = x, pz = z;
+        if (ry === 0) px = x + i * 3.1 - (n - 1) * 1.55;
+        else pz = z + i * 3.1 - (n - 1) * 1.55;
+        // Bake rotation + translation into the geometry so the windows batch too
+        // (32 planes sharing one material were 32 separate draw calls).
+        const g = geo.clone();
+        _winM.compose(_winP.set(px, y, pz), new THREE.Quaternion().setFromEuler(_winE.set(0, ry, 0)), new THREE.Vector3(1, 1, 1));
+        g.applyMatrix4(_winM);
+        queueStatic(g, px, pz, winMat, true);
       }
     }
     // east + west faces (two floors)
@@ -276,6 +420,7 @@ function buildArena() {
   barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
 }
 buildArena();
+console.log('static batches:', flushStaticBatches(), 'meshes');
 
 // ---- CC0 Kenney props (trees / crates / broken columns) scattered as cover ----
 // Uses embedded GLBs (embedded in 05_assets.js). Each prop gets an AABB collider
@@ -329,8 +474,11 @@ function scatterProps() {
     m.position.set(s[1], 0, s[2]);
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
+    // Crates and columns are knee-high; their shadows are barely visible but they
+    // cost a full extra draw call each in the shadow pass. Trees keep theirs.
+    const casts = s[0] === 'TREE';
     m.traverse(function (o) {
-      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
+      if (o.isMesh) { o.castShadow = casts; o.receiveShadow = true; o.userData.prop = true; }
     });
     scene.add(m);
     raycastColliders.push(m);
@@ -348,7 +496,7 @@ function scatterProps() {
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
       m.traverse(function (o) {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
+        if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.userData.prop = true; }
       });
       scene.add(m);
       raycastColliders.push(m);
@@ -380,5 +528,67 @@ function scatterProps() {
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
+  rebuildNavGrid();        // props add colliders; the AI grid must see them
+  rebuildWorldRayGrid();   // props/barrels changed raycastColliders
   return placed;
 }
+
+// ---- World ray broad-phase --------------------------------------------------
+// Bullets and AI line-of-sight both raycast the whole world. r128 has no BVH, so
+// intersectObjects() walks the triangles of every root whose bounding sphere the
+// ray touches. Narrow the root list to the meshes the ray's ground track actually
+// crosses first. Rebuilt whenever raycastColliders changes.
+let worldRayGrid = null;
+const _rayIds = [];
+const _rayTargets = [];
+const _rayBB = new THREE.Box3();
+function rebuildWorldRayGrid() {
+  worldRayGrid = CORE.buildRayGrid({ cell: 8, halfExtent: CFG.world.size / 2 + 14 });
+  for (let i = 0; i < raycastColliders.length; i++) {
+    const o = raycastColliders[i];
+    o.updateMatrixWorld(true);
+    _rayBB.setFromObject(o);
+    if (!isFinite(_rayBB.min.x) || !isFinite(_rayBB.max.x)) continue;
+    CORE.rayGridInsert(worldRayGrid, i, _rayBB.min.x, _rayBB.min.z, _rayBB.max.x, _rayBB.max.z);
+  }
+  return worldRayGrid;
+}
+// Candidate roots for a ray. Falls back to the full list if the grid is not built.
+function worldRayTargets(origin, dir, maxDist) {
+  if (!worldRayGrid) return raycastColliders;
+  CORE.rayGridQuery(worldRayGrid, origin.x, origin.z, dir.x, dir.z, maxDist, _rayIds);
+  _rayTargets.length = 0;
+  for (let i = 0; i < _rayIds.length; i++) {
+    const o = raycastColliders[_rayIds[i]];
+    if (o) _rayTargets.push(o);
+  }
+  return _rayTargets;
+}
+
+// ---- AI navigation grid ----------------------------------------------------
+// The arena is fully static, so walkability is baked once from `colliders[]` and
+// reused for the whole session. Enemies path with a shared flow field (one flood
+// per recompute, not one per agent) — see CORE.computeFlowField.
+//
+// Rebuild whenever static geometry changes: after buildArena(), and again after
+// scatterProps() drops in the async-loaded cover props.
+let navGrid = null;
+function rebuildNavGrid() {
+  navGrid = CORE.buildNavGrid(colliders, {
+    cell: 1,
+    halfExtent: CFG.world.size / 2 + 1,
+    stepH: STEP_H_AI,
+    walkerHeight: 1.8,
+    // Inflate obstacles by a body radius so routed cells keep a 0.4-0.56 m agent
+    // clear of the walls it is being sent past. Doorways here are 4 m, so 0.5 m
+    // of inflation still leaves 3 m of opening.
+    agentRadius: 0.5
+  });
+  return navGrid;
+}
+// Matches the enemy controller's step-up allowance. Anything taller is a wall to
+// the AI — which is also what keeps them off the external staircase, whose risers
+// are cumulative boxes climbing to 4 m with no way back down.
+const STEP_H_AI = 0.60;
+rebuildNavGrid();
+rebuildWorldRayGrid();

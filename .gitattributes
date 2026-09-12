@@ -1,0 +1,10 @@
+# Normalise to LF everywhere. scripts/build.py deliberately emits LF so the same
+# commit produces a byte-identical dist/ on Windows and Linux (audit ENG-06);
+# letting Git rewrite line endings on checkout would undo that.
+* text=auto eol=lf
+
+# Binaries — never touch these.
+*.jpg  binary
+*.png  binary
+*.min.js -text
+dist/*.html -text

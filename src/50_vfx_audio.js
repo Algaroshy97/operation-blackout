@@ -1,7 +1,7 @@
 // ============ VFX & AUDIO ============
 'use strict';
 // ---- Pooled VFX ----
-const vfx = { tracers: [], impacts: [], blood: [], muzzleLights: [] };
+const vfx = { tracers: [], impacts: [], blood: [] };
 const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
@@ -13,6 +13,7 @@ const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
 const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
 const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+// casings are 3 cm and there can be 24 of them; never worth a shadow-pass draw
 const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
@@ -272,6 +273,8 @@ function updateVfx(dt) {
       im.m.visible = false;
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
         impactPool.push(im.m);
+      } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+        releaseBlastFlash(im.m);   // shared geo/material: recycle, never dispose
       } else {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
@@ -298,6 +301,39 @@ function updateVfx(dt) {
 
 // ---- Audio (WebAudio, all synthesized — no assets) ----
 let AC = null;
+let masterGain = null;
+// Every sound used to connect straight to ctx.destination, which meant there was
+// nowhere to put a volume control and no way to see how many voices were live.
+// One bus fixes both.
+function audioMaster() {
+  const ctx = audioCtx();
+  if (!ctx) return null;
+  if (!masterGain) {
+    masterGain = ctx.createGain();
+    masterGain.gain.value = AUDIO.master;
+    masterGain.connect(ctx.destination);
+  }
+  return masterGain;
+}
+const AUDIO = { master: 0.9, voices: 0, maxVoices: 24 };
+function setMasterVolume(v) {
+  AUDIO.master = Math.max(0, Math.min(1, v));
+  const g = audioMaster();
+  if (g) g.gain.value = AUDIO.master;
+}
+// Rate-limit per sound name. At 750 RPM the impact ping alone was building ~5
+// WebAudio nodes 12 times a second; measured, synthesised audio was the single
+// largest cost in fireShot — larger than both raycasts combined.
+const _sndLast = Object.create(null);
+const SND_MIN_GAP = { impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03 };
+function soundThrottled(name) {
+  const gap = SND_MIN_GAP[name];
+  if (gap === undefined) return false;
+  const now = performance.now() / 1000;
+  if (_sndLast[name] !== undefined && now - _sndLast[name] < gap) return true;
+  _sndLast[name] = now;
+  return false;
+}
 function audioCtx() {
   if (!AC) {
     try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; }
@@ -316,13 +352,15 @@ let noiseBuf = null;
 function playSound(name, dest) {
   const ctx = audioCtx();
   if (!ctx) return;
+  if (soundThrottled(name)) return;
   if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  const out = dest || audioMaster() || ctx.destination;
   const t = ctx.currentTime;
   function env(g0, dur) {
     const g = ctx.createGain();
     g.gain.setValueAtTime(g0, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    g.connect(dest || ctx.destination);
+    g.connect(out);
     return g;
   }
   function osc(type, f0, f1, dur, g0) {
@@ -394,8 +432,8 @@ function playSound3D(name, x, y, z) {
   if (ctx.createStereoPanner) {
     p = ctx.createStereoPanner();
     p.pan.value = pan;
-    g.connect(p); p.connect(ctx.destination);
-  } else g.connect(ctx.destination);
+    g.connect(p); p.connect(audioMaster() || ctx.destination);
+  } else g.connect(audioMaster() || ctx.destination);
   playSound(name, g);
   setTimeout(() => {
     try {
@@ -414,7 +452,7 @@ function updateFootsteps(dt) {
     if (stepT <= 0) { playSound('step'); stepT = 1; }
   }
   // landing
-  if (player.onGround && !wasGround && hs >= 0) playSound('land');
+  if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true
   wasGround = player.onGround;
 }
 let wasGround = true;

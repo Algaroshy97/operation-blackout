@@ -19,11 +19,11 @@
   #crosshair .hitmark span{position:absolute;background:#ff4a3d;box-shadow:0 0 2px #000}
   #crosshair .hitmark .h1{top:0;left:2px;width:2px;height:6px}#crosshair .hitmark .h2{top:2px;left:0;width:6px;height:2px}
   #health-container{bottom:28px;left:28px;display:flex;align-items:center;gap:12px}
-  .health-bar-bg{width:220px;height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
+  .health-bar-bg{width:min(220px,38vw);height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
   #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s}
   #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px}
   #armor-container{bottom:52px;left:28px;display:flex;align-items:center;gap:12px;opacity:.9}
-  .armor-bar-bg{width:220px;height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
+  .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
@@ -41,7 +41,7 @@
   #compass{top:54px;left:50%;transform:translateX(-50%)}
   #compass-strip{width:280px;height:18px;overflow:hidden;position:relative}
   #compass-strip:before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:#ffd24a;transform:translateX(-50%)}
-  #compass-canvas{position:absolute;top:0;left:0}
+  #compass-canvas{position:absolute;top:0;left:0;width:280px;height:18px}
   #minimap{top:20px;left:26px;width:150px;height:150px;border-radius:50%;overflow:hidden;background:rgba(10,14,10,.72);border:2px solid rgba(255,255,255,.28);box-shadow:0 2px 10px rgba(0,0,0,.5)}
   #minimap-canvas{width:100%;height:100%}
   #hit-dir-container{top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:240px}
@@ -112,14 +112,52 @@
   body.touch #tbtn-nade{left:150px;bottom:110px;width:56px;height:56px}
   body.touch #tbtn-swap{left:26px;bottom:210px;width:56px;height:56px}
   body.touch #tbtn-pause{right:14px;top:14px;width:44px;height:44px;background:rgba(0,0,0,.3)}
+  body.touch #score-hud{top:66px;right:16px}
+  body.touch #score-hud .val{font-size:20px}
+  body.touch #hud-bottom-right{bottom:96px;right:16px}
+  body.touch #health-container{bottom:20px;left:16px}
+  body.touch #armor-container{bottom:42px;left:16px}
   body.touch #start-screen .controls{display:none}
   body.touch #minimap{width:100px;height:100px}
   body.touch #ammo-mag{font-size:30px}
   #gun-select{overflow-y:auto;box-sizing:border-box;justify-content:flex-start;padding:24px 12px;max-height:100%;}
   #gun-cards{flex-shrink:0;max-width:100%;}
   body.touch #start-screen h1{font-size:clamp(24px,7vw,48px);letter-spacing:2px;}
-  body.touch #start-screen>div{max-width:100%;box-sizing:border-box;padding:12px;}
+  body.touch #start-screen>div{max-width:100%;box-sizing:border-box;padding:12px;text-align:center;}
+  body.touch #gun-cards{text-align:center;}
   .menu-btn:focus-visible,.gun-card:focus-visible{outline:3px solid #ffd24a;outline-offset:3px;}
+  /* ---- Accessibility ---- */
+  body.reduced-motion .killfeed-item{animation:none;opacity:1}
+  body.reduced-motion #center-msg,body.reduced-motion #wave-banner{transition:none}
+  @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
+  /* ---- Settings panel ---- */
+  #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
+  #settings-screen h2{color:#ffdf8a;font-size:30px;letter-spacing:8px;font-weight:900;margin:0 0 18px;text-shadow:0 2px 10px #000;width:100%;text-align:center}
+  #settings-list{width:min(520px,94vw);margin:0 auto;display:flex;flex-direction:column;gap:2px}
+  .set-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:14px;padding:9px 12px;border-radius:4px}
+  .set-row:nth-child(odd){background:rgba(255,255,255,.04)}
+  .set-row label{color:rgba(255,255,255,.85);font-size:13px;letter-spacing:1px}
+  .set-row .set-val{color:#ffdf8a;font-size:12px;font-weight:700;min-width:52px;text-align:right;display:inline-block}
+  .set-row input[type=range]{width:min(230px,42vw);accent-color:#ffd24a;pointer-events:auto}
+  .set-row input[type=checkbox]{width:20px;height:20px;accent-color:#ffd24a;pointer-events:auto}
+  .set-row select{background:rgba(20,26,20,.95);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:3px;padding:5px 8px;font-size:12px;pointer-events:auto}
+  #settings-actions{width:min(520px,94vw);margin:20px auto 0;text-align:center}
+  #settings-screen .set-note{width:min(520px,94vw);margin:14px auto 0;color:rgba(255,255,255,.5);font-size:11px;line-height:1.6;text-align:center}
+  #menu-stats{color:rgba(255,255,255,.7);font-size:12px;line-height:1.7;margin:14px 0 0;text-align:center}
+  #diff-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:0 0 20px}
+  .diff-btn{padding:9px 22px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:rgba(20,26,20,.85);color:rgba(255,255,255,.75);font-size:12px;letter-spacing:3px;font-weight:800;cursor:pointer;pointer-events:auto;transition:all .15s;text-align:center}
+  .diff-btn small{display:block;font-size:9px;letter-spacing:1px;font-weight:500;opacity:.6;margin-top:3px}
+  .diff-btn:hover{border-color:#ffdf8a;color:#ffdf8a}
+  .diff-btn.on{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a}
+  #save-note{color:rgba(255,255,255,.45);font-size:11px;letter-spacing:1px;margin:8px 0 0;text-align:center}
+  #menu-stats b{color:#ffd24a}
+  /* high-contrast enemy markers for colourblind players */
+  body.cb-markers #minimap{border-color:#ffd24a}
+  /* ---- Landscape prompt (mobile) ---- */
+  #rotate-prompt{display:none}
+  body.touch #rotate-prompt{position:absolute;inset:0;z-index:70;background:#060a06;color:#ffdf8a;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:30px;font-size:15px;letter-spacing:3px;font-weight:700}
+  body.touch #rotate-prompt .rp-icon{font-size:46px;margin-bottom:16px}
+  @media (orientation: portrait){ body.touch.started #rotate-prompt{display:flex} }
 </style>
 </head>
 <body>
@@ -135,7 +173,7 @@
   <div class="c-line c-h left"></div><div class="c-line c-h right"></div>
   <div class="hitmark"><span class="h1"></span><span class="h2"></span></div>
 </div>
-<div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="560" height="18"></canvas></div></div>
+<div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
@@ -156,7 +194,11 @@
     <h1>OPERATION BLACKOUT</h1>
     <h2>WAVE DEFENSE FPS</h2>
     <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
+    <div class="menu-btn" id="btn-resume-run" style="display:none">RESUME RUN</div>
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-settings">SETTINGS</div>
+    <p id="menu-stats"></p>
+    <p id="save-note"></p>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
@@ -171,8 +213,10 @@
     </div>
   </div>
 </div>
-<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="gun-cards"></div></div>
-<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
+<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
+<div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
-<div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
+<div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-endless">CONTINUE — ENDLESS</div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
 <div id="fps-counter" class="hud"></div>
