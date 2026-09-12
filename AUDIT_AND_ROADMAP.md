@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-13 complete (2026-09-12)
+> ## Status — Phases 0-13 complete, plus two physics passes (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -649,6 +649,42 @@
 > silently coerce instead of producing NaN; and a minimum-distance floor that agrees with
 > the placement scoring on every normal input, so only a contrived arrangement separates
 > them.
+
+> **Melee through the floor, and a 9x cheaper ragdoll.** The through-floor report was
+> still valid: the earlier fix was real but addressed the wrong path. Enumerating every
+> `damagePlayer()` call site found the one that mattered.
+>
+> | | before | after |
+> |---|---|---|
+> | enemy below, player on the slab — melee hits | **1 in 8 s** | **0** |
+> | same, enemy shoved through the slab | **1.83 m** | **0 m** |
+> | player on the ground, same enemy — control | 1 hit, held at 1.82 m | **unchanged** |
+> | ragdoll cost, 10 corpses per frame | **0.407 ms** | **0.043 ms** (9.4x) |
+> | box tests per corpse per frame | 6,216 | **~80** |
+>
+> **Melee was vertical-blind.** `distToPlayer()` is horizontal by design — BUG-02 made
+> every gameplay radius horizontal because `player.pos` sits at eye height, and a 3-D
+> distance read 1.7 m of pure height as separation. That was right, and is still right
+> for the push-out. It is only half the answer for REACH: horizontal-only makes a whole
+> storey invisible, so an agent on the ground floor measured **0.000 m** from a player
+> 5.85 m above it and swung through the concrete. No line of sight was involved, which is
+> exactly why the bullet fix did nothing for it.
+>
+> `CORE.withinReach` now gates melee and the stop-and-hold on both axes, with a
+> deliberately generous 2.0 m vertical allowance: an agent on a crate must still reach a
+> player beside it, and only a storey should break contact.
+>
+> **Checked and not broken:** the grenade path already blocks correctly (0 damage from a
+> blast one floor below, 43 from the same floor).
+>
+> **The ragdoll was doing 6,216 box tests per corpse per frame** — six iterations, a full
+> collision pass inside each, every pass walking all 148 colliders, up to ten corpses at
+> once. Colliders are now narrowed to those near the body before the solve, collision
+> runs on the last two iterations rather than all of them, and four iterations hold the
+> skeleton as well as six. A test asserts the broad phase is invisible in the result: a
+> body settles identically with 200 distant boxes in the list and without them.
+>
+> 9 new node tests (241 total). Mutation-checked 10 of 10.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

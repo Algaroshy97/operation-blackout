@@ -422,6 +422,14 @@ function distToPlayer(en) {
   return CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
 }
 
+// Feet-to-feet vertical separation. distToPlayer is horizontal by design (BUG-02),
+// which makes a whole storey invisible to it: an agent on the ground floor measures
+// zero distance from a player on the slab above. Anything that means "can touch"
+// has to consult this as well.
+function vertGapToPlayer(en) {
+  return (player.pos.y - eyeHeight()) - en.pos.y;
+}
+
 // ---- Shared flow field ------------------------------------------------------
 // One breadth-first flood from the player's cell serves every enemy, so pathing
 // cost is independent of enemy count. Recomputed on a fixed cadence, or
@@ -723,7 +731,10 @@ function updateEnemies(dt) {
     // Applies to every kind, not a hand-kept list: anything that can reach the
     // player must be pushed back out, or it occupies the player's position.
     const stopDist = CORE.enemyStopDistance(en.kind);
-    if (dist < stopDist) {
+    // Only hold and push out against a player on the same level. Without the
+    // vertical gate a player upstairs shoves agents around on the floor below —
+    // measured at 1.83 m of displacement through a concrete slab.
+    if (CORE.withinReach(dist, vertGapToPlayer(en), stopDist)) {
       // back off slightly if overlapping the player capsule
       const overlap = stopDist - dist;
       if (overlap > 0) {
@@ -748,7 +759,7 @@ function updateEnemies(dt) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
         // swing lands — only if still in reach and player alive
-        if (dist < reach + 0.35 && !player.dead) {
+        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           const now = gameT;
           meleeHits = meleeHits.filter(t => now - t < 0.8);

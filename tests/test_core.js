@@ -2399,3 +2399,111 @@ test('the minimum distance is a hard floor, not just a preference', () => {
   assert.strictEqual(i, 1,
     'the 17 m option is inside the floor and must be rejected even though it scores better');
 });
+
+// ============================================================================
+// Reach needs a vertical gate, and ragdoll collision needs a broad phase
+// ============================================================================
+
+test('reach requires being close horizontally AND on the same level', () => {
+  // BUG-02 made every gameplay radius horizontal, which was right: player.pos sits
+  // at eye height and a 3-D distance read 1.7 m of pure height as separation. But
+  // horizontal-only makes a whole storey invisible — an agent on the ground floor
+  // measured zero distance from a player on the slab 5.85 m above it and swung
+  // through the concrete.
+  assert.strictEqual(CORE.withinReach(1.5, 0, 2.5), true, 'beside each other');
+  assert.strictEqual(CORE.withinReach(0, 5.85, 2.5), false, 'directly below, one storey');
+  assert.strictEqual(CORE.withinReach(0, -5.85, 2.5), false, 'directly above, one storey');
+  assert.strictEqual(CORE.withinReach(9, 0, 2.5), false, 'same level, far away');
+});
+
+test('the vertical allowance is generous enough for a crate', () => {
+  // An agent standing on a crate or a step must still reach a player beside it.
+  // Only a whole storey should break contact.
+  assert.strictEqual(CORE.withinReach(1.5, 1.2, 2.5), true, 'on a knee-high crate');
+  assert.strictEqual(CORE.withinReach(1.5, -1.2, 2.5), true, 'player on the crate');
+  assert.ok(CORE.REACH_MAX_VERT >= 1.8, 'a step up must not break melee');
+  assert.ok(CORE.REACH_MAX_VERT < 3.4, 'but a floor must');
+});
+
+test('the vertical gate is symmetric and respects its own boundary', () => {
+  const v = CORE.REACH_MAX_VERT;
+  assert.strictEqual(CORE.withinReach(1, v, 2.5), true, 'exactly at the limit is in');
+  assert.strictEqual(CORE.withinReach(1, -v, 2.5), true);
+  assert.strictEqual(CORE.withinReach(1, v + 0.01, 2.5), false, 'just past it is out');
+  assert.strictEqual(CORE.withinReach(1, -v - 0.01, 2.5), false);
+});
+
+test('reach respects the horizontal boundary too, and rejects junk', () => {
+  assert.strictEqual(CORE.withinReach(2.5, 0, 2.5), true, 'exactly at reach is in');
+  assert.strictEqual(CORE.withinReach(2.51, 0, 2.5), false);
+  assert.strictEqual(CORE.withinReach(NaN, 0, 2.5), false, 'NaN must not read as in reach');
+  assert.strictEqual(CORE.withinReach(1, NaN, 2.5), false);
+});
+
+test('a caller can tighten the vertical allowance but not lose it', () => {
+  assert.strictEqual(CORE.withinReach(1, 1.5, 2.5, 1.0), false, 'explicit tighter limit');
+  assert.strictEqual(CORE.withinReach(1, 0.5, 2.5, 1.0), true);
+  assert.strictEqual(CORE.withinReach(1, 1.5, 2.5, undefined), true, 'undefined uses the default');
+});
+
+// ---- Ragdoll broad phase ----
+// Named ragBox, not box: the penetration tests already declare a top-level ragBox(),
+// and a second one silently replaced it — those tests then ran against untagged
+// colliders and failed. Same shared-scope hazard as ENG-05, in the test file.
+function ragBox(x, y, z, w, h, d) {
+  return { min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 },
+           max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } };
+}
+
+test('narrowing the collider list does not change where a body ends up', () => {
+  // The broad phase is an optimisation, so it has to be invisible in the result.
+  const near = ragBox(0, 0.75, 0, 3, 1.5, 3);
+  const far = [];
+  for (let i = 0; i < 200; i++) far.push(ragBox(200 + i * 5, 2, 200, 4, 4, 4));
+  const withFar = CORE.makeRagdoll(0, 1.5, 0, 0);
+  const withoutFar = CORE.makeRagdoll(0, 1.5, 0, 0);
+  for (let i = 0; i < 400; i++) {
+    CORE.ragdollStep(withFar, 1 / 60, [near].concat(far), 0);
+    CORE.ragdollStep(withoutFar, 1 / 60, [near], 0);
+  }
+  for (const k in withFar.nodes) {
+    assert.ok(Math.abs(withFar.nodes[k].y - withoutFar.nodes[k].y) < 1e-9,
+      k + ' moved differently once distant boxes were in the list');
+  }
+});
+
+test('a body still lands on the box under it after narrowing', () => {
+  const crate = ragBox(0, 0.75, 0, 3, 1.5, 3);
+  const rag = CORE.makeRagdoll(0, 1.5, 0, 0);
+  for (let i = 0; i < 500; i++) CORE.ragdollStep(rag, 1 / 60, [crate], 0);
+  for (const p of rag.order) {
+    const inside = p.x > crate.min.x && p.x < crate.max.x &&
+                   p.z > crate.min.z && p.z < crate.max.z &&
+                   p.y < crate.max.y - 0.05 && p.y > crate.min.y;
+    assert.strictEqual(inside, false, p.key + ' sank into the crate');
+  }
+});
+
+test('a body thrown at a wall does not pass through it', () => {
+  const wall = ragBox(0, 2, 3, 10, 4, 0.8);
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(rag, 'chest', 0, 0.02, 0.12);   // hurled at the wall
+  for (let i = 0; i < 500; i++) CORE.ragdollStep(rag, 1 / 60, [wall], 0);
+  for (const p of rag.order) {
+    assert.ok(p.z <= wall.max.z + 0.01,
+      p.key + ' ended past the wall at z=' + p.z.toFixed(2));
+  }
+});
+
+test('collision runs on the iterations that matter', () => {
+  // Constraint solving is what pushes nodes into geometry, so resolving has to come
+  // after it. Running on zero iterations would let bodies settle inside walls.
+  assert.ok(CORE.RAGDOLL_ITERATIONS >= 3, 'too few iterations and the skeleton folds');
+  const floor = ragBox(0, -0.5, 0, 40, 1, 40);
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  for (let i = 0; i < 400; i++) CORE.ragdollStep(rag, 1 / 60, [floor], -99);
+  for (const p of rag.order) {
+    assert.ok(p.y >= floor.max.y - 0.01,
+      p.key + ' at y=' + p.y.toFixed(2) + ' sank into a floor box with no ground plane');
+  }
+});

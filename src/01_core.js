@@ -25,6 +25,28 @@ const CORE = (function () {
     return dx * dx + dz * dz;
   }
 
+  // ---- Reach --------------------------------------------------------------------
+  // BUG-02 made every gameplay radius HORIZONTAL, because player.pos sits at eye
+  // height and a 3-D distance read 1.7 m of pure height as separation, letting
+  // enemies stand inside the player. That fix was right and is still right for the
+  // push-out.
+  //
+  // It is only half the answer for REACH. Horizontal-only means vertical separation
+  // is invisible, so an agent standing on the ground floor is "in melee range" of a
+  // player on the second-floor slab 5.85 m above it — measured — and swings through
+  // the concrete with no line of sight involved at all. Reach needs both: close
+  // horizontally AND on roughly the same level.
+  //
+  // The vertical allowance is deliberately generous. An agent on a crate or a step
+  // must still be able to hit a player beside it; only a whole storey should break
+  // contact.
+  const REACH_MAX_VERT = 2.0;
+  function withinReach(horizDist, vertGap, reach, maxVert) {
+    if (!(horizDist <= reach)) return false;
+    const v = maxVert === undefined ? REACH_MAX_VERT : maxVert;
+    return Math.abs(vertGap) <= v;
+  }
+
   // ---- Movement integration --------------------------------------------------
   // Collision is discrete AABB overlap, not swept, so a single large step can
   // teleport straight through a thin wall. Splitting the step keeps per-substep
@@ -1518,7 +1540,18 @@ const CORE = (function () {
   // velocity is implied by (x - px), so an impulse is applied by moving px.
   const RAGDOLL_GRAVITY = 18;
   const RAGDOLL_DAMPING = 0.985;
-  const RAGDOLL_ITERATIONS = 6;
+  // Six constraint iterations with a full collision pass inside each meant
+  // 6 x 7 nodes x every collider in the arena — about 6,200 box tests per corpse per
+  // frame, and ten corpses could be simulating at once. Four iterations hold the
+  // skeleton just as well, and collision only needs to run on the last two: the
+  // constraint solve is what moves nodes into geometry, so resolving after it is
+  // what matters.
+  const RAGDOLL_ITERATIONS = 4;
+  const RAGDOLL_COLLIDE_LAST = 2;
+  // Boxes are narrowed to those near the body before the solve, not re-scanned
+  // inside it. A corpse occupies about a metre; the arena has ~150 colliders and
+  // typically three or four are anywhere near one.
+  const RAGDOLL_BROAD_PAD = 1.2;
   const RAGDOLL_FRICTION = 0.72;
   const RAGDOLL_RESTITUTION = 0.18;
 
@@ -1600,8 +1633,38 @@ const CORE = (function () {
     }
   }
 
+  // Axis-aligned bounds of the whole skeleton, padded. Recomputed per step because
+  // it is seven comparisons, which is far cheaper than the collision pass it saves.
+  function ragdollNearbyBoxes(rag, boxes, out) {
+    out.length = 0;
+    if (!boxes || !boxes.length) return out;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < rag.order.length; i++) {
+      const p = rag.order[i];
+      if (p.x - p.r < minX) minX = p.x - p.r;
+      if (p.y - p.r < minY) minY = p.y - p.r;
+      if (p.z - p.r < minZ) minZ = p.z - p.r;
+      if (p.x + p.r > maxX) maxX = p.x + p.r;
+      if (p.y + p.r > maxY) maxY = p.y + p.r;
+      if (p.z + p.r > maxZ) maxZ = p.z + p.r;
+    }
+    minX -= RAGDOLL_BROAD_PAD; minY -= RAGDOLL_BROAD_PAD; minZ -= RAGDOLL_BROAD_PAD;
+    maxX += RAGDOLL_BROAD_PAD; maxY += RAGDOLL_BROAD_PAD; maxZ += RAGDOLL_BROAD_PAD;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.max.x < minX || b.min.x > maxX) continue;
+      if (b.max.y < minY || b.min.y > maxY) continue;
+      if (b.max.z < minZ || b.min.z > maxZ) continue;
+      out.push(b);
+    }
+    return out;
+  }
+  const _ragNear = [];
+
   function ragdollStep(rag, dt, boxes, groundY) {
     const g = groundY === undefined ? 0 : groundY;
+    const near = ragdollNearbyBoxes(rag, boxes, _ragNear);
     for (let i = 0; i < rag.order.length; i++) {
       const p = rag.order[i];
       const vx = (p.x - p.px) * RAGDOLL_DAMPING;
@@ -1625,8 +1688,10 @@ const CORE = (function () {
         a.x += dx * wa; a.y += dy * wa; a.z += dz * wa;
         b.x -= dx * wb; b.y -= dy * wb; b.z -= dz * wb;
       }
-      for (let i = 0; i < rag.order.length; i++) {
-        ragdollCollide(rag.order[i], boxes, g);
+      if (it >= RAGDOLL_ITERATIONS - RAGDOLL_COLLIDE_LAST) {
+        for (let i = 0; i < rag.order.length; i++) {
+          ragdollCollide(rag.order[i], near, g);
+        }
       }
     }
     rag.t += dt;
@@ -2113,6 +2178,8 @@ const CORE = (function () {
     objectiveProgress: objectiveProgress,
     objectiveComplete: objectiveComplete,
     pickObjectiveSpot: pickObjectiveSpot,
+    REACH_MAX_VERT: REACH_MAX_VERT,
+    withinReach: withinReach,
     UNREACHABLE: UNREACHABLE
   };
 })();
