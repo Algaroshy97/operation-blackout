@@ -74,42 +74,55 @@ function updateGrenadePreview(speed) {
   let vz = _prevDir.z * speed;
   const dtStep = 0.04;
 
+  let bounces = 0;
+  let fuse = CFG.grenade.fuse;
   let stopped = false;
   for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
     if (stopped) {
       previewDots[i].visible = false;
       continue;
     }
+    fuse -= dtStep;
     vy -= 14 * dtStep;
     px += vx * dtStep;
     py += vy * dtStep;
     pz += vz * dtStep;
 
-    // ground hit check
-    if (py <= 0.11) {
+    // ground bounce check (matches updateGrenades physics)
+    if (py < 0.11) {
       py = 0.11;
-      previewDots[i].position.set(px, py, pz);
-      previewDots[i].visible = true;
-      stopped = true;
-      continue;
+      vy = -vy * CFG.grenade.bounce;
+      vx *= 0.55;
+      vz *= 0.55;
+      bounces++;
+      if (bounces > 1) {
+        vx *= 0.3;
+        vz *= 0.3;
+      }
+      if (bounces >= 3) {
+        stopped = true;
+      }
     }
-    // wall hit check (colliders array)
-    let hitWall = false;
+
+    // wall bounce (AABBs) (matches updateGrenades physics)
     for (let c = 0; c < colliders.length; c++) {
       const col = colliders[c];
       if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
           py > col.min.y && py < col.max.y &&
           pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
-        hitWall = true;
-        break;
+        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
+        const ox = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(px - cx);
+        const oz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(pz - cz);
+        if (ox < oz) { vx = -vx * 0.5; px += (px > cx ? ox : -ox); }
+        else { vz = -vz * 0.5; pz += (pz > cz ? oz : -oz); }
+        vy *= 0.8;
       }
     }
-    if (hitWall) {
-      previewDots[i].position.set(px, py, pz);
-      previewDots[i].visible = true;
+
+    if (fuse <= 0) {
       stopped = true;
-      continue;
     }
+
     previewDots[i].position.set(px, py, pz);
     previewDots[i].visible = true;
   }
