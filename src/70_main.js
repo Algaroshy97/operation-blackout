@@ -130,6 +130,8 @@ function resetGame() {
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
   waveSpecial = null; applySpecialLighting(null); resetDistricts();
+  resetRagdolls();
+  player.airSpeedY = 0; player.landStunT = 0;
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;
@@ -516,6 +518,7 @@ function frame(now) {
     updateStations(dt);
     updateDowned(dt);
     updateStreaks(dt);
+    updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

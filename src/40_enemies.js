@@ -355,6 +355,16 @@ function shieldMultiplier(en, point) {
 
 function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
+  // Remember where this shot came from and what it struck. If it turns out to be
+  // the killing blow, the ragdoll is launched along it.
+  en._lastHitNode = isHead ? 'head' : 'chest';
+  if (point) {
+    const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
+    const hl = Math.hypot(hx, hz) || 1;
+    en._lastHitDirX = hx / hl;
+    en._lastHitDirZ = hz / hl;
+  }
+  en._lastHitForce = dmg;
   const shield = isHead ? 1 : shieldMultiplier(en, point);
   if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
@@ -377,6 +387,16 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
 
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
+  // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
+  // rather than firing it across the arena.
+  const force = Math.min(0.085, 0.012 + (en._lastHitForce || 20) * 0.00035);
+  spawnRagdoll(en, {
+    node: en._lastHitNode || 'chest',
+    x: (en._lastHitDirX || 0) * force,
+    y: (isHead ? 0.030 : 0.016) + Math.random() * 0.008,
+    z: (en._lastHitDirZ || 0) * force,
+    spread: 0.3
+  });
   const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
   addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
     en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
@@ -615,21 +635,9 @@ function updateEnemies(dt) {
     const en = enemies[i];
     if (en._losSkip === undefined) en._losSkip = i % 3;
     if (en.dead) {
-      // death animation: GLB die clip or fall-over for box-man, then sink+remove
-      en.deathT += dt;
-      const p = en.parts;
-      if (en.actions) {
-        setEnemyAnim(en, 'die', 0.1);
-        if (en.mixer) en.mixer.update(dt);
-      } else {
-        p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
-      }
-      p.group.position.y = en.pos.y - Math.max(0, en.deathT - 1.2) * 0.6;
-      if (en.deathT > 4) {
-        scene.remove(p.group);
-        disposeEnemyGeometry(en);
-        enemies.splice(i, 1);
-      }
+      // The corpse belongs to the ragdoll simulation from here; drop it from the
+      // AI list immediately so nothing pathfinds, shoots or collides on its behalf.
+      enemies.splice(i, 1);
       continue;
     }
     // DEAD PLAYER: stop all AI activity — enemies wander/idle, never attack a corpse
@@ -885,9 +893,23 @@ function enemyShoot(en, dist) {
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;
+    // `from` is a shared scratch vector that the next shot overwrites, so capture
+    // scalars. Same for the hit direction: the shooter may have moved by impact.
+    const ox = from.x, oy = from.y, oz = from.z;
+    const hitDeg = dirToDeg(en);
     setTimeout(function () {
       if (runId !== firedInRun) return;
-      if (!player.dead && started && !paused) damagePlayer(dmg, dirToDeg(en));
+      if (player.dead || !started || paused) return;
+      // Re-check cover at IMPACT, not only at the trigger pull. The shot is
+      // delayed by up to 300 ms for feel, and a sprinting player covers ~2.7 m in
+      // that time — enough to climb the stairs and get behind the second-floor
+      // slab. Without this, rounds fired a moment ago land through the floor the
+      // player has already reached, which reads as being shot through the ceiling.
+      if (CORE.segmentBlocked(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+      if (CORE.smokeBlocks(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+      damagePlayer(dmg, hitDeg);
     }, Math.min(300, dist * 2.2));
   }
 }

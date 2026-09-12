@@ -1756,3 +1756,185 @@ test('the spawn ring always keeps usable points, sealed or not', () => {
 test('an empty ring does not crash the filter', () => {
   assert.deepStrictEqual(CORE.usableSpawnPoints([], []), []);
 });
+
+// ============================================================================
+// Ragdolls and fall damage
+// ============================================================================
+
+function settle(rag, boxes, seconds) {
+  const n = Math.round((seconds === undefined ? 5 : seconds) * 60);
+  for (let i = 0; i < n; i++) CORE.ragdollStep(rag, 1 / 60, boxes || [], 0);
+  return rag;
+}
+function nodeYs(rag) { return rag.order.map((p) => p.y); }
+
+test('a ragdoll has one node per rig bone and links them all', () => {
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  assert.strictEqual(rag.order.length, CORE.RAGDOLL_NODES.length);
+  assert.strictEqual(rag.links.length, CORE.RAGDOLL_LINKS.length);
+  for (const d of CORE.RAGDOLL_NODES) {
+    assert.ok(rag.nodes[d.key], d.key + ' must exist');
+    assert.ok(rag.nodes[d.key].inv > 0, d.key + ' needs a mass');
+  }
+  // Every link must join nodes that exist, or the solver silently skips it.
+  for (const L of CORE.RAGDOLL_LINKS) {
+    assert.ok(rag.nodes[L[0]] && rag.nodes[L[1]], 'link ' + L[0] + '-' + L[1]);
+    assert.ok(L[2] > 0 && L[2] <= 1, 'stiffness out of range on ' + L[0] + '-' + L[1]);
+  }
+});
+
+test('a ragdoll starts standing and ends up lying down', () => {
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  assert.ok(rag.nodes.head.y > 1.5, 'starts in a standing pose');
+  settle(rag);
+  assert.ok(rag.nodes.head.y < 0.5, 'the head ends on the floor');
+  assert.ok(Math.max.apply(null, nodeYs(rag)) < 0.6, 'nothing is left standing');
+});
+
+test('a ragdoll never sinks through the ground', () => {
+  const rag = CORE.makeRagdoll(0, 3, 0, 0);
+  CORE.ragdollImpulse(rag, 'chest', 0, -0.4, 0);   // slammed downward
+  settle(rag, [], 6);
+  for (const p of rag.order) {
+    assert.ok(p.y >= -1e-6, 'node ' + p.key + ' at y=' + p.y);
+  }
+});
+
+test('a ragdoll comes to rest and reports it', () => {
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  assert.strictEqual(rag.settled, false, 'not settled the instant it is made');
+  settle(rag);
+  assert.strictEqual(rag.settled, true);
+  assert.ok(CORE.ragdollEnergy(rag) < 1e-3, 'and it actually stopped moving');
+});
+
+test('the impulse direction decides which way the body falls', () => {
+  // This is the whole reason a ragdoll beats a death clip: the same enemy has to
+  // fall differently depending on where it was shot from.
+  const forward = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(forward, 'chest', 0, 0.02, 0.06);
+  settle(forward);
+  const back = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(back, 'chest', 0, 0.02, -0.06);
+  settle(back);
+  assert.ok(forward.nodes.pelvis.z > 0.2, 'pushed +z, fell +z');
+  assert.ok(back.nodes.pelvis.z < -0.2, 'pushed -z, fell -z');
+  const side = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(side, 'chest', 0.06, 0.02, 0);
+  settle(side);
+  assert.ok(side.nodes.pelvis.x > 0.2, 'pushed +x, fell +x');
+});
+
+test('a harder hit throws the body further', () => {
+  const light = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(light, 'chest', 0, 0.01, 0.02);
+  settle(light);
+  const heavy = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(heavy, 'chest', 0, 0.01, 0.08);
+  settle(heavy);
+  assert.ok(Math.abs(heavy.nodes.pelvis.z) > Math.abs(light.nodes.pelvis.z),
+    'impulse magnitude has to matter or every death looks the same again');
+});
+
+test('the impulse is weighted by inverse mass', () => {
+  // A headshot should whip the head harder than the pelvis. Equal treatment would
+  // make the body translate rigidly, which is a shove, not a ragdoll.
+  // Compare two nodes that are BOTH unstruck, so the only thing separating them is
+  // mass. Comparing the struck node against an unstruck one proves nothing: the
+  // spread factor already differentiates those.
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  const h0 = rag.nodes.head.z, p0 = rag.nodes.pelvis.z;
+  CORE.ragdollImpulse(rag, 'chest', 0, 0, 0.05, 0.5);
+  CORE.ragdollStep(rag, 1 / 60, [], -50);   // no ground, isolate the impulse
+  const head = rag.nodes.head.z - h0, pelvis = rag.nodes.pelvis.z - p0;
+  assert.ok(head > pelvis * 1.2,
+    'a light head must take more of the same impulse than a heavy pelvis: ' +
+    head.toFixed(5) + ' vs ' + pelvis.toFixed(5));
+});
+
+test('the rest pose rotates with the agent facing', () => {
+  const a = CORE.makeRagdoll(0, 0, 0, 0);
+  const b = CORE.makeRagdoll(0, 0, 0, Math.PI / 2);
+  // armL sits to one side; a quarter turn must move it to a different axis.
+  assert.ok(Math.abs(a.nodes.armL.x) > 0.1 && Math.abs(a.nodes.armL.z) < 0.1);
+  assert.ok(Math.abs(b.nodes.armL.z) > 0.1 && Math.abs(b.nodes.armL.x) < 0.1);
+  assert.ok(Math.abs(a.nodes.head.y - b.nodes.head.y) < 1e-9, 'height is unchanged');
+});
+
+test('a ragdoll rests on top of a box instead of inside it', () => {
+  const crate = { min: { x: -1.5, y: 0, z: -1.5 }, max: { x: 1.5, y: 1.5, z: 1.5 } };
+  const rag = CORE.makeRagdoll(0, 1.5, 0, 0);
+  settle(rag, [crate], 6);
+  for (const p of rag.order) {
+    const inside = p.x > crate.min.x && p.x < crate.max.x &&
+                   p.z > crate.min.z && p.z < crate.max.z &&
+                   p.y < crate.max.y - 0.05 && p.y > crate.min.y;
+    assert.strictEqual(inside, false, p.key + ' ended up inside the crate');
+  }
+});
+
+test('a ragdoll keeps its skeleton roughly intact', () => {
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  CORE.ragdollImpulse(rag, 'chest', 0.05, 0.03, 0.05);
+  settle(rag, [], 6);
+  for (const L of rag.links) {
+    const d = CORE.dist3(L.a, L.b);
+    assert.ok(d < L.rest * 2.0 + 0.2,
+      L.a.key + '-' + L.b.key + ' stretched to ' + d.toFixed(2) + ' from ' + L.rest.toFixed(2));
+  }
+  // And it must not collapse to a point either.
+  const xs = rag.order.map((p) => p.x), zs = rag.order.map((p) => p.z);
+  const spread = Math.max(Math.max.apply(null, xs) - Math.min.apply(null, xs),
+                          Math.max.apply(null, zs) - Math.min.apply(null, zs));
+  assert.ok(spread > 0.6, 'a body lying down is longer than it is wide: ' + spread.toFixed(2));
+});
+
+test('a ragdoll with no impulse still falls over', () => {
+  const rag = CORE.makeRagdoll(0, 0, 0, 0);
+  settle(rag);
+  assert.ok(rag.nodes.head.y < 0.5, 'gravity alone must be enough');
+});
+
+// ---- Fall damage ----
+test('short drops are free and long ones are not', () => {
+  assert.strictEqual(CORE.fallDamage(0), 0);
+  assert.strictEqual(CORE.fallDamage(CORE.FALL_SAFE_SPEED), 0, 'the safe speed is safe');
+  // The curve is quadratic, so a drop barely over the threshold rounds to zero
+  // rather than chipping a point off. That soft shoulder is the point — BUG-07 was
+  // a damage cliff, and putting one back here would be the same mistake.
+  assert.strictEqual(CORE.fallDamage(CORE.FALL_SAFE_SPEED + 0.1), 0, 'no cliff at the edge');
+  assert.ok(CORE.fallDamage(CORE.FALL_SAFE_SPEED * 1.3) > 0, 'but a real overshoot hurts');
+  assert.strictEqual(CORE.fallDamage(CORE.FALL_LETHAL_SPEED), 100);
+  assert.strictEqual(CORE.fallDamage(999), 100, 'and never more than 100');
+});
+
+test('fall damage rises with impact speed and never goes backwards', () => {
+  let prev = -1;
+  for (let v = 0; v <= 30; v += 0.5) {
+    const d = CORE.fallDamage(v);
+    assert.ok(d >= prev, 'damage fell between ' + (v - 0.5) + ' and ' + v);
+    prev = d;
+  }
+});
+
+test('a jump off a crate is survivable and a drop off the roof is not', () => {
+  // Impact speed for a free fall from h is sqrt(2 g h) with the game's gravity.
+  const g = 16;
+  const speedFrom = (h) => Math.sqrt(2 * g * h);
+  assert.strictEqual(CORE.fallDamage(speedFrom(1.5)), 0, 'stepping off a crate');
+  assert.strictEqual(CORE.fallDamage(speedFrom(2.8)), 0, 'off a container');
+  assert.ok(CORE.fallDamage(speedFrom(6.9)) > 0, 'off the central building roof');
+  assert.ok(CORE.fallDamage(speedFrom(6.9)) < 100, 'but it should not be an instant kill');
+});
+
+test('a hard landing costs speed, a soft one does not', () => {
+  assert.strictEqual(CORE.landingSpeedMul(CORE.FALL_SAFE_SPEED), 1);
+  assert.ok(CORE.landingSpeedMul(CORE.FALL_SAFE_SPEED * 1.5) < 1);
+  assert.ok(CORE.landingSpeedMul(99) > 0, 'never zero, never negative');
+  let prev = 2;
+  for (let v = 0; v <= 40; v += 1) {
+    const m = CORE.landingSpeedMul(v);
+    assert.ok(m <= prev + 1e-9, 'the penalty must not ease off as the drop grows');
+    prev = m;
+  }
+});

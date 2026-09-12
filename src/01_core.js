@@ -1409,6 +1409,205 @@ const CORE = (function () {
     return out;
   }
 
+  // ---- Ragdoll: verlet particles with distance constraints -----------------------
+  // Death was a canned animation: the GLB 'die' clip, or a flat 90-degree rotation
+  // for the box-man, followed by sinking through the floor. Every corpse fell the
+  // same way regardless of where it was shot, what it was standing on, or which way
+  // it was facing.
+  //
+  // Verlet rather than force/velocity integration, because position-based dynamics
+  // is unconditionally stable under the stiff constraints a skeleton needs — a
+  // spring-damper stiff enough to look like a bone explodes at 60 Hz.
+  //
+  // A particle is { x, y, z, px, py, pz, r } where p* is the PREVIOUS position;
+  // velocity is implied by (x - px), so an impulse is applied by moving px.
+  const RAGDOLL_GRAVITY = 18;
+  const RAGDOLL_DAMPING = 0.985;
+  const RAGDOLL_ITERATIONS = 6;
+  const RAGDOLL_FRICTION = 0.72;
+  const RAGDOLL_RESTITUTION = 0.18;
+
+  // The GLB soldier rig is seven bones and the box-man has the same seven parts, so
+  // one topology drives both. `at` is the rest offset from the feet, in metres.
+  const RAGDOLL_NODES = [
+    { key: 'pelvis', at: [0, 0.95, 0], r: 0.16, mass: 1.6 },
+    { key: 'chest',  at: [0, 1.42, 0], r: 0.17, mass: 1.4 },
+    { key: 'head',   at: [0, 1.72, 0], r: 0.13, mass: 0.9 },
+    { key: 'armL',   at: [-0.24, 1.28, 0.02], r: 0.09, mass: 0.5 },
+    { key: 'armR',   at: [0.24, 1.28, 0.02], r: 0.09, mass: 0.5 },
+    { key: 'legL',   at: [-0.13, 0.48, 0], r: 0.11, mass: 0.8 },
+    { key: 'legR',   at: [0.13, 0.48, 0], r: 0.11, mass: 0.8 }
+  ];
+  // Bone links come first; the cross-braces after them are what stop a seven-point
+  // skeleton folding flat into a puddle, which is what a naive chain does.
+  const RAGDOLL_LINKS = [
+    ['pelvis', 'chest', 1],
+    ['chest', 'head', 1],
+    ['chest', 'armL', 0.8],
+    ['chest', 'armR', 0.8],
+    ['pelvis', 'legL', 0.9],
+    ['pelvis', 'legR', 0.9],
+    // Braces. These were too soft on the first pass and the corpses splayed into a
+    // starfish: a seven-point chain with weak cross-links has nothing resisting the
+    // limbs swinging out flat. Stiff enough to hold a silhouette, slack enough that
+    // the body still drapes over what it lands on.
+    ['pelvis', 'head', 0.55],
+    ['armL', 'armR', 0.5],
+    ['legL', 'legR', 0.5],
+    ['chest', 'legL', 0.45],
+    ['chest', 'legR', 0.45],
+    ['pelvis', 'armL', 0.4],
+    ['pelvis', 'armR', 0.4]
+  ];
+
+  function makeRagdoll(x, y, z, yaw) {
+    const sy = Math.sin(yaw || 0), cy = Math.cos(yaw || 0);
+    const nodes = {};
+    const order = [];
+    for (let i = 0; i < RAGDOLL_NODES.length; i++) {
+      const d = RAGDOLL_NODES[i];
+      // Rotate the rest pose into the agent's facing so a corpse falls the way it
+      // was standing, not the way the table was authored.
+      const ox = d.at[0] * cy - d.at[2] * sy;
+      const oz = d.at[0] * sy + d.at[2] * cy;
+      const p = { key: d.key, x: x + ox, y: y + d.at[1], z: z + oz,
+                  px: x + ox, py: y + d.at[1], pz: z + oz,
+                  r: d.r, mass: d.mass, inv: 1 / d.mass };
+      nodes[d.key] = p;
+      order.push(p);
+    }
+    const links = [];
+    for (let i = 0; i < RAGDOLL_LINKS.length; i++) {
+      const L = RAGDOLL_LINKS[i];
+      const a = nodes[L[0]], b = nodes[L[1]];
+      links.push({ a: a, b: b, rest: dist3(a, b), k: L[2] });
+    }
+    return { nodes: nodes, order: order, links: links, settled: false, t: 0 };
+  }
+
+  function dist3(a, b) {
+    const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  // Impulses move the PREVIOUS position, which is how velocity is expressed in a
+  // verlet integrator. Scaled by inverse mass, so a head takes more of a headshot
+  // than the pelvis does.
+  function ragdollImpulse(rag, key, ix, iy, iz, spread) {
+    const s = spread === undefined ? 0.35 : spread;
+    const hit = rag.nodes[key] || rag.nodes.chest;
+    for (let i = 0; i < rag.order.length; i++) {
+      const p = rag.order[i];
+      const w = (p === hit ? 1 : s) * p.inv;
+      p.px -= ix * w;
+      p.py -= iy * w;
+      p.pz -= iz * w;
+    }
+  }
+
+  function ragdollStep(rag, dt, boxes, groundY) {
+    const g = groundY === undefined ? 0 : groundY;
+    for (let i = 0; i < rag.order.length; i++) {
+      const p = rag.order[i];
+      const vx = (p.x - p.px) * RAGDOLL_DAMPING;
+      const vy = (p.y - p.py) * RAGDOLL_DAMPING;
+      const vz = (p.z - p.pz) * RAGDOLL_DAMPING;
+      p.px = p.x; p.py = p.y; p.pz = p.z;
+      p.x += vx;
+      p.y += vy - RAGDOLL_GRAVITY * dt * dt;
+      p.z += vz;
+    }
+    for (let it = 0; it < RAGDOLL_ITERATIONS; it++) {
+      for (let i = 0; i < rag.links.length; i++) {
+        const L = rag.links[i];
+        const a = L.a, b = L.b;
+        let dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < 1e-6) continue;
+        const diff = (d - L.rest) / d * L.k;
+        const wa = a.inv / (a.inv + b.inv), wb = b.inv / (a.inv + b.inv);
+        dx *= diff; dy *= diff; dz *= diff;
+        a.x += dx * wa; a.y += dy * wa; a.z += dz * wa;
+        b.x -= dx * wb; b.y -= dy * wb; b.z -= dz * wb;
+      }
+      for (let i = 0; i < rag.order.length; i++) {
+        ragdollCollide(rag.order[i], boxes, g);
+      }
+    }
+    rag.t += dt;
+    rag.settled = ragdollEnergy(rag) < 0.0006 && rag.t > 0.6;
+    return rag;
+  }
+
+  // Ground plane plus the world AABBs, so a corpse lands ON a crate instead of
+  // inside it. Friction is applied by dragging the previous position toward the
+  // current one along the contact plane.
+  function ragdollCollide(p, boxes, groundY) {
+    if (p.y - p.r < groundY) {
+      p.y = groundY + p.r;
+      const vy = p.y - p.py;
+      if (vy < 0) p.py = p.y + vy * RAGDOLL_RESTITUTION;
+      p.px += (p.x - p.px) * RAGDOLL_FRICTION;
+      p.pz += (p.z - p.pz) * RAGDOLL_FRICTION;
+    }
+    if (!boxes) return;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (p.x + p.r < b.min.x || p.x - p.r > b.max.x) continue;
+      if (p.y + p.r < b.min.y || p.y - p.r > b.max.y) continue;
+      if (p.z + p.r < b.min.z || p.z - p.r > b.max.z) continue;
+      // Push out along the shallowest axis — the same resolution the player
+      // controller uses, so corpses and players agree about where a wall is.
+      const dxp = b.max.x + p.r - p.x, dxn = p.x - (b.min.x - p.r);
+      const dyp = b.max.y + p.r - p.y, dyn = p.y - (b.min.y - p.r);
+      const dzp = b.max.z + p.r - p.z, dzn = p.z - (b.min.z - p.r);
+      const mx = Math.min(dxp, dxn), my = Math.min(dyp, dyn), mz = Math.min(dzp, dzn);
+      if (my <= mx && my <= mz) {
+        if (dyp < dyn) { p.y = b.max.y + p.r; p.px += (p.x - p.px) * RAGDOLL_FRICTION;
+                         p.pz += (p.z - p.pz) * RAGDOLL_FRICTION; }
+        else p.y = b.min.y - p.r;
+        const vy = p.y - p.py;
+        if ((dyp < dyn) === (vy < 0)) p.py = p.y + vy * RAGDOLL_RESTITUTION;
+      } else if (mx <= mz) {
+        p.x = dxp < dxn ? b.max.x + p.r : b.min.x - p.r;
+        p.px = p.x + (p.x - p.px) * RAGDOLL_RESTITUTION;
+      } else {
+        p.z = dzp < dzn ? b.max.z + p.r : b.min.z - p.r;
+        p.pz = p.z + (p.z - p.pz) * RAGDOLL_RESTITUTION;
+      }
+    }
+  }
+
+  function ragdollEnergy(rag) {
+    let e = 0;
+    for (let i = 0; i < rag.order.length; i++) {
+      const p = rag.order[i];
+      const dx = p.x - p.px, dy = p.y - p.py, dz = p.z - p.pz;
+      e += dx * dx + dy * dy + dz * dz;
+    }
+    return e;
+  }
+
+  // ---- Fall damage ---------------------------------------------------------------
+  // The arena is flat, so the original code said "fall damage: none". It stopped
+  // being flat the moment mantling let the player onto crates and roofs, and a
+  // 6.9 m drop off the central building costing nothing is the kind of thing that
+  // makes a world feel like a diagram.
+  const FALL_SAFE_SPEED = 9.5;      // m/s: about a 4.6 m drop, survivable
+  const FALL_LETHAL_SPEED = 22;     // terminal for these purposes
+  function fallDamage(impactSpeed) {
+    if (impactSpeed <= FALL_SAFE_SPEED) return 0;
+    const t = (impactSpeed - FALL_SAFE_SPEED) / (FALL_LETHAL_SPEED - FALL_SAFE_SPEED);
+    return Math.min(100, Math.round(100 * t * t));
+  }
+  // A hard landing costs momentum and a moment of control, which is what makes a
+  // drop a decision rather than a shortcut.
+  function landingSpeedMul(impactSpeed) {
+    if (impactSpeed <= FALL_SAFE_SPEED) return 1;
+    const over = Math.min(1, (impactSpeed - FALL_SAFE_SPEED) / FALL_SAFE_SPEED);
+    return 1 - 0.65 * over;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -1607,6 +1806,19 @@ const CORE = (function () {
     usableSpawnPoints: usableSpawnPoints,
     WAVE_QUEUE_CAP: WAVE_QUEUE_CAP,
     waveQueueSize: waveQueueSize,
+    RAGDOLL_NODES: RAGDOLL_NODES,
+    RAGDOLL_LINKS: RAGDOLL_LINKS,
+    RAGDOLL_ITERATIONS: RAGDOLL_ITERATIONS,
+    makeRagdoll: makeRagdoll,
+    ragdollStep: ragdollStep,
+    ragdollImpulse: ragdollImpulse,
+    ragdollCollide: ragdollCollide,
+    ragdollEnergy: ragdollEnergy,
+    dist3: dist3,
+    FALL_SAFE_SPEED: FALL_SAFE_SPEED,
+    FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
+    fallDamage: fallDamage,
+    landingSpeedMul: landingSpeedMul,
     UNREACHABLE: UNREACHABLE
   };
 })();

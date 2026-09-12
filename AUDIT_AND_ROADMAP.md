@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-12 complete (2026-09-12)
+> ## Status — Phases 0-12 complete, plus a physics pass (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -529,6 +529,53 @@
 > **Not done, deliberately:** 12.4 objective waves. `COD_ROADMAP.md` scheduled them after
 > special waves proved out, and they now have a proven mechanism to build on.
 > **Still open:** Phase 13 (XP, unlocks, attachments, camos).
+
+> **Physics pass — a reported bug, ragdolls, and fall damage.** Player-reported: shots
+> land through the second-floor slab after climbing the stairs. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | 60 shots fired, player climbs before impact | **36 land** | **0 land** |
+> | 60 shots fired, player stays in the open | 36 land | **36 land**, unchanged |
+> | enemy death | one clip, identical every time | **7-node verlet ragdoll** |
+> | same enemy shot from -z / +z / -x / +x | identical fall | **4 distinct outcomes** |
+> | headshot vs body shot vs graze | identical | 0.75 m / 0.66 m / 0.49 m travel |
+> | corpse on a 1.5 m crate | sank through the floor | **drapes over it**, 0 nodes inside |
+> | a 6.9 m drop off the roof | free | **damage and a landing stun** |
+>
+> **The bug was not the line-of-sight test, which was correct.** A ground-floor agent
+> cannot see a player on the slab: sampling all 441 ground cells against a player at the
+> centre of the second floor, exactly 9 have a sightline and none is inside the building -
+> all nine line up with the external staircases, which is a real opening. The defect was
+> that `enemyShoot` schedules its damage through `setTimeout`, up to 300 ms out, and
+> re-checked only `runId`, `started` and `paused`. A sprinting player covers ~2.7 m in
+> that window - up the stairs and behind the slab. Cover is now re-tested at impact,
+> against both geometry and smoke.
+>
+> **Deaths are simulated, not animated.** `CORE.makeRagdoll` builds seven particles -
+> pelvis, chest, head, two arms, two legs - matching the GLB rig bone for bone, and solves
+> distance constraints with verlet integration. Verlet rather than force/velocity because
+> position-based dynamics is unconditionally stable under the stiff constraints a skeleton
+> needs; a spring stiff enough to look like a bone explodes at 60 Hz. The killing shot
+> direction, magnitude and body part become the impulse, weighted by inverse mass.
+>
+> One simulation drives two bodies: the GLB rig is steered bone by bone in parent space,
+> and the box-man parts are reparented to the scene and driven in world space. If the rig
+> ever stops matching, bone aiming is skipped and the body still tumbles from the root.
+>
+> The first pass splayed corpses into a starfish - a seven-point chain with weak
+> cross-links has nothing resisting the limbs swinging flat. Stiffening the braces fixed
+> it; the body now holds a silhouette and still drapes over whatever it lands on.
+>
+> **Fall damage exists now.** The original code said "fall damage: none (arena is flat)",
+> which stopped being true the moment the Phase 9 mantle put the player on crates,
+> containers and the roof. The curve is quadratic with a soft shoulder rather than a cliff -
+> putting a damage cliff back would repeat BUG-07 exactly. A hard landing also costs
+> momentum and a quarter-second of sprint and jump.
+>
+> 33 new node tests (187 total). Mutation-checked 12 of 12 after strengthening one weak
+> test that compared the struck node against an unstruck one, where the spread factor
+> already differentiated them and inverse mass was never exercised.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

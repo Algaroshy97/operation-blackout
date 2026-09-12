@@ -70,6 +70,8 @@ const player = {
   // mantle (see tryMantle) and tactical-sprint burst
   mantleT: 0, mantleFrom: new THREE.Vector3(), mantleTo: new THREE.Vector3(),
   tacT: 0,
+  // fall damage: peak downward speed while airborne, and the landing recovery
+  airSpeedY: 0, landStunT: 0,
   // last stand: alive, but on the floor and bleeding out
   downed: false
 };
@@ -289,7 +291,8 @@ function updatePlayer(dt) {
     if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
     lastSprintTap = gameT;
   }
-  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown() && !player.downed;
+  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown()
+    && !player.downed && player.landStunT <= 0;
   if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
@@ -325,6 +328,7 @@ function updatePlayer(dt) {
   let speed = CFG.player.speed * (window.__analogMag || 1);
   if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
   if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
+  if (player.landStunT > 0) speed *= 0.55;
   if (player.crouching) speed *= CFG.player.crouchMul;
   if (adsDown()) speed *= 0.65;
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -356,7 +360,7 @@ function updatePlayer(dt) {
   else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
   // A mantle beats a jump: if there is a ledge in front, climbing it is what the
   // player meant. Anything under STEP_H is already handled by step-up.
-  if (player.downed) player.jumpBufT = 0;
+  if (player.downed || player.landStunT > 0) player.jumpBufT = 0;
   if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
     player.jumpBufT = 0;
   } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
@@ -394,7 +398,28 @@ function updatePlayer(dt) {
     player.bobAmp += (0 - player.bobAmp) * Math.min(1, 8 * dt);
   }
 
-  // fall damage: none (arena is flat) — reset out-of-bounds safety
+  // Fall damage. The original code said "none (arena is flat)", which stopped being
+  // true the moment mantling put the player on crates, containers and the roof. The
+  // impact speed is sampled BEFORE the resolver zeroes it, on the frame the player
+  // regains ground contact.
+  if (!player.onGround) {
+    player.airSpeedY = Math.max(player.airSpeedY, -player.vel.y);
+  } else if (player.airSpeedY > 0) {
+    const impact = player.airSpeedY;
+    player.airSpeedY = 0;
+    const dmg = CORE.fallDamage(impact);
+    if (dmg > 0) {
+      const mul = CORE.landingSpeedMul(impact);
+      player.vel.x *= mul;
+      player.vel.z *= mul;
+      player.landStunT = 0.25 + (1 - mul) * 0.5;
+      damagePlayer(dmg, undefined);
+      playSound('hurt');
+    }
+  }
+  // A hard landing costs a moment of control: no sprint, no jump, reduced speed.
+  if (player.landStunT > 0) player.landStunT = Math.max(0, player.landStunT - dt);
+  // out-of-bounds safety
   if (player.pos.y < -5) { player.pos.set(0, CFG.player.height, 24); player.vel.set(0, 0, 0); }
 }
 
