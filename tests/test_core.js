@@ -740,3 +740,87 @@ test('segment occlusion handles degenerate and axis-aligned rays', () => {
   assert.strictEqual(CORE.segmentBlocked(0, -5, 0, 0, 5, 0, box), true, 'straight +y');
   assert.strictEqual(CORE.segmentBlocked(0, 9, -5, 0, 9, 5, box), false, 'passes above');
 });
+
+
+// ---- BUG-11: ceiling resolve -------------------------------------------------
+// The old resolveVertical() zeroed upward velocity on a head bonk but never moved
+// the head back out of the slab, so a long frame or a boosted jump could carry it
+// through. These pin the replacement's contract.
+
+test('BUG-11 nothing overhead leaves the eye untouched', () => {
+  assert.strictEqual(CORE.ceilingClamp(2.5, 0, Infinity, 1.7, 0.2), 2.5);
+});
+
+test('BUG-11 a head below the ceiling is not pulled down', () => {
+  // eye 2.5 -> head 2.7, slab starts at 3.65: clear, leave it alone.
+  assert.strictEqual(CORE.ceilingClamp(2.5, 0, 3.65, 1.7, 0.2), 2.5);
+});
+
+test('BUG-11 a head inside the ceiling is pushed back under it', () => {
+  // eye 3.6 -> head 3.8, slab bottom 3.65. Clamp the eye to 3.45 so the head
+  // sits exactly at the slab, instead of merely stopping the velocity.
+  assert.ok(Math.abs(CORE.ceilingClamp(3.6, 0, 3.65, 1.7, 0.2) - 3.45) < 1e-9);
+});
+
+test('BUG-11 a head already past the ceiling is pulled back, not left through', () => {
+  // This is the actual bug: one big dt puts the eye above the slab entirely.
+  // Zeroing velocity there would strand the player inside the geometry.
+  const out = CORE.ceilingClamp(5.0, 0, 3.65, 1.7, 0.2);
+  assert.ok(Math.abs(out - 3.45) < 1e-9);
+  assert.ok(out + 0.2 <= 3.65 + 1e-9, 'head must end up at or below the slab');
+});
+
+test('BUG-11 standing on the floor beats clearing the ceiling', () => {
+  // A crawlspace shorter than the player: clamping to clear the slab would put
+  // the eye at 0.8 - 0.2 = 0.6, below the 1.7 the floor demands. Sinking the
+  // camera into the ground is worse than a head in a slab, so the floor wins.
+  assert.strictEqual(CORE.ceilingClamp(1.7, 0, 0.8, 1.7, 0.2), 1.7);
+});
+
+test('BUG-11 the clamp is relative to the floor being stood on', () => {
+  // Standing on a 2 m crate under a 5 m slab: eye 5.2 -> clamp to 4.8.
+  assert.strictEqual(CORE.ceilingClamp(5.2, 2, 5.0, 1.7, 0.2), 4.8);
+  // Same crate, slab too low to fit under: hold at the crate top + eye height.
+  assert.strictEqual(CORE.ceilingClamp(3.7, 2, 3.0, 1.7, 0.2), 3.7);
+});
+
+test('BUG-11 crouching changes the clearance the clamp allows', () => {
+  // Crouched eye height 1.1: a 2.0 m slab is passable standing? No - clamp to 1.8.
+  assert.strictEqual(CORE.ceilingClamp(2.4, 0, 2.0, 1.1, 0.2), 1.8);
+});
+
+
+// ---- Shadow budget -----------------------------------------------------------
+// Each casting enemy is drawn twice (colour pass + shadow pass), so at a wave-15
+// load the soldiers cost more draw calls than the entire static arena.
+
+test('shadow budget keeps everything when the roster fits', () => {
+  const pos = [{ x: 0, z: 0 }, { x: 5, z: 5 }, { x: 9, z: 1 }];
+  const keep = CORE.shadowCasters(pos, 0, 0, 8);
+  assert.strictEqual(keep.length, 3);
+  assert.deepStrictEqual(keep.slice().sort(), [0, 1, 2]);
+});
+
+test('shadow budget keeps the nearest enemies, not the first ones', () => {
+  //                       far        near       mid
+  const pos = [{ x: 40, z: 0 }, { x: 2, z: 0 }, { x: 10, z: 0 }];
+  const keep = CORE.shadowCasters(pos, 0, 0, 2);
+  assert.deepStrictEqual(keep, [1, 2], 'nearest first, far one dropped');
+});
+
+test('shadow budget never returns more than the budget', () => {
+  const pos = [];
+  for (let i = 0; i < 14; i++) pos.push({ x: i * 3, z: 0 });
+  assert.strictEqual(CORE.shadowCasters(pos, 0, 0, 4).length, 4);
+  assert.strictEqual(CORE.shadowCasters(pos, 0, 0, 8).length, 8);
+});
+
+test('shadow budget measures horizontally, like every other gameplay radius', () => {
+  // y is ignored: an enemy on a rooftop directly overhead is NEAR, not far.
+  const pos = [{ x: 0, y: 12, z: 1 }, { x: 30, y: 0, z: 0 }];
+  assert.deepStrictEqual(CORE.shadowCasters(pos, 0, 0, 1), [0]);
+});
+
+test('shadow budget handles an empty roster', () => {
+  assert.deepStrictEqual(CORE.shadowCasters([], 0, 0, 8), []);
+});

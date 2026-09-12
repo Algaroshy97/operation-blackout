@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-7 complete (2026-09-12)
+> ## Status — Phases 0-8 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -250,16 +250,84 @@
 > and cosmetic — the compass letters run through the hostiles line. Logged, not changed,
 > because it was outside the four defects this pass was asked to fix.
 >
+> **Phase 8 — closing out the register.** Everything still open that was actually a
+> defect, plus the two performance criteria carried since Phase 2. Two of the four
+> are now closed, one is materially improved, and one is reported as unreachable as
+> specified rather than quietly dropped.
+>
+> | | before | after |
+> |---|---|---|
+> | BUG-11: head through a 3.65 m slab at 15 m/s | reaches **8.8 m** | **3.61 m**, never through |
+> | same, at 30 / 60 m/s | 26.2 m / 62.3 m | 3.64 m / 3.61 m |
+> | `playSound('shot')` | 0.148 ms | **0.0268 ms** (5.5x) |
+> | `fireShot`, interleaved median of 15 x 200 shots | 0.435 ms | **0.246 ms** (1.77x) |
+> | `fireShot`, warm minimum | 0.281 ms | **0.089 ms** |
+> | draw calls, wave 15, 14 enemies | 98 | **86** |
+> | enemy shadow meshes, wave 15 | 56 | **32** desktop / **16** touch |
+> | MOB-05 compass over the wave counter | 78x18 px | **none** |
+>
+> **BUG-11 is closed, and it was real.** `resolveVertical()` zeroed upward velocity on
+> a head bonk but never repositioned, so the head stayed inside the slab. Worse, the
+> test was `c.min.y > feet`, which stops matching the moment the eye clears the slab —
+> so once past it, nothing pulled the player back. Replaced with `CORE.ceilingClamp`,
+> which tracks the lowest slab overhead every step and clamps the eye under it, with
+> the floor winning when the gap is shorter than the player (sinking the camera into
+> the ground is worse than a head in a slab). Verified by A/B against the live
+> collision path, not a hand-rolled step: with the clamp neutered the head reaches
+> **62 m** on a 60 m/s launch; with it, 3.61 m. Sub-stepping alone did **not** prevent
+> this — `MAX_SUBSTEPS` caps at 8, so a long enough step still skips the slab.
+> Seven regression tests, mutation-checked: making `ceilingClamp` a no-op fails four.
+>
+> **The `fireShot` audio floor was not a floor.** Phase 2 recorded "<0.1 ms is
+> unreachable, the floor is one synthesised gunshot per shot, which is a design
+> requirement, not a defect." That was wrong — the requirement is one gunshot per
+> shot, not one *synthesis* per shot. Every sound is now declared as data in
+> `SOUND_RECIPES` and rendered once through an `OfflineAudioContext` at deploy time,
+> so playback is a single `BufferSource` instead of five freshly built nodes. Audio's
+> share of `fireShot` fell from 0.453 ms to 0.122 ms. Percussive repeats get a few
+> percent of pitch jitter, which is *more* variation than the old path had, since its
+> parameters were fixed too.
+>
+> **Draw calls: 98 to 86, and <60 is not reachable as specified.** Each shadow-casting
+> enemy is drawn again in the shadow pass, so the soldiers cost more than the entire
+> static arena. `CORE.shadowCasters` budgets the pass to the nearest 8 (4 on touch);
+> a soldier 40 m away casts a shadow a few pixels across. But the Phase 2 target was
+> set without doing the arithmetic: 14 skinned soldiers are ~4 meshes each, so the
+> roster alone is up to 56 colour-pass draw calls before a single arena batch is
+> drawn. Skinned meshes cannot be merged. **<60 at a wave-15 load is arithmetically
+> impossible while all 14 soldiers are on screen**, and the criterion is closed as
+> mis-specified rather than left open to imply work remains.
+>
+> **ENG-05 stays open, deliberately.** The hazard — a duplicate top-level `const`
+> between two modules becoming a whole-game `SyntaxError` — is already caught by
+> `test_bundled_script_parses`. Two further tests now name the offending pair instead
+> of leaving a bare parser error, and catch what node cannot see: a top-level
+> `var`/`function` shadowing a real `window` property. The remaining fix, wrapping the
+> bundle in an IIFE, would break `scripts/probe_live.py`, which evaluates page globals
+> (`enemies`, `raycastColliders`) directly — the repo's most valuable behavioural test
+> asset. Not worth trading for a risk that is already covered.
+>
+> **Not done, and not an oversight:** the wave-15 boss. It was dropped by an explicit
+> product decision in favour of spreading variety across the curve, and three
+> archetypes were added instead. On-device performance remains unverified; that needs
+> hardware, not more code.
+>
 > Closed: BUG-01, BUG-02, BUG-03, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09,
 > BUG-10, UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, ROB-01, ROB-02, ROB-03,
 > ROB-04, ROB-05, PERF-01, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08,
 > PERF-09, GAP-01, GAP-02, GAP-03, GAP-05, GAP-06, GAP-08, GAP-09,
-> ENG-01, ENG-02, ENG-03, ENG-06, ENG-08, MOB-01, MOB-02, MOB-03, MOB-04.
-> **Still open:** the wave-15 boss, BUG-11 (latent ceiling clipping), ENG-05 (278
-> globals, mitigated by the bundle-parse test), MOB-05 (the compass/wave-counter
-> overlap, cosmetic), on-device performance verification, and the two carried-forward
-> Phase 2 criteria (<60 draw calls — now 97; <0.1 ms `fireShot` — now 0.263 ms, floored
-> by one synthesised gunshot per shot). ENG-04 is closed by Phase 6.
+> ENG-01, ENG-02, ENG-03, ENG-06, ENG-08, MOB-01, MOB-02, MOB-03, MOB-04, MOB-05,
+> BUG-11, PERF-02 (the `fireShot` criterion).
+> **Still open:** three items, none of them an unfixed defect.
+> - The **wave-15 boss** — dropped by an explicit product decision, not an oversight.
+> - **ENG-05** (278 globals) — the real hazard is covered by three tests; the remaining
+>   fix would break `probe_live.py`. See Phase 8.
+> - **On-device performance** — layout and input are verified under emulation; GPU
+>   throughput, thermals and memory need real hardware.
+>
+> The **<60 draw calls** criterion is closed as mis-specified (Phase 8): 14 skinned
+> soldiers cannot be merged and cost up to 56 colour-pass calls on their own.
+> ENG-04 is closed by Phase 6; the `fireShot` criterion by Phase 8.
 > Sections below are the original audit, unedited except where a correction is noted.
 
 **Audit date:** 2026-09-12

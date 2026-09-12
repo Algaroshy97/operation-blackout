@@ -42,7 +42,10 @@
   #wave-title{font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.65);font-weight:700}
   #wave-num{font-size:30px;font-weight:800}
   #enemies-left{font-size:11px;letter-spacing:2px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px}
-  #compass{top:54px;left:50%;transform:translateX(-50%)}
+  /* Clears #wave-hud, which stacks title + number + hostile count to ~76px from
+     its own top:20px. At 54px the compass strip ran its letters straight through
+     the hostiles line at every size, desktop included. */
+  #compass{top:100px;left:50%;transform:translateX(-50%)}
   #compass-strip{width:280px;height:18px;overflow:hidden;position:relative}
   #compass-strip:before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:#ffd24a;transform:translateX(-50%)}
   #compass-canvas{position:absolute;top:0;left:0;width:280px;height:18px}
@@ -4521,6 +4524,37 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
+  // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
+  // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
+  // under the ceiling — but never below where the floor puts it, or a gap shorter
+  // than the player would sink the camera into the ground. Standing wins over
+  // clearing. `ceilY` is Infinity when nothing is overhead.
+  function ceilingClamp(eyeY, floorY, ceilY, eyeH, headClear) {
+    if (!isFinite(ceilY)) return eyeY;
+    const maxEye = ceilY - headClear;
+    const floorEye = floorY + eyeH;
+    return Math.min(eyeY, Math.max(maxEye, floorEye));
+  }
+
+  // ---- Shadow budget ---------------------------------------------------------
+  // Every shadow-casting enemy is drawn a second time in the shadow pass, so at a
+  // wave-15 load the soldiers alone cost ~28 extra draw calls — more than the whole
+  // static arena. A soldier 40 m away casts a shadow a few pixels across, so the
+  // pass is budgeted to the nearest few and the rest are dropped. Returns the
+  // indices that should cast, nearest first.
+  function shadowCasters(positions, px, pz, budget) {
+    const n = positions.length;
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(i);
+    if (n <= budget) return out;
+    const d = new Array(n);
+    for (let i = 0; i < n; i++) d[i] = horizDistSq(positions[i].x, positions[i].z, px, pz);
+    out.sort(function (a, b) { return d[a] - d[b]; });
+    out.length = budget;
+    return out;
+  }
+
   // ---- Ballistics ------------------------------------------------------------
   // Smooth ramp instead of the old binary cliff, which dropped an M4 from 26 to
   // 16.9 damage across a single metre at 0.6 x range with no feedback.
@@ -5220,6 +5254,8 @@ const CORE = (function () {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
     subStepCount: subStepCount,
+    ceilingClamp: ceilingClamp,
+    shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
@@ -6272,6 +6308,9 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Distance from the eye to the top of the head. The ceiling resolve keeps this
+// much space between the camera and any slab overhead.
+const HEAD_CLEARANCE = 0.20;
 // Collision is discrete AABB overlap, not swept, so one long frame can teleport
 // straight through a wall. The thinnest collidable wall in the arena is 0.8 m and
 // dt is clamped at 0.1 s, which at sprint speed is 0.89 m of travel — enough to
@@ -6303,6 +6342,7 @@ function resolveXZ(pos, r) {
 function resolveVertical(pos, r) {
   const feet = pos.y - eyeHeight();
   let floorY = GROUND;
+  let ceilY = Infinity;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
@@ -6310,15 +6350,21 @@ function resolveVertical(pos, r) {
     const dx = pos.x - cx, dz = pos.z - cz;
     if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;   // not above/below this collider footprint
     if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
-    if (c.min.y > feet && c.min.y < (pos.y + 0.2)) {                     // ceiling candidate
-      if (pos.y + 0.2 > c.min.y && player.vel.y > 0) player.vel.y = 0;    // bonk head
-    }
+    // Lowest slab overhead. Tracked unconditionally rather than only when already
+    // intersecting it: the old test could only react once the head was inside, and
+    // then only zeroed velocity, so a large dt stepped straight past it (BUG-11).
+    if (c.min.y > feet && c.min.y < ceilY) ceilY = c.min.y;
   }
   const target = floorY + eyeHeight();
   if (pos.y <= target + 0.001 && player.vel.y <= 0) {
     pos.y = target; player.vel.y = 0; player.onGround = true;
   } else {
     player.onGround = false;
+  }
+  const clamped = CORE.ceilingClamp(pos.y, floorY, ceilY, eyeHeight(), HEAD_CLEARANCE);
+  if (clamped < pos.y) {
+    pos.y = clamped;
+    if (player.vel.y > 0) player.vel.y = 0;   // bonk head
   }
 }
 
@@ -7675,9 +7721,40 @@ function hasLOS(en) {
 }
 const tmpV2 = new THREE.Vector3();
 
+// Nearest-N shadow budget. Recomputed a few times a second rather than per frame:
+// the set barely changes between frames and toggling castShadow is not free.
+const SHADOW_ENEMY_BUDGET = IS_TOUCH ? 4 : 8;
+let shadowBudgetT = 0;
+const _shadowPos = [];
+function enemyShadowMeshes(en) {
+  if (!en._shadowMeshes) {
+    const list = [];
+    en.parts.group.traverse(function (o) { if (o.isMesh) list.push(o); });
+    en._shadowMeshes = list;
+  }
+  return en._shadowMeshes;
+}
+function setEnemyCastShadow(en, on) {
+  if (en._castsShadow === on) return;
+  en._castsShadow = on;
+  const list = enemyShadowMeshes(en);
+  for (let i = 0; i < list.length; i++) list[i].castShadow = on;
+}
+function updateEnemyShadowBudget(dt) {
+  shadowBudgetT -= dt;
+  if (shadowBudgetT > 0) return;
+  shadowBudgetT = 0.25;
+  _shadowPos.length = 0;
+  for (let i = 0; i < enemies.length; i++) _shadowPos.push(enemies[i].pos);
+  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET);
+  for (let i = 0; i < enemies.length; i++) setEnemyCastShadow(enemies[i], false);
+  for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
+}
+
 function updateEnemies(dt) {
   losFrame++;
   updateFlowField(dt);
+  updateEnemyShadowBudget(dt);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const en = enemies[i];
     if (en._losSkip === undefined) en._losSkip = i % 3;
@@ -8371,13 +8448,64 @@ function noiseBuffer(ctx) {
   return buf;
 }
 let noiseBuf = null;
-function playSound(name, dest) {
-  const ctx = audioCtx();
-  if (!ctx) return;
-  if (soundThrottled(name)) return;
-  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
-  const out = dest || audioMaster() || ctx.destination;
-  const t = ctx.currentTime;
+
+// ---- Sound recipes ---------------------------------------------------------
+// Every sound is a short stack of two primitives, so the same description can be
+// synthesised live OR rendered once into an AudioBuffer and replayed. Layers:
+//   ['noise', dur, gain, freq, q]        band-passed white noise
+//   ['osc', type, f0, f1, dur, gain]     oscillator with an optional pitch ramp
+// Keeping these as data — rather than the switch that used to build nodes inline —
+// is what makes the pre-render below possible.
+const SOUND_RECIPES = {
+  shot:        [['noise', 0.09, 0.5, 900, 0.7], ['osc', 'square', 190, 70, 0.07, 0.28]],
+  sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
+  scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
+  slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
+  casing:      [['osc', 'square', 2400, 1800, 0.03, 0.04]],
+  eshot:       [['noise', 0.11, 0.24, 500, 0.8], ['osc', 'sawtooth', 140, 55, 0.09, 0.14]],
+  impact:      [['noise', 0.05, 0.18, 2400, 2]],
+  explosion:   [['noise', 0.6, 0.55, 180, 0.5], ['osc', 'sine', 120, 25, 0.5, 0.4], ['noise', 0.3, 0.3, 700, 0.6]],
+  bounce:      [['osc', 'sine', 500, 350, 0.04, 0.1]],
+  pin:         [['noise', 0.05, 0.15, 2000, 3]],
+  reload_out:  [['noise', 0.06, 0.2, 1300, 3], ['osc', 'square', 220, 140, 0.05, 0.06]],
+  reload_in:   [['noise', 0.05, 0.22, 1600, 3], ['osc', 'square', 300, 200, 0.04, 0.07]],
+  dry:         [['osc', 'square', 900, 700, 0.03, 0.1]],
+  draw:        [['noise', 0.05, 0.15, 1800, 2]],
+  melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
+  hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
+  kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
+  wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
+  death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
+  victory:     [['osc', 'sine', 523, 0, 0.3, 0.18], ['osc', 'sine', 659, 0, 0.3, 0.18], ['osc', 'sine', 784, 0, 0.6, 0.2]],
+  step:        [['noise', 0.04, 0.05, 500, 1]],
+  jump:        [['noise', 0.06, 0.06, 700, 1]],
+  land:        [['noise', 0.08, 0.12, 300, 0.8]],
+  click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
+  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]]  // bright medkit chime
+};
+
+// Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
+// every time, so these get a few percent of pitch jitter — which is more variation
+// than the old live synthesis had, since its parameters were fixed too.
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1 };
+
+function recipeDuration(recipe) {
+  let d = 0;
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    d = Math.max(d, L[0] === 'noise' ? L[1] : L[4]);
+  }
+  return d + 0.05;
+}
+
+// Build one recipe into `ctx` at time `t`, connected to `out`. Shared by the live
+// path and the offline render, so the two cannot drift apart.
+function buildSound(ctx, recipe, out, t, noise) {
   function env(g0, dur) {
     const g = ctx.createGain();
     g.gain.setValueAtTime(g0, t);
@@ -8385,55 +8513,78 @@ function playSound(name, dest) {
     g.connect(out);
     return g;
   }
-  function osc(type, f0, f1, dur, g0) {
-    const o = ctx.createOscillator();
-    o.type = type; o.frequency.setValueAtTime(f0, t);
-    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    o.connect(env(g0, dur));
-    o.start(t); o.stop(t + dur + 0.02);
-    return o;
-  }
-  function noise(dur, g0, freq, q) {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1;
-    src.connect(f); f.connect(env(g0, dur));
-    src.start(t); src.stop(t + dur + 0.02);
-  }
-  switch (name) {
-    case 'shot':      noise(0.09, 0.5, 900, 0.7); osc('square', 190, 70, 0.07, 0.28); break;
-    case 'sniper':    noise(0.16, 0.6, 700, 0.6); osc('sine', 150, 40, 0.22, 0.4); noise(0.5, 0.25, 220, 0.4); break;
-    case 'scope_in':  osc('sine', 900, 1300, 0.09, 0.08); break;
-    case 'scope_out': osc('sine', 1300, 800, 0.09, 0.08); break;
-    case 'slide':     noise(0.25, 0.3, 420, 0.5); noise(0.18, 0.2, 150, 0.4); break;
-    case 'casing':    osc('square', 2400, 1800, 0.03, 0.04); break;
-    case 'eshot':     noise(0.11, 0.24, 500, 0.8); osc('sawtooth', 140, 55, 0.09, 0.14); break;
-    case 'impact':    noise(0.05, 0.18, 2400, 2); break;
-    case 'explosion': noise(0.6, 0.55, 180, 0.5); osc('sine', 120, 25, 0.5, 0.4); noise(0.3, 0.3, 700, 0.6); break;
-    case 'bounce':    osc('sine', 500, 350, 0.04, 0.1); break;
-    case 'pin':       noise(0.05, 0.15, 2000, 3); break;
-    case 'reload_out': noise(0.06, 0.2, 1300, 3); osc('square', 220, 140, 0.05, 0.06); break;
-    case 'reload_in': noise(0.05, 0.22, 1600, 3); osc('square', 300, 200, 0.04, 0.07); break;
-    case 'dry':       osc('square', 900, 700, 0.03, 0.1); break;
-    case 'draw':      noise(0.05, 0.15, 1800, 2); break;
-    case 'melee':     noise(0.12, 0.3, 300, 0.6); osc('sawtooth', 90, 45, 0.11, 0.2); break;
-    case 'hit':       osc('sine', 1150, 900, 0.05, 0.16); break;
-    case 'headshot':  osc('sine', 1500, 1150, 0.07, 0.2); osc('sine', 750, 600, 0.07, 0.12); break;
-    case 'kill':      osc('sine', 600, 400, 0.09, 0.14); break;
-    case 'hurt':      osc('sawtooth', 180, 90, 0.16, 0.22); noise(0.14, 0.16, 400, 0.7); break;
-    case 'wave':      osc('sine', 220, 0, 0.5, 0.2); osc('sine', 330, 0, 0.5, 0.14); osc('sine', 440, 0, 0.7, 0.1); break;
-    case 'death':     osc('sawtooth', 200, 30, 1.2, 0.3); noise(0.8, 0.2, 200, 0.5); break;
-    case 'victory':   osc('sine', 523, 0, 0.3, 0.18); osc('sine', 659, 0, 0.3, 0.18); osc('sine', 784, 0, 0.6, 0.2); break;
-    case 'step':      noise(0.04, 0.05, 500, 1); break;
-    case 'jump':      noise(0.06, 0.06, 700, 1); break;
-    case 'land':      noise(0.08, 0.12, 300, 0.8); break;
-    case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
-    case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
-    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
-    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    if (L[0] === 'osc') {
+      const o = ctx.createOscillator();
+      o.type = L[1]; o.frequency.setValueAtTime(L[2], t);
+      if (L[3]) o.frequency.exponentialRampToValueAtTime(L[3], t + L[4]);
+      o.connect(env(L[5], L[4]));
+      o.start(t); o.stop(t + L[4] + 0.02);
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = L[3]; f.Q.value = L[4] || 1;
+      src.connect(f); f.connect(env(L[2], L[1]));
+      src.start(t); src.stop(t + L[1] + 0.02);
+    }
   }
 }
+
+// ---- Pre-rendered one-shots ------------------------------------------------
+// Synthesising a gunshot per trigger was the largest single cost in fireShot
+// (0.116 ms of a 0.263 ms budget), because every shot allocated and connected
+// five WebAudio nodes. Rendering each recipe once through an OfflineAudioContext
+// turns playback into a single BufferSource.
+const _sndBuffers = Object.create(null);
+const _sndRendering = Object.create(null);
+function renderSoundBuffer(name) {
+  if (_sndBuffers[name] || _sndRendering[name]) return;
+  const ctx = audioCtx();
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!ctx || !OAC || !SOUND_RECIPES[name]) return;
+  _sndRendering[name] = true;
+  try {
+    const rate = ctx.sampleRate;
+    const off = new OAC(1, Math.ceil(recipeDuration(SOUND_RECIPES[name]) * rate), rate);
+    buildSound(off, SOUND_RECIPES[name], off.destination, 0, noiseBuffer(off));
+    const done = off.startRendering();
+    // Older Safari resolves through oncomplete rather than the returned promise.
+    if (done && done.then) {
+      done.then(function (buf) { _sndBuffers[name] = buf; },
+                function () { _sndRendering[name] = false; });
+    } else {
+      off.oncomplete = function (e) { _sndBuffers[name] = e.renderedBuffer; };
+    }
+  } catch (e) { _sndRendering[name] = false; }
+}
+// Called once the audio context exists, so even the first shot is already cheap.
+function prerenderSounds() {
+  for (const name in SOUND_RECIPES) renderSoundBuffer(name);
+}
+
+function playSound(name, dest) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  if (soundThrottled(name)) return;
+  const out = dest || audioMaster() || ctx.destination;
+  const buf = _sndBuffers[name];
+  if (buf) {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (SOUND_VARIED[name]) src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.06;
+    src.connect(out);
+    src.start(ctx.currentTime);
+    return;
+  }
+  const recipe = SOUND_RECIPES[name];
+  if (!recipe) return;
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
+  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+}
+
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
 function playSound3D(name, x, y, z) {
@@ -9864,6 +10015,10 @@ $id('btn-start').addEventListener('click', function () {
   $id('start-screen').style.display = 'none';   // was left visible, bleeding through
   $id('gun-select').style.display = 'flex';
   audioCtx(); // unlock audio on user gesture
+  // Render every one-shot to a buffer while the player is still choosing a weapon,
+  // so the first trigger of each is already a single BufferSource rather than a
+  // freshly built node graph.
+  prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
 $id('btn-settings-pause').addEventListener('click', function () {
@@ -9871,7 +10026,7 @@ $id('btn-settings-pause').addEventListener('click', function () {
   openSettings('pause');
 });
 $id('btn-settings-back').addEventListener('click', closeSettings);
-$id('btn-resume-run').addEventListener('click', function () { audioCtx(); resumeRun(); });
+$id('btn-resume-run').addEventListener('click', function () { audioCtx(); prerenderSounds(); resumeRun(); });
 $id('btn-endless').addEventListener('click', function () {
   // Victory is no longer a dead end: keep the run going with escalating waves.
   $id('victory-screen').style.display = 'none';

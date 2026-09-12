@@ -522,9 +522,40 @@ function hasLOS(en) {
 }
 const tmpV2 = new THREE.Vector3();
 
+// Nearest-N shadow budget. Recomputed a few times a second rather than per frame:
+// the set barely changes between frames and toggling castShadow is not free.
+const SHADOW_ENEMY_BUDGET = IS_TOUCH ? 4 : 8;
+let shadowBudgetT = 0;
+const _shadowPos = [];
+function enemyShadowMeshes(en) {
+  if (!en._shadowMeshes) {
+    const list = [];
+    en.parts.group.traverse(function (o) { if (o.isMesh) list.push(o); });
+    en._shadowMeshes = list;
+  }
+  return en._shadowMeshes;
+}
+function setEnemyCastShadow(en, on) {
+  if (en._castsShadow === on) return;
+  en._castsShadow = on;
+  const list = enemyShadowMeshes(en);
+  for (let i = 0; i < list.length; i++) list[i].castShadow = on;
+}
+function updateEnemyShadowBudget(dt) {
+  shadowBudgetT -= dt;
+  if (shadowBudgetT > 0) return;
+  shadowBudgetT = 0.25;
+  _shadowPos.length = 0;
+  for (let i = 0; i < enemies.length; i++) _shadowPos.push(enemies[i].pos);
+  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET);
+  for (let i = 0; i < enemies.length; i++) setEnemyCastShadow(enemies[i], false);
+  for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
+}
+
 function updateEnemies(dt) {
   losFrame++;
   updateFlowField(dt);
+  updateEnemyShadowBudget(dt);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const en = enemies[i];
     if (en._losSkip === undefined) en._losSkip = i % 3;

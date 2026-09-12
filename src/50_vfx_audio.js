@@ -350,13 +350,64 @@ function noiseBuffer(ctx) {
   return buf;
 }
 let noiseBuf = null;
-function playSound(name, dest) {
-  const ctx = audioCtx();
-  if (!ctx) return;
-  if (soundThrottled(name)) return;
-  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
-  const out = dest || audioMaster() || ctx.destination;
-  const t = ctx.currentTime;
+
+// ---- Sound recipes ---------------------------------------------------------
+// Every sound is a short stack of two primitives, so the same description can be
+// synthesised live OR rendered once into an AudioBuffer and replayed. Layers:
+//   ['noise', dur, gain, freq, q]        band-passed white noise
+//   ['osc', type, f0, f1, dur, gain]     oscillator with an optional pitch ramp
+// Keeping these as data — rather than the switch that used to build nodes inline —
+// is what makes the pre-render below possible.
+const SOUND_RECIPES = {
+  shot:        [['noise', 0.09, 0.5, 900, 0.7], ['osc', 'square', 190, 70, 0.07, 0.28]],
+  sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
+  scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
+  slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
+  casing:      [['osc', 'square', 2400, 1800, 0.03, 0.04]],
+  eshot:       [['noise', 0.11, 0.24, 500, 0.8], ['osc', 'sawtooth', 140, 55, 0.09, 0.14]],
+  impact:      [['noise', 0.05, 0.18, 2400, 2]],
+  explosion:   [['noise', 0.6, 0.55, 180, 0.5], ['osc', 'sine', 120, 25, 0.5, 0.4], ['noise', 0.3, 0.3, 700, 0.6]],
+  bounce:      [['osc', 'sine', 500, 350, 0.04, 0.1]],
+  pin:         [['noise', 0.05, 0.15, 2000, 3]],
+  reload_out:  [['noise', 0.06, 0.2, 1300, 3], ['osc', 'square', 220, 140, 0.05, 0.06]],
+  reload_in:   [['noise', 0.05, 0.22, 1600, 3], ['osc', 'square', 300, 200, 0.04, 0.07]],
+  dry:         [['osc', 'square', 900, 700, 0.03, 0.1]],
+  draw:        [['noise', 0.05, 0.15, 1800, 2]],
+  melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
+  hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
+  kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
+  wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
+  death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
+  victory:     [['osc', 'sine', 523, 0, 0.3, 0.18], ['osc', 'sine', 659, 0, 0.3, 0.18], ['osc', 'sine', 784, 0, 0.6, 0.2]],
+  step:        [['noise', 0.04, 0.05, 500, 1]],
+  jump:        [['noise', 0.06, 0.06, 700, 1]],
+  land:        [['noise', 0.08, 0.12, 300, 0.8]],
+  click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
+  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]]  // bright medkit chime
+};
+
+// Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
+// every time, so these get a few percent of pitch jitter — which is more variation
+// than the old live synthesis had, since its parameters were fixed too.
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1 };
+
+function recipeDuration(recipe) {
+  let d = 0;
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    d = Math.max(d, L[0] === 'noise' ? L[1] : L[4]);
+  }
+  return d + 0.05;
+}
+
+// Build one recipe into `ctx` at time `t`, connected to `out`. Shared by the live
+// path and the offline render, so the two cannot drift apart.
+function buildSound(ctx, recipe, out, t, noise) {
   function env(g0, dur) {
     const g = ctx.createGain();
     g.gain.setValueAtTime(g0, t);
@@ -364,55 +415,78 @@ function playSound(name, dest) {
     g.connect(out);
     return g;
   }
-  function osc(type, f0, f1, dur, g0) {
-    const o = ctx.createOscillator();
-    o.type = type; o.frequency.setValueAtTime(f0, t);
-    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    o.connect(env(g0, dur));
-    o.start(t); o.stop(t + dur + 0.02);
-    return o;
-  }
-  function noise(dur, g0, freq, q) {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1;
-    src.connect(f); f.connect(env(g0, dur));
-    src.start(t); src.stop(t + dur + 0.02);
-  }
-  switch (name) {
-    case 'shot':      noise(0.09, 0.5, 900, 0.7); osc('square', 190, 70, 0.07, 0.28); break;
-    case 'sniper':    noise(0.16, 0.6, 700, 0.6); osc('sine', 150, 40, 0.22, 0.4); noise(0.5, 0.25, 220, 0.4); break;
-    case 'scope_in':  osc('sine', 900, 1300, 0.09, 0.08); break;
-    case 'scope_out': osc('sine', 1300, 800, 0.09, 0.08); break;
-    case 'slide':     noise(0.25, 0.3, 420, 0.5); noise(0.18, 0.2, 150, 0.4); break;
-    case 'casing':    osc('square', 2400, 1800, 0.03, 0.04); break;
-    case 'eshot':     noise(0.11, 0.24, 500, 0.8); osc('sawtooth', 140, 55, 0.09, 0.14); break;
-    case 'impact':    noise(0.05, 0.18, 2400, 2); break;
-    case 'explosion': noise(0.6, 0.55, 180, 0.5); osc('sine', 120, 25, 0.5, 0.4); noise(0.3, 0.3, 700, 0.6); break;
-    case 'bounce':    osc('sine', 500, 350, 0.04, 0.1); break;
-    case 'pin':       noise(0.05, 0.15, 2000, 3); break;
-    case 'reload_out': noise(0.06, 0.2, 1300, 3); osc('square', 220, 140, 0.05, 0.06); break;
-    case 'reload_in': noise(0.05, 0.22, 1600, 3); osc('square', 300, 200, 0.04, 0.07); break;
-    case 'dry':       osc('square', 900, 700, 0.03, 0.1); break;
-    case 'draw':      noise(0.05, 0.15, 1800, 2); break;
-    case 'melee':     noise(0.12, 0.3, 300, 0.6); osc('sawtooth', 90, 45, 0.11, 0.2); break;
-    case 'hit':       osc('sine', 1150, 900, 0.05, 0.16); break;
-    case 'headshot':  osc('sine', 1500, 1150, 0.07, 0.2); osc('sine', 750, 600, 0.07, 0.12); break;
-    case 'kill':      osc('sine', 600, 400, 0.09, 0.14); break;
-    case 'hurt':      osc('sawtooth', 180, 90, 0.16, 0.22); noise(0.14, 0.16, 400, 0.7); break;
-    case 'wave':      osc('sine', 220, 0, 0.5, 0.2); osc('sine', 330, 0, 0.5, 0.14); osc('sine', 440, 0, 0.7, 0.1); break;
-    case 'death':     osc('sawtooth', 200, 30, 1.2, 0.3); noise(0.8, 0.2, 200, 0.5); break;
-    case 'victory':   osc('sine', 523, 0, 0.3, 0.18); osc('sine', 659, 0, 0.3, 0.18); osc('sine', 784, 0, 0.6, 0.2); break;
-    case 'step':      noise(0.04, 0.05, 500, 1); break;
-    case 'jump':      noise(0.06, 0.06, 700, 1); break;
-    case 'land':      noise(0.08, 0.12, 300, 0.8); break;
-    case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
-    case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
-    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
-    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    if (L[0] === 'osc') {
+      const o = ctx.createOscillator();
+      o.type = L[1]; o.frequency.setValueAtTime(L[2], t);
+      if (L[3]) o.frequency.exponentialRampToValueAtTime(L[3], t + L[4]);
+      o.connect(env(L[5], L[4]));
+      o.start(t); o.stop(t + L[4] + 0.02);
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = L[3]; f.Q.value = L[4] || 1;
+      src.connect(f); f.connect(env(L[2], L[1]));
+      src.start(t); src.stop(t + L[1] + 0.02);
+    }
   }
 }
+
+// ---- Pre-rendered one-shots ------------------------------------------------
+// Synthesising a gunshot per trigger was the largest single cost in fireShot
+// (0.116 ms of a 0.263 ms budget), because every shot allocated and connected
+// five WebAudio nodes. Rendering each recipe once through an OfflineAudioContext
+// turns playback into a single BufferSource.
+const _sndBuffers = Object.create(null);
+const _sndRendering = Object.create(null);
+function renderSoundBuffer(name) {
+  if (_sndBuffers[name] || _sndRendering[name]) return;
+  const ctx = audioCtx();
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!ctx || !OAC || !SOUND_RECIPES[name]) return;
+  _sndRendering[name] = true;
+  try {
+    const rate = ctx.sampleRate;
+    const off = new OAC(1, Math.ceil(recipeDuration(SOUND_RECIPES[name]) * rate), rate);
+    buildSound(off, SOUND_RECIPES[name], off.destination, 0, noiseBuffer(off));
+    const done = off.startRendering();
+    // Older Safari resolves through oncomplete rather than the returned promise.
+    if (done && done.then) {
+      done.then(function (buf) { _sndBuffers[name] = buf; },
+                function () { _sndRendering[name] = false; });
+    } else {
+      off.oncomplete = function (e) { _sndBuffers[name] = e.renderedBuffer; };
+    }
+  } catch (e) { _sndRendering[name] = false; }
+}
+// Called once the audio context exists, so even the first shot is already cheap.
+function prerenderSounds() {
+  for (const name in SOUND_RECIPES) renderSoundBuffer(name);
+}
+
+function playSound(name, dest) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  if (soundThrottled(name)) return;
+  const out = dest || audioMaster() || ctx.destination;
+  const buf = _sndBuffers[name];
+  if (buf) {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (SOUND_VARIED[name]) src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.06;
+    src.connect(out);
+    src.start(ctx.currentTime);
+    return;
+  }
+  const recipe = SOUND_RECIPES[name];
+  if (!recipe) return;
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
+  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+}
+
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
 function playSound3D(name, x, y, z) {

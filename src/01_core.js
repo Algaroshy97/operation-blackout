@@ -38,6 +38,37 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
+  // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
+  // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
+  // under the ceiling — but never below where the floor puts it, or a gap shorter
+  // than the player would sink the camera into the ground. Standing wins over
+  // clearing. `ceilY` is Infinity when nothing is overhead.
+  function ceilingClamp(eyeY, floorY, ceilY, eyeH, headClear) {
+    if (!isFinite(ceilY)) return eyeY;
+    const maxEye = ceilY - headClear;
+    const floorEye = floorY + eyeH;
+    return Math.min(eyeY, Math.max(maxEye, floorEye));
+  }
+
+  // ---- Shadow budget ---------------------------------------------------------
+  // Every shadow-casting enemy is drawn a second time in the shadow pass, so at a
+  // wave-15 load the soldiers alone cost ~28 extra draw calls — more than the whole
+  // static arena. A soldier 40 m away casts a shadow a few pixels across, so the
+  // pass is budgeted to the nearest few and the rest are dropped. Returns the
+  // indices that should cast, nearest first.
+  function shadowCasters(positions, px, pz, budget) {
+    const n = positions.length;
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(i);
+    if (n <= budget) return out;
+    const d = new Array(n);
+    for (let i = 0; i < n; i++) d[i] = horizDistSq(positions[i].x, positions[i].z, px, pz);
+    out.sort(function (a, b) { return d[a] - d[b]; });
+    out.length = budget;
+    return out;
+  }
+
   // ---- Ballistics ------------------------------------------------------------
   // Smooth ramp instead of the old binary cliff, which dropped an M4 from 26 to
   // 16.9 damage across a single metre at 0.6 x range with no feedback.
@@ -737,6 +768,8 @@ const CORE = (function () {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
     subStepCount: subStepCount,
+    ceilingClamp: ceilingClamp,
+    shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,

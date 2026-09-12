@@ -104,6 +104,51 @@ class BuildIntegrityTests(unittest.TestCase):
                           f"{module.name} did not make it into the build")
 
 
+class SharedScopeTests(unittest.TestCase):
+    """ENG-05: every module lands in ONE `<script>`, so top-level names are shared.
+
+    `test_bundled_script_parses` already turns a collision into a failure, but only
+    as a bare `SyntaxError` from node. These name the offender, and catch the case
+    node cannot see: a `var`/`function` that shadows a browser global.
+    """
+
+    DECL = re.compile(r"^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", re.M)
+    # Assigning any of these at top level with var/function silently rebinds a real
+    # window property, which fails at runtime rather than at parse time.
+    WINDOW_PROPS = {
+        "name", "status", "length", "top", "parent", "self", "closed", "origin",
+        "history", "location", "navigator", "screen", "frames", "external", "event",
+    }
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.modules = {m.name: m.read_text(encoding="utf-8")
+                       for m in sorted((ROOT / "src").glob("*.js"))}
+
+    def test_no_duplicate_top_level_declaration_between_modules(self) -> None:
+        owner: dict[str, str] = {}
+        clashes: list[str] = []
+        for module, text in self.modules.items():
+            # Top-level only: a declaration inside a function or block is indented.
+            for name in self.DECL.findall(text):
+                if name in owner:
+                    clashes.append(f"{name!r} declared in both {owner[name]} and {module}")
+                else:
+                    owner[name] = module
+        self.assertEqual(clashes, [],
+                         "duplicate top-level names share one script scope:\n  "
+                         + "\n  ".join(clashes))
+
+    def test_no_top_level_name_shadows_a_window_property(self) -> None:
+        offenders = []
+        for module, text in self.modules.items():
+            for match in re.finditer(r"^(?:var|function)\s+([A-Za-z_$][\w$]*)", text, re.M):
+                if match.group(1) in self.WINDOW_PROPS:
+                    offenders.append(f"{module}: {match.group(1)}")
+        self.assertEqual(offenders, [],
+                         f"top-level var/function shadows a window property: {offenders}")
+
+
 class TouchLayoutTests(unittest.TestCase):
     """Solve the touch HUD's CSS box model on the smallest landscape phone.
 

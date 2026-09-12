@@ -73,6 +73,9 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Distance from the eye to the top of the head. The ceiling resolve keeps this
+// much space between the camera and any slab overhead.
+const HEAD_CLEARANCE = 0.20;
 // Collision is discrete AABB overlap, not swept, so one long frame can teleport
 // straight through a wall. The thinnest collidable wall in the arena is 0.8 m and
 // dt is clamped at 0.1 s, which at sprint speed is 0.89 m of travel — enough to
@@ -104,6 +107,7 @@ function resolveXZ(pos, r) {
 function resolveVertical(pos, r) {
   const feet = pos.y - eyeHeight();
   let floorY = GROUND;
+  let ceilY = Infinity;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
@@ -111,15 +115,21 @@ function resolveVertical(pos, r) {
     const dx = pos.x - cx, dz = pos.z - cz;
     if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;   // not above/below this collider footprint
     if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
-    if (c.min.y > feet && c.min.y < (pos.y + 0.2)) {                     // ceiling candidate
-      if (pos.y + 0.2 > c.min.y && player.vel.y > 0) player.vel.y = 0;    // bonk head
-    }
+    // Lowest slab overhead. Tracked unconditionally rather than only when already
+    // intersecting it: the old test could only react once the head was inside, and
+    // then only zeroed velocity, so a large dt stepped straight past it (BUG-11).
+    if (c.min.y > feet && c.min.y < ceilY) ceilY = c.min.y;
   }
   const target = floorY + eyeHeight();
   if (pos.y <= target + 0.001 && player.vel.y <= 0) {
     pos.y = target; player.vel.y = 0; player.onGround = true;
   } else {
     player.onGround = false;
+  }
+  const clamped = CORE.ceilingClamp(pos.y, floorY, ceilY, eyeHeight(), HEAD_CLEARANCE);
+  if (clamped < pos.y) {
+    pos.y = clamped;
+    if (player.vel.y > 0) player.vel.y = 0;   // bonk head
   }
 }
 

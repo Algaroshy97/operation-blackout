@@ -42,7 +42,10 @@
   #wave-title{font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.65);font-weight:700}
   #wave-num{font-size:30px;font-weight:800}
   #enemies-left{font-size:11px;letter-spacing:2px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px}
-  #compass{top:54px;left:50%;transform:translateX(-50%)}
+  /* Clears #wave-hud, which stacks title + number + hostile count to ~76px from
+     its own top:20px. At 54px the compass strip ran its letters straight through
+     the hostiles line at every size, desktop included. */
+  #compass{top:100px;left:50%;transform:translateX(-50%)}
   #compass-strip{width:280px;height:18px;overflow:hidden;position:relative}
   #compass-strip:before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:#ffd24a;transform:translateX(-50%)}
   #compass-canvas{position:absolute;top:0;left:0;width:280px;height:18px}

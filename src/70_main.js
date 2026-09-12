@@ -364,6 +364,10 @@ $id('btn-start').addEventListener('click', function () {
   $id('start-screen').style.display = 'none';   // was left visible, bleeding through
   $id('gun-select').style.display = 'flex';
   audioCtx(); // unlock audio on user gesture
+  // Render every one-shot to a buffer while the player is still choosing a weapon,
+  // so the first trigger of each is already a single BufferSource rather than a
+  // freshly built node graph.
+  prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
 $id('btn-settings-pause').addEventListener('click', function () {
@@ -371,7 +375,7 @@ $id('btn-settings-pause').addEventListener('click', function () {
   openSettings('pause');
 });
 $id('btn-settings-back').addEventListener('click', closeSettings);
-$id('btn-resume-run').addEventListener('click', function () { audioCtx(); resumeRun(); });
+$id('btn-resume-run').addEventListener('click', function () { audioCtx(); prerenderSounds(); resumeRun(); });
 $id('btn-endless').addEventListener('click', function () {
   // Victory is no longer a dead end: keep the run going with escalating waves.
   $id('victory-screen').style.display = 'none';
