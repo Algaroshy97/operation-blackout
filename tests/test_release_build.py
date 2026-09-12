@@ -175,6 +175,22 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("skClone(gltf.scene)", enemy_source)
         self.assertIn("node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix)", enemy_source)
 
+    def test_menu_assets_embedded_and_dist_under_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "Operation Blackout.html"
+            result = subprocess.run(
+                [sys.executable, str(BUILD), str(ROOT), "--output", str(output)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            content = output.read_text()
+            self.assertIn("data:image/jpeg;base64,", content)
+            self.assertIn("data:image/svg+xml;base64,", content)
+            self.assertIn("menu-emblem", content)
+            self.assertLess(output.stat().st_size, 2 * 1024 * 1024)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

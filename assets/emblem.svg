@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 140" width="128" height="140">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0d489"/><stop offset="0.45" stop-color="#c9992f"/>
+      <stop offset="1" stop-color="#8a6415"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.55" stop-color="#000"/><stop offset="0.72" stop-color="#ff8a1f"/>
+      <stop offset="0.86" stop-color="#ffd24a" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M64 4 L120 22 V70 c0 34-25 54-56 66 C33 124 8 104 8 70 V22 Z"
+        fill="#161a18" stroke="url(#g)" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M64 18 L107 31 V70 c0 26-19 42-43 52 C40 112 21 96 21 70 V31 Z"
+        fill="#2a1512" stroke="#7d5a12" stroke-width="1.5"/>
+  <g stroke="#e8e2d0" stroke-width="4.5" stroke-linecap="round" opacity="0.92">
+    <path d="M32 96 L96 44"/><path d="M96 96 L32 44"/>
+  </g>
+  <circle cx="64" cy="70" r="26" fill="url(#sun)"/>
+  <circle cx="64" cy="70" r="13" fill="#08090a"/>
+  <text x="64" y="133" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13"
+        font-weight="800" letter-spacing="2" fill="#e8c46a">OPS</text>
+</svg>
