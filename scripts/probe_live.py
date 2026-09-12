@@ -50,22 +50,33 @@ def main() -> int:
         checks.append(("assets-preloaded", wait_until(page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)))
         checks.append(("deploy-button-enabled", page.evaluate("() => !document.getElementById('btn-start').classList.contains('disabled')")))
 
-        # 2) Real UI flow: DEPLOY -> gun-select -> first weapon card.
+        # 2) Real UI flow: DEPLOY -> gun-select -> PRIMARY card -> SECONDARY card.
+        #    Picking a primary re-opens the same screen for the secondary, and only
+        #    then does the run start; a single click leaves the game in the loadout.
         page.click("#btn-start")
         checks.append(("gun-select-opened", page.evaluate("() => document.getElementById('gun-select').style.display === 'flex'")))
         page.wait_for_timeout(300)
         cards = page.evaluate("() => document.querySelectorAll('#gun-select .gun-card').length")
         checks.append(("weapon-cards-present", cards > 0))
         page.evaluate("() => document.querySelector('#gun-select .gun-card').click()")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(600)
+        checks.append(("secondary-prompt-shown", wait_until(
+            page,
+            "() => (document.querySelector('#gun-select h2') || {}).textContent === 'SELECT SECONDARY'",
+            10)))
+        page.evaluate("() => document.querySelector('#gun-select .gun-card').click()")
+        page.wait_for_timeout(600)
 
         # 3) Game started: start screen hidden, countdown then wave 1.
+        #    Budget is generous: wave 1 begins after a short in-game countdown and
+        #    in-game time runs several times slower than wall clock when frames are
+        #    slow (headless/swiftshader), so 25 s was not enough headroom.
         checks.append(("start-screen-hidden", page.evaluate("() => document.getElementById('start-screen').style.display === 'none'")))
-        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 25)))
+        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 60)))
 
         # 4) Enemies move and are grounded near y=0.
         s1 = page.evaluate("() => enemies.map(e => [e.pos.x, e.pos.y, e.pos.z])")
-        page.wait_for_timeout(1200)
+        page.wait_for_timeout(2000)
         s2 = page.evaluate("() => enemies.map(e => [e.pos.x, e.pos.y, e.pos.z])")
         if s1 and s2 and len(s1) == len(s2):
             moved = any(abs(a[0]-b[0]) > 0.01 or abs(a[1]-b[1]) > 0.01 or abs(a[2]-b[2]) > 0.01
