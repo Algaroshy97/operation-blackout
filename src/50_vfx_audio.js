@@ -98,8 +98,9 @@ function updateCasings(dt) {
 const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 function spawnSlideDust(pos) {
+  // Share dustMat across puffs (unmutated per particle) to avoid leaking GPU materials on slide
   for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(dustGeo, dustMat.clone());
+    const m = new THREE.Mesh(dustGeo, dustMat);
     m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
     m.userData.vfx = true;
     scene.add(m);

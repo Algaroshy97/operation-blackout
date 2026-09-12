@@ -5747,8 +5747,9 @@ function updateCasings(dt) {
 const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 function spawnSlideDust(pos) {
+  // Share dustMat across puffs (unmutated per particle) to avoid leaking GPU materials on slide
   for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(dustGeo, dustMat.clone());
+    const m = new THREE.Mesh(dustGeo, dustMat);
     m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
     m.userData.vfx = true;
     scene.add(m);
@@ -6235,6 +6236,7 @@ function updateWaves(dt) {
       waveActive = false;
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      unlockSecondary();
       resupply();
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
       showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
@@ -6290,6 +6292,28 @@ function resupply() {
   player.armor = CFG.player.armor;
   grenades.count = Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);
   updateHudAmmo(); updateHudHealth();
+}
+
+// ---- Secondary weapon unlock ----
+// Slot 2 starts empty every deploy (pickGun clears it); the SWAP button, Digit2
+// and the mouse wheel were all dead controls pointing at that empty slot.
+// Clearing a wave now grants the next roster weapon into slot 2. Idempotent:
+// once the slot is filled it never fires again for the rest of the run.
+function unlockSecondary() {
+  if (weaponsOwned[1] >= 0) return false;
+  const gi = (weaponsOwned[0] + 1) % CFG.weapons.length;
+  weaponsOwned[1] = gi;
+  // Build slot-1 state directly — initWeapons() would also reset slot 0's
+  // live ammo/reserve, a hidden free refill mid-run.
+  wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  const w = CFG.weapons[gi];
+  const li = document.createElement('div');
+  li.className = 'killfeed-item';
+  li.innerHTML = 'SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>';
+  hud.killfeed.appendChild(li);
+  setTimeout(function () { li.remove(); }, 5000);
+  playSound('draw');
+  return true;
 }
 
 function showWaveBanner(n, cleared) {
@@ -6454,6 +6478,7 @@ function resetGame() {
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
+  hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
   initWeapons();
   curWeapon = 0;
   gunSwitchT = 1;
@@ -6564,6 +6589,9 @@ let fpsAcc = 0, fpsN = 0, fpsT = 0;
 let qualityAdjustT = 0; // avoid resolution thrashing every half-second
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
+let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
+let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
+let hudFlickT = -9;     // gameT of last flick-forced redraw
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -6601,8 +6629,18 @@ function frame(now) {
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateHudHealth();
-    drawMinimap();
-    drawCompass();
+    // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
+    // frame: they cost significant CPU overhead on 2D contexts and the
+    // human eye cannot track a rotating minimap at 60+ Hz. A fast flick
+    // forces an immediate redraw so snappy turns remain responsive.
+    hudRedrawT += dt;
+    const yawMoved = Math.abs(player.yaw - lastHudYaw);
+    if (hudRedrawT >= 0.05 || (yawMoved > 0.15 && gameT - hudFlickT > 0.12)) {
+      hudRedrawT = 0; lastHudYaw = player.yaw;
+      if (yawMoved > 0.15) hudFlickT = gameT;
+      drawMinimap();
+      drawCompass();
+    }
     // scope in/out sounds
     if (curW().type === 'SR' || curW().type === 'BR') {
       if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }

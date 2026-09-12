@@ -128,6 +128,7 @@ function updateWaves(dt) {
       waveActive = false;
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      unlockSecondary();
       resupply();
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
       showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
@@ -183,6 +184,28 @@ function resupply() {
   player.armor = CFG.player.armor;
   grenades.count = Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);
   updateHudAmmo(); updateHudHealth();
+}
+
+// ---- Secondary weapon unlock ----
+// Slot 2 starts empty every deploy (pickGun clears it); the SWAP button, Digit2
+// and the mouse wheel were all dead controls pointing at that empty slot.
+// Clearing a wave now grants the next roster weapon into slot 2. Idempotent:
+// once the slot is filled it never fires again for the rest of the run.
+function unlockSecondary() {
+  if (weaponsOwned[1] >= 0) return false;
+  const gi = (weaponsOwned[0] + 1) % CFG.weapons.length;
+  weaponsOwned[1] = gi;
+  // Build slot-1 state directly — initWeapons() would also reset slot 0's
+  // live ammo/reserve, a hidden free refill mid-run.
+  wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  const w = CFG.weapons[gi];
+  const li = document.createElement('div');
+  li.className = 'killfeed-item';
+  li.innerHTML = 'SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>';
+  hud.killfeed.appendChild(li);
+  setTimeout(function () { li.remove(); }, 5000);
+  playSound('draw');
+  return true;
 }
 
 function showWaveBanner(n, cleared) {

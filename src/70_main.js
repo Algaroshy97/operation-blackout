@@ -69,6 +69,7 @@ function resetGame() {
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
+  hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
   initWeapons();
   curWeapon = 0;
   gunSwitchT = 1;
@@ -179,6 +180,9 @@ let fpsAcc = 0, fpsN = 0, fpsT = 0;
 let qualityAdjustT = 0; // avoid resolution thrashing every half-second
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
+let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
+let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
+let hudFlickT = -9;     // gameT of last flick-forced redraw
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -216,8 +220,18 @@ function frame(now) {
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateHudHealth();
-    drawMinimap();
-    drawCompass();
+    // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
+    // frame: they cost significant CPU overhead on 2D contexts and the
+    // human eye cannot track a rotating minimap at 60+ Hz. A fast flick
+    // forces an immediate redraw so snappy turns remain responsive.
+    hudRedrawT += dt;
+    const yawMoved = Math.abs(player.yaw - lastHudYaw);
+    if (hudRedrawT >= 0.05 || (yawMoved > 0.15 && gameT - hudFlickT > 0.12)) {
+      hudRedrawT = 0; lastHudYaw = player.yaw;
+      if (yawMoved > 0.15) hudFlickT = gameT;
+      drawMinimap();
+      drawCompass();
+    }
     // scope in/out sounds
     if (curW().type === 'SR' || curW().type === 'BR') {
       if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }
