@@ -155,6 +155,7 @@ function probeSkinnedSoldier() {
 function skClone(source) {
   const lookup = new Map();
   const clone = source.clone(true);
+  const skeletons = [];
   (function parallel(a, b) {
     lookup.set(a, b);
     for (let i = 0; i < a.children.length; i++) parallel(a.children[i], b.children[i]);
@@ -163,8 +164,10 @@ function skClone(source) {
     if (node.isSkinnedMesh && node.skeleton) {
       const bones = node.skeleton.bones.map(function (b) { return lookup.get(b) || b; });
       node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix);
+      skeletons.push(node.skeleton);
     }
   });
+  clone.userData.skeletons = skeletons;
   return clone;
 }
 
@@ -172,6 +175,7 @@ function spawnEnemy(kind, x, z) {
   let parts = null;
   let mixer = null;
   let actions = null;
+  let glbSkeletons = [];
   // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
   // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
@@ -181,6 +185,7 @@ function spawnEnemy(kind, x, z) {
   if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
     const root = skClone(gltf.scene);
+    if (root.userData.skeletons) glbSkeletons = root.userData.skeletons.slice();
     root.scale.setScalar(GLB_SOLDIER_SCALE);
     // Animated skinned bounds can become stale on some GPUs, causing false culling.
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
@@ -224,6 +229,7 @@ function spawnEnemy(kind, x, z) {
     health: hp, maxHealth: hp,
     dead: false, deathT: 0,
     parts: parts,
+    glbSkeletons: glbSkeletons,
     mixer: mixer,
     actions: actions,
     animCur: '',
@@ -255,6 +261,14 @@ function spawnEnemy(kind, x, z) {
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
+  if (en.glbSkeletons && en.glbSkeletons.length) {
+    for (let i = 0; i < en.glbSkeletons.length; i++) {
+      if (en.glbSkeletons[i] && typeof en.glbSkeletons[i].dispose === 'function') {
+        en.glbSkeletons[i].dispose();
+      }
+    }
+    en.glbSkeletons.length = 0;
+  }
   if (en.parts.glb) {
     // GLB model geometry is shared, but each enemy owns its two hitboxes.
     en.hitBody.geometry.dispose(); en.hitHead.geometry.dispose();
