@@ -240,7 +240,9 @@ function frame(now) {
       const currentPR = renderer.getPixelRatio();
       let desiredPR = currentPR;
       if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
-      else if (fps > 62 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
+      // Upscale threshold must be below 60 (58) because vsync on 60 Hz displays caps fps near 60,
+      // which would make >62 unreachable and prevent resolution from recovering after a hitch.
+      else if (fps > 58 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
       if (Math.abs(desiredPR - currentPR) >= 0.05) {
         renderer.setPixelRatio(desiredPR);
       }
