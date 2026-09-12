@@ -52,6 +52,7 @@ function resetGame() {
   }
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
+  if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);

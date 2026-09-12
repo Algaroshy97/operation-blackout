@@ -108,6 +108,44 @@ function spawnImpact(point, normal, obj) {
   playSound('impact');
 }
 
+// ---- Bullet-hole decals (v41): persistent marks on world hits ----
+// One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
+// zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
+// so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
+const decalGeo = new THREE.CircleGeometry(0.075, 8);   // 15 cm hole — reads at 15–40 m engagement range
+const decalMat = new THREE.MeshBasicMaterial({
+  color: 0x14161a, transparent: true, opacity: 0.9,
+  depthWrite: false,                                  // draw like a decal, not a solid
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
+});
+const DECAL = { max: 48, live: [], pool: [] };
+const _tmpD = new THREE.Vector3();
+const _tmpD2 = new THREE.Vector3();
+function spawnDecal(point, normal, obj) {
+  let d;
+  if (DECAL.pool.length) { d = DECAL.pool.pop(); d.m.visible = true; }
+  else if (DECAL.live.length >= DECAL.max) { d = DECAL.live.shift(); }
+  else {
+    const m = new THREE.Mesh(decalGeo, decalMat);
+    m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
+    m.userData.decal = true;
+    m.renderOrder = 1;
+    scene.add(m);
+    d = { m: m };
+  }
+  DECAL.live.push(d);
+  _tmpD.copy(normal);
+  if (obj && obj.matrixWorld) _tmpD.transformDirection(obj.matrixWorld).normalize();
+  d.m.position.copy(point).addScaledVector(_tmpD, 0.012);
+  _tmpD2.copy(point).add(_tmpD);
+  d.m.lookAt(_tmpD2);
+  d.t = gameT;
+}
+function clearDecals() {
+  for (let i = 0; i < DECAL.live.length; i++) { DECAL.live[i].m.visible = false; DECAL.pool.push(DECAL.live[i]); }
+  DECAL.live.length = 0;
+}
+
 function spawnBlood(point, isHead) {
   const n = isHead ? 10 : 6;
   for (let i = 0; i < n; i++) {

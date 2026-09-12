@@ -188,6 +188,7 @@ function fireShot() {
     damageEnemy(en, dmg, hit.point, isHead);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _from.clone().add(_shootDir.clone().multiplyScalar(w.range)));
   // shell casing eject
