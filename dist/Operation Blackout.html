@@ -7119,6 +7119,8 @@ let assetsReady = false;
 function setDeployReady(ready) {
   const deploy = $id('btn-start');
   deploy.classList.toggle('disabled', !ready);
+  deploy.setAttribute('aria-disabled', String(!ready));
+  deploy.tabIndex = ready ? 0 : -1;
   deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
 }
 function startGame() {
