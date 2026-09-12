@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-11 complete (2026-09-12)
+> ## Status — Phases 0-12 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -477,6 +477,58 @@
 >
 > **Still open from `COD_ROADMAP.md`:** Phase 12 (special waves, gated map areas, elite
 > variants, objective waves) and Phase 13 (XP, unlocks, attachments, camos).
+
+> **Phase 12 — wave and map design.** The last behaviour unlock was at wave 12 and the
+> last archetype at wave 9, so waves 13-30 were the same fight with larger numbers — the
+> exact failure Phase 4 diagnosed at wave 8 and fixed once. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | wave 5 / 10 / 15 / 20 | identical in kind | **BLITZ / BLACKOUT / IRONCLAD / MARKSMAN**, cycling |
+> | composition, a normal wave 14 | all 6 kinds | unchanged |
+> | composition, Blitz | n/a | **runners and scouts only** |
+> | composition, Ironclad | n/a | **tanks and shielded only**, HP x1.15 measured |
+> | composition, Marksman | n/a | **riflemen only**, +0.12 accuracy |
+> | Blackout | n/a | 3 lights to **10%**, fog 150 -> 42 m, fully reversible |
+> | Blitz movement | n/a | speedMul **x1.147** over 40 spawns (target 1.15) |
+> | elites | none | from wave 11, **6% -> 28%** capped, HP **x2.2**, score **x3** |
+> | map | all open at deploy | **two districts gated**, 1500 and 750 CR |
+> | gated weapons | n/a | **SV-98 and MK18 behind doors** |
+> | spawn ring while sealed | 12 points | **10**, and the two removed are exactly the sealed ones |
+> | draw calls, wave-15 load | 86 | **111-130** |
+>
+> **Gating an arena risks re-opening BUG-01**, so it was measured against the Phase 1
+> criterion rather than assumed. Spawning into a sealed district would queue bodies in a
+> space nothing can path out of, so sealed districts are excluded from the spawn ring and
+> `usableSpawnPoints` guarantees the ring survives. Reachability through the real
+> `updateEnemies` path, three trials each: **100% of agents within 5 m, 0 stranded, 0
+> frames inside the player, max enemy Y = 0** — sealed *and* open. A single agent stops at
+> 1.82 m either way.
+>
+> An earlier reading of "83% sealed vs 75% open" at a 3 m threshold was a bad threshold,
+> not a defect: with 10-12 agents converging on one 1.9 m stop ring, the outer ones sit at
+> 3.1-4.6 m by geometry. Sealing was never the variable — the open case scored *lower*.
+>
+> **A real bug the measurement caught: the queue cap was applied before the multiplier.**
+> `endlessEnemyCount` capped the raw curve at 60 and a Blitz wave then doubled the capped
+> number, so wave 25 queued **120** bodies against a ceiling meant to be 60. One function,
+> `CORE.waveQueueSize`, now owns the final count with the cap last.
+>
+> **Draw calls are up, and that is content, not a regression in the batcher.** 15 stations,
+> two barrier walls and two door meshes are spread across spatial regions, and
+> `planStaticBatches` keys on material *x region* — 38 batches became 70. Sharing one
+> material per station kind was correct but moved nothing, because the split is spatial.
+> Raising `regionSize` would merge more at the cost of the frustum culling and raycast
+> rejection Phase 2 deliberately preserved; that is a tuning decision, not a cleanup, and
+> is left open.
+>
+> 18 new node tests (172 total). Mutation-checked 14 of 14 after strengthening two weak
+> ones — a district bounds test that only pinned X, and a queue floor never exercised at a
+> small enough multiplier.
+>
+> **Not done, deliberately:** 12.4 objective waves. `COD_ROADMAP.md` scheduled them after
+> special waves proved out, and they now have a proven mechanism to build on.
+> **Still open:** Phase 13 (XP, unlocks, attachments, camos).
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

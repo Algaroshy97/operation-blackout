@@ -187,7 +187,8 @@ function skClone(source) {
   return clone;
 }
 
-function spawnEnemy(kind, x, z) {
+function spawnEnemy(kind, x, z, opts) {
+  const spawnOpts = opts || {};
   let parts = null;
   let mixer = null;
   let actions = null;
@@ -244,12 +245,19 @@ function spawnEnemy(kind, x, z) {
     : 320;
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const waveMul = CORE.endlessHpMultiplier(Math.max(1, curWave), CFG.wave.victoryWave);
-  const hp = Math.round(baseHp * waveMul * diff().hp);
+  // Special waves and elite rolls both scale the same base rather than adding a
+  // parallel stat path: an Ironclad elite tank is one multiply, not a special case.
+  const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
+    ? waveSpecial.hpMul : 1;
+  const isElite = !!spawnOpts.elite;
+  const hp = Math.round(baseHp * waveMul * diff().hp * specialHp * (isElite ? CORE.ELITE.hpMul : 1));
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
-    kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    elite: isElite,
+    kind: kind,
+    eliteRing: null,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
     yaw: initYaw,
@@ -275,7 +283,10 @@ function spawnEnemy(kind, x, z) {
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
-    speedMul: 0.85 + Math.random() * 0.3,
+    // speedMul is the single knob every movement state multiplies through, so a
+    // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
+    speedMul: (0.85 + Math.random() * 0.3) * (isElite ? CORE.ELITE.speedMul : 1)
+      * ((typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
     attackT: 0,
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
@@ -366,7 +377,10 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
 
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
-  addScore(CFG.score.kill + (isHead ? CFG.score.headshot : 0), isHead ? 'Headshot kill' : 'Hostile down');
+  const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
+  addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
+    en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
+  if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
   registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
   kills++;
   if (isHead) headshots++;
@@ -855,15 +869,19 @@ const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  const eliteDmg = en.elite ? CORE.ELITE.dmgMul : 1;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   const to = _eshotTo.copy(player.pos);
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
-  const acc = Math.min(CFG.ai.accMax, CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave);
+  const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
+    ? waveSpecial.accBonus : 0;
+  const acc = Math.min(CFG.ai.accMax + accBonus,
+    CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
   if (Math.random() < acc) {
-    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg;
+    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg * eliteDmg;
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;

@@ -1303,6 +1303,112 @@ const CORE = (function () {
     return current >= (needed === undefined ? FIELD_UPGRADE.charge : needed);
   }
 
+  // ---- Special waves -----------------------------------------------------------
+  // The wave-15 boss was dropped by an explicit product decision in favour of
+  // spreading variety across the curve. This is that decision carried through: every
+  // fifth wave is an announced modifier, so the back half poses different problems
+  // rather than larger ones.
+  //
+  // The cycle is deterministic, not random. A player should be able to learn that
+  // wave 15 is Ironclad and bring a flank plan, which is the whole point.
+  const SPECIAL_WAVES = [
+    { key: 'blitz', name: 'BLITZ', blurb: 'Fast movers — half health, twice the bodies',
+      kinds: [0, 4], countMul: 2.0, hpMul: 0.5, speedMul: 1.15 },
+    { key: 'blackout', name: 'BLACKOUT', blurb: 'Lights out — tracers and muzzle flash only',
+      dark: true, countMul: 0.9 },
+    { key: 'ironclad', name: 'IRONCLAD', blurb: 'Armour up front — flank it',
+      kinds: [2, 3], countMul: 0.6, hpMul: 1.15 },
+    { key: 'marksman', name: 'MARKSMAN', blurb: 'Long-range fire — use cover',
+      kinds: [1], countMul: 0.8, accBonus: 0.12 }
+  ];
+  const SPECIAL_EVERY = 5;
+  const WAVE_QUEUE_CAP = 60;
+  // The enemy count has three multipliers on it - endless scaling, difficulty and
+  // the special wave - and the cap has to come LAST. Applied inside
+  // endlessEnemyCount it bounded the raw curve and then a Blitz wave doubled the
+  // bounded number: wave 25 queued 120 bodies against a ceiling meant to be 60.
+  function waveQueueSize(n, baseCount, growth, victoryWave, diffCount, special) {
+    const raw = endlessEnemyCount(n, baseCount, growth, victoryWave, WAVE_QUEUE_CAP);
+    const mul = (diffCount === undefined ? 1 : diffCount)
+      * (special && special.countMul ? special.countMul : 1);
+    const out = Math.round(raw * mul);
+    if (out < 1) return 1;
+    return out > WAVE_QUEUE_CAP ? WAVE_QUEUE_CAP : out;
+  }
+  function specialWaveAt(n) {
+    if (n < SPECIAL_EVERY || n % SPECIAL_EVERY !== 0) return null;
+    return SPECIAL_WAVES[(n / SPECIAL_EVERY - 1) % SPECIAL_WAVES.length];
+  }
+  // A special wave picks from its own kind list, but only from kinds the wave has
+  // actually unlocked — an Ironclad wave before the shielded advancer exists must
+  // not spawn one.
+  function specialKind(special, waveNum, roll) {
+    if (!special || !special.kinds) return null;
+    const avail = [];
+    const unlocked = enemyKindsAtWave(waveNum);
+    for (let i = 0; i < special.kinds.length; i++) {
+      for (let j = 0; j < unlocked.length; j++) {
+        if (unlocked[j].kind === special.kinds[i]) { avail.push(special.kinds[i]); break; }
+      }
+    }
+    if (!avail.length) return null;
+    const idx = Math.floor(Math.max(0, Math.min(0.999999, roll)) * avail.length);
+    return avail[idx];
+  }
+
+  // ---- Elite variants ------------------------------------------------------------
+  // Rare high-wave rolls on kinds that already exist: variety without a new AI, and
+  // without the set-piece the boss would have been.
+  const ELITE_FROM_WAVE = 11;
+  const ELITE_BASE_CHANCE = 0.06;
+  const ELITE_MAX_CHANCE = 0.28;
+  const ELITE = { hpMul: 2.2, dmgMul: 1.35, speedMul: 1.12, scoreMul: 3, creditMul: 3 };
+  function eliteChance(waveNum) {
+    if (waveNum < ELITE_FROM_WAVE) return 0;
+    const c = ELITE_BASE_CHANCE + (waveNum - ELITE_FROM_WAVE) * 0.02;
+    return c > ELITE_MAX_CHANCE ? ELITE_MAX_CHANCE : c;
+  }
+  function rollElite(waveNum, roll) { return roll < eliteChance(waveNum); }
+
+  // ---- Gated districts -----------------------------------------------------------
+  // A second sink for credits that also paces the run: the 90x90 arena reveals
+  // itself instead of arriving all at once.
+  //
+  // Bounds are half-open AABBs on XZ. A sealed district must also be excluded from
+  // the spawn ring, or a wave queues bodies into a space nothing can path out of —
+  // which is BUG-01 by another route.
+  const DISTRICTS = [
+    { key: 'ne', name: 'NORTH-EAST DISTRICT', price: 1500,
+      minX: 18, maxX: 46, minZ: -46, maxZ: -15 },
+    { key: 'sw', name: 'SOUTH-WEST DISTRICT', price: 750,
+      minX: -46, maxX: -18, minZ: 15, maxZ: 46 }
+  ];
+  function districtByKey(key) {
+    for (let i = 0; i < DISTRICTS.length; i++) if (DISTRICTS[i].key === key) return DISTRICTS[i];
+    return null;
+  }
+  function insideDistrict(d, x, z) {
+    return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
+  }
+  // `openKeys` is the list of districts already bought.
+  function spawnPointSealed(x, z, openKeys) {
+    for (let i = 0; i < DISTRICTS.length; i++) {
+      const d = DISTRICTS[i];
+      if (openKeys && openKeys.indexOf(d.key) >= 0) continue;
+      if (insideDistrict(d, x, z)) return true;
+    }
+    return false;
+  }
+  // At least one spawn point must always survive the filter, or a wave can never
+  // start. Callers pass the ring; this is the assertion that it is still usable.
+  function usableSpawnPoints(points, openKeys) {
+    const out = [];
+    for (let i = 0; i < points.length; i++) {
+      if (!spawnPointSealed(points[i][0], points[i][1], openKeys)) out.push(points[i]);
+    }
+    return out;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -1486,6 +1592,21 @@ const CORE = (function () {
     fieldChargeAfter: fieldChargeAfter,
     fieldReady: fieldReady,
     coneHit: coneHit,
+    SPECIAL_WAVES: SPECIAL_WAVES,
+    SPECIAL_EVERY: SPECIAL_EVERY,
+    specialWaveAt: specialWaveAt,
+    specialKind: specialKind,
+    ELITE_FROM_WAVE: ELITE_FROM_WAVE,
+    ELITE: ELITE,
+    eliteChance: eliteChance,
+    rollElite: rollElite,
+    DISTRICTS: DISTRICTS,
+    districtByKey: districtByKey,
+    insideDistrict: insideDistrict,
+    spawnPointSealed: spawnPointSealed,
+    usableSpawnPoints: usableSpawnPoints,
+    WAVE_QUEUE_CAP: WAVE_QUEUE_CAP,
+    waveQueueSize: waveQueueSize,
     UNREACHABLE: UNREACHABLE
   };
 })();

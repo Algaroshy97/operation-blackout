@@ -5836,6 +5836,112 @@ const CORE = (function () {
     return current >= (needed === undefined ? FIELD_UPGRADE.charge : needed);
   }
 
+  // ---- Special waves -----------------------------------------------------------
+  // The wave-15 boss was dropped by an explicit product decision in favour of
+  // spreading variety across the curve. This is that decision carried through: every
+  // fifth wave is an announced modifier, so the back half poses different problems
+  // rather than larger ones.
+  //
+  // The cycle is deterministic, not random. A player should be able to learn that
+  // wave 15 is Ironclad and bring a flank plan, which is the whole point.
+  const SPECIAL_WAVES = [
+    { key: 'blitz', name: 'BLITZ', blurb: 'Fast movers — half health, twice the bodies',
+      kinds: [0, 4], countMul: 2.0, hpMul: 0.5, speedMul: 1.15 },
+    { key: 'blackout', name: 'BLACKOUT', blurb: 'Lights out — tracers and muzzle flash only',
+      dark: true, countMul: 0.9 },
+    { key: 'ironclad', name: 'IRONCLAD', blurb: 'Armour up front — flank it',
+      kinds: [2, 3], countMul: 0.6, hpMul: 1.15 },
+    { key: 'marksman', name: 'MARKSMAN', blurb: 'Long-range fire — use cover',
+      kinds: [1], countMul: 0.8, accBonus: 0.12 }
+  ];
+  const SPECIAL_EVERY = 5;
+  const WAVE_QUEUE_CAP = 60;
+  // The enemy count has three multipliers on it - endless scaling, difficulty and
+  // the special wave - and the cap has to come LAST. Applied inside
+  // endlessEnemyCount it bounded the raw curve and then a Blitz wave doubled the
+  // bounded number: wave 25 queued 120 bodies against a ceiling meant to be 60.
+  function waveQueueSize(n, baseCount, growth, victoryWave, diffCount, special) {
+    const raw = endlessEnemyCount(n, baseCount, growth, victoryWave, WAVE_QUEUE_CAP);
+    const mul = (diffCount === undefined ? 1 : diffCount)
+      * (special && special.countMul ? special.countMul : 1);
+    const out = Math.round(raw * mul);
+    if (out < 1) return 1;
+    return out > WAVE_QUEUE_CAP ? WAVE_QUEUE_CAP : out;
+  }
+  function specialWaveAt(n) {
+    if (n < SPECIAL_EVERY || n % SPECIAL_EVERY !== 0) return null;
+    return SPECIAL_WAVES[(n / SPECIAL_EVERY - 1) % SPECIAL_WAVES.length];
+  }
+  // A special wave picks from its own kind list, but only from kinds the wave has
+  // actually unlocked — an Ironclad wave before the shielded advancer exists must
+  // not spawn one.
+  function specialKind(special, waveNum, roll) {
+    if (!special || !special.kinds) return null;
+    const avail = [];
+    const unlocked = enemyKindsAtWave(waveNum);
+    for (let i = 0; i < special.kinds.length; i++) {
+      for (let j = 0; j < unlocked.length; j++) {
+        if (unlocked[j].kind === special.kinds[i]) { avail.push(special.kinds[i]); break; }
+      }
+    }
+    if (!avail.length) return null;
+    const idx = Math.floor(Math.max(0, Math.min(0.999999, roll)) * avail.length);
+    return avail[idx];
+  }
+
+  // ---- Elite variants ------------------------------------------------------------
+  // Rare high-wave rolls on kinds that already exist: variety without a new AI, and
+  // without the set-piece the boss would have been.
+  const ELITE_FROM_WAVE = 11;
+  const ELITE_BASE_CHANCE = 0.06;
+  const ELITE_MAX_CHANCE = 0.28;
+  const ELITE = { hpMul: 2.2, dmgMul: 1.35, speedMul: 1.12, scoreMul: 3, creditMul: 3 };
+  function eliteChance(waveNum) {
+    if (waveNum < ELITE_FROM_WAVE) return 0;
+    const c = ELITE_BASE_CHANCE + (waveNum - ELITE_FROM_WAVE) * 0.02;
+    return c > ELITE_MAX_CHANCE ? ELITE_MAX_CHANCE : c;
+  }
+  function rollElite(waveNum, roll) { return roll < eliteChance(waveNum); }
+
+  // ---- Gated districts -----------------------------------------------------------
+  // A second sink for credits that also paces the run: the 90x90 arena reveals
+  // itself instead of arriving all at once.
+  //
+  // Bounds are half-open AABBs on XZ. A sealed district must also be excluded from
+  // the spawn ring, or a wave queues bodies into a space nothing can path out of —
+  // which is BUG-01 by another route.
+  const DISTRICTS = [
+    { key: 'ne', name: 'NORTH-EAST DISTRICT', price: 1500,
+      minX: 18, maxX: 46, minZ: -46, maxZ: -15 },
+    { key: 'sw', name: 'SOUTH-WEST DISTRICT', price: 750,
+      minX: -46, maxX: -18, minZ: 15, maxZ: 46 }
+  ];
+  function districtByKey(key) {
+    for (let i = 0; i < DISTRICTS.length; i++) if (DISTRICTS[i].key === key) return DISTRICTS[i];
+    return null;
+  }
+  function insideDistrict(d, x, z) {
+    return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
+  }
+  // `openKeys` is the list of districts already bought.
+  function spawnPointSealed(x, z, openKeys) {
+    for (let i = 0; i < DISTRICTS.length; i++) {
+      const d = DISTRICTS[i];
+      if (openKeys && openKeys.indexOf(d.key) >= 0) continue;
+      if (insideDistrict(d, x, z)) return true;
+    }
+    return false;
+  }
+  // At least one spawn point must always survive the filter, or a wave can never
+  // start. Callers pass the ring; this is the assertion that it is still usable.
+  function usableSpawnPoints(points, openKeys) {
+    const out = [];
+    for (let i = 0; i < points.length; i++) {
+      if (!spawnPointSealed(points[i][0], points[i][1], openKeys)) out.push(points[i]);
+    }
+    return out;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -6019,6 +6125,21 @@ const CORE = (function () {
     fieldChargeAfter: fieldChargeAfter,
     fieldReady: fieldReady,
     coneHit: coneHit,
+    SPECIAL_WAVES: SPECIAL_WAVES,
+    SPECIAL_EVERY: SPECIAL_EVERY,
+    specialWaveAt: specialWaveAt,
+    specialKind: specialKind,
+    ELITE_FROM_WAVE: ELITE_FROM_WAVE,
+    ELITE: ELITE,
+    eliteChance: eliteChance,
+    rollElite: rollElite,
+    DISTRICTS: DISTRICTS,
+    districtByKey: districtByKey,
+    insideDistrict: insideDistrict,
+    spawnPointSealed: spawnPointSealed,
+    usableSpawnPoints: usableSpawnPoints,
+    WAVE_QUEUE_CAP: WAVE_QUEUE_CAP,
+    waveQueueSize: waveQueueSize,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -8286,7 +8407,8 @@ function skClone(source) {
   return clone;
 }
 
-function spawnEnemy(kind, x, z) {
+function spawnEnemy(kind, x, z, opts) {
+  const spawnOpts = opts || {};
   let parts = null;
   let mixer = null;
   let actions = null;
@@ -8343,12 +8465,19 @@ function spawnEnemy(kind, x, z) {
     : 320;
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const waveMul = CORE.endlessHpMultiplier(Math.max(1, curWave), CFG.wave.victoryWave);
-  const hp = Math.round(baseHp * waveMul * diff().hp);
+  // Special waves and elite rolls both scale the same base rather than adding a
+  // parallel stat path: an Ironclad elite tank is one multiply, not a special case.
+  const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
+    ? waveSpecial.hpMul : 1;
+  const isElite = !!spawnOpts.elite;
+  const hp = Math.round(baseHp * waveMul * diff().hp * specialHp * (isElite ? CORE.ELITE.hpMul : 1));
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
-    kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    elite: isElite,
+    kind: kind,
+    eliteRing: null,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
     yaw: initYaw,
@@ -8374,7 +8503,10 @@ function spawnEnemy(kind, x, z) {
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
-    speedMul: 0.85 + Math.random() * 0.3,
+    // speedMul is the single knob every movement state multiplies through, so a
+    // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
+    speedMul: (0.85 + Math.random() * 0.3) * (isElite ? CORE.ELITE.speedMul : 1)
+      * ((typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
     attackT: 0,
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
@@ -8465,7 +8597,10 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
 
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
-  addScore(CFG.score.kill + (isHead ? CFG.score.headshot : 0), isHead ? 'Headshot kill' : 'Hostile down');
+  const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
+  addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
+    en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
+  if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
   registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
   kills++;
   if (isHead) headshots++;
@@ -8954,15 +9089,19 @@ const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  const eliteDmg = en.elite ? CORE.ELITE.dmgMul : 1;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   const to = _eshotTo.copy(player.pos);
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
-  const acc = Math.min(CFG.ai.accMax, CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave);
+  const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
+    ? waveSpecial.accBonus : 0;
+  const acc = Math.min(CFG.ai.accMax + accBonus,
+    CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
   if (Math.random() < acc) {
-    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg;
+    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg * eliteDmg;
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;
@@ -10417,8 +10556,86 @@ const STATION_LAYOUT = [
   // rather than a menu, because a shop UI mid-firefight is a worse answer than
   // walking to the thing you want.
   { kind: 'lethal',   x: -12, z:  20 },
-  { kind: 'tactical', x:  12, z:  20 }
+  { kind: 'tactical', x:  12, z:  20 },
+  // District doors. Placed on the OPEN side of each barrier so the player can
+  // always reach the thing they are buying.
+  { kind: 'door', x: 31, z: -11, district: 'ne' },
+  { kind: 'door', x: -31, z: 11, district: 'sw' }
 ];
+
+// ---- Gated districts ---------------------------------------------------------
+// A second sink for credits that also paces the run: the 90x90 arena reveals
+// itself instead of arriving all at once. Each door gates one wall-buy weapon —
+// the SV-98 behind the north-east gate, the MK18 behind the south-west one.
+//
+// The barrier is TWO pieces. The long side wall goes through addBox() and joins
+// the static batches like any other geometry, because it is permanent. The door
+// itself has to be removable, so it is its own mesh with its own collider and
+// costs one draw call each — merged geometry cannot be un-merged.
+const DISTRICT_BARRIERS = {
+  ne: { wall: [18, 1.6, -30, 0.8, 3.2, 30], door: [31, 1.6, -15, 26, 3.2, 0.8] },
+  sw: { wall: [-18, 1.6, 30, 0.8, 3.2, 30], door: [-31, 1.6, 15, 26, 3.2, 0.8] }
+};
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x6a5a2a, roughness: 0.8, metalness: 0.3 });
+const doorMeshes = {};
+const doorColliders = {};
+
+function buildDistrictBarriers() {
+  for (const key in DISTRICT_BARRIERS) {
+    const b = DISTRICT_BARRIERS[key];
+    const w = b.wall;
+    addBox(w[0], w[1], w[2], w[3], w[4], w[5], MAT.concrete2, { pen: 'concrete' });
+    const d = b.door;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(d[3], d[4], d[5]), doorMat);
+    mesh.position.set(d[0], d[1], d[2]);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
+    raycastColliders.push(mesh);
+    const col = {
+      min: new THREE.Vector3(d[0] - d[3] / 2, d[1] - d[4] / 2, d[2] - d[5] / 2),
+      max: new THREE.Vector3(d[0] + d[3] / 2, d[1] + d[4] / 2, d[2] + d[5] / 2),
+      mat: 'concrete'
+    };
+    colliders.push(col);
+    doorMeshes[key] = mesh;
+    doorColliders[key] = col;
+  }
+}
+
+function openDistrict(key) {
+  if (openDistricts.indexOf(key) >= 0) return false;
+  openDistricts.push(key);
+  const mesh = doorMeshes[key], col = doorColliders[key];
+  if (mesh) {
+    scene.remove(mesh);
+    const ri = raycastColliders.indexOf(mesh);
+    if (ri >= 0) raycastColliders.splice(ri, 1);
+  }
+  if (col) {
+    const ci = colliders.indexOf(col);
+    if (ci >= 0) colliders.splice(ci, 1);
+  }
+  // Both indices are derived from colliders[], so both have to be rebuilt or the
+  // AI will keep pathing around a door that is no longer there.
+  rebuildWorldRayGrid();
+  rebuildNavGrid();
+  return true;
+}
+
+function resetDistricts() {
+  openDistricts.length = 0;
+  for (const key in DISTRICT_BARRIERS) {
+    if (doorMeshes[key] && !doorMeshes[key].parent) {
+      scene.add(doorMeshes[key]);
+      raycastColliders.push(doorMeshes[key]);
+    }
+    if (doorColliders[key] && colliders.indexOf(doorColliders[key]) < 0) {
+      colliders.push(doorColliders[key]);
+    }
+  }
+  rebuildWorldRayGrid();
+  rebuildNavGrid();
+}
 
 const STATION_COLOR = {
   wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068,
@@ -10429,12 +10646,22 @@ const STATION_COLOR = {
 let lethalIdx = 1;      // index 0 is the free frag; the board sells the rest
 let tacticalIdx = 0;
 
+// One material per KIND, not per station. Batches are keyed by material x region,
+// so a fresh material per station made every one of the thirteen its own draw call.
+const stationMats = {};
+function stationMaterial(kind) {
+  if (!stationMats[kind]) {
+    stationMats[kind] = new THREE.MeshStandardMaterial({
+      color: STATION_COLOR[kind] || 0x555555, roughness: 0.7, metalness: 0.25
+    });
+  }
+  return stationMats[kind];
+}
+
 function buildStations() {
   for (let i = 0; i < STATION_LAYOUT.length; i++) {
     const def = STATION_LAYOUT[i];
-    const mat = new THREE.MeshStandardMaterial({
-      color: STATION_COLOR[def.kind] || 0x555555, roughness: 0.7, metalness: 0.25
-    });
+    const mat = stationMaterial(def.kind);
     // Housing plus a bright lip, so a station reads as interactive at a distance
     // without needing a label mesh.
     addBox(def.x, 0.9, def.z, 1.4, 1.8, 0.45, mat, { pen: 'metal' });
@@ -10524,6 +10751,14 @@ function stationOffer(st) {
     if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
     return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
   }
+  if (st.kind === 'door') {
+    const d = CORE.districtByKey(st.district);
+    if (!d) return { label: 'DOOR', price: 0, ok: false };
+    if (openDistricts.indexOf(st.district) >= 0) {
+      return { label: d.name + ' — OPEN', price: 0, ok: false };
+    }
+    return { label: 'OPEN ' + d.name, price: d.price, ok: true };
+  }
   if (st.kind === 'lethal') {
     const d = CORE.LETHALS[lethalIdx];
     if (d.key === equippedLethal) {
@@ -10587,6 +10822,9 @@ function purchase(st) {
     plates = Math.min(CORE.PLATE_MAX, plates + 1);
     updateHudPlates();
     showCenterMsg('PLATE ' + plates + '/' + CORE.PLATE_MAX);
+  } else if (st.kind === 'door') {
+    openDistrict(st.district);
+    showCenterMsg(CORE.districtByKey(st.district).name + ' OPEN');
   } else if (st.kind === 'lethal') {
     if (offer.cycle) { lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length; return true; }
     equippedLethal = CORE.LETHALS[lethalIdx].key;
@@ -10764,6 +11002,7 @@ function updateHudPerks() {
 // indices that are derived from colliders[] — the ray broad-phase and the AI nav
 // grid — because stations are solid and the AI has to path around them.
 buildStations();
+buildDistrictBarriers();
 flushStaticBatches();
 rebuildWorldRayGrid();
 rebuildNavGrid();
@@ -11247,6 +11486,11 @@ let endlessMode = false;
 function diff() { return CORE.difficulty(runDifficulty); }
 // Behaviour unlocks replace the accuracy ramp that capped out at wave 8.
 let waveBehaviours = {};
+// The wave-15 boss was dropped in favour of spreading variety across the curve.
+// This is that decision carried through: every fifth wave is an announced modifier.
+let waveSpecial = null;
+// Districts the player has paid to open. Per-run, like credits.
+let openDistricts = [];
 
 function getWaveNum() { return waveNum; }
 
@@ -11270,8 +11514,16 @@ function captureRunState() {
 function startWave(n) {
   waveNum = n;
   waveBehaviours = CORE.behavioursAtWave(n);
-  waveQueue = Math.max(1, Math.round(
-    CORE.endlessEnemyCount(n, CFG.wave.baseCount, CFG.wave.growth, CFG.wave.victoryWave, 60) * diff().count));
+  waveSpecial = CORE.specialWaveAt(n);
+  applySpecialLighting(waveSpecial);
+  waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
+    CFG.wave.victoryWave, diff().count, waveSpecial);
+  if (waveSpecial) {
+    setTimeout(function () {
+      showCenterMsg(waveSpecial.name);
+      pushKillfeed('<span class="xp">' + waveSpecial.name + '</span> — ' + waveSpecial.blurb);
+    }, 700);
+  }
   // Announce what changed, so escalation is legible instead of just "more of them".
   CORE.newBehavioursAtWave(n).forEach(function (b) {
     setTimeout(function () { showCenterMsg(b.label.toUpperCase()); }, 1400);
@@ -11284,6 +11536,32 @@ function startWave(n) {
   hud.waveNum.textContent = n;
   showWaveBanner(n);
   playSound('wave');
+}
+
+// Blackout drops the scene lights instead of adding an enemy type: the wave is
+// harder because the player cannot see, not because there is more of it. Saved and
+// restored rather than recomputed, so a retune of the lighting never desynchronises
+// from this.
+let _lightBackup = null;
+let _fogBackup = null;
+function applySpecialLighting(special) {
+  const dark = !!(special && special.dark);
+  if (dark && !_lightBackup) {
+    // Only `sun` is a named binding; the hemisphere and ambient lights were added
+    // anonymously, so collect every light in the scene rather than naming them and
+    // leaving a future third light silently un-dimmed.
+    _lightBackup = [];
+    scene.traverse(function (o) {
+      if (o.isLight) { _lightBackup.push({ l: o, i: o.intensity }); o.intensity *= 0.10; }
+    });
+    if (scene.fog) { _fogBackup = scene.fog.far; scene.fog.far = 42; }
+  } else if (!dark && _lightBackup) {
+    for (let i = 0; i < _lightBackup.length; i++) {
+      _lightBackup[i].l.intensity = _lightBackup[i].i;
+    }
+    _lightBackup = null;
+    if (scene.fog && _fogBackup !== null) { scene.fog.far = _fogBackup; _fogBackup = null; }
+  }
 }
 
 function updateWaves(dt) {
@@ -11383,14 +11661,17 @@ const spawnPoints = [];
 function spawnFromQueue() {
   waveQueue--;
   // pick spawn point far from player but capped so waves arrive quickly
+  // A sealed district is excluded from the ring. Spawning into one queues bodies
+  // in a space nothing can path out of, which is BUG-01 by another route.
+  const ring = openSpawnPoints();
   let best = 0, bestScore = -Infinity;
-  for (let i = 0; i < spawnPoints.length; i++) {
-    const d = Math.hypot(spawnPoints[i][0] - player.pos.x, spawnPoints[i][1] - player.pos.z);
+  for (let i = 0; i < ring.length; i++) {
+    const d = Math.hypot(ring[i][0] - player.pos.x, ring[i][1] - player.pos.z);
     // sweet spot: 18-35m from player
     const score = -Math.abs(d - 26) - Math.random() * 6;
     if (score > bestScore) { bestScore = score; best = i; }
   }
-  const sp = spawnPoints[best];
+  const sp = ring[best];
   // Jitter, but never into a wall: ~2% of raw jittered points land inside solid
   // geometry, which is roughly 7 enemies per full run spawning clipped in a crate.
   // Resample, then fall back to the unjittered ring point.
@@ -11400,8 +11681,21 @@ function spawnFromQueue() {
     const jz = sp[1] + (Math.random() - 0.5) * 6;
     if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
   }
-  // kind distribution by wave: runners early, riflemen from w2, tanks from w4
-  spawnEnemy(CORE.pickEnemyKind(waveNum, Math.random()), x, z);
+  // A special wave draws from its own kind list, falling back to the normal table
+  // when none of its kinds has unlocked yet.
+  let kind = null;
+  if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+  if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
+  const elite = CORE.rollElite(waveNum, Math.random());
+  spawnEnemy(kind, x, z, { elite: elite });
+}
+
+// A sealed district must be excluded from the spawn ring. `usableSpawnPoints`
+// guarantees at least one point survives, but fall back to the full ring anyway —
+// a wave that cannot start is worse than a wave that starts somewhere awkward.
+function openSpawnPoints() {
+  const usable = CORE.usableSpawnPoints(spawnPoints, openDistricts);
+  return usable.length ? usable : spawnPoints;
 }
 
 function resupply() {
@@ -11464,7 +11758,7 @@ const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
 const MM_STATION_COLOR = {
   wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd',
-  lethal: '#ff8a6a', tactical: '#6fd8e8'
+  lethal: '#ff8a6a', tactical: '#6fd8e8', door: '#e8c46a'
 };
 // Metres of unaided detection. The UAV lifts this to the whole minimap.
 const MM_BASE_DETECT = 26;
@@ -11508,7 +11802,12 @@ function drawMinimap() {
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
     if (x * x + z * z > Math.min(R * R, detect)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
-    mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
+    const rad = (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3;
+    mmCtx.beginPath(); mmCtx.arc(x, z, rad, 0, 7); mmCtx.fill();
+    if (e.elite) {
+      mmCtx.strokeStyle = '#ffd24a'; mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath(); mmCtx.arc(x, z, rad + 2.5, 0, 7); mmCtx.stroke();
+    }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
     if (getSetting('colorblindMarkers') && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
@@ -11687,6 +11986,7 @@ function resetGame() {
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts();
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;

@@ -73,7 +73,7 @@ Neither suite measures real-GPU frame rate or replaces playtesting on Android ha
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-11 are complete.
+phased plan. Phases 0-12 are complete.
 
 ## Credits
 

@@ -129,6 +129,7 @@ function resetGame() {
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts();
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;

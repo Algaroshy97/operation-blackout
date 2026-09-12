@@ -31,8 +31,86 @@ const STATION_LAYOUT = [
   // rather than a menu, because a shop UI mid-firefight is a worse answer than
   // walking to the thing you want.
   { kind: 'lethal',   x: -12, z:  20 },
-  { kind: 'tactical', x:  12, z:  20 }
+  { kind: 'tactical', x:  12, z:  20 },
+  // District doors. Placed on the OPEN side of each barrier so the player can
+  // always reach the thing they are buying.
+  { kind: 'door', x: 31, z: -11, district: 'ne' },
+  { kind: 'door', x: -31, z: 11, district: 'sw' }
 ];
+
+// ---- Gated districts ---------------------------------------------------------
+// A second sink for credits that also paces the run: the 90x90 arena reveals
+// itself instead of arriving all at once. Each door gates one wall-buy weapon —
+// the SV-98 behind the north-east gate, the MK18 behind the south-west one.
+//
+// The barrier is TWO pieces. The long side wall goes through addBox() and joins
+// the static batches like any other geometry, because it is permanent. The door
+// itself has to be removable, so it is its own mesh with its own collider and
+// costs one draw call each — merged geometry cannot be un-merged.
+const DISTRICT_BARRIERS = {
+  ne: { wall: [18, 1.6, -30, 0.8, 3.2, 30], door: [31, 1.6, -15, 26, 3.2, 0.8] },
+  sw: { wall: [-18, 1.6, 30, 0.8, 3.2, 30], door: [-31, 1.6, 15, 26, 3.2, 0.8] }
+};
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x6a5a2a, roughness: 0.8, metalness: 0.3 });
+const doorMeshes = {};
+const doorColliders = {};
+
+function buildDistrictBarriers() {
+  for (const key in DISTRICT_BARRIERS) {
+    const b = DISTRICT_BARRIERS[key];
+    const w = b.wall;
+    addBox(w[0], w[1], w[2], w[3], w[4], w[5], MAT.concrete2, { pen: 'concrete' });
+    const d = b.door;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(d[3], d[4], d[5]), doorMat);
+    mesh.position.set(d[0], d[1], d[2]);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
+    raycastColliders.push(mesh);
+    const col = {
+      min: new THREE.Vector3(d[0] - d[3] / 2, d[1] - d[4] / 2, d[2] - d[5] / 2),
+      max: new THREE.Vector3(d[0] + d[3] / 2, d[1] + d[4] / 2, d[2] + d[5] / 2),
+      mat: 'concrete'
+    };
+    colliders.push(col);
+    doorMeshes[key] = mesh;
+    doorColliders[key] = col;
+  }
+}
+
+function openDistrict(key) {
+  if (openDistricts.indexOf(key) >= 0) return false;
+  openDistricts.push(key);
+  const mesh = doorMeshes[key], col = doorColliders[key];
+  if (mesh) {
+    scene.remove(mesh);
+    const ri = raycastColliders.indexOf(mesh);
+    if (ri >= 0) raycastColliders.splice(ri, 1);
+  }
+  if (col) {
+    const ci = colliders.indexOf(col);
+    if (ci >= 0) colliders.splice(ci, 1);
+  }
+  // Both indices are derived from colliders[], so both have to be rebuilt or the
+  // AI will keep pathing around a door that is no longer there.
+  rebuildWorldRayGrid();
+  rebuildNavGrid();
+  return true;
+}
+
+function resetDistricts() {
+  openDistricts.length = 0;
+  for (const key in DISTRICT_BARRIERS) {
+    if (doorMeshes[key] && !doorMeshes[key].parent) {
+      scene.add(doorMeshes[key]);
+      raycastColliders.push(doorMeshes[key]);
+    }
+    if (doorColliders[key] && colliders.indexOf(doorColliders[key]) < 0) {
+      colliders.push(doorColliders[key]);
+    }
+  }
+  rebuildWorldRayGrid();
+  rebuildNavGrid();
+}
 
 const STATION_COLOR = {
   wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068,
@@ -43,12 +121,22 @@ const STATION_COLOR = {
 let lethalIdx = 1;      // index 0 is the free frag; the board sells the rest
 let tacticalIdx = 0;
 
+// One material per KIND, not per station. Batches are keyed by material x region,
+// so a fresh material per station made every one of the thirteen its own draw call.
+const stationMats = {};
+function stationMaterial(kind) {
+  if (!stationMats[kind]) {
+    stationMats[kind] = new THREE.MeshStandardMaterial({
+      color: STATION_COLOR[kind] || 0x555555, roughness: 0.7, metalness: 0.25
+    });
+  }
+  return stationMats[kind];
+}
+
 function buildStations() {
   for (let i = 0; i < STATION_LAYOUT.length; i++) {
     const def = STATION_LAYOUT[i];
-    const mat = new THREE.MeshStandardMaterial({
-      color: STATION_COLOR[def.kind] || 0x555555, roughness: 0.7, metalness: 0.25
-    });
+    const mat = stationMaterial(def.kind);
     // Housing plus a bright lip, so a station reads as interactive at a distance
     // without needing a label mesh.
     addBox(def.x, 0.9, def.z, 1.4, 1.8, 0.45, mat, { pen: 'metal' });
@@ -138,6 +226,14 @@ function stationOffer(st) {
     if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
     return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
   }
+  if (st.kind === 'door') {
+    const d = CORE.districtByKey(st.district);
+    if (!d) return { label: 'DOOR', price: 0, ok: false };
+    if (openDistricts.indexOf(st.district) >= 0) {
+      return { label: d.name + ' — OPEN', price: 0, ok: false };
+    }
+    return { label: 'OPEN ' + d.name, price: d.price, ok: true };
+  }
   if (st.kind === 'lethal') {
     const d = CORE.LETHALS[lethalIdx];
     if (d.key === equippedLethal) {
@@ -201,6 +297,9 @@ function purchase(st) {
     plates = Math.min(CORE.PLATE_MAX, plates + 1);
     updateHudPlates();
     showCenterMsg('PLATE ' + plates + '/' + CORE.PLATE_MAX);
+  } else if (st.kind === 'door') {
+    openDistrict(st.district);
+    showCenterMsg(CORE.districtByKey(st.district).name + ' OPEN');
   } else if (st.kind === 'lethal') {
     if (offer.cycle) { lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length; return true; }
     equippedLethal = CORE.LETHALS[lethalIdx].key;
@@ -378,6 +477,7 @@ function updateHudPerks() {
 // indices that are derived from colliders[] — the ray broad-phase and the AI nav
 // grid — because stations are solid and the AI has to path around them.
 buildStations();
+buildDistrictBarriers();
 flushStaticBatches();
 rebuildWorldRayGrid();
 rebuildNavGrid();

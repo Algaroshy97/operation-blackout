@@ -245,6 +245,11 @@ let endlessMode = false;
 function diff() { return CORE.difficulty(runDifficulty); }
 // Behaviour unlocks replace the accuracy ramp that capped out at wave 8.
 let waveBehaviours = {};
+// The wave-15 boss was dropped in favour of spreading variety across the curve.
+// This is that decision carried through: every fifth wave is an announced modifier.
+let waveSpecial = null;
+// Districts the player has paid to open. Per-run, like credits.
+let openDistricts = [];
 
 function getWaveNum() { return waveNum; }
 
@@ -268,8 +273,16 @@ function captureRunState() {
 function startWave(n) {
   waveNum = n;
   waveBehaviours = CORE.behavioursAtWave(n);
-  waveQueue = Math.max(1, Math.round(
-    CORE.endlessEnemyCount(n, CFG.wave.baseCount, CFG.wave.growth, CFG.wave.victoryWave, 60) * diff().count));
+  waveSpecial = CORE.specialWaveAt(n);
+  applySpecialLighting(waveSpecial);
+  waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
+    CFG.wave.victoryWave, diff().count, waveSpecial);
+  if (waveSpecial) {
+    setTimeout(function () {
+      showCenterMsg(waveSpecial.name);
+      pushKillfeed('<span class="xp">' + waveSpecial.name + '</span> — ' + waveSpecial.blurb);
+    }, 700);
+  }
   // Announce what changed, so escalation is legible instead of just "more of them".
   CORE.newBehavioursAtWave(n).forEach(function (b) {
     setTimeout(function () { showCenterMsg(b.label.toUpperCase()); }, 1400);
@@ -282,6 +295,32 @@ function startWave(n) {
   hud.waveNum.textContent = n;
   showWaveBanner(n);
   playSound('wave');
+}
+
+// Blackout drops the scene lights instead of adding an enemy type: the wave is
+// harder because the player cannot see, not because there is more of it. Saved and
+// restored rather than recomputed, so a retune of the lighting never desynchronises
+// from this.
+let _lightBackup = null;
+let _fogBackup = null;
+function applySpecialLighting(special) {
+  const dark = !!(special && special.dark);
+  if (dark && !_lightBackup) {
+    // Only `sun` is a named binding; the hemisphere and ambient lights were added
+    // anonymously, so collect every light in the scene rather than naming them and
+    // leaving a future third light silently un-dimmed.
+    _lightBackup = [];
+    scene.traverse(function (o) {
+      if (o.isLight) { _lightBackup.push({ l: o, i: o.intensity }); o.intensity *= 0.10; }
+    });
+    if (scene.fog) { _fogBackup = scene.fog.far; scene.fog.far = 42; }
+  } else if (!dark && _lightBackup) {
+    for (let i = 0; i < _lightBackup.length; i++) {
+      _lightBackup[i].l.intensity = _lightBackup[i].i;
+    }
+    _lightBackup = null;
+    if (scene.fog && _fogBackup !== null) { scene.fog.far = _fogBackup; _fogBackup = null; }
+  }
 }
 
 function updateWaves(dt) {
@@ -381,14 +420,17 @@ const spawnPoints = [];
 function spawnFromQueue() {
   waveQueue--;
   // pick spawn point far from player but capped so waves arrive quickly
+  // A sealed district is excluded from the ring. Spawning into one queues bodies
+  // in a space nothing can path out of, which is BUG-01 by another route.
+  const ring = openSpawnPoints();
   let best = 0, bestScore = -Infinity;
-  for (let i = 0; i < spawnPoints.length; i++) {
-    const d = Math.hypot(spawnPoints[i][0] - player.pos.x, spawnPoints[i][1] - player.pos.z);
+  for (let i = 0; i < ring.length; i++) {
+    const d = Math.hypot(ring[i][0] - player.pos.x, ring[i][1] - player.pos.z);
     // sweet spot: 18-35m from player
     const score = -Math.abs(d - 26) - Math.random() * 6;
     if (score > bestScore) { bestScore = score; best = i; }
   }
-  const sp = spawnPoints[best];
+  const sp = ring[best];
   // Jitter, but never into a wall: ~2% of raw jittered points land inside solid
   // geometry, which is roughly 7 enemies per full run spawning clipped in a crate.
   // Resample, then fall back to the unjittered ring point.
@@ -398,8 +440,21 @@ function spawnFromQueue() {
     const jz = sp[1] + (Math.random() - 0.5) * 6;
     if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
   }
-  // kind distribution by wave: runners early, riflemen from w2, tanks from w4
-  spawnEnemy(CORE.pickEnemyKind(waveNum, Math.random()), x, z);
+  // A special wave draws from its own kind list, falling back to the normal table
+  // when none of its kinds has unlocked yet.
+  let kind = null;
+  if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+  if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
+  const elite = CORE.rollElite(waveNum, Math.random());
+  spawnEnemy(kind, x, z, { elite: elite });
+}
+
+// A sealed district must be excluded from the spawn ring. `usableSpawnPoints`
+// guarantees at least one point survives, but fall back to the full ring anyway —
+// a wave that cannot start is worse than a wave that starts somewhere awkward.
+function openSpawnPoints() {
+  const usable = CORE.usableSpawnPoints(spawnPoints, openDistricts);
+  return usable.length ? usable : spawnPoints;
 }
 
 function resupply() {
@@ -462,7 +517,7 @@ const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
 const MM_STATION_COLOR = {
   wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd',
-  lethal: '#ff8a6a', tactical: '#6fd8e8'
+  lethal: '#ff8a6a', tactical: '#6fd8e8', door: '#e8c46a'
 };
 // Metres of unaided detection. The UAV lifts this to the whole minimap.
 const MM_BASE_DETECT = 26;
@@ -506,7 +561,12 @@ function drawMinimap() {
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
     if (x * x + z * z > Math.min(R * R, detect)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
-    mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
+    const rad = (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3;
+    mmCtx.beginPath(); mmCtx.arc(x, z, rad, 0, 7); mmCtx.fill();
+    if (e.elite) {
+      mmCtx.strokeStyle = '#ffd24a'; mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath(); mmCtx.arc(x, z, rad + 2.5, 0, 7); mmCtx.stroke();
+    }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
     if (getSetting('colorblindMarkers') && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;

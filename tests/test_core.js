@@ -1576,3 +1576,183 @@ test('the cone respects its trigger range and degenerate inputs', () => {
   assert.strictEqual(CORE.coneHit(0, 0, 0, 0, 0, 1, c.trigger, c.arc), false, 'on top of it');
   assert.strictEqual(CORE.coneHit(0, 0, 0, 2, 0, 0, c.trigger, c.arc), false, 'no facing at all');
 });
+
+// ============================================================================
+// Phase 12 — wave and map design
+// ============================================================================
+
+// ---- Special waves (SYS-06) ----
+test('a special wave lands on every fifth wave and nowhere else', () => {
+  for (let n = 1; n <= 60; n++) {
+    const sp = CORE.specialWaveAt(n);
+    if (n >= CORE.SPECIAL_EVERY && n % CORE.SPECIAL_EVERY === 0) {
+      assert.ok(sp, 'wave ' + n + ' must be special');
+    } else {
+      assert.strictEqual(sp, null, 'wave ' + n + ' must not be');
+    }
+  }
+});
+
+test('the special cycle is deterministic, so it can be learned', () => {
+  // A player should be able to know wave 15 is Ironclad and bring a flank plan.
+  const first = [5, 10, 15, 20].map((n) => CORE.specialWaveAt(n).key);
+  const second = [25, 30, 35, 40].map((n) => CORE.specialWaveAt(n).key);
+  assert.deepStrictEqual(second, first, 'the cycle must repeat, not randomise');
+  assert.strictEqual(new Set(first).size, CORE.SPECIAL_WAVES.length,
+    'every modifier must appear before any repeats');
+});
+
+test('every special wave declares a name and a blurb the player can act on', () => {
+  for (const sp of CORE.SPECIAL_WAVES) {
+    assert.ok(sp.key && sp.name, sp.key + ' needs a name');
+    assert.ok(sp.blurb && sp.blurb.length > 8, sp.key + ' needs a blurb, not a label');
+    if (sp.countMul !== undefined) assert.ok(sp.countMul > 0);
+    if (sp.hpMul !== undefined) assert.ok(sp.hpMul > 0);
+  }
+});
+
+test('a special wave only draws kinds the wave has actually unlocked', () => {
+  // Ironclad is tanks and shielded advancers; the shielded advancer unlocks at
+  // wave 9. An Ironclad wave before then must not conjure one.
+  const ironclad = CORE.SPECIAL_WAVES.filter((s) => s.key === 'ironclad')[0];
+  const early = [];
+  for (let i = 0; i < 200; i++) early.push(CORE.specialKind(ironclad, 4, i / 200));
+  assert.ok(early.indexOf(3) < 0, 'no shielded advancer before wave 9');
+  assert.ok(early.indexOf(2) >= 0, 'tanks are available at wave 4, so it uses those');
+  const late = [];
+  for (let i = 0; i < 200; i++) late.push(CORE.specialKind(ironclad, 15, i / 200));
+  assert.ok(late.indexOf(3) >= 0 && late.indexOf(2) >= 0, 'both by wave 15');
+});
+
+test('a special wave with no unlocked kinds falls back rather than spawning nothing', () => {
+  const impossible = { key: 'x', name: 'X', blurb: 'nothing here', kinds: [99] };
+  assert.strictEqual(CORE.specialKind(impossible, 15, 0.5), null,
+    'null tells the caller to use the normal table');
+  assert.strictEqual(CORE.specialKind(null, 15, 0.5), null);
+  assert.strictEqual(CORE.specialKind({ key: 'y' }, 15, 0.5), null, 'no kind list at all');
+});
+
+// ---- Wave queue size ----
+test('the queue cap is applied after every multiplier, not before', () => {
+  // The bug this encodes: endlessEnemyCount capped the raw curve at 60, and a
+  // Blitz wave then doubled the capped number. Wave 25 queued 120 bodies against
+  // a ceiling meant to be 60.
+  const blitz = CORE.specialWaveAt(25);
+  assert.ok(blitz.countMul > 1, 'this test is pointless unless Blitz multiplies');
+  for (const d of [0.8, 1.0, 1.2]) {
+    for (const n of [5, 15, 25, 30, 45, 99]) {
+      const q = CORE.waveQueueSize(n, 5, 2.5, 15, d, CORE.specialWaveAt(n));
+      assert.ok(q <= CORE.WAVE_QUEUE_CAP,
+        'wave ' + n + ' at difficulty ' + d + ' queued ' + q);
+    }
+  }
+});
+
+test('a wave always queues at least one hostile', () => {
+  // A wave that queues nothing can never be cleared, which is a softlock. The
+  // floor has to hold for values the shipped difficulties never produce, because
+  // the guard is there for the ones a future tuning pass might.
+  for (const d of [0.001, 0.05, 0.1, 0.8, 1]) {
+    for (let n = 1; n <= 30; n++) {
+      const q = CORE.waveQueueSize(n, 5, 2.5, 15, d, CORE.specialWaveAt(n));
+      assert.ok(q >= 1, 'wave ' + n + ' at count multiplier ' + d + ' queued ' + q);
+    }
+  }
+  assert.strictEqual(CORE.waveQueueSize(1, 1, 1, 15, 0, null), 1,
+    'even a zero multiplier must still field one hostile');
+});
+
+test('special multipliers still change the queue below the cap', () => {
+  const plain = CORE.waveQueueSize(14, 5, 2.5, 15, 1, null);
+  const ironclad = CORE.waveQueueSize(15, 5, 2.5, 15, 1, CORE.specialWaveAt(15));
+  assert.ok(ironclad < plain, 'Ironclad fields fewer, heavier bodies');
+});
+
+// ---- Elites (SYS-06) ----
+test('elites do not appear before their wave and are capped after it', () => {
+  for (let n = 1; n < CORE.ELITE_FROM_WAVE; n++) {
+    assert.strictEqual(CORE.eliteChance(n), 0, 'wave ' + n);
+    assert.strictEqual(CORE.rollElite(n, 0), false, 'not even on a zero roll');
+  }
+  assert.ok(CORE.eliteChance(CORE.ELITE_FROM_WAVE) > 0);
+  let prev = 0;
+  for (let n = CORE.ELITE_FROM_WAVE; n <= 60; n++) {
+    const c = CORE.eliteChance(n);
+    assert.ok(c >= prev, 'the chance must not fall as waves climb');
+    assert.ok(c <= 0.3, 'wave ' + n + ' at ' + c + ' — elites must stay rare');
+    prev = c;
+  }
+});
+
+test('an elite is worth more than it costs to kill', () => {
+  assert.ok(CORE.ELITE.hpMul > 1, 'it has to take longer');
+  assert.ok(CORE.ELITE.scoreMul > 1 && CORE.ELITE.creditMul > 1,
+    'and pay for the time, or it is just a bullet sponge');
+  assert.ok(CORE.ELITE.scoreMul >= CORE.ELITE.hpMul * 0.8,
+    'the reward must roughly track the extra health');
+});
+
+test('the elite roll respects its own chance', () => {
+  const c = CORE.eliteChance(20);
+  assert.strictEqual(CORE.rollElite(20, c - 0.0001), true);
+  assert.strictEqual(CORE.rollElite(20, c), false, 'the boundary is exclusive');
+  assert.strictEqual(CORE.rollElite(20, 0.99), false);
+});
+
+// ---- Gated districts (SYS-01, SYS-06) ----
+test('a district contains its own bounds and nothing else', () => {
+  for (const d of CORE.DISTRICTS) {
+    assert.ok(d.price > 0, d.key + ' needs a price');
+    assert.ok(d.name && d.name.length, d.key + ' needs a name');
+    assert.ok(d.maxX > d.minX && d.maxZ > d.minZ, d.key + ' has inverted bounds');
+    assert.strictEqual(CORE.districtByKey(d.key), d);
+    assert.strictEqual(CORE.insideDistrict(d, (d.minX + d.maxX) / 2, (d.minZ + d.maxZ) / 2), true);
+    assert.strictEqual(CORE.insideDistrict(d, 0, 0), false, 'the arena centre is never gated');
+    // Pin BOTH axes. A bounds test that only checks X seals a whole stripe of the
+    // arena, and the centre check above would not notice.
+    const midX = (d.minX + d.maxX) / 2, midZ = (d.minZ + d.maxZ) / 2;
+    assert.strictEqual(CORE.insideDistrict(d, midX, d.maxZ + 20), false,
+      d.key + ': right X, far Z must be outside');
+    assert.strictEqual(CORE.insideDistrict(d, midX, d.minZ - 20), false,
+      d.key + ': right X, far -Z must be outside');
+    assert.strictEqual(CORE.insideDistrict(d, d.maxX + 20, midZ), false,
+      d.key + ': right Z, far X must be outside');
+  }
+  assert.strictEqual(CORE.districtByKey('atlantis'), null);
+});
+
+test('the two districts do not overlap each other', () => {
+  const [a, b] = CORE.DISTRICTS;
+  const overlap = a.minX <= b.maxX && a.maxX >= b.minX && a.minZ <= b.maxZ && a.maxZ >= b.minZ;
+  assert.strictEqual(overlap, false, 'one door must never half-open the other district');
+});
+
+test('a sealed district is excluded from the spawn ring and an open one is not', () => {
+  const d = CORE.DISTRICTS[0];
+  const cx = (d.minX + d.maxX) / 2, cz = (d.minZ + d.maxZ) / 2;
+  assert.strictEqual(CORE.spawnPointSealed(cx, cz, []), true);
+  assert.strictEqual(CORE.spawnPointSealed(cx, cz, [d.key]), false);
+  assert.strictEqual(CORE.spawnPointSealed(0, 0, []), false, 'the centre is always open');
+});
+
+test('the spawn ring always keeps usable points, sealed or not', () => {
+  // A wave that cannot spawn can never be cleared, which is a softlock — the same
+  // class of failure as the ammo drought Phase 5 found.
+  const ring = [];
+  for (let a = 0; a < 12; a++) {
+    const g = a / 12 * Math.PI * 2;
+    ring.push([Math.cos(g) * 33, Math.sin(g) * 33]);
+  }
+  const sealed = CORE.usableSpawnPoints(ring, []);
+  const open = CORE.usableSpawnPoints(ring, CORE.DISTRICTS.map((d) => d.key));
+  assert.ok(sealed.length > 0, 'the ring must survive both districts being sealed');
+  assert.strictEqual(open.length, ring.length, 'opening everything restores the whole ring');
+  assert.ok(sealed.length < ring.length, 'and sealing must actually remove some');
+  for (const p of sealed) {
+    assert.strictEqual(CORE.spawnPointSealed(p[0], p[1], []), false);
+  }
+});
+
+test('an empty ring does not crash the filter', () => {
+  assert.deepStrictEqual(CORE.usableSpawnPoints([], []), []);
+});
