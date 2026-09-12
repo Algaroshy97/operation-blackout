@@ -12,8 +12,27 @@ const hud = {
   hitmark: document.querySelector('#crosshair .hitmark'),
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
-  minimap: $id('minimap-canvas'), compass: $id('compass-canvas')
+  minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
+  grenadeCharge: $id('grenade-charge'),
+  grenadeChargeTxt: $id('grenade-charge-txt'),
+  grenadeChargeFill: $id('grenade-charge-fill')
 };
+
+function updateHudGrenadeCharge(visible, pct, speed) {
+  if (!hud.grenadeCharge) {
+    hud.grenadeCharge = $id('grenade-charge');
+    hud.grenadeChargeTxt = $id('grenade-charge-txt');
+    hud.grenadeChargeFill = $id('grenade-charge-fill');
+    if (!hud.grenadeCharge) return;
+  }
+  if (!visible) {
+    hud.grenadeCharge.style.opacity = '0';
+    return;
+  }
+  hud.grenadeCharge.style.opacity = '1';
+  if (hud.grenadeChargeFill) hud.grenadeChargeFill.style.width = pct + '%';
+  if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = 'GRENADE ' + Math.round(speed || 0) + ' M/S (' + pct + '%)';
+}
 
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));

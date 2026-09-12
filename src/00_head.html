@@ -67,6 +67,9 @@
   #scoping-overlay.scope-sniper .scope-cross{display:block}
   #steady-ind{top:62%;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .2s}
   #steady-ind.steady-on{color:#7ee08a}
+  #grenade-charge{top:58%;left:50%;transform:translateX(-50%);color:#ffd24a;font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 4px #000;opacity:0;transition:opacity .15s;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+  #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
+  #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
   #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px)}
   #start-screen{display:flex}
@@ -140,6 +143,7 @@
   <div id="weapon-name">M4 Carbine</div><div id="reload-hint">RELOADING</div>
 </div>
 <div id="sprint-ind" class="hud"></div>
+<div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">

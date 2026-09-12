@@ -112,7 +112,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     keys['KeyC'] = true;
   }, function () { keys['KeyC'] = false; });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
-  holdBtn('tbtn-nade', function () { pressed['KeyG'] = true; }, function () {});
+  holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();

@@ -43,7 +43,13 @@ function resetGame() {
   enemies.length = 0;
   for (let i = pickups.length - 1; i >= 0; i--) scene.remove(pickups[i].m);
   pickups.length = 0;
-  for (let i = liveGrenades.length - 1; i >= 0; i--) scene.remove(liveGrenades[i].m);
+  for (let i = liveGrenades.length - 1; i >= 0; i--) {
+    if (liveGrenades[i].ring) {
+      scene.remove(liveGrenades[i].ring);
+      if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+    }
+    scene.remove(liveGrenades[i].m);
+  }
   liveGrenades.length = 0;
   // clear vfx
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {

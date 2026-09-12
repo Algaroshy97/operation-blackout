@@ -60,8 +60,7 @@ function updateWeapons(dt) {
       if (s.reserve > 0) tryReload();
     }
   } else { dryPlayed = false; }
-  // grenade
-  if (pressed['KeyG']) throwGrenade();
+  // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);

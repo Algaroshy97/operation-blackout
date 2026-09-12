@@ -6,10 +6,120 @@ const grenadeGeo = new THREE.SphereGeometry(0.11, 10, 8);
 const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2e, roughness: 0.5, metalness: 0.3 });
 const fuseLightMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
 
-function throwGrenade() {
+// ---- Trajectory preview pool (zero per-frame allocation) ----
+const PREVIEW_DOT_COUNT = 28;
+const previewDotGeo = new THREE.SphereGeometry(0.04, 6, 4);
+const previewDotMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.8 });
+const previewDots = [];
+for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
+  const dot = new THREE.Mesh(previewDotGeo, previewDotMat);
+  dot.visible = false;
+  dot.userData.vfx = true;
+  dot.castShadow = false;
+  dot.receiveShadow = false;
+  scene.add(dot);
+  previewDots.push(dot);
+}
+function hidePreviewDots() {
+  for (let i = 0; i < previewDots.length; i++) previewDots[i].visible = false;
+}
+
+// ---- Blast radius ring pool ----
+const blastRingGeo = new THREE.RingGeometry(CFG.grenade.radius - 0.09, CFG.grenade.radius, 48);
+const blastRingPool = [];
+function getBlastRing() {
+  if (blastRingPool.length > 0) return blastRingPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+  const r = new THREE.Mesh(blastRingGeo, mat);
+  r.rotation.x = -Math.PI / 2;
+  r.userData.vfx = true;
+  r.castShadow = false;
+  r.receiveShadow = false;
+  return r;
+}
+function releaseBlastRing(ring) {
+  if (!ring) return;
+  scene.remove(ring);
+  blastRingPool.push(ring);
+}
+
+// ---- Grenade hold-to-charge state ----
+let grenadeCharging = false;
+let grenadeChargeT = 0;
+const GRENADE_MIN_SPEED = 6.0;
+const GRENADE_MAX_SPEED = 13.0;
+const GRENADE_RAMP_DURATION = 1.0;
+const GRENADE_TAP_THRESHOLD = 0.22;
+
+function getGrenadeSpeed() {
+  const ratio = Math.min(1, grenadeChargeT / GRENADE_RAMP_DURATION);
+  return GRENADE_MIN_SPEED + ratio * (GRENADE_MAX_SPEED - GRENADE_MIN_SPEED);
+}
+
+const _prevDir = new THREE.Vector3();
+function updateGrenadePreview(speed) {
+  if (grenades.count <= 0 || player.dead || paused || !started) {
+    hidePreviewDots();
+    return;
+  }
+  _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _prevDir.y += 0.45;
+  _prevDir.normalize();
+
+  let px = camera.position.x;
+  let py = camera.position.y - 0.1;
+  let pz = camera.position.z;
+  let vx = _prevDir.x * speed;
+  let vy = _prevDir.y * speed;
+  let vz = _prevDir.z * speed;
+  const dtStep = 0.04;
+
+  let stopped = false;
+  for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
+    if (stopped) {
+      previewDots[i].visible = false;
+      continue;
+    }
+    vy -= 14 * dtStep;
+    px += vx * dtStep;
+    py += vy * dtStep;
+    pz += vz * dtStep;
+
+    // ground hit check
+    if (py <= 0.11) {
+      py = 0.11;
+      previewDots[i].position.set(px, py, pz);
+      previewDots[i].visible = true;
+      stopped = true;
+      continue;
+    }
+    // wall hit check (colliders array)
+    let hitWall = false;
+    for (let c = 0; c < colliders.length; c++) {
+      const col = colliders[c];
+      if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
+          py > col.min.y && py < col.max.y &&
+          pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
+        hitWall = true;
+        break;
+      }
+    }
+    if (hitWall) {
+      previewDots[i].position.set(px, py, pz);
+      previewDots[i].visible = true;
+      stopped = true;
+      continue;
+    }
+    previewDots[i].position.set(px, py, pz);
+    previewDots[i].visible = true;
+  }
+}
+
+function throwGrenade(customSpeed) {
   if (grenades.count <= 0 || grenades.cd > 0 || player.dead) return;
   grenades.count--;
   grenades.cd = 0.8;
+  const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), fuseLightMat);
   blink.position.y = 0.1;
@@ -18,14 +128,62 @@ function throwGrenade() {
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   dir.y += 0.45; dir.normalize();
-  liveGrenades.push({ m: m, vel: dir.multiplyScalar(CFG.grenade.speed), fuse: CFG.grenade.fuse, blink: blink });
+  liveGrenades.push({
+    m: m,
+    vel: dir.multiplyScalar(speed),
+    fuse: CFG.grenade.fuse,
+    blink: blink,
+    atRest: false,
+    ring: null,
+    restFuse: CFG.grenade.fuse
+  });
   scene.add(m);
+  playSound('pin');
   playSound('draw');
   updateHudAmmo();
 }
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+
+  // Charge / aim input handling
+  const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
+  if (keys['KeyG']) {
+    if (!grenadeCharging && canCharge) {
+      grenadeCharging = true;
+      grenadeChargeT = 0;
+    }
+    if (grenadeCharging) {
+      if (player.dead || paused || !started || grenades.count <= 0) {
+        grenadeCharging = false;
+        grenadeChargeT = 0;
+        hidePreviewDots();
+        if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+      } else {
+        grenadeChargeT += dt;
+        const curSpeed = getGrenadeSpeed();
+        updateGrenadePreview(curSpeed);
+        const chargePct = Math.min(100, Math.round((grenadeChargeT / GRENADE_RAMP_DURATION) * 100));
+        if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(true, chargePct, curSpeed);
+      }
+    } else {
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+    }
+  } else {
+    if (grenadeCharging) {
+      const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+      grenadeCharging = false;
+      grenadeChargeT = 0;
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+      throwGrenade(throwSpeed);
+    } else {
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+    }
+  }
+
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
     g.fuse -= dt;
@@ -55,10 +213,29 @@ function updateGrenades(dt) {
         g.vel.y *= 0.8;
       }
     }
+    // detect when grenade comes to rest on ground
+    const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
+    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+      g.atRest = true;
+      g.restFuse = Math.max(0.1, g.fuse);
+      const ring = getBlastRing();
+      ring.position.set(g.m.position.x, 0.03, g.m.position.z);
+      ring.material.opacity = 0.32;
+      scene.add(ring);
+      g.ring = ring;
+    }
+    if (g.ring) {
+      const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
+      g.ring.material.opacity = 0.32 * fade;
+    }
     // blink faster as fuse burns
     g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
     if (g.fuse <= 0) {
       explodeGrenade(g.m.position);
+      if (g.ring) {
+        releaseBlastRing(g.ring);
+        g.ring = null;
+      }
       scene.remove(g.m);
       liveGrenades.splice(i, 1);
     }
