@@ -45,6 +45,12 @@ function spawnRagdoll(en, impulse) {
   if (en.mixer) { en.mixer.stopAllAction(); en.mixer = null; }
   en.actions = null;
 
+  // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
+  // only walks the live roster, and the agent leaves that list the moment it dies. So
+  // a soldier killed while it was one of the nearest N goes on paying for a shadow
+  // pass forever, lying flat on the ground where nobody looks at it.
+  en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
+
   const rag = CORE.makeRagdoll(en.pos.x, en.pos.y, en.pos.z, en.yaw);
   if (impulse) {
     CORE.ragdollImpulse(rag, impulse.node || 'chest',

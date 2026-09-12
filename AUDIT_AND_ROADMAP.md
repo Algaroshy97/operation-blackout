@@ -686,6 +686,36 @@
 >
 > 9 new node tests (241 total). Mutation-checked 10 of 10.
 
+> **Integration pass.** Thirteen phases had been tested system by system and never
+> together. A scripted run drove the whole update stack at a fixed timestep; a second
+> measurement rendered a worst case with every system live at once.
+>
+> | | |
+> |---|---|
+> | simulated frames, zero console errors | **108,000** |
+> | geometry growth over that run | **0** |
+> | worst case: 14 enemies + 8 corpses + smoke + thermite + sentry + munitions + objective + UAV | **3.3–3.7 ms/frame, 268–284 draw calls, ~46k triangles** |
+>
+> Two defects, both only visible with everything running. **`killPlayer()` left
+> `player.downed` set** — a second lethal hit while already down arrives there directly
+> rather than through `updateDowned()`, the only path that cleared it, so the
+> "BLEEDING OUT" timer stayed on screen behind the death screen. Found because the
+> harness reported `dead:true` and `downed:true` at once, a combination that cannot
+> legitimately exist. And **corpses kept whatever shadow-caster state they died with**:
+> `updateEnemyShadowBudget` walks only the live roster, and an agent leaves it the
+> moment it dies, so a soldier killed while it was one of the nearest N paid for a
+> shadow pass forever while lying flat on the floor.
+>
+> **Two things measured badly and reported as such rather than estimated.** The
+> draw-call saving from the corpse shadow fix could not be A/B'd: corpses expire after
+> about five seconds, shorter than a stable measurement window, so the second arm ran
+> with zero corpses every time. And nothing here says anything about mid-range Android,
+> because the emulator runs a desktop GPU.
+>
+> A harness limitation worth not mistaking for a balance signal: the scripted bot fired
+> exactly its 180 rounds, ran dry and stalled, because it never walks to the ammo cache
+> `updateAmmoRelief` drops for it. A bot that cannot move is not a difficulty test.
+
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
 `scripts/build.py` output modulo line endings.

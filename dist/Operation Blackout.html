@@ -9993,6 +9993,12 @@ function spawnRagdoll(en, impulse) {
   if (en.mixer) { en.mixer.stopAllAction(); en.mixer = null; }
   en.actions = null;
 
+  // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
+  // only walks the live roster, and the agent leaves that list the moment it dies. So
+  // a soldier killed while it was one of the nearest N goes on paying for a shadow
+  // pass forever, lying flat on the ground where nobody looks at it.
+  en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
+
   const rag = CORE.makeRagdoll(en.pos.x, en.pos.y, en.pos.z, en.yaw);
   if (impulse) {
     CORE.ragdollImpulse(rag, impulse.node || 'chest',
@@ -12908,6 +12914,10 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  // A second lethal hit while already down comes straight here, so the bleed-out
+  // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
+  // stays on screen behind the death screen until the next deploy.
+  if (typeof clearDowned === 'function') clearDowned();
   stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();

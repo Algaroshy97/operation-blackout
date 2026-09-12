@@ -22,6 +22,10 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  // A second lethal hit while already down comes straight here, so the bleed-out
+  // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
+  // stays on screen behind the death screen until the next deploy.
+  if (typeof clearDowned === 'function') clearDowned();
   stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
