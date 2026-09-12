@@ -3982,6 +3982,7 @@ scene.add(ground);
 
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
+const raycastColliders = []; // world geometry meshes for scoped raycasting
 const mapBounds = CFG.world.size / 2 - 2;
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
@@ -3993,6 +3994,7 @@ function addBox(x, y, z, w, h, d, mat, opts) {
   m.castShadow = opts.noShadow ? false : true;
   m.receiveShadow = true;
   scene.add(m);
+  raycastColliders.push(m);
   if (!opts.noCollide) addCollider(x, y, z, w, h, d);
   return m;
 }
@@ -4093,6 +4095,7 @@ function buildArena() {
         else m.position.z = z + i * 3.1 - (n - 1) * 1.55;
         m.rotation.y = ry;
         scene.add(m);
+        raycastColliders.push(m);
       }
     }
     // east + west faces (two floors)
@@ -4133,6 +4136,7 @@ function buildArena() {
     m.position.set(x, 0.75, z); m.castShadow = true; m.receiveShadow = true;
     m.userData.oldBarrel = true;
     scene.add(m);
+    raycastColliders.push(m);
     addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
   }
   barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
@@ -4198,6 +4202,7 @@ function scatterProps() {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
     });
     scene.add(m);
+    raycastColliders.push(m);
     const d = dims[s[0]];
     addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
     placed++;
@@ -4215,6 +4220,7 @@ function scatterProps() {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
       });
       scene.add(m);
+      raycastColliders.push(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
   });
   placed += 3;
@@ -4230,6 +4236,8 @@ function scatterProps() {
     for (let i = 0; i < oldBarrels.length; i++) {
       const p = oldBarrels[i].position;
       scene.remove(oldBarrels[i]);
+      const oldIdx = raycastColliders.indexOf(oldBarrels[i]);
+      if (oldIdx !== -1) raycastColliders.splice(oldIdx, 1);
       const b = GLB_PARSED.BARREL.scene.clone(true);
       b.scale.setScalar(4.4);
       b.position.set(p.x, 0, p.z);
@@ -4237,6 +4245,7 @@ function scatterProps() {
       b.castShadow = true; b.receiveShadow = true;
       b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
       scene.add(b);
+      raycastColliders.push(b);
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
@@ -4664,20 +4673,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     lastLX = t.clientX; lastLY = t.clientY;
   }
 
-  // ---- tap-to-fire on look zone (short tap = single shot) ----
-  lookZone.addEventListener('touchstart', function (e) {
-    const t = e.changedTouches[0];
-    window.__tapT = performance.now();
-    window.__tapX = t.clientX; window.__tapY = t.clientY;
-  });
-  lookZone.addEventListener('touchend', function (e) {
-    const t = e.changedTouches[0];
-    if (performance.now() - (window.__tapT || 0) < 200 &&
-        Math.hypot(t.clientX - (window.__tapX || 0), t.clientY - (window.__tapY || 0)) < 12) {
-      touchState.tapFiring = true;
-      setTimeout(function () { touchState.tapFiring = false; }, 60);
-    }
-  });
+
 
   // ---- hold buttons ----
   function holdBtn(id, on, off) {
@@ -4899,29 +4895,28 @@ function fireShot() {
   raycaster.set(_from, _shootDir);
   raycaster.far = w.range;
 
-  // test enemies first (meshes have userData.enemy)
+  // test enemies first (hitboxes + visible meshes)
   const targets = [];
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
     targets.push(enemies[i].hitBody);
     targets.push(enemies[i].hitHead);
+    if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
   }
-  const worldHits = raycaster.intersectObjects(scene.children, true)
-    .filter(function (h) { return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky; });
-  const enemyHits = raycaster.intersectObjects(targets, false);
+  const worldHits = raycaster.intersectObjects(raycastColliders, true);
+  const enemyHits = raycaster.intersectObjects(targets, true);
   let hit = null, isEnemy = false, isHead = false;
   if (enemyHits.length && worldHits.length) {
     const w0 = worldHits[0];
-    if (w0.object.userData.enemyFlesh && w0.object.userData.enemyRef && !w0.object.userData.enemyRef.dead) {
-      // bullet struck a visible enemy mesh directly — treat as body hit at that point
-      hit = w0; isEnemy = true; isHead = false;
-    } else if (enemyHits[0].distance <= w0.distance) { hit = enemyHits[0]; isEnemy = true; isHead = hit.object.userData.isHead; }
-    else hit = w0;
-  } else if (enemyHits.length) { hit = enemyHits[0]; isEnemy = true; isHead = hit.object.userData.isHead; }
-  else if (worldHits.length) {
-    const w0 = worldHits[0];
-    if (w0.object.userData.enemyFlesh && w0.object.userData.enemyRef && !w0.object.userData.enemyRef.dead) { hit = w0; isEnemy = true; isHead = false; }
-    else hit = w0;
+    if (enemyHits[0].distance <= w0.distance) {
+      hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
+    } else {
+      hit = w0;
+    }
+  } else if (enemyHits.length) {
+    hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
+  } else if (worldHits.length) {
+    hit = worldHits[0];
   }
 
   if (hit && isEnemy) {
@@ -4941,7 +4936,7 @@ function fireShot() {
   player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  playSound('shot');
+  if (w.type !== 'SR') playSound('shot');
   if (w.type === 'SR') { playSound('scope_out'); }
   updateHudAmmo();
 }
@@ -5383,7 +5378,7 @@ function killEnemy(en, isHead) {
   kills++;
   if (isHead) headshots++;
   dropPickup(en.pos);
-  playSound(isHead ? 'headshot' : 'kill');
+  playSound('kill');
 }
 
 // Simple steering: move toward player with obstacle pushout (same resolve as player)
@@ -5409,12 +5404,16 @@ function moveEnemy(en, dt) {
   en.vel.z = mvz * speed;
   en.pos.x += en.vel.x * dt;
   en.pos.z += en.vel.z * dt;
-  // obstacle pushout (AABB vs point with radius)
+  // obstacle pushout (AABB vs point with radius) + step-up allowance
   const r = 0.4 * (en.kind === 2 ? 1.4 : 1);
+  const stepH = 0.60;
+  const feet = en.pos.y;
+  const head = en.pos.y + (en.kind === 2 ? 2.3 : 1.85);
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    if (c.max.y < 0.3) continue;
-    if (c.min.y > 1.4) continue;
+    if (c.min.y >= head + 0.2) continue;
+    if (c.max.y <= feet + stepH) continue;
+    if (feet >= c.max.y - 0.001) continue;
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
     const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
     const dx = en.pos.x - cx, dz = en.pos.z - cz;
@@ -5425,6 +5424,18 @@ function moveEnemy(en, dt) {
   }
   en.pos.x = Math.max(-mapBounds, Math.min(mapBounds, en.pos.x));
   en.pos.z = Math.max(-mapBounds, Math.min(mapBounds, en.pos.z));
+
+  // Vertical resolve: find highest floor below feet + stepH
+  let floorY = GROUND;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
+    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
+    const dx = en.pos.x - cx, dz = en.pos.z - cz;
+    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
+    if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
+  }
+  en.pos.y = floorY;
 }
 
 // LOS check: ray from enemy eye to player eye against static world
@@ -5436,17 +5447,14 @@ function hasLOS(en) {
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
   if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return true; return en._losCache; }
-  _losFrom.set(en.pos.x, E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
+  _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
   losRay.set(_losFrom, _losTo.sub(_losFrom).normalize());
   losRay.far = _losFrom.distanceTo(player.pos);
-  const hits = losRay.intersectObjects(scene.children, true);
+  const hits = losRay.intersectObjects(raycastColliders, true);
   let blocked = false;
   for (let i = 0; i < hits.length; i++) {
-    const o = hits[i].object;
-    if (o === ground) continue;
-    if (o.userData.vfx || o.userData.gun || o.userData.sky) continue;
     if (hits[i].distance < losRay.far - 0.2) { blocked = true; break; }
   }
   en._losCache = !blocked;
@@ -5464,7 +5472,7 @@ function updateEnemies(dt) {
       en.deathT += dt;
       const p = en.parts;
       if (!en.actions) p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
-      p.group.position.y = -Math.max(0, en.deathT - 1.2) * 0.6;
+      p.group.position.y = en.pos.y - Math.max(0, en.deathT - 1.2) * 0.6;
       if (en.deathT > 4) {
         scene.remove(p.group);
         disposeEnemyGeometry(en);
@@ -5582,7 +5590,7 @@ function updateEnemies(dt) {
 function enemyShoot(en, dist) {
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
-  const from = new THREE.Vector3(en.pos.x, E_DIM.pelvisH + 0.55, en.pos.z);
+  const from = new THREE.Vector3(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   const to = player.pos.clone();
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
@@ -5608,7 +5616,7 @@ function setEnemyAnim(en, name, fade) {
 }
 function animateEnemy(en, dt, dist) {
   const p = en.parts;
-  p.group.position.set(en.pos.x, 0, en.pos.z);
+  p.group.position.set(en.pos.x, en.pos.y, en.pos.z);
   p.group.rotation.y = en.yaw + Math.PI;
   if (en.mixer) en.mixer.update(dt);
   if (en.dead) {
@@ -5654,69 +5662,137 @@ const vfx = { tracers: [], impacts: [], blood: [], muzzleLights: [] };
 const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
-function spawnTracer(from, to, mat) {
-  const m = new THREE.Mesh(tracerGeo, mat || tracerMat);
-  const len = from.distanceTo(to);
-  m.scale.z = len;
-  m.position.copy(from).add(to).multiplyScalar(0.5);
-  m.lookAt(to);
-  m.userData.vfx = true;
-  scene.add(m);
-  vfx.tracers.push({ m: m, life: 0.06 });
-}
 const impactGeo = new THREE.SphereGeometry(0.06, 6, 4);
-const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true });
-function spawnImpact(point, normal, obj) {
-  // flash sphere + spark lines + decal-ish quad
-  const m = new THREE.Mesh(impactGeo, impactMat.clone());
-  m.position.copy(point);
-  m.userData.vfx = true;
-  scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25 });
-  // sparks
-  for (let i = 0; i < 4; i++) {
-    const s = new THREE.Mesh(sparkGeo, sparkMat);
-    s.position.copy(point);
-    const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
-    if (normal) v.add(_tmpN.copy(normal).multiplyScalar(2));
-    s.userData.vfx = true;
-    scene.add(s);
-    vfx.blood.push({ m: s, v: v, life: 0.35, grav: 9 });
-  }
-  playSound('impact');
-}
+const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.85 });
 const sparkGeo = new THREE.BoxGeometry(0.02, 0.02, 0.02);
 const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
 const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
+const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
+const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+
+// Mesh pools
+const tracerPool = [];
+const impactPool = [];
+const sparkPool = [];
+const bloodPool = [];
+const casingPool = [];
+
+function warmupVfx() {
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(tracerGeo, tracerMat);
+    m.userData.vfx = true; m.visible = false;
+    tracerPool.push(m);
+  }
+  for (let i = 0; i < 25; i++) {
+    const m = new THREE.Mesh(impactGeo, impactMat);
+    m.userData.vfx = true; m.visible = false;
+    impactPool.push(m);
+  }
+  for (let i = 0; i < 60; i++) {
+    const m = new THREE.Mesh(sparkGeo, sparkMat);
+    m.userData.vfx = true; m.visible = false;
+    sparkPool.push(m);
+  }
+  for (let i = 0; i < 80; i++) {
+    const m = new THREE.Mesh(bloodGeo, bloodMat);
+    m.userData.vfx = true; m.visible = false;
+    bloodPool.push(m);
+  }
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(casingGeo, casingMat);
+    m.userData.vfx = true; m.visible = false;
+    casingPool.push(m);
+  }
+}
+warmupVfx();
+
+function getTracerMesh(mat) {
+  const m = tracerPool.length > 0 ? tracerPool.pop() : new THREE.Mesh(tracerGeo, mat || tracerMat);
+  m.material = mat || tracerMat;
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getImpactMesh() {
+  const m = impactPool.length > 0 ? impactPool.pop() : new THREE.Mesh(impactGeo, impactMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getSparkMesh() {
+  const m = sparkPool.length > 0 ? sparkPool.pop() : new THREE.Mesh(sparkGeo, sparkMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getBloodMesh() {
+  const m = bloodPool.length > 0 ? bloodPool.pop() : new THREE.Mesh(bloodGeo, bloodMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getCasingMesh() {
+  const m = casingPool.length > 0 ? casingPool.pop() : new THREE.Mesh(casingGeo, casingMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+
+function spawnTracer(from, to, mat) {
+  const mMat = (mat === 0xff8844 || mat === tracerMatE) ? tracerMatE : (mat || tracerMat);
+  const m = getTracerMesh(mMat);
+  const len = from.distanceTo(to);
+  m.scale.set(1, 1, len);
+  m.position.copy(from).add(to).multiplyScalar(0.5);
+  m.lookAt(to);
+  scene.add(m);
+  vfx.tracers.push({ m: m, life: 0.06 });
+}
+
 const _tmpN = new THREE.Vector3();
+function spawnImpact(point, normal, obj) {
+  // flash sphere + spark lines + decal-ish quad
+  const m = getImpactMesh();
+  m.position.copy(point);
+  m.scale.set(1, 1, 1);
+  scene.add(m);
+  vfx.impacts.push({ m: m, life: 0.25 });
+  // sparks
+  for (let i = 0; i < 4; i++) {
+    const s = getSparkMesh();
+    s.position.copy(point);
+    const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
+    if (normal) v.add(_tmpN.copy(normal).multiplyScalar(2));
+    scene.add(s);
+    vfx.blood.push({ m: s, v: v, life: 0.35, grav: 9, isSpark: true });
+  }
+  playSound('impact');
+}
+
 function spawnBlood(point, isHead) {
   const n = isHead ? 10 : 6;
   for (let i = 0; i < n; i++) {
-    const b = new THREE.Mesh(bloodGeo, bloodMat);
+    const b = getBloodMesh();
     b.position.copy(point);
     const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.2, (Math.random() - 0.5) * 2).multiplyScalar(1.5 + Math.random() * 2.5);
-    b.userData.vfx = true;
     scene.add(b);
-    vfx.blood.push({ m: b, v: v, life: 0.5, grav: 12 });
+    vfx.blood.push({ m: b, v: v, life: 0.5, grav: 12, isBlood: true });
   }
 }
 
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
-const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
-const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
 const casings = [];
 function spawnCasing(camPos, camQ) {
-  if (casings.length > 24) { const old = casings.shift(); scene.remove(old.m); }
-  const m = new THREE.Mesh(casingGeo, casingMat);
+  if (casings.length > 24) {
+    const old = casings.shift();
+    scene.remove(old.m);
+    old.m.visible = false;
+    casingPool.push(old.m);
+  }
+  const m = getCasingMesh();
   m.position.copy(camPos);
   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQ);
   m.position.addScaledVector(right, 0.25).addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(camQ), -0.15);
   m.position.addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camQ), 0.3);
   const v = right.clone().multiplyScalar(1.6 + Math.random()).add(new THREE.Vector3(0, 1.4 + Math.random(), 0));
   const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
-  m.userData.vfx = true;
   scene.add(m);
   casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
 }
@@ -5724,7 +5800,13 @@ function updateCasings(dt) {
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     c.life -= dt;
-    if (c.life <= 0) { scene.remove(c.m); casings.splice(i, 1); continue; }
+    if (c.life <= 0) {
+      scene.remove(c.m);
+      c.m.visible = false;
+      casingPool.push(c.m);
+      casings.splice(i, 1);
+      continue;
+    }
     if (!c.rest) {
       c.v.y -= 12 * dt;
       c.m.position.addScaledVector(c.v, dt);
@@ -5777,15 +5859,23 @@ function updateVfx(dt) {
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
     t.life -= dt;
-    if (t.life <= 0) { scene.remove(t.m); vfx.tracers.splice(i, 1); }
+    if (t.life <= 0) {
+      scene.remove(t.m);
+      t.m.visible = false;
+      tracerPool.push(t.m);
+      vfx.tracers.splice(i, 1);
+    }
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
     im.life -= dt;
-    im.m.scale.setScalar(1 + (0.25 - Math.max(0, im.life)) * 6);
-    im.m.material.opacity = Math.max(0, im.life * 4);
-    // Each impact owns a cloned material; removing its mesh alone leaks GPU resources.
-    if (im.life <= 0) { scene.remove(im.m); im.m.material.dispose(); vfx.impacts.splice(i, 1); }
+    im.m.scale.setScalar(Math.max(0.001, (1 + (0.25 - Math.max(0, im.life)) * 6) * (im.life / 0.25)));
+    if (im.life <= 0) {
+      scene.remove(im.m);
+      im.m.visible = false;
+      impactPool.push(im.m);
+      vfx.impacts.splice(i, 1);
+    }
   }
   for (let i = vfx.blood.length - 1; i >= 0; i--) {
     const b = vfx.blood[i];
@@ -5793,7 +5883,13 @@ function updateVfx(dt) {
     b.v.y -= b.grav * dt;
     b.m.position.addScaledVector(b.v, dt);
     if (b.m.position.y < 0.02) { b.m.position.y = 0.02; b.v.set(0, 0, 0); }
-    if (b.life <= 0) { scene.remove(b.m); vfx.blood.splice(i, 1); }
+    if (b.life <= 0) {
+      scene.remove(b.m);
+      b.m.visible = false;
+      if (b.isSpark) sparkPool.push(b.m);
+      else if (b.isBlood) bloodPool.push(b.m);
+      vfx.blood.splice(i, 1);
+    }
   }
 }
 

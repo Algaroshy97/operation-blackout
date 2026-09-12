@@ -5,69 +5,137 @@ const vfx = { tracers: [], impacts: [], blood: [], muzzleLights: [] };
 const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
-function spawnTracer(from, to, mat) {
-  const m = new THREE.Mesh(tracerGeo, mat || tracerMat);
-  const len = from.distanceTo(to);
-  m.scale.z = len;
-  m.position.copy(from).add(to).multiplyScalar(0.5);
-  m.lookAt(to);
-  m.userData.vfx = true;
-  scene.add(m);
-  vfx.tracers.push({ m: m, life: 0.06 });
-}
 const impactGeo = new THREE.SphereGeometry(0.06, 6, 4);
-const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true });
-function spawnImpact(point, normal, obj) {
-  // flash sphere + spark lines + decal-ish quad
-  const m = new THREE.Mesh(impactGeo, impactMat.clone());
-  m.position.copy(point);
-  m.userData.vfx = true;
-  scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25 });
-  // sparks
-  for (let i = 0; i < 4; i++) {
-    const s = new THREE.Mesh(sparkGeo, sparkMat);
-    s.position.copy(point);
-    const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
-    if (normal) v.add(_tmpN.copy(normal).multiplyScalar(2));
-    s.userData.vfx = true;
-    scene.add(s);
-    vfx.blood.push({ m: s, v: v, life: 0.35, grav: 9 });
-  }
-  playSound('impact');
-}
+const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.85 });
 const sparkGeo = new THREE.BoxGeometry(0.02, 0.02, 0.02);
 const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
 const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
+const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
+const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+
+// Mesh pools
+const tracerPool = [];
+const impactPool = [];
+const sparkPool = [];
+const bloodPool = [];
+const casingPool = [];
+
+function warmupVfx() {
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(tracerGeo, tracerMat);
+    m.userData.vfx = true; m.visible = false;
+    tracerPool.push(m);
+  }
+  for (let i = 0; i < 25; i++) {
+    const m = new THREE.Mesh(impactGeo, impactMat);
+    m.userData.vfx = true; m.visible = false;
+    impactPool.push(m);
+  }
+  for (let i = 0; i < 60; i++) {
+    const m = new THREE.Mesh(sparkGeo, sparkMat);
+    m.userData.vfx = true; m.visible = false;
+    sparkPool.push(m);
+  }
+  for (let i = 0; i < 80; i++) {
+    const m = new THREE.Mesh(bloodGeo, bloodMat);
+    m.userData.vfx = true; m.visible = false;
+    bloodPool.push(m);
+  }
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(casingGeo, casingMat);
+    m.userData.vfx = true; m.visible = false;
+    casingPool.push(m);
+  }
+}
+warmupVfx();
+
+function getTracerMesh(mat) {
+  const m = tracerPool.length > 0 ? tracerPool.pop() : new THREE.Mesh(tracerGeo, mat || tracerMat);
+  m.material = mat || tracerMat;
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getImpactMesh() {
+  const m = impactPool.length > 0 ? impactPool.pop() : new THREE.Mesh(impactGeo, impactMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getSparkMesh() {
+  const m = sparkPool.length > 0 ? sparkPool.pop() : new THREE.Mesh(sparkGeo, sparkMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getBloodMesh() {
+  const m = bloodPool.length > 0 ? bloodPool.pop() : new THREE.Mesh(bloodGeo, bloodMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getCasingMesh() {
+  const m = casingPool.length > 0 ? casingPool.pop() : new THREE.Mesh(casingGeo, casingMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+
+function spawnTracer(from, to, mat) {
+  const mMat = (mat === 0xff8844 || mat === tracerMatE) ? tracerMatE : (mat || tracerMat);
+  const m = getTracerMesh(mMat);
+  const len = from.distanceTo(to);
+  m.scale.set(1, 1, len);
+  m.position.copy(from).add(to).multiplyScalar(0.5);
+  m.lookAt(to);
+  scene.add(m);
+  vfx.tracers.push({ m: m, life: 0.06 });
+}
+
 const _tmpN = new THREE.Vector3();
+function spawnImpact(point, normal, obj) {
+  // flash sphere + spark lines + decal-ish quad
+  const m = getImpactMesh();
+  m.position.copy(point);
+  m.scale.set(1, 1, 1);
+  scene.add(m);
+  vfx.impacts.push({ m: m, life: 0.25 });
+  // sparks
+  for (let i = 0; i < 4; i++) {
+    const s = getSparkMesh();
+    s.position.copy(point);
+    const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
+    if (normal) v.add(_tmpN.copy(normal).multiplyScalar(2));
+    scene.add(s);
+    vfx.blood.push({ m: s, v: v, life: 0.35, grav: 9, isSpark: true });
+  }
+  playSound('impact');
+}
+
 function spawnBlood(point, isHead) {
   const n = isHead ? 10 : 6;
   for (let i = 0; i < n; i++) {
-    const b = new THREE.Mesh(bloodGeo, bloodMat);
+    const b = getBloodMesh();
     b.position.copy(point);
     const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.2, (Math.random() - 0.5) * 2).multiplyScalar(1.5 + Math.random() * 2.5);
-    b.userData.vfx = true;
     scene.add(b);
-    vfx.blood.push({ m: b, v: v, life: 0.5, grav: 12 });
+    vfx.blood.push({ m: b, v: v, life: 0.5, grav: 12, isBlood: true });
   }
 }
 
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
-const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
-const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
 const casings = [];
 function spawnCasing(camPos, camQ) {
-  if (casings.length > 24) { const old = casings.shift(); scene.remove(old.m); }
-  const m = new THREE.Mesh(casingGeo, casingMat);
+  if (casings.length > 24) {
+    const old = casings.shift();
+    scene.remove(old.m);
+    old.m.visible = false;
+    casingPool.push(old.m);
+  }
+  const m = getCasingMesh();
   m.position.copy(camPos);
   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQ);
   m.position.addScaledVector(right, 0.25).addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(camQ), -0.15);
   m.position.addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camQ), 0.3);
   const v = right.clone().multiplyScalar(1.6 + Math.random()).add(new THREE.Vector3(0, 1.4 + Math.random(), 0));
   const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
-  m.userData.vfx = true;
   scene.add(m);
   casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
 }
@@ -75,7 +143,13 @@ function updateCasings(dt) {
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     c.life -= dt;
-    if (c.life <= 0) { scene.remove(c.m); casings.splice(i, 1); continue; }
+    if (c.life <= 0) {
+      scene.remove(c.m);
+      c.m.visible = false;
+      casingPool.push(c.m);
+      casings.splice(i, 1);
+      continue;
+    }
     if (!c.rest) {
       c.v.y -= 12 * dt;
       c.m.position.addScaledVector(c.v, dt);
@@ -128,15 +202,23 @@ function updateVfx(dt) {
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
     t.life -= dt;
-    if (t.life <= 0) { scene.remove(t.m); vfx.tracers.splice(i, 1); }
+    if (t.life <= 0) {
+      scene.remove(t.m);
+      t.m.visible = false;
+      tracerPool.push(t.m);
+      vfx.tracers.splice(i, 1);
+    }
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
     im.life -= dt;
-    im.m.scale.setScalar(1 + (0.25 - Math.max(0, im.life)) * 6);
-    im.m.material.opacity = Math.max(0, im.life * 4);
-    // Each impact owns a cloned material; removing its mesh alone leaks GPU resources.
-    if (im.life <= 0) { scene.remove(im.m); im.m.material.dispose(); vfx.impacts.splice(i, 1); }
+    im.m.scale.setScalar(Math.max(0.001, (1 + (0.25 - Math.max(0, im.life)) * 6) * (im.life / 0.25)));
+    if (im.life <= 0) {
+      scene.remove(im.m);
+      im.m.visible = false;
+      impactPool.push(im.m);
+      vfx.impacts.splice(i, 1);
+    }
   }
   for (let i = vfx.blood.length - 1; i >= 0; i--) {
     const b = vfx.blood[i];
@@ -144,7 +226,13 @@ function updateVfx(dt) {
     b.v.y -= b.grav * dt;
     b.m.position.addScaledVector(b.v, dt);
     if (b.m.position.y < 0.02) { b.m.position.y = 0.02; b.v.set(0, 0, 0); }
-    if (b.life <= 0) { scene.remove(b.m); vfx.blood.splice(i, 1); }
+    if (b.life <= 0) {
+      scene.remove(b.m);
+      b.m.visible = false;
+      if (b.isSpark) sparkPool.push(b.m);
+      else if (b.isBlood) bloodPool.push(b.m);
+      vfx.blood.splice(i, 1);
+    }
   }
 }
 

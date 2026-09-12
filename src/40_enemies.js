@@ -259,7 +259,7 @@ function killEnemy(en, isHead) {
   kills++;
   if (isHead) headshots++;
   dropPickup(en.pos);
-  playSound(isHead ? 'headshot' : 'kill');
+  playSound('kill');
 }
 
 // Simple steering: move toward player with obstacle pushout (same resolve as player)
@@ -285,12 +285,16 @@ function moveEnemy(en, dt) {
   en.vel.z = mvz * speed;
   en.pos.x += en.vel.x * dt;
   en.pos.z += en.vel.z * dt;
-  // obstacle pushout (AABB vs point with radius)
+  // obstacle pushout (AABB vs point with radius) + step-up allowance
   const r = 0.4 * (en.kind === 2 ? 1.4 : 1);
+  const stepH = 0.60;
+  const feet = en.pos.y;
+  const head = en.pos.y + (en.kind === 2 ? 2.3 : 1.85);
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    if (c.max.y < 0.3) continue;
-    if (c.min.y > 1.4) continue;
+    if (c.min.y >= head + 0.2) continue;
+    if (c.max.y <= feet + stepH) continue;
+    if (feet >= c.max.y - 0.001) continue;
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
     const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
     const dx = en.pos.x - cx, dz = en.pos.z - cz;
@@ -301,6 +305,18 @@ function moveEnemy(en, dt) {
   }
   en.pos.x = Math.max(-mapBounds, Math.min(mapBounds, en.pos.x));
   en.pos.z = Math.max(-mapBounds, Math.min(mapBounds, en.pos.z));
+
+  // Vertical resolve: find highest floor below feet + stepH
+  let floorY = GROUND;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
+    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
+    const dx = en.pos.x - cx, dz = en.pos.z - cz;
+    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
+    if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
+  }
+  en.pos.y = floorY;
 }
 
 // LOS check: ray from enemy eye to player eye against static world
@@ -312,17 +328,14 @@ function hasLOS(en) {
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
   if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return true; return en._losCache; }
-  _losFrom.set(en.pos.x, E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
+  _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
   _losTo.copy(player.pos);
   _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
   losRay.set(_losFrom, _losTo.sub(_losFrom).normalize());
   losRay.far = _losFrom.distanceTo(player.pos);
-  const hits = losRay.intersectObjects(scene.children, true);
+  const hits = losRay.intersectObjects(raycastColliders, true);
   let blocked = false;
   for (let i = 0; i < hits.length; i++) {
-    const o = hits[i].object;
-    if (o === ground) continue;
-    if (o.userData.vfx || o.userData.gun || o.userData.sky) continue;
     if (hits[i].distance < losRay.far - 0.2) { blocked = true; break; }
   }
   en._losCache = !blocked;
@@ -340,7 +353,7 @@ function updateEnemies(dt) {
       en.deathT += dt;
       const p = en.parts;
       if (!en.actions) p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
-      p.group.position.y = -Math.max(0, en.deathT - 1.2) * 0.6;
+      p.group.position.y = en.pos.y - Math.max(0, en.deathT - 1.2) * 0.6;
       if (en.deathT > 4) {
         scene.remove(p.group);
         disposeEnemyGeometry(en);
@@ -458,7 +471,7 @@ function updateEnemies(dt) {
 function enemyShoot(en, dist) {
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
-  const from = new THREE.Vector3(en.pos.x, E_DIM.pelvisH + 0.55, en.pos.z);
+  const from = new THREE.Vector3(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   const to = player.pos.clone();
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
@@ -484,7 +497,7 @@ function setEnemyAnim(en, name, fade) {
 }
 function animateEnemy(en, dt, dist) {
   const p = en.parts;
-  p.group.position.set(en.pos.x, 0, en.pos.z);
+  p.group.position.set(en.pos.x, en.pos.y, en.pos.z);
   p.group.rotation.y = en.yaw + Math.PI;
   if (en.mixer) en.mixer.update(dt);
   if (en.dead) {

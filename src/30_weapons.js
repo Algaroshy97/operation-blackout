@@ -157,29 +157,28 @@ function fireShot() {
   raycaster.set(_from, _shootDir);
   raycaster.far = w.range;
 
-  // test enemies first (meshes have userData.enemy)
+  // test enemies first (hitboxes + visible meshes)
   const targets = [];
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
     targets.push(enemies[i].hitBody);
     targets.push(enemies[i].hitHead);
+    if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
   }
-  const worldHits = raycaster.intersectObjects(scene.children, true)
-    .filter(function (h) { return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky; });
-  const enemyHits = raycaster.intersectObjects(targets, false);
+  const worldHits = raycaster.intersectObjects(raycastColliders, true);
+  const enemyHits = raycaster.intersectObjects(targets, true);
   let hit = null, isEnemy = false, isHead = false;
   if (enemyHits.length && worldHits.length) {
     const w0 = worldHits[0];
-    if (w0.object.userData.enemyFlesh && w0.object.userData.enemyRef && !w0.object.userData.enemyRef.dead) {
-      // bullet struck a visible enemy mesh directly — treat as body hit at that point
-      hit = w0; isEnemy = true; isHead = false;
-    } else if (enemyHits[0].distance <= w0.distance) { hit = enemyHits[0]; isEnemy = true; isHead = hit.object.userData.isHead; }
-    else hit = w0;
-  } else if (enemyHits.length) { hit = enemyHits[0]; isEnemy = true; isHead = hit.object.userData.isHead; }
-  else if (worldHits.length) {
-    const w0 = worldHits[0];
-    if (w0.object.userData.enemyFlesh && w0.object.userData.enemyRef && !w0.object.userData.enemyRef.dead) { hit = w0; isEnemy = true; isHead = false; }
-    else hit = w0;
+    if (enemyHits[0].distance <= w0.distance) {
+      hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
+    } else {
+      hit = w0;
+    }
+  } else if (enemyHits.length) {
+    hit = enemyHits[0]; isEnemy = true; isHead = !!hit.object.userData.isHead;
+  } else if (worldHits.length) {
+    hit = worldHits[0];
   }
 
   if (hit && isEnemy) {
@@ -199,7 +198,7 @@ function fireShot() {
   player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  playSound('shot');
+  if (w.type !== 'SR') playSound('shot');
   if (w.type === 'SR') { playSound('scope_out'); }
   updateHudAmmo();
 }

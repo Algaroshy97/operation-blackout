@@ -86,20 +86,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     lastLX = t.clientX; lastLY = t.clientY;
   }
 
-  // ---- tap-to-fire on look zone (short tap = single shot) ----
-  lookZone.addEventListener('touchstart', function (e) {
-    const t = e.changedTouches[0];
-    window.__tapT = performance.now();
-    window.__tapX = t.clientX; window.__tapY = t.clientY;
-  });
-  lookZone.addEventListener('touchend', function (e) {
-    const t = e.changedTouches[0];
-    if (performance.now() - (window.__tapT || 0) < 200 &&
-        Math.hypot(t.clientX - (window.__tapX || 0), t.clientY - (window.__tapY || 0)) < 12) {
-      touchState.tapFiring = true;
-      setTimeout(function () { touchState.tapFiring = false; }, 60);
-    }
-  });
+
 
   // ---- hold buttons ----
   function holdBtn(id, on, off) {

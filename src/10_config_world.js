@@ -111,6 +111,7 @@ scene.add(ground);
 
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
+const raycastColliders = []; // world geometry meshes for scoped raycasting
 const mapBounds = CFG.world.size / 2 - 2;
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
@@ -122,6 +123,7 @@ function addBox(x, y, z, w, h, d, mat, opts) {
   m.castShadow = opts.noShadow ? false : true;
   m.receiveShadow = true;
   scene.add(m);
+  raycastColliders.push(m);
   if (!opts.noCollide) addCollider(x, y, z, w, h, d);
   return m;
 }
@@ -222,6 +224,7 @@ function buildArena() {
         else m.position.z = z + i * 3.1 - (n - 1) * 1.55;
         m.rotation.y = ry;
         scene.add(m);
+        raycastColliders.push(m);
       }
     }
     // east + west faces (two floors)
@@ -262,6 +265,7 @@ function buildArena() {
     m.position.set(x, 0.75, z); m.castShadow = true; m.receiveShadow = true;
     m.userData.oldBarrel = true;
     scene.add(m);
+    raycastColliders.push(m);
     addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
   }
   barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
@@ -327,6 +331,7 @@ function scatterProps() {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
     });
     scene.add(m);
+    raycastColliders.push(m);
     const d = dims[s[0]];
     addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
     placed++;
@@ -344,6 +349,7 @@ function scatterProps() {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
       });
       scene.add(m);
+      raycastColliders.push(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
   });
   placed += 3;
@@ -359,6 +365,8 @@ function scatterProps() {
     for (let i = 0; i < oldBarrels.length; i++) {
       const p = oldBarrels[i].position;
       scene.remove(oldBarrels[i]);
+      const oldIdx = raycastColliders.indexOf(oldBarrels[i]);
+      if (oldIdx !== -1) raycastColliders.splice(oldIdx, 1);
       const b = GLB_PARSED.BARREL.scene.clone(true);
       b.scale.setScalar(4.4);
       b.position.set(p.x, 0, p.z);
@@ -366,6 +374,7 @@ function scatterProps() {
       b.castShadow = true; b.receiveShadow = true;
       b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
       scene.add(b);
+      raycastColliders.push(b);
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
