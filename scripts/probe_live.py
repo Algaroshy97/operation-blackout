@@ -267,6 +267,19 @@ def main() -> int:
         browser.close()
 
     passed = sum(1 for _, ok in checks if ok)
+    failed = [name for name, ok in checks if not ok]
+    # Human-readable summary FIRST, on stderr, so a CI log shows what broke without
+    # anyone reading 28 JSON entries. The JSON still follows for machine consumers.
+    if failed:
+        print("PROBE FAILED: %d of %d checks" % (len(failed), len(checks)), file=sys.stderr)
+        for name in failed:
+            print("  x %s" % name, file=sys.stderr)
+        if console_errors:
+            print("  console errors:", file=sys.stderr)
+            for e in console_errors[:5]:
+                print("    %s" % e, file=sys.stderr)
+    else:
+        print("PROBE OK: %d checks passed" % len(checks), file=sys.stderr)
     print(json.dumps({
         "build": str(args.build),
         "checks": [{"name": n, "ok": ok} for n, ok in checks],

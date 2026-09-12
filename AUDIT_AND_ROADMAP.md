@@ -781,6 +781,23 @@
 >
 > Probe **28/28**, zero console errors. 243 node + 15 python tests.
 
+> **CI: the probe was already wired; what it needed was proving.** The workflow has run
+> `scripts/probe_live.py` on every push since Phase 0, so the eleven checks added above
+> were enforced the moment they landed. The useful work was verification, not plumbing.
+>
+> **A regression guard nobody has watched go red is a guess.** Reintroducing the melee
+> vertical gate — the exact bug reported twice — produced `PROBE FAILED: 1 of 28 checks /
+> x no-melee-through-floor`, exit code 1. The control passed in the same run, so the
+> failure is specific rather than the whole probe collapsing.
+>
+> A failing check used to be one `"ok": false` buried in a 28-entry JSON dump, which in a
+> CI log gets re-run rather than fixed. The probe now prints a summary to stderr first —
+> count, names, console errors — with the JSON still following for machine consumers.
+>
+> The job also had no `timeout-minutes`, so a hung Chromium would have burned the default
+> six-hour limit on a run that could never finish. Capped at twenty, against a suite that
+> takes about two.
+
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
 `scripts/build.py` output modulo line endings.

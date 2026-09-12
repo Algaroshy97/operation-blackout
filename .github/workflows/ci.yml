@@ -7,6 +7,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The probe drives a real browser. Without a cap, one hung Chromium burns the
+    # default six-hour job limit on a run that will never finish.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +38,10 @@ jobs:
       - name: Build release
         run: python scripts/build.py .
 
+      # 28 checks against a real browser: the deploy flow, AI reachability, station
+      # reachability, the two through-floor regressions with their controls, ragdoll
+      # lifecycle, and geometry growth. Verified to actually FAIL: reintroducing the
+      # melee vertical gate bug turns no-melee-through-floor red and exits 1.
       - name: Live gameplay probe
         run: python scripts/probe_live.py
 
