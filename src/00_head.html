@@ -33,6 +33,23 @@
   /* Credits sit under the score because they are the same kind of number to the
      player: one is the run's record, the other is what they can spend on it. */
   #credit-hud{top:78px;right:30px;text-align:right}
+  /* Buy prompt sits low-centre: close to the crosshair without covering it, and
+     clear of both thumb clusters on touch. */
+  #buy-prompt{bottom:120px;left:50%;transform:translateX(-50%);text-align:center;opacity:0;
+    transition:opacity .12s;color:#ffd24a;font-size:15px;font-weight:700;letter-spacing:2px;
+    text-shadow:0 1px 5px #000;white-space:nowrap}
+  #buy-prompt-bar{width:180px;height:3px;margin:5px auto 0;background:rgba(0,0,0,.55);border-radius:2px;overflow:hidden}
+  #buy-prompt-fill{height:100%;width:0;background:#ffd24a}
+  /* Plates read as a row of slots next to the armor bar they refill. */
+  #plate-hud{bottom:52px;left:calc(28px + min(220px,38vw) + 46px);display:flex;gap:5px;align-items:center}
+  #plate-hud i{width:13px;height:7px;border:1px solid rgba(255,255,255,.35);border-radius:1px;display:block}
+  #plate-hud i.on{background:#4fa3d8;border-color:#4fa3d8}
+  #perk-hud{bottom:78px;left:28px;display:flex;gap:6px}
+  #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
+    padding:2px 6px;border-radius:2px;text-shadow:none}
+  #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
+    letter-spacing:4px;text-shadow:0 2px 10px #000;opacity:0;transition:opacity .2s;white-space:nowrap}
+  body.reduced-motion #buy-prompt,body.reduced-motion #down-timer{transition:none}
   #credit-hud .val{color:#ffd24a}
   #power-banner{top:22%;left:50%;transform:translate(-50%,-50%);color:#ffd24a;font-size:26px;
     font-weight:800;letter-spacing:7px;text-shadow:0 2px 12px #000;opacity:0;transition:opacity .25s;
@@ -154,6 +171,10 @@
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
+  body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
@@ -238,6 +259,10 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
+<div id="plate-hud" class="hud"></div>
+<div id="perk-hud" class="hud"></div>
+<div id="down-timer" class="hud"></div>
 <div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">

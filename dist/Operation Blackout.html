@@ -33,6 +33,23 @@
   /* Credits sit under the score because they are the same kind of number to the
      player: one is the run's record, the other is what they can spend on it. */
   #credit-hud{top:78px;right:30px;text-align:right}
+  /* Buy prompt sits low-centre: close to the crosshair without covering it, and
+     clear of both thumb clusters on touch. */
+  #buy-prompt{bottom:120px;left:50%;transform:translateX(-50%);text-align:center;opacity:0;
+    transition:opacity .12s;color:#ffd24a;font-size:15px;font-weight:700;letter-spacing:2px;
+    text-shadow:0 1px 5px #000;white-space:nowrap}
+  #buy-prompt-bar{width:180px;height:3px;margin:5px auto 0;background:rgba(0,0,0,.55);border-radius:2px;overflow:hidden}
+  #buy-prompt-fill{height:100%;width:0;background:#ffd24a}
+  /* Plates read as a row of slots next to the armor bar they refill. */
+  #plate-hud{bottom:52px;left:calc(28px + min(220px,38vw) + 46px);display:flex;gap:5px;align-items:center}
+  #plate-hud i{width:13px;height:7px;border:1px solid rgba(255,255,255,.35);border-radius:1px;display:block}
+  #plate-hud i.on{background:#4fa3d8;border-color:#4fa3d8}
+  #perk-hud{bottom:78px;left:28px;display:flex;gap:6px}
+  #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
+    padding:2px 6px;border-radius:2px;text-shadow:none}
+  #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
+    letter-spacing:4px;text-shadow:0 2px 10px #000;opacity:0;transition:opacity .2s;white-space:nowrap}
+  body.reduced-motion #buy-prompt,body.reduced-motion #down-timer{transition:none}
   #credit-hud .val{color:#ffd24a}
   #power-banner{top:22%;left:50%;transform:translate(-50%,-50%);color:#ffd24a;font-size:26px;
     font-weight:800;letter-spacing:7px;text-shadow:0 2px 12px #000;opacity:0;transition:opacity .25s;
@@ -154,6 +171,10 @@
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
+  body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
@@ -238,6 +259,10 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
+<div id="plate-hud" class="hud"></div>
+<div id="perk-hud" class="hud"></div>
+<div id="down-timer" class="hud"></div>
 <div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">
@@ -4858,6 +4883,8 @@ const CORE = (function () {
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
       credits: state.credits || 0,
+      perks: (state.perks || []).slice(),
+      plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
       weapons: state.weapons,            // [{gi, ammo, reserve}, ...]
       savedAt: state.savedAt || 0
@@ -4894,6 +4921,11 @@ const CORE = (function () {
       health: num(raw.health, 1, 100, 100),
       armor: num(raw.armor, 0, 200, 0),
       credits: num(raw.credits, 0, 1e9, 0),
+      // Only keys that still exist survive a reload: a perk renamed or removed
+      // between versions must not resurrect as an unknown string.
+      perks: (Array.isArray(raw.perks) ? raw.perks : [])
+        .filter(function (k) { return !!perkByKey(k); }).slice(0, PERK_SLOTS),
+      plates: num(raw.plates, 0, PLATE_MAX, 0),
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
@@ -5531,6 +5563,141 @@ const CORE = (function () {
     return { x: tx, z: tz, y: ledge };
   }
 
+  // ---- Interactables: wall buys, the armory, perk stations --------------------
+  // Credits earned in Phase 9 had nothing to buy. A station is a fixed point the
+  // player walks to and holds a key at; the hold exists so a purchase can never be
+  // made by a stray tap while fighting next to one.
+  const BUY_RADIUS = 2.8;
+  const BUY_HOLD = 0.45;
+  // Returns the index of the nearest station in range, or -1. Horizontal distance:
+  // player.pos is anchored at eye height, so a 3-D test would read 1.7 m of pure
+  // height as separation (the same class of bug as BUG-02).
+  function nearestStation(stations, px, pz, radius) {
+    const r = radius === undefined ? BUY_RADIUS : radius;
+    let best = -1, bestD = r * r;
+    for (let i = 0; i < stations.length; i++) {
+      const s = stations[i];
+      if (!s || s.disabled) continue;
+      const d = horizDistSq(s.x, s.z, px, pz);
+      if (d <= bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  // Wall buys. Priced by class rather than per weapon, so adding a weapon cannot
+  // leave a station with an undefined price.
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000 };
+  const AMMO_REFILL_DIVISOR = 3;
+  function wallBuyPrice(type) {
+    const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
+    return p === undefined ? WALL_BUY_PRICE.ar : p;
+  }
+  // Refilling is always the cheap option: a player who already owns the wall weapon
+  // should be topping it up, not re-buying it.
+  function ammoRefillPrice(type) {
+    return Math.round(wallBuyPrice(type) / AMMO_REFILL_DIVISOR);
+  }
+  // What a station offers depends on whether the player already holds that weapon.
+  // `owned` is the weaponsOwned array; -1 entries are empty slots.
+  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax) {
+    const held = owned.indexOf(weaponIndex);
+    if (held < 0) return { action: 'buy', price: wallBuyPrice(type) };
+    if (reserve >= reserveMax) return { action: 'full', price: 0 };
+    return { action: 'ammo', price: ammoRefillPrice(type) };
+  }
+
+  // ---- The armory (Pack-a-Punch) ----------------------------------------------
+  // One station, late and expensive, so the back half of a run has a goal that is
+  // not just survival.
+  const ARMORY_WAVE = 8;
+  const ARMORY_PRICE = 5000;
+  const ARMORY_DMG = 1.8;
+  const ARMORY_MAG = 1.5;
+  function armoryAvailable(wave) { return wave >= ARMORY_WAVE; }
+  // Returns the upgraded stat block for a weapon. Never mutates the input: CFG is
+  // shared, and upgrading in place would leak across runs.
+  function armoryUpgrade(w) {
+    return {
+      dmg: w.dmg * ARMORY_DMG,
+      mag: Math.round(w.mag * ARMORY_MAG),
+      reserveMax: Math.round(w.reserveMax * ARMORY_MAG),
+      name: 'MK2 ' + w.name,
+      upgraded: true
+    };
+  }
+
+  // ---- Perks -------------------------------------------------------------------
+  // Every perk is a multiplier on a number that already exists, which is why this
+  // is a table and not five systems.
+  const PERK_SLOTS = 3;
+  const PERKS = [
+    { key: 'jugg',   short: 'JUG', name: 'JUGGERNAUT',   price: 2500, blurb: '+50 max health' },
+    { key: 'reload', short: 'SPD', name: 'SPEED RELOAD', price: 1500, blurb: 'Reload 40% faster' },
+    { key: 'steady', short: 'AIM', name: 'STEADY AIM',   price: 1750, blurb: 'Less bloom, faster ADS' },
+    { key: 'scav',   short: 'SCV', name: 'SCAVENGER',    price: 1250, blurb: 'Richer pickups' },
+    { key: 'wind',   short: 'WND', name: 'SECOND WIND',  price: 3000, blurb: 'One self-revive' }
+  ];
+  function perkByKey(key) {
+    for (let i = 0; i < PERKS.length; i++) if (PERKS[i].key === key) return PERKS[i];
+    return null;
+  }
+  // Returns '' when the purchase is allowed, otherwise the reason to show the
+  // player. Never returns a bare boolean: "you can't" with no reason is the thing
+  // that makes a shop feel broken.
+  function perkBuyBlocker(owned, key, credits) {
+    const p = perkByKey(key);
+    if (!p) return 'UNKNOWN';
+    if (owned.indexOf(key) >= 0) return 'ALREADY OWNED';
+    if (owned.length >= PERK_SLOTS) return 'ALL ' + PERK_SLOTS + ' SLOTS FULL';
+    if (credits < p.price) return 'NEED ' + (p.price - credits) + ' MORE';
+    return '';
+  }
+  function hasPerk(owned, key) { return !!owned && owned.indexOf(key) >= 0; }
+  function perkMaxHealth(base, owned) { return hasPerk(owned, 'jugg') ? base + 50 : base; }
+  function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
+  function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
+  function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
+  function perkPickupMul(owned) { return hasPerk(owned, 'scav') ? 1.6 : 1; }
+
+  // ---- Armor plates ------------------------------------------------------------
+  // Armor was a 50-point buffer handed out once at deploy and topped up +15 by a
+  // med pickup: in practice a wave-1 resource that was gone by wave 4. Plates make
+  // it a between-wave decision instead.
+  const PLATE_MAX = 3;
+  const PLATE_PRICE = 250;
+  const PLATE_TIME = 1.1;
+  // Returns null when plating would do nothing, so the caller never burns a plate
+  // or a second of animation for no gain.
+  function plateApply(armor, armorMax, plates) {
+    if (plates <= 0 || armor >= armorMax) return null;
+    return { armor: armorMax, plates: plates - 1 };
+  }
+  function platesAffordable(credits, plates) {
+    const room = PLATE_MAX - plates;
+    if (room <= 0) return 0;
+    const n = Math.min(room, Math.floor(credits / PLATE_PRICE));
+    return n > 0 ? n : 0;
+  }
+
+  // ---- Last stand --------------------------------------------------------------
+  // A run is 25-40 minutes and a death ended it outright; the between-wave
+  // checkpoint only ever protected against a closed tab. Going down turns that into
+  // a tense ten seconds with an out.
+  const DOWN_TIME = 10;
+  const DOWN_REVIVE_HEALTH = 35;
+  const DOWN_SPEED_MUL = 0.35;
+  // What a lethal hit does. Second Wind is spent, not kept, so it answers exactly
+  // one mistake per run.
+  function lethalOutcome(perks, alreadyDowned) {
+    if (alreadyDowned) return { outcome: 'dead' };
+    if (hasPerk(perks, 'wind')) return { outcome: 'revive', consume: 'wind' };
+    return { outcome: 'down' };
+  }
+  function bleedOutRemaining(downT) {
+    const left = DOWN_TIME - downT;
+    return left > 0 ? left : 0;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -5668,6 +5835,37 @@ const CORE = (function () {
     rayBoxEntry: rayBoxEntry,
     penetrationWalk: penetrationWalk,
     penetrationMulAt: penetrationMulAt,
+    BUY_RADIUS: BUY_RADIUS,
+    BUY_HOLD: BUY_HOLD,
+    nearestStation: nearestStation,
+    WALL_BUY_PRICE: WALL_BUY_PRICE,
+    wallBuyPrice: wallBuyPrice,
+    ammoRefillPrice: ammoRefillPrice,
+    wallBuyOffer: wallBuyOffer,
+    ARMORY_WAVE: ARMORY_WAVE,
+    ARMORY_PRICE: ARMORY_PRICE,
+    armoryAvailable: armoryAvailable,
+    armoryUpgrade: armoryUpgrade,
+    PERK_SLOTS: PERK_SLOTS,
+    PERKS: PERKS,
+    perkByKey: perkByKey,
+    perkBuyBlocker: perkBuyBlocker,
+    hasPerk: hasPerk,
+    perkMaxHealth: perkMaxHealth,
+    perkReloadMul: perkReloadMul,
+    perkBloomMul: perkBloomMul,
+    perkAdsMul: perkAdsMul,
+    perkPickupMul: perkPickupMul,
+    PLATE_MAX: PLATE_MAX,
+    PLATE_PRICE: PLATE_PRICE,
+    PLATE_TIME: PLATE_TIME,
+    plateApply: plateApply,
+    platesAffordable: platesAffordable,
+    DOWN_TIME: DOWN_TIME,
+    DOWN_REVIVE_HEALTH: DOWN_REVIVE_HEALTH,
+    DOWN_SPEED_MUL: DOWN_SPEED_MUL,
+    lethalOutcome: lethalOutcome,
+    bleedOutRemaining: bleedOutRemaining,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -6678,8 +6876,14 @@ const player = {
   coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
   // mantle (see tryMantle) and tactical-sprint burst
   mantleT: 0, mantleFrom: new THREE.Vector3(), mantleTo: new THREE.Vector3(),
-  tacT: 0
+  tacT: 0,
+  // last stand: alive, but on the floor and bleeding out
+  downed: false
 };
+
+// Juggernaut raises the ceiling, so nothing may compare against the raw config
+// number any more or the perk silently caps itself away.
+function playerMaxHealth() { return CORE.perkMaxHealth(CFG.player.health, perks); }
 
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
@@ -6813,7 +7017,7 @@ function updatePlayer(dt) {
   // ---- Slide (C/Ctrl while sprinting on ground) ----
   const crouchKey = !!(keys['KeyC'] || keys['ControlLeft'] || keys['ControlRight']);
   const movingInput = !!(keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']);
-  if (!player.sliding && crouchKey && player.sprinting && player.onGround && movingInput && !adsDown() && !player.exhausted) {
+  if (!player.sliding && crouchKey && player.sprinting && player.onGround && movingInput && !adsDown() && !player.exhausted && !player.downed) {
     startSlide();
   }
   if (player.sliding) {
@@ -6892,7 +7096,7 @@ function updatePlayer(dt) {
     if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
     lastSprintTap = gameT;
   }
-  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown();
+  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown() && !player.downed;
   if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
@@ -6927,6 +7131,7 @@ function updatePlayer(dt) {
   if (len > 0) { ix /= len; iz /= len; }
   let speed = CFG.player.speed * (window.__analogMag || 1);
   if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
+  if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
   if (player.crouching) speed *= CFG.player.crouchMul;
   if (adsDown()) speed *= 0.65;
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -6958,6 +7163,7 @@ function updatePlayer(dt) {
   else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
   // A mantle beats a jump: if there is a ledge in front, climbing it is what the
   // player meant. Anything under STEP_H is already handled by step-up.
+  if (player.downed) player.jumpBufT = 0;
   if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
     player.jumpBufT = 0;
   } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
@@ -6980,8 +7186,10 @@ function updatePlayer(dt) {
   }
 
   // health regen
-  if (gameT - player.lastDamageT > CFG.player.regenDelay && player.health < CFG.player.health) {
-    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * diff().regen * dt);
+  // A downed player does not regenerate: the bleed-out has to mean something.
+  if (!player.downed &&
+      gameT - player.lastDamageT > CFG.player.regenDelay && player.health < playerMaxHealth()) {
+    player.health = Math.min(playerMaxHealth(), player.health + CFG.player.regenRate * diff().regen * dt);
   }
 
   // head bob
@@ -7010,7 +7218,10 @@ function damagePlayer(amount, dirDeg) {
   player.lastDamageT = gameT;
   showDamageFx(dirDeg, amount);
   updateHudHealth();
-  if (player.health <= 0) { player.health = 0; killPlayer(); }
+  // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
+  // mistake was the worst moment the game had. downPlayer() decides between a
+  // Second Wind, a bleed-out, and death.
+  if (player.health <= 0) { player.health = 0; downPlayer(); }
 }
 
 let godMode = false;
@@ -7075,6 +7286,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-nade" class="tbtn tbtn-sm">NADE</div>
     <div id="tbtn-swap" class="tbtn tbtn-sm">SWAP</div>
     <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
+    <div id="tbtn-use" class="tbtn tbtn-sm">USE</div>
+    <div id="tbtn-plate" class="tbtn tbtn-sm">PLATE</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -7191,6 +7404,9 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
   holdBtn('tbtn-melee', function () { pressed['__melee'] = true; }, function () {});
+  // USE is a HOLD, matching the keyboard: a purchase must never fire from a stray tap.
+  holdBtn('tbtn-use', function () { keys['__use'] = true; }, function () { keys['__use'] = false; });
+  holdBtn('tbtn-plate', function () { pressed['__plate'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
@@ -7241,7 +7457,14 @@ function initWeapons() {
     wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
   }
 }
-function curW() { return CFG.weapons[weaponsOwned[curWeapon]]; }
+// Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
+// ~30 call sites without touching any of them. `s.up` is a whole stat block built
+// by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
+// runs and an in-place upgrade would leak into the next one.
+function curW() {
+  const s = wState[curWeapon];
+  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+}
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
@@ -7284,7 +7507,7 @@ function updateWeapons(dt) {
   const w = curW();
   if (s.reloading) {
     s.reloadT += dt;
-    if (s.reloadT >= w.reload) {
+    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
       const need = w.mag - s.ammo;
       const take = Math.min(need, s.reserve);
       s.ammo += take; s.reserve -= take;
@@ -7309,7 +7532,8 @@ function updateWeapons(dt) {
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
   if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
-  if ((pressed['KeyV'] || pressed['KeyF'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
+  // KeyF became USE when stations landed, which is where CoD players expect it.
+  if ((pressed['KeyV'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
@@ -7411,6 +7635,8 @@ function fireShot() {
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.
   const ads = adsDown();
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  bp.cap *= CORE.perkBloomMul(perks);
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
     hSpeedForSpread, !player.onGround);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
@@ -7634,7 +7860,7 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * dt);
+  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * CORE.perkAdsMul(perks) * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;
@@ -9652,7 +9878,7 @@ function dropPickup(pos) {
   const roll = Math.random();
   let kind = null;
   if (roll < ammoChance) kind = 'ammo';
-  else if (player.health < CFG.player.health * 0.5 || roll < ammoChance + 0.15) kind = 'med';
+  else if (player.health < playerMaxHealth() * 0.5 || roll < ammoChance + 0.15 * CORE.perkPickupMul(perks)) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -9724,13 +9950,15 @@ function updatePickups(dt) {
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {
-          s.reserve = Math.min(CFG.weapons[weaponsOwned[curWeapon]].reserveMax, s.reserve + Math.round(CFG.weapons[weaponsOwned[curWeapon]].mag * 1.5));
+          const cw = curW();
+          s.reserve = Math.min(cw.reserveMax, s.reserve + Math.round(cw.mag * 1.5 * CORE.perkPickupMul(perks)));
           updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
-        player.health = Math.min(CFG.player.health, player.health + 35);
-        player.armor = Math.min(CFG.player.armor, player.armor + 15);
+        const heal = 35 * CORE.perkPickupMul(perks);     // SCAVENGER
+        player.health = Math.min(playerMaxHealth(), player.health + heal);
+        player.armor = Math.min(CFG.player.armor, player.armor + 15 * CORE.perkPickupMul(perks));
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
@@ -9746,6 +9974,341 @@ function updatePickups(dt) {
     if (p.t > PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
 }
+
+// ============ STATIONS: WALL BUYS, ARMORY, PERKS, PLATES ============
+'use strict';
+// Phase 9 gave the player credits and nothing to spend them on. A station is a
+// fixed point in the arena the player walks to and holds USE at. The hold exists
+// because these sit in the middle of a firefight: a purchase must never happen
+// from a stray tap while strafing past one.
+//
+// Housings are built through addBox() during buildArena(), so they join the
+// existing static batches and their colliders come for free. Nothing here draws
+// its own mesh or its own text — the prompt is HUD, and the minimap marks them,
+// which is what makes them findable without a single extra draw call for labels.
+
+const stations = [];
+
+// Positions were chosen to pull the player OUT of the central building, which is
+// otherwise the whole game: one wall buy per corner district, perks on the
+// approaches, and the armory out on the north face where it is genuinely exposed.
+const STATION_LAYOUT = [
+  { kind: 'wall', x: -37, z:  30, weapon: 1 },   // MK18
+  { kind: 'wall', x:  34, z:  30, weapon: 0 },   // M4
+  { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
+  { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
+  { kind: 'armory', x: 0, z: -22 },
+  { kind: 'plate',  x: 0, z:  20 },
+  { kind: 'perk', x: -21, z:  10, perk: 'jugg' },
+  { kind: 'perk', x:  21, z:  10, perk: 'reload' },
+  { kind: 'perk', x: -21, z: -10, perk: 'steady' },
+  { kind: 'perk', x:  21, z: -10, perk: 'scav' },
+  { kind: 'perk', x:   0, z:  34, perk: 'wind' }
+];
+
+const STATION_COLOR = { wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068 };
+
+function buildStations() {
+  for (let i = 0; i < STATION_LAYOUT.length; i++) {
+    const def = STATION_LAYOUT[i];
+    const mat = new THREE.MeshStandardMaterial({
+      color: STATION_COLOR[def.kind] || 0x555555, roughness: 0.7, metalness: 0.25
+    });
+    // Housing plus a bright lip, so a station reads as interactive at a distance
+    // without needing a label mesh.
+    addBox(def.x, 0.9, def.z, 1.4, 1.8, 0.45, mat, { pen: 'metal' });
+    addBox(def.x, 1.86, def.z, 1.5, 0.12, 0.55, MAT.accent, { noCollide: true, pen: 'metal' });
+    stations.push({
+      kind: def.kind, x: def.x, z: def.z,
+      weapon: def.weapon === undefined ? -1 : def.weapon,
+      perk: def.perk || null,
+      holdT: 0
+    });
+  }
+  reportUnreachableStations();
+}
+
+// Two of these were originally placed inside corner-district geometry, with zero
+// clear stand-points — a shop sign painted on a solid wall. Hand-checking
+// coordinates against a 140-collider arena does not scale, so check it at load.
+// Exposed on `window` so scripts/probe_live.py can assert on it.
+function unreachableStations() {
+  const bad = [];
+  const ring = CORE.BUY_RADIUS - 0.4;
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    let clear = 0;
+    for (let a = 0; a < 12; a++) {
+      const ang = a * Math.PI / 6;
+      const x = st.x + Math.sin(ang) * ring, z = st.z + Math.cos(ang) * ring;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) continue;
+      if (CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, CFG.player.radius + 0.05)) clear++;
+    }
+    if (clear === 0) bad.push(st.kind + '@' + st.x + ',' + st.z);
+  }
+  return bad;
+}
+function reportUnreachableStations() {
+  const bad = unreachableStations();
+  if (bad.length) console.warn('UNREACHABLE STATIONS:', bad.join(' '));
+  window.__unreachableStations = bad;
+}
+
+// ---- Run state ----
+// Perks are per-run, not a saved setting: they are bought with credits earned in
+// the run and lost with it.
+let perks = [];
+let plates = 0;
+let plateT = 0;          // plate-insert animation / lockout
+let activeStation = -1;
+let stationHoldT = 0;
+let lastBuyMsgT = -99;
+
+function resetStations() {
+  perks = [];
+  plates = 0;
+  plateT = 0;
+  activeStation = -1;
+  stationHoldT = 0;
+  for (let i = 0; i < stations.length; i++) stations[i].holdT = 0;
+}
+
+// ---- Offers -----------------------------------------------------------------
+// One function decides both what a station says and what it costs, so the prompt
+// can never advertise a price the purchase does not charge.
+function stationOffer(st) {
+  if (st.kind === 'wall') {
+    const w = CFG.weapons[st.weapon];
+    const held = weaponsOwned.indexOf(st.weapon);
+    const s = held >= 0 ? wState[held] : null;
+    const reserve = s ? s.reserve : 0;
+    const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
+    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax);
+    if (offer.action === 'full') return { label: w.name.toUpperCase() + ' — FULL', price: 0, ok: false };
+    if (offer.action === 'ammo') return { label: 'AMMO · ' + w.name.toUpperCase(), price: offer.price, ok: true };
+    return { label: w.name.toUpperCase(), price: offer.price, ok: true };
+  }
+  if (st.kind === 'armory') {
+    if (!CORE.armoryAvailable(waveNum)) {
+      return { label: 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE, price: 0, ok: false };
+    }
+    const s = curS();
+    if (!s) return { label: 'ARMORY', price: 0, ok: false };
+    if (s.up) return { label: curW().name.toUpperCase() + ' — ALREADY UPGRADED', price: 0, ok: false };
+    return { label: 'UPGRADE ' + curW().name.toUpperCase(), price: CORE.ARMORY_PRICE, ok: true };
+  }
+  if (st.kind === 'plate') {
+    if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
+    return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
+  }
+  const p = CORE.perkByKey(st.perk);
+  if (!p) return { label: 'PERK', price: 0, ok: false };
+  const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
+  if (blocker) return { label: p.name + ' — ' + blocker, price: p.price, ok: false };
+  return { label: p.name + ' · ' + p.blurb.toUpperCase(), price: p.price, ok: true };
+}
+
+function purchase(st) {
+  const offer = stationOffer(st);
+  if (!offer.ok) return false;
+  if (!spendCredits(offer.price)) {
+    showCenterMsg('NEED ' + (offer.price - credits) + ' MORE CREDITS');
+    return false;
+  }
+  if (st.kind === 'wall') {
+    const held = weaponsOwned.indexOf(st.weapon);
+    if (held >= 0) {
+      const s = wState[held];
+      s.reserve = s.up ? s.up.reserveMax : CFG.weapons[st.weapon].reserveMax;
+      showCenterMsg('+ AMMO');
+    } else {
+      // Replace the weapon in the CURRENT slot. Replacing the other one would
+      // silently discard whatever the player was holding.
+      const w = CFG.weapons[st.weapon];
+      weaponsOwned[curWeapon] = st.weapon;
+      wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+      buildViewmodel();
+      showCenterMsg(w.name.toUpperCase() + ' ACQUIRED');
+    }
+    updateHudAmmo();
+  } else if (st.kind === 'armory') {
+    const s = curS();
+    s.up = CORE.armoryUpgrade(CFG.weapons[weaponsOwned[curWeapon]]);
+    s.ammo = s.up.mag;
+    s.reserve = s.up.reserveMax;
+    showCenterMsg(s.up.name.toUpperCase());
+    updateHudAmmo();
+  } else if (st.kind === 'plate') {
+    plates = Math.min(CORE.PLATE_MAX, plates + 1);
+    updateHudPlates();
+    showCenterMsg('PLATE ' + plates + '/' + CORE.PLATE_MAX);
+  } else {
+    perks.push(st.perk);
+    const p = CORE.perkByKey(st.perk);
+    // Juggernaut raises the ceiling; give the health with it, or the perk does
+    // nothing visible until the next med pickup.
+    if (st.perk === 'jugg') player.health += 50;
+    updateHudHealth();
+    updateHudPerks();
+    showCenterMsg(p.name + ' ACQUIRED');
+  }
+  playSound('powerup');
+  return true;
+}
+
+// ---- Per-frame --------------------------------------------------------------
+function updateStations(dt) {
+  if (!started || paused || player.dead) { setBuyPrompt(null, 0); return; }
+  // Plating runs to completion once started; it is a commitment, like a reload.
+  if (plateT > 0) {
+    plateT = Math.max(0, plateT - dt);
+    if (plateT === 0) {
+      const r = CORE.plateApply(player.armor, CFG.player.armor, plates);
+      if (r) { player.armor = r.armor; plates = r.plates; updateHudHealth(); updateHudPlates(); }
+    }
+    setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
+    return;
+  }
+  if (pressed['KeyX'] || pressed['__plate']) usePlate();
+
+  const idx = CORE.nearestStation(stations, player.pos.x, player.pos.z, CORE.BUY_RADIUS);
+  if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
+  if (idx < 0) { setBuyPrompt(null, 0); return; }
+  const st = stations[idx];
+  const offer = stationOffer(st);
+  const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
+  if (holding) {
+    stationHoldT += dt;
+    if (stationHoldT >= CORE.BUY_HOLD) {
+      stationHoldT = 0;
+      purchase(st);
+    }
+  } else if (stationHoldT > 0) {
+    stationHoldT = Math.max(0, stationHoldT - dt * 3);
+  }
+  const text = offer.price > 0
+    ? offer.label + '  ·  ' + offer.price + ' CR'
+    : offer.label;
+  setBuyPrompt((offer.ok ? 'HOLD F — ' : '') + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
+}
+
+function usePlate() {
+  if (plateT > 0) return;
+  if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
+  if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
+  plateT = CORE.PLATE_TIME;
+  playSound('reload_out');
+}
+
+// ---- Last stand -------------------------------------------------------------
+let downT = 0;
+function downPlayer() {
+  const r = CORE.lethalOutcome(perks, player.downed);
+  if (r.outcome === 'dead') { killPlayer(); return; }
+  if (r.outcome === 'revive') {
+    // Second Wind is spent, not kept: it answers exactly one mistake per run.
+    perks.splice(perks.indexOf(r.consume), 1);
+    player.health = CORE.DOWN_REVIVE_HEALTH;
+    player.armor = 0;
+    updateHudHealth();
+    updateHudPerks();
+    showCenterMsg('SECOND WIND');
+    playSound('powerup');
+    return;
+  }
+  player.downed = true;
+  downT = 0;
+  player.health = 1;
+  player.crouching = true;
+  player.sprinting = false;
+  player.sliding = false;
+  showCenterMsg('DOWN — HOLD OUT');
+  playSound('hurt');
+  updateHudHealth();
+}
+
+function updateDowned(dt) {
+  if (!player.downed || player.dead) return;
+  downT += dt;
+  const left = CORE.bleedOutRemaining(downT);
+  const el = $id('down-timer');
+  if (el) {
+    el.style.opacity = '1';
+    el.textContent = 'BLEEDING OUT — ' + left.toFixed(1) + 's';
+  }
+  if (left <= 0) { clearDowned(); killPlayer(); }
+}
+
+// Clearing the wave is the other way out, wired from updateWaves().
+function reviveFromDown() {
+  if (!player.downed) return;
+  clearDowned();
+  player.health = CORE.DOWN_REVIVE_HEALTH;
+  updateHudHealth();
+  showCenterMsg('BACK IN THE FIGHT');
+  playSound('powerup');
+}
+
+function clearDowned() {
+  player.downed = false;
+  downT = 0;
+  const el = $id('down-timer');
+  if (el) el.style.opacity = '0';
+}
+
+// ---- HUD --------------------------------------------------------------------
+let _promptTxt = null;
+function setBuyPrompt(text, fill, dim) {
+  const el = $id('buy-prompt');
+  if (!el) return;
+  if (!text) {
+    if (_promptTxt !== null) { el.style.opacity = '0'; _promptTxt = null; }
+    return;
+  }
+  if (text !== _promptTxt) {
+    $id('buy-prompt-txt').textContent = text;
+    _promptTxt = text;
+  }
+  el.style.opacity = '1';
+  el.style.color = dim ? 'rgba(255,255,255,.55)' : '#ffd24a';
+  const bar = $id('buy-prompt-fill');
+  if (bar) bar.style.width = Math.round(Math.min(1, Math.max(0, fill)) * 100) + '%';
+}
+
+function updateHudPlates() {
+  const el = $id('plate-hud');
+  if (!el) return;
+  let s = '';
+  for (let i = 0; i < CORE.PLATE_MAX; i++) s += '<i class="' + (i < plates ? 'on' : '') + '"></i>';
+  el.innerHTML = s;
+}
+
+function updateHudPerks() {
+  const el = $id('perk-hud');
+  if (!el) return;
+  let s = '';
+  for (let i = 0; i < perks.length; i++) {
+    const p = CORE.perkByKey(perks[i]);
+    if (p) s += '<span title="' + p.name + '">' + p.short + '</span>';
+  }
+  el.innerHTML = s;
+}
+
+// ---- Bootstrap ---------------------------------------------------------------
+// Built HERE and not from buildArena(), which would read better. Every module is
+// concatenated into ONE script scope, and STATION_LAYOUT is a top-level `const` in
+// this module — so a call from module 10 runs before this module's declarations
+// and dies in the temporal dead zone with "Cannot access 'STATION_LAYOUT' before
+// initialization". That is the ENG-05 hazard the audit logged, and it killed the
+// whole file when it fired: one throw takes out every module after it.
+//
+// Queue the housings, flush them into the static batches, then rebuild the two
+// indices that are derived from colliders[] — the ray broad-phase and the AI nav
+// grid — because stations are solid and the AI has to path around them.
+buildStations();
+flushStaticBatches();
+rebuildWorldRayGrid();
+rebuildNavGrid();
 
 // ============ HUD & WAVES ============
 'use strict';
@@ -9790,10 +10353,11 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 let _hudHp = -1, _hudArmor = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
+  const pct = Math.round(Math.max(0, player.health / playerMaxHealth() * 100));
   const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
   if (hp !== _hudHp) {
     _hudHp = hp;
-    hud.healthBar.style.width = hp + '%';
+    hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
   }
   if (armor !== _hudArmor) {
@@ -10002,7 +10566,7 @@ function captureRunState() {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
-    credits: credits,
+    credits: credits, perks: perks.slice(), plates: plates,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons
   };
 }
@@ -10055,6 +10619,7 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
+      reviveFromDown();   // holding out to the wave clear is the other way back up
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
@@ -10201,6 +10766,7 @@ function showCenterMsg(txt) {
 // ---- Minimap + compass ----
 const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
+const MM_STATION_COLOR = { wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd' };
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -10218,6 +10784,18 @@ function drawMinimap() {
     const w = (c.max.x - c.min.x) * scale, h = (c.max.z - c.min.z) * scale;
     if (x * x + z * z > R * R * 2.4) continue;
     mmCtx.fillRect(x, z, w, h);
+  }
+  // Stations. Drawn under the enemies: a hostile marker must never be hidden by
+  // a shop marker.
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    const x = (st.x - px) * scale, z = (st.z - pz) * scale;
+    if (x * x + z * z > R * R) continue;
+    mmCtx.fillStyle = MM_STATION_COLOR[st.kind] || '#ffffff';
+    mmCtx.fillRect(x - 2.5, z - 2.5, 5, 5);
+    mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
+    mmCtx.lineWidth = 1;
+    mmCtx.strokeRect(x - 2.5, z - 2.5, 5, 5);
   }
   // enemies
   for (let i = 0; i < enemies.length; i++) {
@@ -10397,12 +10975,15 @@ function resetGame() {
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
   player.health = CFG.player.health; player.armor = CFG.player.armor;
+  player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  resetStations(); clearDowned();
+  updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;
   powerUntil.double = -99; powerUntil.instakill = -99;
@@ -10597,6 +11178,9 @@ function resumeRun() {
   player.health = cp.health; player.armor = cp.armor;
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
+  perks = (cp.perks || []).slice();
+  plates = cp.plates || 0;
+  updateHudPerks(); updateHudPlates();
   grenades.count = cp.grenades;
   waveNum = cp.wave;                  // next startWave() call is wave+1
   waveActive = false; betweenWaveT = CFG.wave.startDelay;
@@ -10782,6 +11366,8 @@ function frame(now) {
     updateGrenades(dt);
     updatePickups(dt);
     updateAmmoRelief(dt);
+    updateStations(dt);
+    updateDowned(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

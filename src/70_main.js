@@ -121,12 +121,15 @@ function resetGame() {
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
   player.health = CFG.player.health; player.armor = CFG.player.armor;
+  player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  resetStations(); clearDowned();
+  updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;
   powerUntil.double = -99; powerUntil.instakill = -99;
@@ -321,6 +324,9 @@ function resumeRun() {
   player.health = cp.health; player.armor = cp.armor;
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
+  perks = (cp.perks || []).slice();
+  plates = cp.plates || 0;
+  updateHudPerks(); updateHudPlates();
   grenades.count = cp.grenades;
   waveNum = cp.wave;                  // next startWave() call is wave+1
   waveActive = false; betweenWaveT = CFG.wave.startDelay;
@@ -506,6 +512,8 @@ function frame(now) {
     updateGrenades(dt);
     updatePickups(dt);
     updateAmmoRelief(dt);
+    updateStations(dt);
+    updateDowned(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

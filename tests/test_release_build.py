@@ -198,7 +198,7 @@ class TouchLayoutTests(unittest.TestCase):
         boxes = self._boxes()
         expected = {"joy-base", "tbtn-fire", "tbtn-ads", "tbtn-jump", "tbtn-slide",
                     "tbtn-reload", "tbtn-nade", "tbtn-swap", "tbtn-pause",
-                    "tbtn-melee"}
+                    "tbtn-melee", "tbtn-use", "tbtn-plate"}
         self.assertEqual(expected, set(boxes), "touch control set changed — update this test")
 
     def test_no_two_touch_controls_overlap(self) -> None:

@@ -1142,3 +1142,247 @@ test('a corrupt credit field is clamped, not trusted', () => {
     assert.strictEqual(out.credits, 0, 'it is clamped to zero instead of trusted: ' + String(bad));
   }
 });
+
+// ============================================================================
+// Phase 10 — the economy
+// ============================================================================
+
+// ---- Stations (SYS-01) ----
+test('the nearest station in range wins, and out of range means none', () => {
+  const st = [{ x: 0, z: 0 }, { x: 1.5, z: 0 }];
+  assert.strictEqual(CORE.nearestStation(st, 1.4, 0, CORE.BUY_RADIUS), 1);
+  assert.strictEqual(CORE.nearestStation(st, -0.2, 0, CORE.BUY_RADIUS), 0);
+  assert.strictEqual(CORE.nearestStation(st, 40, 40, CORE.BUY_RADIUS), -1);
+  assert.strictEqual(CORE.nearestStation([], 0, 0, CORE.BUY_RADIUS), -1);
+});
+
+test('station range is horizontal, not 3-D', () => {
+  // player.pos is anchored at eye height (1.7 m). A 3-D test would read that as
+  // separation — the same class of bug as BUG-02, which put enemies inside the
+  // player's body. nearestStation takes no Y at all, which is the fix.
+  assert.strictEqual(CORE.nearestStation.length, 4, 'signature is (stations, px, pz, radius)');
+  assert.strictEqual(CORE.nearestStation([{ x: 0, z: 0 }], 0, 2.5, CORE.BUY_RADIUS), 0);
+});
+
+test('a disabled station is never offered', () => {
+  assert.strictEqual(CORE.nearestStation([{ x: 0, z: 0, disabled: true }], 0, 0, CORE.BUY_RADIUS), -1);
+});
+
+// ---- Wall buys (SYS-02) ----
+test('wall buy offers a purchase, a refill, or nothing', () => {
+  assert.strictEqual(CORE.wallBuyOffer([2, -1], 0, 'AR', 0, 150).action, 'buy');
+  assert.strictEqual(CORE.wallBuyOffer([0, -1], 0, 'AR', 20, 150).action, 'ammo');
+  assert.strictEqual(CORE.wallBuyOffer([0, -1], 0, 'AR', 150, 150).action, 'full');
+  assert.strictEqual(CORE.wallBuyOffer([-1, 0], 0, 'AR', 20, 150).action, 'ammo',
+    'the weapon counts as held in either slot');
+});
+
+test('refilling is always cheaper than re-buying', () => {
+  for (const t of ['SMG', 'AR', 'BR', 'SR']) {
+    assert.ok(CORE.ammoRefillPrice(t) < CORE.wallBuyPrice(t),
+      t + ': a player who owns the wall weapon should top it up, not re-buy it');
+    assert.ok(CORE.ammoRefillPrice(t) > 0);
+  }
+});
+
+test('wall buy prices track weapon class', () => {
+  assert.ok(CORE.wallBuyPrice('SR') > CORE.wallBuyPrice('BR'));
+  assert.ok(CORE.wallBuyPrice('BR') > CORE.wallBuyPrice('AR'));
+  assert.ok(CORE.wallBuyPrice('AR') > CORE.wallBuyPrice('SMG'));
+});
+
+test('an unknown weapon class still has a price', () => {
+  // A station with an undefined price would be an unbuyable dead object in the
+  // arena, which is worse than a wrong number.
+  assert.ok(CORE.wallBuyPrice('railgun') > 0);
+  assert.ok(CORE.wallBuyPrice(undefined) > 0);
+});
+
+// ---- Armory (SYS-02) ----
+test('the armory is locked until its wave', () => {
+  assert.strictEqual(CORE.armoryAvailable(CORE.ARMORY_WAVE - 1), false);
+  assert.strictEqual(CORE.armoryAvailable(CORE.ARMORY_WAVE), true);
+  assert.strictEqual(CORE.armoryAvailable(30), true);
+});
+
+test('an armory upgrade raises damage, magazine and reserve', () => {
+  const base = { dmg: 26, mag: 30, reserveMax: 150, name: 'M4 Carbine', type: 'AR' };
+  const up = CORE.armoryUpgrade(base);
+  assert.ok(up.dmg > base.dmg);
+  assert.ok(up.mag > base.mag);
+  assert.ok(up.reserveMax > base.reserveMax);
+  assert.ok(/M4 Carbine/.test(up.name) && up.name !== base.name, 'the player must see it changed');
+  assert.strictEqual(up.upgraded, true);
+});
+
+test('the armory never mutates the shared weapon config', () => {
+  // CFG.weapons is shared across runs; upgrading in place would leak into the next.
+  const base = { dmg: 26, mag: 30, reserveMax: 150, name: 'M4 Carbine' };
+  const snapshot = JSON.stringify(base);
+  CORE.armoryUpgrade(base);
+  assert.strictEqual(JSON.stringify(base), snapshot);
+});
+
+test('integer stats stay integers after an upgrade', () => {
+  // The SV-98's 5-round magazine and 35-round reserve are the cases that expose a
+  // missing round(): 5 x 1.5 = 7.5 and 35 x 1.5 = 52.5.
+  for (const base of [{ dmg: 120, mag: 5, reserveMax: 35, name: 'SV-98' },
+                      { dmg: 18, mag: 32, reserveMax: 160, name: 'MK18' },
+                      { dmg: 42, mag: 20, reserveMax: 100, name: 'SCAR-H' }]) {
+    const up = CORE.armoryUpgrade(base);
+    assert.strictEqual(up.mag, Math.round(up.mag),
+      base.name + ': a magazine of 7.5 rounds is not a thing');
+    assert.strictEqual(up.reserveMax, Math.round(up.reserveMax), base.name + ' reserve');
+  }
+});
+
+// ---- Perks (SYS-05) ----
+test('a blocked perk purchase always says why', () => {
+  assert.strictEqual(CORE.perkBuyBlocker([], 'jugg', 99999), '', 'affordable and free slot');
+  assert.match(CORE.perkBuyBlocker([], 'jugg', 0), /NEED/);
+  assert.match(CORE.perkBuyBlocker(['jugg'], 'jugg', 99999), /ALREADY/);
+  assert.match(CORE.perkBuyBlocker(['a', 'b', 'c'], 'jugg', 99999), /SLOTS FULL/);
+  assert.match(CORE.perkBuyBlocker([], 'nonsense', 99999), /UNKNOWN/);
+});
+
+test('the slot limit is enforced at exactly the declared count', () => {
+  const owned = [];
+  for (let i = 0; i < CORE.PERK_SLOTS; i++) owned.push(CORE.PERKS[i].key);
+  assert.match(CORE.perkBuyBlocker(owned, CORE.PERKS[CORE.PERK_SLOTS].key, 99999), /SLOTS FULL/);
+  owned.pop();
+  assert.strictEqual(CORE.perkBuyBlocker(owned, CORE.PERKS[CORE.PERK_SLOTS].key, 99999), '');
+});
+
+test('every perk has a price, a name and a blurb', () => {
+  for (const p of CORE.PERKS) {
+    assert.ok(p.price > 0, p.key + ' needs a price');
+    assert.ok(p.name && p.name.length, p.key + ' needs a name');
+    assert.ok(p.blurb && p.blurb.length, p.key + ' needs a blurb the player can read');
+    // The HUD chip used to slice the name to four characters, which produced
+    // "JUGG SPEE STEA". A short code is authored, not derived.
+    assert.ok(p.short && p.short.length <= 3, p.key + ' needs a short HUD code');
+    assert.strictEqual(CORE.perkByKey(p.key), p);
+  }
+  assert.strictEqual(CORE.perkByKey('nope'), null);
+});
+
+test('perks do nothing until owned, and something once owned', () => {
+  assert.strictEqual(CORE.perkMaxHealth(100, []), 100);
+  assert.ok(CORE.perkMaxHealth(100, ['jugg']) > 100);
+  assert.strictEqual(CORE.perkReloadMul([]), 1);
+  assert.ok(CORE.perkReloadMul(['reload']) < 1, 'SPEED RELOAD must shorten a reload');
+  assert.strictEqual(CORE.perkBloomMul([]), 1);
+  assert.ok(CORE.perkBloomMul(['steady']) < 1, 'STEADY AIM must tighten bloom');
+  assert.ok(CORE.perkAdsMul(['steady']) > 1, 'and speed up the ADS lerp');
+  assert.strictEqual(CORE.perkPickupMul([]), 1);
+  assert.ok(CORE.perkPickupMul(['scav']) > 1);
+});
+
+test('perk lookups tolerate a missing list', () => {
+  assert.strictEqual(CORE.hasPerk(null, 'jugg'), false);
+  assert.strictEqual(CORE.hasPerk(undefined, 'jugg'), false);
+});
+
+// ---- Plates (SYS-05) ----
+test('plating refills the buffer and spends exactly one plate', () => {
+  const r = CORE.plateApply(0, 50, 3);
+  assert.strictEqual(r.armor, 50);
+  assert.strictEqual(r.plates, 2);
+});
+
+test('plating refuses when it would do nothing', () => {
+  assert.strictEqual(CORE.plateApply(50, 50, 3), null, 'already full');
+  assert.strictEqual(CORE.plateApply(0, 50, 0), null, 'no plates carried');
+});
+
+test('plate purchases stop at the carry limit', () => {
+  assert.strictEqual(CORE.platesAffordable(99999, CORE.PLATE_MAX), 0);
+  assert.strictEqual(CORE.platesAffordable(0, 0), 0);
+  assert.strictEqual(CORE.platesAffordable(CORE.PLATE_PRICE * 99, 0), CORE.PLATE_MAX);
+  assert.strictEqual(CORE.platesAffordable(CORE.PLATE_PRICE, 0), 1);
+  assert.strictEqual(CORE.platesAffordable(CORE.PLATE_PRICE * 99, CORE.PLATE_MAX - 1), 1,
+    'one slot of room buys exactly one plate');
+  // A carry count ABOVE the limit is the case that matters: the room calculation
+  // goes negative there, and "you can afford -2 plates" is not a sentence.
+  assert.strictEqual(CORE.platesAffordable(99999, CORE.PLATE_MAX + 5), 0);
+});
+
+// ---- Last stand (SYS-07) ----
+test('a lethal hit downs the player instead of ending the run', () => {
+  assert.strictEqual(CORE.lethalOutcome([], false).outcome, 'down');
+});
+
+test('Second Wind converts the first down into a revive and is spent doing it', () => {
+  const r = CORE.lethalOutcome(['wind'], false);
+  assert.strictEqual(r.outcome, 'revive');
+  assert.strictEqual(r.consume, 'wind', 'it must be consumed, or it answers every mistake');
+});
+
+test('a lethal hit while already down is death', () => {
+  assert.strictEqual(CORE.lethalOutcome([], true).outcome, 'dead');
+  assert.strictEqual(CORE.lethalOutcome(['wind'], true).outcome, 'dead',
+    'Second Wind cannot save a player who is already bleeding out');
+});
+
+test('the bleed-out clock runs down and stops at zero', () => {
+  assert.strictEqual(CORE.bleedOutRemaining(0), CORE.DOWN_TIME);
+  assert.ok(CORE.bleedOutRemaining(CORE.DOWN_TIME / 2) > 0);
+  assert.strictEqual(CORE.bleedOutRemaining(CORE.DOWN_TIME), 0);
+  assert.strictEqual(CORE.bleedOutRemaining(CORE.DOWN_TIME + 99), 0, 'never negative');
+});
+
+test('being downed is a real penalty', () => {
+  assert.ok(CORE.DOWN_SPEED_MUL < 0.5, 'a downed player must not simply walk away');
+  assert.ok(CORE.DOWN_REVIVE_HEALTH > 0 && CORE.DOWN_REVIVE_HEALTH < 100,
+    'coming back up is a second chance, not a reset');
+});
+
+// ---- Checkpoint round-trip ----
+test('a checkpoint carries perks and plates', () => {
+  const cp = CORE.makeCheckpoint({
+    wave: 9, score: 9000, kills: 80, headshots: 20, shotsFired: 500, shotsHit: 300,
+    health: 120, armor: 50, grenades: 2, credits: 4000,
+    perks: ['jugg', 'reload'], plates: 2,
+    difficulty: 'veteran', endless: false, weapons: [{ gi: 0, ammo: 30, reserve: 150 }, null]
+  });
+  const v = CORE.validateCheckpoint(cp);
+  assert.deepStrictEqual(v.perks, ['jugg', 'reload']);
+  assert.strictEqual(v.plates, 2);
+});
+
+test('a perk key that no longer exists does not resurrect on load', () => {
+  const cp = CORE.makeCheckpoint({
+    wave: 9, score: 1, kills: 1, headshots: 0, shotsFired: 1, shotsHit: 1,
+    health: 50, armor: 0, grenades: 0, credits: 0,
+    perks: ['jugg', 'removed_in_a_later_version', 'reload'], plates: 0,
+    difficulty: 'regular', endless: false, weapons: [{ gi: 0, ammo: 1, reserve: 1 }, null]
+  });
+  assert.deepStrictEqual(CORE.validateCheckpoint(cp).perks, ['jugg', 'reload']);
+});
+
+test('a corrupt perk or plate field is clamped, not trusted', () => {
+  const good = CORE.makeCheckpoint({
+    wave: 3, score: 1, kills: 1, headshots: 0, shotsFired: 1, shotsHit: 1,
+    health: 50, armor: 0, grenades: 0, credits: 0, perks: [], plates: 0,
+    difficulty: 'regular', endless: false, weapons: [{ gi: 0, ammo: 1, reserve: 1 }, null]
+  });
+  for (const bad of ['jugg', 7, null, { jugg: true }]) {
+    const v = CORE.validateCheckpoint(Object.assign({}, good, { perks: bad }));
+    assert.ok(v, 'a bad perk list must not reject an otherwise valid save');
+    assert.deepStrictEqual(v.perks, [], 'perks: ' + JSON.stringify(bad));
+  }
+  for (const bad of [-3, 99, 'three', NaN]) {
+    const v = CORE.validateCheckpoint(Object.assign({}, good, { plates: bad }));
+    assert.ok(v.plates >= 0 && v.plates <= CORE.PLATE_MAX, 'plates: ' + String(bad));
+  }
+});
+
+test('a save can never carry more perks than there are slots', () => {
+  const good = CORE.makeCheckpoint({
+    wave: 3, score: 1, kills: 1, headshots: 0, shotsFired: 1, shotsHit: 1,
+    health: 50, armor: 0, grenades: 0, credits: 0,
+    perks: CORE.PERKS.map((p) => p.key), plates: 0,
+    difficulty: 'regular', endless: false, weapons: [{ gi: 0, ammo: 1, reserve: 1 }, null]
+  });
+  assert.ok(CORE.validateCheckpoint(good).perks.length <= CORE.PERK_SLOTS);
+});

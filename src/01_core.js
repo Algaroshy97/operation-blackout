@@ -359,6 +359,8 @@ const CORE = (function () {
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
       credits: state.credits || 0,
+      perks: (state.perks || []).slice(),
+      plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
       weapons: state.weapons,            // [{gi, ammo, reserve}, ...]
       savedAt: state.savedAt || 0
@@ -395,6 +397,11 @@ const CORE = (function () {
       health: num(raw.health, 1, 100, 100),
       armor: num(raw.armor, 0, 200, 0),
       credits: num(raw.credits, 0, 1e9, 0),
+      // Only keys that still exist survive a reload: a perk renamed or removed
+      // between versions must not resurrect as an unknown string.
+      perks: (Array.isArray(raw.perks) ? raw.perks : [])
+        .filter(function (k) { return !!perkByKey(k); }).slice(0, PERK_SLOTS),
+      plates: num(raw.plates, 0, PLATE_MAX, 0),
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
@@ -1032,6 +1039,141 @@ const CORE = (function () {
     return { x: tx, z: tz, y: ledge };
   }
 
+  // ---- Interactables: wall buys, the armory, perk stations --------------------
+  // Credits earned in Phase 9 had nothing to buy. A station is a fixed point the
+  // player walks to and holds a key at; the hold exists so a purchase can never be
+  // made by a stray tap while fighting next to one.
+  const BUY_RADIUS = 2.8;
+  const BUY_HOLD = 0.45;
+  // Returns the index of the nearest station in range, or -1. Horizontal distance:
+  // player.pos is anchored at eye height, so a 3-D test would read 1.7 m of pure
+  // height as separation (the same class of bug as BUG-02).
+  function nearestStation(stations, px, pz, radius) {
+    const r = radius === undefined ? BUY_RADIUS : radius;
+    let best = -1, bestD = r * r;
+    for (let i = 0; i < stations.length; i++) {
+      const s = stations[i];
+      if (!s || s.disabled) continue;
+      const d = horizDistSq(s.x, s.z, px, pz);
+      if (d <= bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  // Wall buys. Priced by class rather than per weapon, so adding a weapon cannot
+  // leave a station with an undefined price.
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000 };
+  const AMMO_REFILL_DIVISOR = 3;
+  function wallBuyPrice(type) {
+    const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
+    return p === undefined ? WALL_BUY_PRICE.ar : p;
+  }
+  // Refilling is always the cheap option: a player who already owns the wall weapon
+  // should be topping it up, not re-buying it.
+  function ammoRefillPrice(type) {
+    return Math.round(wallBuyPrice(type) / AMMO_REFILL_DIVISOR);
+  }
+  // What a station offers depends on whether the player already holds that weapon.
+  // `owned` is the weaponsOwned array; -1 entries are empty slots.
+  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax) {
+    const held = owned.indexOf(weaponIndex);
+    if (held < 0) return { action: 'buy', price: wallBuyPrice(type) };
+    if (reserve >= reserveMax) return { action: 'full', price: 0 };
+    return { action: 'ammo', price: ammoRefillPrice(type) };
+  }
+
+  // ---- The armory (Pack-a-Punch) ----------------------------------------------
+  // One station, late and expensive, so the back half of a run has a goal that is
+  // not just survival.
+  const ARMORY_WAVE = 8;
+  const ARMORY_PRICE = 5000;
+  const ARMORY_DMG = 1.8;
+  const ARMORY_MAG = 1.5;
+  function armoryAvailable(wave) { return wave >= ARMORY_WAVE; }
+  // Returns the upgraded stat block for a weapon. Never mutates the input: CFG is
+  // shared, and upgrading in place would leak across runs.
+  function armoryUpgrade(w) {
+    return {
+      dmg: w.dmg * ARMORY_DMG,
+      mag: Math.round(w.mag * ARMORY_MAG),
+      reserveMax: Math.round(w.reserveMax * ARMORY_MAG),
+      name: 'MK2 ' + w.name,
+      upgraded: true
+    };
+  }
+
+  // ---- Perks -------------------------------------------------------------------
+  // Every perk is a multiplier on a number that already exists, which is why this
+  // is a table and not five systems.
+  const PERK_SLOTS = 3;
+  const PERKS = [
+    { key: 'jugg',   short: 'JUG', name: 'JUGGERNAUT',   price: 2500, blurb: '+50 max health' },
+    { key: 'reload', short: 'SPD', name: 'SPEED RELOAD', price: 1500, blurb: 'Reload 40% faster' },
+    { key: 'steady', short: 'AIM', name: 'STEADY AIM',   price: 1750, blurb: 'Less bloom, faster ADS' },
+    { key: 'scav',   short: 'SCV', name: 'SCAVENGER',    price: 1250, blurb: 'Richer pickups' },
+    { key: 'wind',   short: 'WND', name: 'SECOND WIND',  price: 3000, blurb: 'One self-revive' }
+  ];
+  function perkByKey(key) {
+    for (let i = 0; i < PERKS.length; i++) if (PERKS[i].key === key) return PERKS[i];
+    return null;
+  }
+  // Returns '' when the purchase is allowed, otherwise the reason to show the
+  // player. Never returns a bare boolean: "you can't" with no reason is the thing
+  // that makes a shop feel broken.
+  function perkBuyBlocker(owned, key, credits) {
+    const p = perkByKey(key);
+    if (!p) return 'UNKNOWN';
+    if (owned.indexOf(key) >= 0) return 'ALREADY OWNED';
+    if (owned.length >= PERK_SLOTS) return 'ALL ' + PERK_SLOTS + ' SLOTS FULL';
+    if (credits < p.price) return 'NEED ' + (p.price - credits) + ' MORE';
+    return '';
+  }
+  function hasPerk(owned, key) { return !!owned && owned.indexOf(key) >= 0; }
+  function perkMaxHealth(base, owned) { return hasPerk(owned, 'jugg') ? base + 50 : base; }
+  function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
+  function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
+  function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
+  function perkPickupMul(owned) { return hasPerk(owned, 'scav') ? 1.6 : 1; }
+
+  // ---- Armor plates ------------------------------------------------------------
+  // Armor was a 50-point buffer handed out once at deploy and topped up +15 by a
+  // med pickup: in practice a wave-1 resource that was gone by wave 4. Plates make
+  // it a between-wave decision instead.
+  const PLATE_MAX = 3;
+  const PLATE_PRICE = 250;
+  const PLATE_TIME = 1.1;
+  // Returns null when plating would do nothing, so the caller never burns a plate
+  // or a second of animation for no gain.
+  function plateApply(armor, armorMax, plates) {
+    if (plates <= 0 || armor >= armorMax) return null;
+    return { armor: armorMax, plates: plates - 1 };
+  }
+  function platesAffordable(credits, plates) {
+    const room = PLATE_MAX - plates;
+    if (room <= 0) return 0;
+    const n = Math.min(room, Math.floor(credits / PLATE_PRICE));
+    return n > 0 ? n : 0;
+  }
+
+  // ---- Last stand --------------------------------------------------------------
+  // A run is 25-40 minutes and a death ended it outright; the between-wave
+  // checkpoint only ever protected against a closed tab. Going down turns that into
+  // a tense ten seconds with an out.
+  const DOWN_TIME = 10;
+  const DOWN_REVIVE_HEALTH = 35;
+  const DOWN_SPEED_MUL = 0.35;
+  // What a lethal hit does. Second Wind is spent, not kept, so it answers exactly
+  // one mistake per run.
+  function lethalOutcome(perks, alreadyDowned) {
+    if (alreadyDowned) return { outcome: 'dead' };
+    if (hasPerk(perks, 'wind')) return { outcome: 'revive', consume: 'wind' };
+    return { outcome: 'down' };
+  }
+  function bleedOutRemaining(downT) {
+    const left = DOWN_TIME - downT;
+    return left > 0 ? left : 0;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -1169,6 +1311,37 @@ const CORE = (function () {
     rayBoxEntry: rayBoxEntry,
     penetrationWalk: penetrationWalk,
     penetrationMulAt: penetrationMulAt,
+    BUY_RADIUS: BUY_RADIUS,
+    BUY_HOLD: BUY_HOLD,
+    nearestStation: nearestStation,
+    WALL_BUY_PRICE: WALL_BUY_PRICE,
+    wallBuyPrice: wallBuyPrice,
+    ammoRefillPrice: ammoRefillPrice,
+    wallBuyOffer: wallBuyOffer,
+    ARMORY_WAVE: ARMORY_WAVE,
+    ARMORY_PRICE: ARMORY_PRICE,
+    armoryAvailable: armoryAvailable,
+    armoryUpgrade: armoryUpgrade,
+    PERK_SLOTS: PERK_SLOTS,
+    PERKS: PERKS,
+    perkByKey: perkByKey,
+    perkBuyBlocker: perkBuyBlocker,
+    hasPerk: hasPerk,
+    perkMaxHealth: perkMaxHealth,
+    perkReloadMul: perkReloadMul,
+    perkBloomMul: perkBloomMul,
+    perkAdsMul: perkAdsMul,
+    perkPickupMul: perkPickupMul,
+    PLATE_MAX: PLATE_MAX,
+    PLATE_PRICE: PLATE_PRICE,
+    PLATE_TIME: PLATE_TIME,
+    plateApply: plateApply,
+    platesAffordable: platesAffordable,
+    DOWN_TIME: DOWN_TIME,
+    DOWN_REVIVE_HEALTH: DOWN_REVIVE_HEALTH,
+    DOWN_SPEED_MUL: DOWN_SPEED_MUL,
+    lethalOutcome: lethalOutcome,
+    bleedOutRemaining: bleedOutRemaining,
     UNREACHABLE: UNREACHABLE
   };
 })();

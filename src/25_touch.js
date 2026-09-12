@@ -23,6 +23,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-nade" class="tbtn tbtn-sm">NADE</div>
     <div id="tbtn-swap" class="tbtn tbtn-sm">SWAP</div>
     <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
+    <div id="tbtn-use" class="tbtn tbtn-sm">USE</div>
+    <div id="tbtn-plate" class="tbtn tbtn-sm">PLATE</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -139,6 +141,9 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
   holdBtn('tbtn-melee', function () { pressed['__melee'] = true; }, function () {});
+  // USE is a HOLD, matching the keyboard: a purchase must never fire from a stray tap.
+  holdBtn('tbtn-use', function () { keys['__use'] = true; }, function () { keys['__use'] = false; });
+  holdBtn('tbtn-plate', function () { pressed['__plate'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');

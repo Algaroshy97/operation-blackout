@@ -88,6 +88,17 @@ def main() -> int:
             checks.append(("enemies-grounded", False))
 
         # 5) Scoped raycast colliders registered (fix #1 live sanity).
+        # Every station must have somewhere to stand. Two wall buys shipped inside
+        # corner-district geometry the first time this ran, which is exactly the
+        # failure this catches: unreachable, and invisible to a unit test because
+        # it needs the built arena.
+        bad = page.evaluate("() => window.__unreachableStations || []")
+        if bad:
+            console_errors.append("unreachable stations: %s" % bad)
+        checks.append(("stations-all-reachable", bad == []))
+        n_st = page.evaluate("() => typeof stations !== 'undefined' ? stations.length : -1")
+        checks.append(("stations-built", n_st > 0))
+
         n = page.evaluate("() => typeof raycastColliders !== 'undefined' ? raycastColliders.length : -1")
         checks.append(("raycast-colliders-live", n > 0))
 

@@ -13,7 +13,14 @@ function initWeapons() {
     wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
   }
 }
-function curW() { return CFG.weapons[weaponsOwned[curWeapon]]; }
+// Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
+// ~30 call sites without touching any of them. `s.up` is a whole stat block built
+// by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
+// runs and an in-place upgrade would leak into the next one.
+function curW() {
+  const s = wState[curWeapon];
+  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+}
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
@@ -56,7 +63,7 @@ function updateWeapons(dt) {
   const w = curW();
   if (s.reloading) {
     s.reloadT += dt;
-    if (s.reloadT >= w.reload) {
+    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
       const need = w.mag - s.ammo;
       const take = Math.min(need, s.reserve);
       s.ammo += take; s.reserve -= take;
@@ -81,7 +88,8 @@ function updateWeapons(dt) {
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
   if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
-  if ((pressed['KeyV'] || pressed['KeyF'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
+  // KeyF became USE when stations landed, which is where CoD players expect it.
+  if ((pressed['KeyV'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
@@ -183,6 +191,8 @@ function fireShot() {
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.
   const ads = adsDown();
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  bp.cap *= CORE.perkBloomMul(perks);
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
     hSpeedForSpread, !player.onGround);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
@@ -406,7 +416,7 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * dt);
+  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * CORE.perkAdsMul(perks) * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;

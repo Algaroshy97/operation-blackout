@@ -69,8 +69,14 @@ const player = {
   coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
   // mantle (see tryMantle) and tactical-sprint burst
   mantleT: 0, mantleFrom: new THREE.Vector3(), mantleTo: new THREE.Vector3(),
-  tacT: 0
+  tacT: 0,
+  // last stand: alive, but on the floor and bleeding out
+  downed: false
 };
+
+// Juggernaut raises the ceiling, so nothing may compare against the raw config
+// number any more or the perk silently caps itself away.
+function playerMaxHealth() { return CORE.perkMaxHealth(CFG.player.health, perks); }
 
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
@@ -204,7 +210,7 @@ function updatePlayer(dt) {
   // ---- Slide (C/Ctrl while sprinting on ground) ----
   const crouchKey = !!(keys['KeyC'] || keys['ControlLeft'] || keys['ControlRight']);
   const movingInput = !!(keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']);
-  if (!player.sliding && crouchKey && player.sprinting && player.onGround && movingInput && !adsDown() && !player.exhausted) {
+  if (!player.sliding && crouchKey && player.sprinting && player.onGround && movingInput && !adsDown() && !player.exhausted && !player.downed) {
     startSlide();
   }
   if (player.sliding) {
@@ -283,7 +289,7 @@ function updatePlayer(dt) {
     if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
     lastSprintTap = gameT;
   }
-  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown();
+  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown() && !player.downed;
   if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
@@ -318,6 +324,7 @@ function updatePlayer(dt) {
   if (len > 0) { ix /= len; iz /= len; }
   let speed = CFG.player.speed * (window.__analogMag || 1);
   if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
+  if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
   if (player.crouching) speed *= CFG.player.crouchMul;
   if (adsDown()) speed *= 0.65;
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
@@ -349,6 +356,7 @@ function updatePlayer(dt) {
   else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
   // A mantle beats a jump: if there is a ledge in front, climbing it is what the
   // player meant. Anything under STEP_H is already handled by step-up.
+  if (player.downed) player.jumpBufT = 0;
   if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
     player.jumpBufT = 0;
   } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
@@ -371,8 +379,10 @@ function updatePlayer(dt) {
   }
 
   // health regen
-  if (gameT - player.lastDamageT > CFG.player.regenDelay && player.health < CFG.player.health) {
-    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * diff().regen * dt);
+  // A downed player does not regenerate: the bleed-out has to mean something.
+  if (!player.downed &&
+      gameT - player.lastDamageT > CFG.player.regenDelay && player.health < playerMaxHealth()) {
+    player.health = Math.min(playerMaxHealth(), player.health + CFG.player.regenRate * diff().regen * dt);
   }
 
   // head bob
@@ -401,7 +411,10 @@ function damagePlayer(amount, dirDeg) {
   player.lastDamageT = gameT;
   showDamageFx(dirDeg, amount);
   updateHudHealth();
-  if (player.health <= 0) { player.health = 0; killPlayer(); }
+  // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
+  // mistake was the worst moment the game had. downPlayer() decides between a
+  // Second Wind, a bleed-out, and death.
+  if (player.health <= 0) { player.health = 0; downPlayer(); }
 }
 
 let godMode = false;

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-12
 **Reviewed build:** `master` @ `8d5b902`, three.js r186, 70 node + 15 Python tests passing.
-**Status:** Phase 9 shipped in full, plus 10.1 (credits) and 10.5 (power-ups). Everything else below is open.
+**Status:** Phases 9 and 10 shipped in full. Phases 11-13 are open.
 **Companion document:** `AUDIT_AND_ROADMAP.md` — the 2026-09 defect audit and Phases 0-8, all landed.
 That document is about *making the game correct*. This one is about *making it a Call of Duty game*.
 

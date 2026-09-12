@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-9 complete (2026-09-12)
+> ## Status — Phases 0-10 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -386,6 +386,50 @@
 > this phase; wall buys, the armory, perks, plates and last stand (10.2-10.7), all of
 > Phase 11 (equipment and streaks), Phase 12 (wave and map design) and Phase 13 (meta
 > progression) are not started.
+
+> **Phase 10 — the economy.** Credits shipped in Phase 9 with nothing to spend them
+> on. Eleven stations now sit in the arena, deliberately placed to pull the player out
+> of the central building, which was otherwise the whole game. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | the deploy loadout | what you die with | **wall buy**: M4 -> MK18 for 1000 CR, live |
+> | owning the wall weapon | n/a | **refill at 333 CR**, and a full reserve is refused free |
+> | a weapon at wave 15 | identical to wave 1 | **MK2**: 18 -> 32.4 dmg, 32 -> 48 mag, 5000 CR |
+> | the armory before wave 8 | n/a | locked, and charges nothing while locked |
+> | perks | none | **3 of 5 slots**, blocked buys say why |
+> | JUGGERNAUT | n/a | max health **100 -> 150** |
+> | armor | one 50-point buffer, +15 per medkit | **3 plates**, refill to full, none wasted at full |
+> | a lethal hit | run over | **downed**, 10 s bleed-out |
+> | downed movement | n/a | **0.35x** (1.89 vs 5.40 m/s, interleaved trials) |
+> | SECOND WIND | n/a | revives once at 35 HP, **and is consumed** |
+> | draw calls at deploy | 64 | **64** — housings join the existing static batches |
+>
+> **The bug this phase produced was a good one.** `buildStations()` was called from
+> `buildArena()`, which reads correctly and is wrong: every module is concatenated into
+> ONE script scope, and `STATION_LAYOUT` is a top-level `const` in a *later* module, so
+> the call ran before that module's declarations and died in the temporal dead zone —
+> `Cannot access 'STATION_LAYOUT' before initialization`. That is ENG-05 exactly, and it
+> behaved exactly as the audit predicted: one throw took out every module after it and
+> the whole game went dark. `node --check` passes it, because it is a runtime error, not
+> a parse error. The bootstrap now lives in the module that owns the data.
+>
+> **Two wall buys shipped inside corner-district geometry** — measured zero clear
+> stand-points on the buy ring, i.e. shop signs painted on solid walls. Hand-checking
+> coordinates against a 140-collider arena does not scale, so `unreachableStations()`
+> now runs at load and `scripts/probe_live.py` asserts on it. Repositioned by scanning
+> the live collider set for cells with at least 10 of 12 clear stand-points.
+>
+> 28 new node tests (134 total). Mutation-checked: 25 of 27 breakages fail the suite,
+> and the two survivors were confirmed **equivalent mutants** — `platesAffordable` has
+> two redundant guards, so removing either alone leaves the function correct; removing
+> both is caught. A third apparent survivor was a broken mutation: its anchor string
+> appeared twice in the file, so it had patched `penetrate()` instead of the bleed-out
+> clock. Re-run with a unique anchor, it kills.
+>
+> **Still open from `COD_ROADMAP.md`:** all of Phase 11 (tacticals, lethal variants,
+> field upgrade, scorestreaks), Phase 12 (special waves, gated map areas, elite variants,
+> objective waves) and Phase 13 (XP, unlocks, attachments, camos).
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

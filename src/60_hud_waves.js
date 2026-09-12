@@ -41,10 +41,11 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 let _hudHp = -1, _hudArmor = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
+  const pct = Math.round(Math.max(0, player.health / playerMaxHealth() * 100));
   const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
   if (hp !== _hudHp) {
     _hudHp = hp;
-    hud.healthBar.style.width = hp + '%';
+    hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
   }
   if (armor !== _hudArmor) {
@@ -253,7 +254,7 @@ function captureRunState() {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
-    credits: credits,
+    credits: credits, perks: perks.slice(), plates: plates,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons
   };
 }
@@ -306,6 +307,7 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
+      reviveFromDown();   // holding out to the wave clear is the other way back up
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
@@ -452,6 +454,7 @@ function showCenterMsg(txt) {
 // ---- Minimap + compass ----
 const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
+const MM_STATION_COLOR = { wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd' };
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -469,6 +472,18 @@ function drawMinimap() {
     const w = (c.max.x - c.min.x) * scale, h = (c.max.z - c.min.z) * scale;
     if (x * x + z * z > R * R * 2.4) continue;
     mmCtx.fillRect(x, z, w, h);
+  }
+  // Stations. Drawn under the enemies: a hostile marker must never be hidden by
+  // a shop marker.
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    const x = (st.x - px) * scale, z = (st.z - pz) * scale;
+    if (x * x + z * z > R * R) continue;
+    mmCtx.fillStyle = MM_STATION_COLOR[st.kind] || '#ffffff';
+    mmCtx.fillRect(x - 2.5, z - 2.5, 5, 5);
+    mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
+    mmCtx.lineWidth = 1;
+    mmCtx.strokeRect(x - 2.5, z - 2.5, 5, 5);
   }
   // enemies
   for (let i = 0; i < enemies.length; i++) {

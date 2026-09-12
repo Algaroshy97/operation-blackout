@@ -388,7 +388,7 @@ function dropPickup(pos) {
   const roll = Math.random();
   let kind = null;
   if (roll < ammoChance) kind = 'ammo';
-  else if (player.health < CFG.player.health * 0.5 || roll < ammoChance + 0.15) kind = 'med';
+  else if (player.health < playerMaxHealth() * 0.5 || roll < ammoChance + 0.15 * CORE.perkPickupMul(perks)) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -460,13 +460,15 @@ function updatePickups(dt) {
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {
-          s.reserve = Math.min(CFG.weapons[weaponsOwned[curWeapon]].reserveMax, s.reserve + Math.round(CFG.weapons[weaponsOwned[curWeapon]].mag * 1.5));
+          const cw = curW();
+          s.reserve = Math.min(cw.reserveMax, s.reserve + Math.round(cw.mag * 1.5 * CORE.perkPickupMul(perks)));
           updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
-        player.health = Math.min(CFG.player.health, player.health + 35);
-        player.armor = Math.min(CFG.player.armor, player.armor + 15);
+        const heal = 35 * CORE.perkPickupMul(perks);     // SCAVENGER
+        player.health = Math.min(playerMaxHealth(), player.health + heal);
+        player.armor = Math.min(CFG.player.armor, player.armor + 15 * CORE.perkPickupMul(perks));
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
