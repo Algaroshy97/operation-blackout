@@ -271,7 +271,7 @@ function drawMinimap() {
   mmCtx.save();
   mmCtx.translate(R, R);
   // rotate so up = facing
-  mmCtx.rotate(player.yaw + Math.PI);
+  mmCtx.rotate(player.yaw);
   const px = player.pos.x, pz = player.pos.z;
   // colliders as blocks
   mmCtx.fillStyle = 'rgba(160,170,185,0.5)';
