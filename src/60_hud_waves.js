@@ -34,11 +34,21 @@ function updateHudGrenadeCharge(visible, pct, speed) {
   if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = 'GRENADE ' + Math.round(speed || 0) + ' M/S (' + pct + '%)';
 }
 
+// Change-driven: this is called every frame, and each style write on an element
+// the compositor is already tracking costs more than the comparison that skips it.
+let _hudHp = -1, _hudArmor = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
-  hud.healthBar.style.width = hp + '%';
-  hud.healthNum.textContent = hp;
-  hud.armorBar.style.width = Math.max(0, player.armor / CFG.player.armor * 100) + '%';
+  const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
+  if (hp !== _hudHp) {
+    _hudHp = hp;
+    hud.healthBar.style.width = hp + '%';
+    hud.healthNum.textContent = hp;
+  }
+  if (armor !== _hudArmor) {
+    _hudArmor = armor;
+    hud.armorBar.style.width = armor + '%';
+  }
 }
 function updateHudAmmo() {
   const s = curS();
@@ -74,34 +84,69 @@ function showDamageFx(dirDeg, amount) {
     // yaw 0 faces -z (north). dirDeg 0 = attacker at +z (south) = behind.
     // Convert: screenDeg = 180 - rel so that attacker ahead shows at top (0deg = up arc)
     const screenDeg = (180 - rel + 360) % 360;
-    const el = document.createElement('div');
-    el.className = 'hit-dir';
-    el.style.transform = 'rotate(' + screenDeg + 'deg)';
-    el.innerHTML = '<div class="arc"></div>';
-    hud.hitDir.appendChild(el);
-    requestAnimationFrame(function () { el.style.opacity = '0.9'; });
-    setTimeout(function () { el.style.opacity = '0'; }, 600);
-    setTimeout(function () { el.remove(); }, 700);
+    showHitArc(screenDeg);
   }
   playSound('hurt');
+}
+
+// ---- Pooled hit-direction arcs ----
+// Every hit taken used to create a <div> plus two setTimeouts. Under sustained
+// fire that took the document from ~150 to ~630 elements with hundreds of pending
+// timers. Fixed pool, recycled by age, no timers.
+const HIT_ARC_POOL = 8, HIT_ARC_LIFE = 0.7;
+const hitArcs = [];
+(function buildHitArcs() {
+  for (let i = 0; i < HIT_ARC_POOL; i++) {
+    const el = document.createElement('div');
+    el.className = 'hit-dir';
+    el.innerHTML = '<div class="arc"></div>';
+    el.style.opacity = '0';
+    hud.hitDir.appendChild(el);
+    hitArcs.push({ el: el, t: -99 });
+  }
+})();
+let hitArcNext = 0;
+function showHitArc(screenDeg) {
+  const a = hitArcs[hitArcNext];
+  hitArcNext = (hitArcNext + 1) % HIT_ARC_POOL;
+  a.el.style.transform = 'rotate(' + screenDeg + 'deg)';
+  a.el.style.opacity = '0.9';
+  a.t = gameT;
+}
+function updateHitArcs() {
+  for (let i = 0; i < hitArcs.length; i++) {
+    const a = hitArcs[i];
+    if (a.t < 0) continue;
+    const age = gameT - a.t;
+    if (age >= HIT_ARC_LIFE) { a.el.style.opacity = '0'; a.t = -99; }
+    else if (age > HIT_ARC_LIFE * 0.6) a.el.style.opacity = String(0.9 * (1 - (age - HIT_ARC_LIFE * 0.6) / (HIT_ARC_LIFE * 0.4)));
+  }
 }
 
 function addScore(pts, label) {
   score += pts;
   hud.scoreVal.textContent = score;
-  if (label) {
-    const li = document.createElement('div');
-    li.className = 'killfeed-item';
-    li.innerHTML = label + ' <span class="xp">+' + pts + '</span>';
-    hud.killfeed.appendChild(li);
-    setTimeout(function () { li.remove(); }, 4200);
-  }
+  if (label) pushKillfeed(label + ' <span class="xp">+' + pts + '</span>');
 }
-function addKill(isHead) { kills++; if (isHead) headshots++; }
+
+// ---- Bounded killfeed ----
+// One <div> + one setTimeout per kill was unbounded under a multi-kill streak.
+// Cap the list and drop the oldest instead; the CSS animation still fades it out.
+const KILLFEED_MAX = 5;
+function pushKillfeed(html) {
+  const li = document.createElement('div');
+  li.className = 'killfeed-item';
+  li.innerHTML = html;
+  hud.killfeed.appendChild(li);
+  while (hud.killfeed.childElementCount > KILLFEED_MAX) hud.killfeed.removeChild(hud.killfeed.firstElementChild);
+  setTimeout(function () { if (li.parentNode) li.remove(); }, 4200);
+}
 // ---- Multi-kill streak bonus (wires the previously dead CFG.score.multikill) ----
 // A kill within MK_WINDOW of the previous one extends a streak. 2+ kills in a
 // row award an escalating bonus (x2, x3, ... capped at x5); the window resets
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
+// Minimap colours, one per archetype, so a glance tells you what is coming.
+const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
 const MK_WINDOW = 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
@@ -121,12 +166,46 @@ let shotsFired = 0, shotsHit = 0;
 let waveQueue = 0, spawnTimer = 0, waveActive = false, gameEnded = false, gameT = 0;
 let betweenWaveT = 0;
 let nextEstepT = 0;   // global throttle for positional enemy footsteps
+// Bumped by resetGame(). Anything scheduled with setTimeout captures the value at
+// schedule time and drops itself if the run has changed since.
+let runId = 0;
+// Per-run, chosen at deploy — not a saved setting.
+let runDifficulty = 'regular';
+let endlessMode = false;
+function diff() { return CORE.difficulty(runDifficulty); }
+// Behaviour unlocks replace the accuracy ramp that capped out at wave 8.
+let waveBehaviours = {};
 
 function getWaveNum() { return waveNum; }
 
+// Snapshot of everything a resumed run needs. Only ever called between waves.
+function captureRunState() {
+  const weapons = [];
+  for (let i = 0; i < 2; i++) {
+    const gi = weaponsOwned[i];
+    if (gi < 0 || !wState[i]) { weapons.push(null); continue; }
+    weapons.push({ gi: gi, ammo: wState[i].ammo, reserve: wState[i].reserve });
+  }
+  return {
+    wave: waveNum, score: score, kills: kills, headshots: headshots,
+    shotsFired: shotsFired, shotsHit: shotsHit,
+    health: player.health, armor: player.armor, grenades: grenades.count,
+    difficulty: runDifficulty, endless: endlessMode, weapons: weapons
+  };
+}
+
 function startWave(n) {
   waveNum = n;
-  waveQueue = Math.round(CFG.wave.baseCount + (n - 1) * CFG.wave.growth);
+  waveBehaviours = CORE.behavioursAtWave(n);
+  waveQueue = Math.max(1, Math.round(
+    CORE.endlessEnemyCount(n, CFG.wave.baseCount, CFG.wave.growth, CFG.wave.victoryWave, 60) * diff().count));
+  // Announce what changed, so escalation is legible instead of just "more of them".
+  CORE.newBehavioursAtWave(n).forEach(function (b) {
+    setTimeout(function () { showCenterMsg(b.label.toUpperCase()); }, 1400);
+  });
+  CORE.newEnemyKindsAtWave(n).forEach(function (e) {
+    setTimeout(function () { showCenterMsg('NEW HOSTILE: ' + e.name.toUpperCase()); }, 2600);
+  });
   spawnTimer = 0.5;
   waveActive = true;
   hud.waveNum.textContent = n;
@@ -143,12 +222,16 @@ function updateWaves(dt) {
       if (spawnTimer <= 0) {
         const canSpawn = Math.max(0, CFG.wave.maxActive - aliveEnemies());
         if (canSpawn > 0) {
-          const burstSize = Math.floor(Math.random() * 2) + 3; // 3 or 4 enemies
+          // Burst size and cadence scale with how much of the wave is still
+          // queued: wave 15 used to need ~37 s of pure spawn gating before kill
+          // time, which read as slow rather than climactic.
+          const pressure = Math.min(1, waveQueue / 18);
+          const burstSize = Math.floor(Math.random() * 2) + 3 + Math.round(pressure * 3);
           const count = Math.min(burstSize, waveQueue, canSpawn);
           for (let i = 0; i < count; i++) {
             spawnFromQueue();
           }
-          spawnTimer = 2.5 + Math.random() * 1.5; // short pause between bursts
+          spawnTimer = (2.5 - pressure * 1.4) + Math.random() * 1.2;
         } else {
           spawnTimer = 0.5;
         }
@@ -160,7 +243,8 @@ function updateWaves(dt) {
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       unlockSecondary();
       resupply();
-      if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
+      if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
+      saveCheckpoint(captureRunState());   // between waves = the only safe save point
       showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }
   } else {
@@ -168,8 +252,44 @@ function updateWaves(dt) {
     updateWaveCountdown();
     if (betweenWaveT <= 0) startWave(waveNum + 1);
   }
-  hud.enemiesLeft.textContent = (waveQueue + aliveEnemies()) + ' HOSTILE' + (waveQueue + aliveEnemies() === 1 ? '' : 'S');
+  let left = waveQueue + aliveEnemies();
+  // Between waves the queue is empty; show what is coming, not "0 HOSTILES".
+  if (!waveActive && left === 0) left = CORE.waveEnemyCount(waveNum + 1, CFG.wave.baseCount, CFG.wave.growth);
+  if (left !== _hudEnemiesLeft) {
+    _hudEnemiesLeft = left;
+    hud.enemiesLeft.textContent = left + ' HOSTILE' + (left === 1 ? '' : 'S');
+  }
 }
+let _hudEnemiesLeft = -1;
+// Zero ammo means zero kills, which means zero drops, which means the run can
+// never recover — measured at wave 2 with a fixed-skill bot: 0 rounds, 0 pickups,
+// enemies still alive. Drop a cache directly when the player has been dry for a
+// few seconds, so the floor does not depend on getting a kill first.
+let dryT = 0, nextCacheT = -99;
+function updateAmmoRelief(dt) {
+  if (!waveActive || player.dead) { dryT = 0; return; }
+  let rounds = 0;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    rounds += wState[i].ammo + wState[i].reserve;
+  }
+  if (rounds > 0) { dryT = 0; return; }
+  dryT += dt;
+  if (dryT > 5 && gameT > nextCacheT) {
+    nextCacheT = gameT + 18;
+    // just in front of the player, never inside geometry
+    for (let a = 0; a < 8; a++) {
+      const ang = player.yaw + Math.PI + a * 0.8;
+      const x = player.pos.x + Math.sin(ang) * 4, z = player.pos.z + Math.cos(ang) * 4;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) continue;
+      if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.4)) continue;
+      forceAmmoPickup(x, z);
+      showCenterMsg('AMMO CACHE DROPPED');
+      return;
+    }
+  }
+}
+
 function aliveEnemies() {
   let n = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) n++;
@@ -196,14 +316,17 @@ function spawnFromQueue() {
     if (score > bestScore) { bestScore = score; best = i; }
   }
   const sp = spawnPoints[best];
-  const x = sp[0] + (Math.random() - 0.5) * 6;
-  const z = sp[1] + (Math.random() - 0.5) * 6;
+  // Jitter, but never into a wall: ~2% of raw jittered points land inside solid
+  // geometry, which is roughly 7 enemies per full run spawning clipped in a crate.
+  // Resample, then fall back to the unjittered ring point.
+  let x = sp[0], z = sp[1];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const jx = sp[0] + (Math.random() - 0.5) * 6;
+    const jz = sp[1] + (Math.random() - 0.5) * 6;
+    if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
+  }
   // kind distribution by wave: runners early, riflemen from w2, tanks from w4
-  const roll = Math.random();
-  let kind = 0;
-  if (waveNum >= 4 && roll < 0.12 + Math.min(0.15, waveNum * 0.01)) kind = 2;
-  else if (waveNum >= 2 && roll < 0.45) kind = 1;
-  spawnEnemy(kind, x, z);
+  spawnEnemy(CORE.pickEnemyKind(waveNum, Math.random()), x, z);
 }
 
 function resupply() {
@@ -223,17 +346,16 @@ function resupply() {
 // once the slot is filled it never fires again for the rest of the run.
 function unlockSecondary() {
   if (weaponsOwned[1] >= 0) return false;
-  const gi = (weaponsOwned[0] + 1) % CFG.weapons.length;
+  // The player's deploy-time pick, not an arbitrary roster neighbour.
+  let gi = (typeof pendingSecondary !== 'undefined' && pendingSecondary >= 0)
+    ? pendingSecondary : (weaponsOwned[0] + 1) % CFG.weapons.length;
+  if (gi === weaponsOwned[0]) gi = (gi + 1) % CFG.weapons.length;
   weaponsOwned[1] = gi;
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.
   wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
   const w = CFG.weapons[gi];
-  const li = document.createElement('div');
-  li.className = 'killfeed-item';
-  li.innerHTML = 'SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>';
-  hud.killfeed.appendChild(li);
-  setTimeout(function () { li.remove(); }, 5000);
+  pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound('draw');
   return true;
 }
@@ -289,8 +411,13 @@ function drawMinimap() {
     if (e.dead) continue;
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
     if (x * x + z * z > R * R) continue;
-    mmCtx.fillStyle = e.kind === 2 ? '#ff8830' : '#ff4030';
-    mmCtx.beginPath(); mmCtx.arc(x, z, e.kind === 2 ? 4 : 3, 0, 7); mmCtx.fill();
+    mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
+    mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
+    // GAP-08: colourblind players get a shape cue, not just a hue cue.
+    if (getSetting('colorblindMarkers') && e.kind !== 0) {
+      mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
+      mmCtx.beginPath(); mmCtx.arc(x, z, 6, 0, 7); mmCtx.stroke();
+    }
   }
   mmCtx.restore();
   // player arrow (center, up)
@@ -300,16 +427,20 @@ function drawMinimap() {
   mmCtx.closePath(); mmCtx.fill();
 }
 
-const COMPASS_W = 560;
+// UI-02: the canvas was 560 px wide inside a 280 px overflow:hidden strip with no
+// CSS width, so drawCompass centred the heading at x=280 — the strip's RIGHT clip
+// edge — while the yellow index line sits at the centre. The compass read ~45 deg
+// off with half its ticks invisible. Derive every offset from the real canvas size.
 function drawCompass() {
-  const w = COMPASS_W, h = 18;
+  const w = hud.compass.width, h = hud.compass.height;
+  const cx = w / 2;
   cpCtx.clearRect(0, 0, w, h);
   cpCtx.font = 'bold 11px Segoe UI';
   cpCtx.textAlign = 'center';
   // heading degrees: 0 = north (-z). yaw 0 faces -z? our forward = (-sin yaw, -cos yaw); yaw=0 -> (0,-1) = north
   const heading = ((-player.yaw * 180 / Math.PI) % 360 + 360) % 360;
   // draw ticks every 15deg within +/- 60 of heading
-  const pxPerDeg = 280 / 90;  // 90 degrees visible across 280px strip
+  const pxPerDeg = w / 90;   // 90 degrees of heading across the visible strip
   for (let d = -60; d <= 60; d += 5) {
     const deg = (heading + d + 360) % 360;
     // snap to 5-degree marks
@@ -317,7 +448,7 @@ function drawCompass() {
     const dispDeg = base;
     const off = (dispDeg - heading + 540) % 360 - 180;
     if (Math.abs(off) > 45) continue;
-    const x = 280 + off * pxPerDeg;
+    const x = cx + off * pxPerDeg;
     const isMajor = dispDeg % 45 === 0;
     cpCtx.fillStyle = isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
     if (dispDeg % 15 === 0) cpCtx.fillRect(x - 1, 12, 2, 6);

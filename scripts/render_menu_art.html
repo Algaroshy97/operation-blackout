@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Menu Art Renderer</title>
+<style>
+  html,body{margin:0;background:#111;color:#ccc;font:13px system-ui}
+  #wrap{padding:12px}
+  canvas{max-width:100%;display:block;border:1px solid #333}
+  #status{padding:6px 0}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="status">loading assets…</div>
+  <canvas id="out" width="1600" height="836"></canvas>
+  <p style="margin:14px 0 4px">With the real menu chrome over it:</p>
+  <div id="menu-preview"><div id="mp-inner">
+    <div class="mp-h1">OPERATION BLACKOUT</div>
+    <div class="mp-h2">WAVE DEFENSE FPS</div>
+    <div class="mp-btn">DEPLOY</div>
+    <div class="mp-ctrls">
+      <b>WASD</b><span>Move</span><b>Mouse</b><span>Aim / Fire</span>
+      <b>Shift</b><span>Sprint</span><b>R</b><span>Reload</span>
+      <b>G</b><span>Throw grenade</span><b>P / Esc</b><span>Pause</span>
+    </div>
+  </div></div>
+</div>
+<style>
+  /* mirrors src/00_head.html #start-screen so the art is judged in situ */
+  #menu-preview{position:relative;width:1600px;max-width:100%;aspect-ratio:1600/836;
+    display:flex;align-items:center;justify-content:center;border:1px solid #333;
+    background-size:cover;background-position:center;font-family:system-ui}
+  #mp-inner{text-align:center}
+  .mp-h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px;color:#ffdf8a;
+    text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000}
+  .mp-h2{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.65);margin:0 0 36px}
+  .mp-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;
+    letter-spacing:4px;color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:4px;
+    background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9))}
+  .mp-ctrls{margin-top:36px;display:grid;grid-template-columns:auto auto;gap:4px 18px;
+    color:rgba(255,255,255,.75);font-size:13px;text-align:left}
+  .mp-ctrls b{color:#ffdf8a;font-weight:700;text-align:right}
+</style>
+<script src="../vendor/three.min.js"></script>
+<script src="../vendor/zz-gltfloader.min.js"></script>
+<script src="../src/05_assets.js"></script>
+<script>
+'use strict';
+// Offline renderer for the main-menu key art. Uses the game's own GLB kit and
+// palette so the menu background is the real art, not a lookalike.
+// Open this file in a browser; it renders once and exposes window.__DATAURL.
+const OUT_W = 1600, OUT_H = 836, SS = 2;   // supersampled, downscaled on export
+
+const rc = document.createElement('canvas');
+rc.width = OUT_W * SS; rc.height = OUT_H * SS;
+const renderer = new THREE.WebGLRenderer({ canvas: rc, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(OUT_W * SS, OUT_H * SS, false);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0b1016, 14, 95);
+
+const camera = new THREE.PerspectiveCamera(34, OUT_W / OUT_H, 0.1, 500);
+camera.position.set(0.4, 1.55, 6.0);
+camera.lookAt(-0.3, 2.05, -40);
+
+// ---- sky dome: deep night up top, warm haze at the horizon ----
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: {
+    top:  { value: new THREE.Color(0x03050a) },
+    mid:  { value: new THREE.Color(0x0a1219) },
+    horz: { value: new THREE.Color(0x3d2a17) }
+  },
+  vertexShader: 'varying vec3 vW; void main(){ vW = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: [
+    'uniform vec3 top; uniform vec3 mid; uniform vec3 horz; varying vec3 vW;',
+    'void main(){',
+    '  float h = clamp(normalize(vW).y * 0.5 + 0.5, 0.0, 1.0);',
+    '  vec3 c = mix(horz, mid, smoothstep(0.47, 0.60, h));',
+    '  c = mix(c, top, smoothstep(0.58, 0.88, h));',
+    '  gl_FragColor = vec4(c, 1.0);',
+    '}'
+  ].join('\n')
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(300, 32, 20), skyMat));
+
+// ---- lights ----
+scene.add(new THREE.HemisphereLight(0x16222e, 0x05070a, 0.26));
+scene.add(new THREE.AmbientLight(0x121a24, 0.34));
+
+// cool moon key from behind-left -> cold rim down the squad's shoulders
+const moon = new THREE.DirectionalLight(0x93b6e0, 0.55);
+moon.position.set(-26, 26, -20);
+moon.castShadow = true;
+moon.shadow.mapSize.set(2048, 2048);
+const sc = moon.shadow.camera;
+sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 130;
+scene.add(moon);
+
+// warm fire key from the right-hand barrel
+const fire = new THREE.PointLight(0xff7a22, 11, 15, 2);
+fire.position.set(8.6, 1.3, -15.5);
+fire.castShadow = true;
+fire.shadow.mapSize.set(1024, 1024);
+scene.add(fire);
+
+// warm bounce so the squad reads against the dark
+const bounce = new THREE.PointLight(0xff9440, 2.4, 13, 2);
+bounce.position.set(2.2, 2.2, -9.0);
+scene.add(bounce);
+
+// distant cold fill down the centre lane so the plaza isn't pure black
+const centreFill = new THREE.PointLight(0x4d7ba8, 3.5, 42, 2);
+centreFill.position.set(-1.0, 6.0, -44.0);
+scene.add(centreFill);
+
+// ---- materials: game palette, pulled down for night ----
+const M = {
+  ground:    new THREE.MeshStandardMaterial({ color: 0x101319, roughness: 0.96 }),
+  concrete:  new THREE.MeshStandardMaterial({ color: 0x2f343c, roughness: 0.92 }),
+  concrete2: new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.95 }),
+  dark:      new THREE.MeshStandardMaterial({ color: 0x0d0f13, roughness: 0.85 }),
+  far:       new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 1.0 }),
+  win:       new THREE.MeshBasicMaterial({ color: 0xffb457 })
+};
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), M.ground);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+function box(x, y, z, w, h, d, mat, ry) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  if (ry) m.rotation.y = ry;
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+
+const rnd = (function (s) { return function () { s = (s * 16807) % 2147483647; return s / 2147483647; }; })(9871);
+
+// ---- flanking buildings frame the shot and keep the centre open ----
+box(-14.5, 0, -24, 11, 9.5, 16, M.concrete2);
+box(-13.0, 0, -12, 7, 5.5, 9, M.concrete);
+box(15.5, 0, -26, 12, 11, 17, M.concrete2);
+box(14.0, 0, -13.5, 6.5, 4.6, 8, M.concrete);
+box(-20, 0, -40, 14, 14, 14, M.far);
+box(20, 0, -44, 16, 17, 15, M.far);
+
+// distant skyline, mostly dead windows
+for (let i = 0; i < 22; i++) {
+  box(-95 + i * 8.6 + rnd() * 4, 0, -78 - rnd() * 34,
+      7 + rnd() * 7, 10 + rnd() * 26, 12 + rnd() * 10, M.far);
+}
+// a handful of windows still alive
+for (let i = 0; i < 14; i++) {
+  const w = new THREE.Mesh(new THREE.PlaneGeometry(0.5 + rnd() * 0.4, 0.7 + rnd() * 0.5), M.win);
+  w.position.set(-60 + rnd() * 120, 5 + rnd() * 18, -71 - rnd() * 6);
+  scene.add(w);
+}
+
+// low wall with a gate opening closing off the centre lane
+box(-9.5, 0, -46, 13, 3.2, 1.0, M.concrete2);
+box(9.5, 0, -46, 13, 3.2, 1.0, M.concrete2);
+box(-3.4, 0, -46, 0.8, 5.0, 1.2, M.dark);
+box(3.4, 0, -46, 0.8, 5.0, 1.2, M.dark);
+
+function place(key, x, z, scale, ry) {
+  const g = GLB_PARSED[key];
+  if (!g) return null;
+  const o = g.scene.clone(true);
+  o.scale.setScalar(scale);
+  o.position.set(x, 0, z);
+  o.rotation.y = ry || 0;
+  o.traverse(function (n) { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
+  scene.add(o);
+  return o;
+}
+
+function buildProps() {
+  // conifers frame both edges (game scatters these at scale 2.4-2.6)
+  const trees = [[-11.2, -8, 2.6], [-13.8, -17, 3.0], [-9.4, -30, 2.8], [-17.5, -36, 3.2],
+                 [12.2, -9, 2.7], [14.6, -19, 3.1], [10.8, -32, 2.8], [18.5, -38, 3.2]];
+  trees.forEach(function (t, i) { place('TREE', t[0], t[1], t[2], i * 1.1); });
+
+  // burning barrel cluster on the right is the warm anchor
+  place('BARREL', 8.6, -15.5, 2.0, 0.3);
+  place('BARREL', 9.9, -16.8, 2.0, 1.9);
+  place('CRATE', 7.2, -17.4, 2.0, 0.6);
+  place('CRATE', 10.6, -14.4, 2.0, 2.2);
+  // cover beside the squad
+  place('CRATE', -6.6, -12.0, 2.0, 0.4);
+  place('CRATE', -5.2, -13.4, 2.0, 1.7);
+  place('COLUMN', -8.8, -20.0, 2.2, 0.2);
+  place('COLUMN', 11.4, -24.0, 2.2, 1.1);
+
+  // fire core inside the barrel: a few stacked additive blobs read as flame
+  const flameCols = [0xffb347, 0xff8a1e, 0xe25c12, 0xb83c0c];
+  const flameDims = [[0.15, 1.00], [0.20, 1.16], [0.22, 1.36], [0.17, 1.58]];
+  flameDims.forEach(function (d, i) {
+    const f = new THREE.Mesh(
+      new THREE.SphereGeometry(d[0], 12, 10),
+      new THREE.MeshBasicMaterial({
+        color: flameCols[i], transparent: true, opacity: 0.55 - i * 0.09,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      })
+    );
+    f.position.set(8.6 + (rnd() - 0.5) * 0.1, d[1], -15.5 + (rnd() - 0.5) * 0.1);
+    f.scale.y = 1.5;
+    scene.add(f);
+  });
+  // embers: few, close to the barrel and warm. A wide field of bright dots
+  // reads as snow against a night sky, not fire.
+  const eg = new THREE.BufferGeometry();
+  const pts = [];
+  for (let i = 0; i < 46; i++) {
+    const t = rnd();
+    pts.push(8.6 + (rnd() - 0.5) * (0.5 + t * 1.5),
+             1.35 + t * 2.6,
+             -15.5 + (rnd() - 0.5) * (0.5 + t * 1.2));
+  }
+  eg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  scene.add(new THREE.Points(eg, new THREE.PointsMaterial({
+    color: 0xff9a3a, size: 0.055, transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  })));
+}
+
+function skClone(source) {
+  const lookup = new Map();
+  const clone = source.clone(true);
+  (function parallel(a, b) {
+    lookup.set(a, b);
+    for (let i = 0; i < a.children.length; i++) parallel(a.children[i], b.children[i]);
+  })(source, clone);
+  clone.traverse(function (node) {
+    if (node.isSkinnedMesh && node.skeleton) {
+      const bones = node.skeleton.bones.map(function (b) { return lookup.get(b) || b; });
+      node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix);
+    }
+  });
+  return clone;
+}
+
+// [x, z, yaw, clipName, timeOffset]
+// The model faces +Z at yaw 0, i.e. straight at the camera. Defenders therefore
+// get yaw ~PI so we see their backs; hostiles get yaw ~0 so they face us.
+const SQUAD = [
+  // defenders holding the near line, backs to camera, rifles up
+  // 3/4 back view, not dead-behind: at yaw ~PI the torso occludes the weapon.
+  [-3.6, -7.0, Math.PI - 0.80, 'holding-both', 0.00, true],
+  [-5.6, -9.8, Math.PI - 0.62, 'holding-both-shoot', 0.12, true],
+  [-2.0, -11.6, Math.PI + 0.72, 'crouch', 0.00, true],
+  // hostiles pushing in from the far side, small and silhouetted
+  [5.2, -22.0, 0.16, 'sprint', 0.25, false],
+  [2.8, -26.0, -0.12, 'sprint', 0.62, false],
+  [7.4, -28.5, 0.30, 'walk', 0.40, false]
+];
+
+function buildSquad() {
+  const S = 1.85 / 0.84;   // Kenney mini-soldier is ~0.84 m raw
+  const gltf = GLB_PARSED.SOLDIER;
+  if (!gltf) return;
+  SQUAD.forEach(function (s) {
+    const root = skClone(gltf.scene);
+    root.scale.setScalar(S);
+    root.position.set(s[0], 0, s[1]);
+    root.rotation.y = s[2];
+    root.traverse(function (n) {
+      if (n.isSkinnedMesh) n.frustumCulled = false;
+      if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; }
+    });
+    scene.add(root);
+    // pose from a real clip so nobody stands in a T-pose
+    const clip = gltf.animations.filter(function (c) { return c.name === s[3]; })[0] || gltf.animations[0];
+    if (clip) {
+      const mixer = new THREE.AnimationMixer(root);
+      const act = mixer.clipAction(clip);
+      act.play();
+      // setTime evaluates the clip at an absolute time; mixer.update(0) is a
+      // zero-delta no-op and leaves the rig in its arms-down bind pose.
+      mixer.setTime(Math.max(0.001, s[4]));
+      root.updateMatrixWorld(true);
+    }
+    // The kit ships no weapon and the rig has no hand slot, so hands close on
+    // nothing. This is a still, so drop a rifle into world space between the
+    // posed hands: the silhouette is what sells the pose.
+    if (s[5]) addRifle(root, s[2], s[3] === 'crouch');
+  });
+}
+
+function makeRifle() {
+  const g = new THREE.Group();
+  // light enough to catch the moon: a true-black rifle vanishes at night
+  const body = new THREE.MeshStandardMaterial({ color: 0x343a42, roughness: 0.45, metalness: 0.7 });
+  const furn = new THREE.MeshStandardMaterial({ color: 0x4a4036, roughness: 0.8 });
+  const rec = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.42), body);
+  const brl = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.05, 0.34), body);
+  brl.position.z = 0.36;
+  const stk = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, 0.26), furn);
+  stk.position.z = -0.32;
+  const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.20, 0.09), furn);
+  mag.position.set(0, -0.14, 0.04);
+  const sig = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.10), body);
+  sig.position.set(0, 0.08, 0.10);
+  g.add(rec, brl, stk, mag, sig);
+  g.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+function addRifle(root, yaw, crouched) {
+  // The arm bones are rotation-only, so their world origins sit at the shoulder
+  // pivot (~0.63 m) no matter the pose. Anchor off the soldier root instead:
+  // the model is 1.84 m tall, so chest height is ~1.15 m.
+  root.updateMatrixWorld(true);
+  const base = new THREE.Vector3().setFromMatrixPosition(root.matrixWorld);
+  const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const rifle = makeRifle();
+  rifle.position.copy(base)
+    .addScaledVector(fwd, 0.40)
+    .addScaledVector(right, 0.22);
+  rifle.position.y = crouched ? 0.92 : 1.18;
+  rifle.rotation.y = yaw;
+  rifle.rotation.x = -0.08;
+  scene.add(rifle);
+}
+
+function renderAndGrade() {
+  renderer.render(scene, camera);
+  const out = document.getElementById('out');
+  const ctx = out.getContext('2d');
+  ctx.drawImage(rc, 0, 0, OUT_W, OUT_H);
+
+  // vignette: corners fall away under the menu's own dark gradient
+  const g = ctx.createRadialGradient(OUT_W * 0.5, OUT_H * 0.52, OUT_H * 0.22,
+                                     OUT_W * 0.5, OUT_H * 0.52, OUT_H * 1.05);
+  // Keep this light: the menu lays its own 0.88/0.25/0.92 gradient over the top,
+  // so anything heavy here double-darkens and kills the mid band.
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.62, 'rgba(3,6,9,0.16)');
+  g.addColorStop(1, 'rgba(2,4,6,0.52)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, OUT_W, OUT_H);
+
+  // gentle sink so the empty foreground never competes with the controls grid
+  const fg = ctx.createLinearGradient(0, OUT_H * 0.62, 0, OUT_H);
+  fg.addColorStop(0, 'rgba(4,7,10,0)');
+  fg.addColorStop(1, 'rgba(4,7,10,0.26)');
+  ctx.fillStyle = fg;
+  ctx.fillRect(0, 0, OUT_W, OUT_H);
+
+  // cool wash to unify with the menu chrome
+  ctx.fillStyle = 'rgba(14,26,30,0.10)';
+  ctx.fillRect(0, 0, OUT_W, OUT_H);
+
+  window.__DATAURL = out.toDataURL('image/jpeg', 0.82);
+  // exact gradient from src/06_menu_assets.js, so this is what the player sees
+  document.getElementById('menu-preview').style.background =
+    'linear-gradient(180deg, rgba(6,10,6,0.88) 0%, rgba(6,10,6,0.25) 35%, ' +
+    'rgba(6,10,6,0.25) 65%, rgba(6,10,6,0.92) 100%), url("' + window.__DATAURL + '") center / cover no-repeat';
+  window.__READY = true;
+  const kb = Math.round(window.__DATAURL.length / 1365);
+  const st = document.getElementById('status');
+  st.textContent = 'rendered ' + OUT_W + 'x' + OUT_H + ' - approx ' + kb + ' KB; saving...';
+
+  // hand it to art_server.py, which writes assets/menu_bg.jpg
+  fetch('/save', { method: 'POST', body: window.__DATAURL.split(',')[1] })
+    .then(function (r) { return r.text(); })
+    .then(function (t) { st.textContent = 'rendered, ' + kb + ' KB - ' + t; window.__SAVED = true; })
+    .catch(function (e) { st.textContent = 'rendered, ' + kb + ' KB - save failed: ' + e; });
+}
+
+window.__READY = false;
+loadEmbeddedAssets().then(function () {
+  console.log('GLB keys: ' + Object.keys(GLB_PARSED).join(', '));
+  if (GLB_PARSED.SOLDIER) {
+    console.log('SOLDIER clips: ' + GLB_PARSED.SOLDIER.animations.map(function (c) { return c.name; }).join(', '));
+  }
+  buildProps();
+  buildSquad();
+  renderAndGrade();
+});
+</script>
+</body>
+</html>

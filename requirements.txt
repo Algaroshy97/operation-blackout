@@ -1,0 +1,5 @@
+# Test-only dependencies. The game itself ships as one HTML file with no runtime deps.
+#
+#   pip install -r requirements.txt
+#   playwright install chromium     # one-time browser download, needed by scripts/probe_live.py
+playwright>=1.40

@@ -5,6 +5,12 @@ const liveGrenades = [];
 const grenadeGeo = new THREE.SphereGeometry(0.11, 10, 8);
 const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2e, roughness: 0.5, metalness: 0.3 });
 const fuseLightMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+const fuseBlinkGeo = new THREE.SphereGeometry(0.045, 6, 4);   // shared across all throws
+// Shared explosion-flash resources + a pool of the meshes that use them.
+const blastFlashGeo = new THREE.SphereGeometry(1, 12, 8);
+const blastFlashMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 });
+const blastFlashPool = [];
+function releaseBlastFlash(m) { m.visible = false; blastFlashPool.push(m); }
 
 // ---- Trajectory preview pool (zero per-frame allocation) ----
 const PREVIEW_DOT_COUNT = 28;
@@ -57,11 +63,25 @@ function getGrenadeSpeed() {
 }
 
 const _prevDir = new THREE.Vector3();
+// Colliders within reach of the throw arc, refreshed once per preview frame
+// instead of scanning all of them at every one of the 28 sample points.
+const previewNear = [];
+const PREVIEW_REACH = 22;
+function refreshPreviewNear(ox, oz) {
+  previewNear.length = 0;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    if (c.min.x - PREVIEW_REACH > ox || c.max.x + PREVIEW_REACH < ox) continue;
+    if (c.min.z - PREVIEW_REACH > oz || c.max.z + PREVIEW_REACH < oz) continue;
+    previewNear.push(c);
+  }
+}
 function updateGrenadePreview(speed) {
   if (grenades.count <= 0 || player.dead || paused || !started) {
     hidePreviewDots();
     return;
   }
+  refreshPreviewNear(camera.position.x, camera.position.z);
   _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   _prevDir.y += 0.45;
   _prevDir.normalize();
@@ -105,8 +125,10 @@ function updateGrenadePreview(speed) {
     }
 
     // wall bounce (AABBs) (matches updateGrenades physics)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
+    // Broad-phase first: the full arc used to test 28 points against all 129
+    // colliders every frame while the throw was charging (~3,600 AABB tests).
+    for (let c = 0; c < previewNear.length; c++) {
+      const col = previewNear[c];
       if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
           py > col.min.y && py < col.max.y &&
           pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
@@ -134,7 +156,10 @@ function throwGrenade(customSpeed) {
   grenades.cd = 0.8;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
-  const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), fuseLightMat);
+  // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
+  // throw and explodeGrenade() only scene.remove()d the mesh, leaking ~1 GPU
+  // geometry per grenade for the life of the session.
+  const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1;
   m.add(blink);
   m.castShadow = true;
@@ -269,15 +294,6 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  grenadeTargets.length = 0;
-  for (let i = 0; i < raycastColliders.length; i++) {
-    grenadeTargets.push(raycastColliders[i]);
-  }
-  for (let i = 0; i < enemies.length; i++) {
-    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
-      grenadeTargets.push(enemies[i].parts.group);
-    }
-  }
   const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
     return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
   })[0];
@@ -285,15 +301,35 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
 
+// One blast can query line of sight for every enemy in radius. Building the target
+// list per enemy meant up to 14 full-scene array copies plus 14 raycasts in a
+// single frame — a guaranteed hitch on a multi-kill grenade. Build it once.
+function refreshGrenadeTargets() {
+  grenadeTargets.length = 0;
+  for (let i = 0; i < raycastColliders.length; i++) grenadeTargets.push(raycastColliders[i]);
+  for (let i = 0; i < enemies.length; i++) {
+    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
+      grenadeTargets.push(enemies[i].parts.group);
+    }
+  }
+}
+
 function explodeGrenade(pos) {
   playSound('explosion');
-  // flash sphere vfx
-  const flash = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 }));
+  refreshGrenadeTargets();
+  // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
+  // material per explosion; anything that outlived a resetGame() leaked both.
+  const flash = blastFlashPool.length ? blastFlashPool.pop() : (function () {
+    const m = new THREE.Mesh(blastFlashGeo, blastFlashMat);
+    m.userData.vfx = true;
+    m.userData.isBulletImpact = false;
+    m.userData.blastFlash = true;
+    return m;
+  })();
+  flash.visible = true;
   flash.position.copy(pos);
-  flash.userData.vfx = true;
-  flash.userData.isBulletImpact = false;
   scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false });
+  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
   // smoke/spark debris
   for (let i = 0; i < 14; i++) {
     const s = new THREE.Mesh(sparkGeo, sparkMat);
@@ -341,10 +377,18 @@ const PICKUP_LIFE = 25;        // seconds before despawn
 const PICKUP_BLINK = 20;       // start blinking during the last 5s
 
 function dropPickup(pos) {
+  // Total rounds across everything the player is carrying.
+  let roundsLeft = 0, magSize = 30;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    roundsLeft += wState[i].ammo + wState[i].reserve;
+    if (i === curWeapon) magSize = CFG.weapons[weaponsOwned[i]].mag;
+  }
+  const ammoChance = CORE.ammoDropChance(roundsLeft, magSize);
   const roll = Math.random();
   let kind = null;
-  if (roll < 0.30) kind = 'ammo';
-  else if (roll < 0.45) kind = 'med';
+  if (roll < ammoChance) kind = 'ammo';
+  else if (player.health < CFG.player.health * 0.5 || roll < ammoChance + 0.15) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -358,6 +402,16 @@ function dropPickup(pos) {
   g.userData.pickup = kind;
   scene.add(g);
   pickups.push({ m: g, kind: kind, t: 0 });
+}
+
+// Drop an ammo box at a specific spot, bypassing the random roll.
+function forceAmmoPickup(x, z) {
+  const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
+  g.position.set(x, 0.3, z);
+  g.castShadow = true;
+  g.userData.pickup = 'ammo';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'ammo', t: 0 });
 }
 
 function updatePickups(dt) {

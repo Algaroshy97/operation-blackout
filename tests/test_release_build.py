@@ -1,7 +1,23 @@
 #!/usr/bin/env python3
-"""Regression checks for the offline release build and enemy visibility fallback."""
+"""Build-integrity checks for the single-file release.
+
+Scope note: this file tests *the artifact* — that the build runs, that the output
+is genuinely self-contained and parseable, and that it stays under the size budget.
+
+It deliberately does NOT assert on source text. The previous version of this file
+asserted things like `assertNotIn("playSound('scope_out')", weapons_src)`, which
+meant renaming a variable failed the suite while inverting a conditional passed it.
+Gameplay rules are tested behaviourally in tests/test_core.js (`node --test`), which
+this module also drives so a single command covers both.
+
+Run:
+    python -m unittest tests.test_release_build -v
+"""
 from __future__ import annotations
 
+import itertools
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,186 +26,235 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "scripts" / "build.py"
-ENEMIES = ROOT / "src" / "40_enemies.js"
-MAIN = ROOT / "src" / "70_main.js"
+CORE_TESTS = ROOT / "tests" / "test_core.js"
+SIZE_BUDGET = 2 * 1024 * 1024
 
 
-class ReleaseBuildTests(unittest.TestCase):
-    def test_release_build_works_from_repo_root_and_emits_shippable_file(self) -> None:
+def build_release(output: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(BUILD), str(ROOT), "--output", str(output)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class BuildIntegrityTests(unittest.TestCase):
+    """The build produces a shippable, self-contained, parseable artifact."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.output = Path(cls._tmp.name) / "Operation Blackout.html"
+        cls.result = build_release(cls.output)
+        cls.content = cls.output.read_text(encoding="utf-8") if cls.output.is_file() else ""
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def test_build_succeeds_from_repo_root(self) -> None:
+        self.assertEqual(self.result.returncode, 0, self.result.stderr or self.result.stdout)
+        self.assertTrue(self.output.is_file())
+        self.assertGreater(self.output.stat().st_size, 500_000)
+
+    def test_artifact_is_self_contained(self) -> None:
+        """No external fetches: the file must play from file:// with no network."""
+        for tag in re.findall(r'<script[^>]*\ssrc=', self.content):
+            self.fail(f"external script reference in the release build: {tag}")
+        for tag in re.findall(r'<link[^>]*\srel=["\']?stylesheet', self.content):
+            self.fail(f"external stylesheet in the release build: {tag}")
+        # Remote fetches defeat the offline promise. Scope this to our own code and
+        # markup: vendored three.js carries doc-comment URLs and a protocol-list
+        # string that are inert text, and policing vendor comments is noise.
+        blocks = re.findall(r"<script>(.*?)</script>", self.content, re.S)
+        ours = self.content.split("<script>", 1)[0] + (blocks[-1] if blocks else "")
+        fetched = re.findall(r'(?:fetch|XMLHttpRequest|importScripts|\.load)\s*\(\s*["\']https?://', ours)
+        self.assertEqual(fetched, [], f"remote fetch in game code: {fetched[:3]}")
+        remote = re.findall(r'["\'](https?://[^\s"\'<>)]+)["\']', ours)
+        self.assertEqual(remote, [], f"remote URL literal in game code: {remote[:5]}")
+
+    def test_embedded_media_is_present(self) -> None:
+        self.assertIn("data:image/jpeg;base64,", self.content)
+        self.assertIn("data:image/svg+xml;base64,", self.content)
+
+    def test_artifact_stays_under_size_budget(self) -> None:
+        size = self.output.stat().st_size
+        self.assertLess(size, SIZE_BUDGET, f"{size} bytes exceeds the {SIZE_BUDGET} byte budget")
+
+    @unittest.skipIf(shutil.which("node") is None, "node not available")
+    def test_bundled_script_parses(self) -> None:
+        """Every module lands in ONE shared <script> scope, so a duplicate top-level
+        declaration between two modules is an instant whole-game SyntaxError. Parse
+        the concatenated bundle to catch that before it ships."""
+        blocks = re.findall(r"<script>(.*?)</script>", self.content, re.S)
+        self.assertTrue(blocks, "no inline script blocks found in the build")
         with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "Operation Blackout.html"
-            result = subprocess.run(
-                [sys.executable, str(BUILD), str(ROOT), "--output", str(output)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-            self.assertTrue(output.is_file())
-            self.assertIn("GLB_SOLDIER_BROKEN", output.read_text())
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_text(blocks[-1], encoding="utf-8")
+            proc = subprocess.run([shutil.which("node"), "--check", str(bundle)],
+                                  capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, f"bundled game script failed to parse:\n{proc.stderr}")
 
-    def test_desktop_enemy_path_has_a_visible_fallback(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        main_source = MAIN.read_text()
-        self.assertIn("let GLB_SOLDIER_BROKEN = false", enemy_source)
-        self.assertIn("!GLB_SOLDIER_BROKEN", enemy_source)
-        self.assertIn("root.scale.setScalar(GLB_SOLDIER_SCALE)", enemy_source)
-        self.assertIn("if (o.isSkinnedMesh) o.frustumCulled = false", enemy_source)
-        self.assertIn("g.add(root); g.add(hitBody); g.add(hitHead)", enemy_source)
-        self.assertIn("probeSkinnedSoldier()", main_source)
+    def test_every_source_module_reaches_the_bundle(self) -> None:
+        """build.py globs src/*.js — a new module must not be silently dropped."""
+        for module in sorted((ROOT / "src").glob("*.js")):
+            first_line = module.read_text(encoding="utf-8").splitlines()[0]
+            self.assertIn(first_line, self.content,
+                          f"{module.name} did not make it into the build")
 
-    def test_soldier_probe_restores_live_player_and_camera_state(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        self.assertIn("const playerState = {", enemy_source)
-        self.assertIn("const cameraState = {", enemy_source)
-        self.assertIn("finally {", enemy_source)
-        self.assertIn("player.pos.copy(playerState.pos)", enemy_source)
-        self.assertIn("player.vel.copy(playerState.vel)", enemy_source)
-        self.assertIn("camera.position.copy(cameraState.position)", enemy_source)
-        self.assertIn("camera.rotation.copy(cameraState.rotation)", enemy_source)
 
-    def test_soldier_probe_uses_a_before_after_pixel_comparison(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        self.assertIn("function readProbePixels", enemy_source)
-        self.assertIn("const before = readProbePixels", enemy_source)
-        self.assertIn("const after = readProbePixels", enemy_source)
-        self.assertIn("painted > before.length / 16", enemy_source)
-    def test_performance_and_visibility_guards_exist(self) -> None:
-        player_source = (ROOT / "src" / "20_player.js").read_text()
-        world_source = (ROOT / "src" / "10_config_world.js").read_text()
-        main_source = MAIN.read_text()
-        self.assertIn("MAX_MOUSE_EVENT_DELTA", player_source)
-        self.assertIn("Math.max(-MAX_MOUSE_EVENT_DELTA", player_source)
-        self.assertIn("const useSimpleProp = mobileSafe || !gltf", world_source)
-        self.assertIn("useSimpleProp ? makeMobileProp", world_source)
-        self.assertIn("const targetFov =", main_source)
-        self.assertIn("camera.fov += (targetFov - camera.fov)", main_source)
-        self.assertIn("qualityAdjustT", main_source)
+class SharedScopeTests(unittest.TestCase):
+    """ENG-05: every module lands in ONE `<script>`, so top-level names are shared.
 
-    def test_embedded_assets_are_preloaded_before_deploy(self) -> None:
-        assets_source = (ROOT / "src" / "05_assets.js").read_text()
-        main_source = MAIN.read_text()
-        head_source = (ROOT / "src" / "00_head.html").read_text()
-        self.assertIn("function loadEmbeddedAssets(onProgress)", assets_source)
-        self.assertIn("onProgress(name, loaded, names.length)", assets_source)
-        self.assertIn("let assetsReady = false", main_source)
-        self.assertIn("function preloadGameAssets()", main_source)
-        self.assertIn("assetsReady = true", main_source)
-        self.assertIn("deploy.classList.toggle('disabled', !ready)", main_source)
-        self.assertIn('id="asset-loading"', head_source)
-        self.assertIn('id="asset-load-progress"', head_source)
+    `test_bundled_script_parses` already turns a collision into a failure, but only
+    as a bare `SyntaxError` from node. These name the offender, and catch the case
+    node cannot see: a `var`/`function` that shadows a browser global.
+    """
 
-    def test_review_findings_fixes(self) -> None:
-        # 1) Grenade-flash pool pollution
-        vfx_src = (ROOT / "src" / "50_vfx_audio.js").read_text()
-        grenades_src = (ROOT / "src" / "55_grenades.js").read_text()
-        self.assertIn("isBulletImpact: true", vfx_src)
-        self.assertIn("impactPool.push(im.m)", vfx_src)
-        self.assertIn("im.m.geometry.dispose()", vfx_src)
-        self.assertIn("isBulletImpact: false", grenades_src)
+    DECL = re.compile(r"^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", re.M)
+    # Assigning any of these at top level with var/function silently rebinds a real
+    # window property, which fails at runtime rather than at parse time.
+    WINDOW_PROPS = {
+        "name", "status", "length", "top", "parent", "self", "closed", "origin",
+        "history", "location", "navigator", "screen", "frames", "external", "event",
+    }
 
-        # 2) East parapet climb
-        world_src = (ROOT / "src" / "10_config_world.js").read_text()
-        self.assertIn("addBox(9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2)", world_src)
-        self.assertNotIn("addBox(9.0, 4.4, 0, 0.8, 0.6, 14, MAT.concrete2)", world_src)
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.modules = {m.name: m.read_text(encoding="utf-8")
+                       for m in sorted((ROOT / "src").glob("*.js"))}
 
-        # 3) Slide-jump double sound/velocity
-        player_src = (ROOT / "src" / "20_player.js").read_text()
-        self.assertIn("player.jumpBufT = 0", player_src)
-        self.assertIn("player.coyoteT = 0", player_src)
+    def test_no_duplicate_top_level_declaration_between_modules(self) -> None:
+        owner: dict[str, str] = {}
+        clashes: list[str] = []
+        for module, text in self.modules.items():
+            # Top-level only: a declaration inside a function or block is indented.
+            for name in self.DECL.findall(text):
+                if name in owner:
+                    clashes.append(f"{name!r} declared in both {owner[name]} and {module}")
+                else:
+                    owner[name] = module
+        self.assertEqual(clashes, [],
+                         "duplicate top-level names share one script scope:\n  "
+                         + "\n  ".join(clashes))
 
-        # 4) Sniper doubled scope_out
-        weapons_src = (ROOT / "src" / "30_weapons.js").read_text()
-        self.assertNotIn("playSound('scope_out')", weapons_src)
+    def test_no_top_level_name_shadows_a_window_property(self) -> None:
+        offenders = []
+        for module, text in self.modules.items():
+            for match in re.finditer(r"^(?:var|function)\s+([A-Za-z_$][\w$]*)", text, re.M):
+                if match.group(1) in self.WINDOW_PROPS:
+                    offenders.append(f"{module}: {match.group(1)}")
+        self.assertEqual(offenders, [],
+                         f"top-level var/function shadows a window property: {offenders}")
 
-        # 5) Enemy ledge float+snap
-        enemies_src = (ROOT / "src" / "40_enemies.js").read_text()
-        self.assertIn("const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;", enemies_src)
-        self.assertIn("dt * fallSpeed", enemies_src)
-        self.assertNotIn("en.pos.y = floorY;", enemies_src)
 
-        # 6) Restart pool leak
-        main_src = (ROOT / "src" / "70_main.js").read_text()
-        self.assertIn("tracerPool.push(t.m)", main_src)
-        self.assertIn("impactPool.push(im.m)", main_src)
-        self.assertIn("casingPool.push(c.m)", main_src)
-        self.assertIn("casings.length = 0", main_src)
+class TouchLayoutTests(unittest.TestCase):
+    """Solve the touch HUD's CSS box model on the smallest landscape phone.
 
-        # 7) Hitbox double raycast
-        self.assertNotIn("targets.push(enemies[i].hitBody)", weapons_src)
-        self.assertNotIn("targets.push(enemies[i].hitHead)", weapons_src)
+    Guards the Android pass: RELOAD used to overlap PAUSE by its full height (a tap
+    there could pause the fight instead of reloading) and FIRE sat on top of the ammo
+    readout at every size. Both are pure geometry, so they can be checked without a
+    browser — parse the offsets out of the stylesheet and intersect the rectangles.
+    """
 
-        # 8) Ammo pickup HUD update
-        self.assertIn("updateHudAmmo();", grenades_src)
+    # 1600x720 and 1440x720 panels at dpr 2. The shortest landscape viewport in
+    # common use, and the one where a bottom-anchored column runs out of room.
+    VIEWPORT = (800, 360)
 
-        # 9) Secondary weapon reset across runs
-        self.assertIn("weaponsOwned[1] = -1;\n  curWeapon = 0;\n  initWeapons();", main_src)
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.css = (ROOT / "src" / "00_head.html").read_text(encoding="utf-8")
 
-        # 10) Audio node disconnect in playSound3D
-        self.assertIn("p.disconnect()", vfx_src)
-        self.assertIn("g.disconnect()", vfx_src)
+    def _boxes(self) -> dict[str, tuple[float, float, float, float]]:
+        """(x, y, right, bottom) for every body.touch control, in viewport pixels."""
+        vw, vh = self.VIEWPORT
+        pattern = re.compile(
+            r"body\.touch\s+#(tbtn-[\w-]+|joy-base)\{([^}]*)\}")
 
-        # 11) Slide dust pooling
-        self.assertIn("dustPool.push(m)", vfx_src)
-        self.assertIn("getDustMesh()", vfx_src)
-        self.assertIn("dustPool.push(b.m)", main_src)
+        def offset(decls: str, prop: str) -> float | None:
+            # `right:calc(26px + var(--sa-r))` — safe-area vars are 0 without a cutout.
+            m = re.search(rf"(?:^|;){prop}:\s*(?:calc\(\s*)?(-?[\d.]+)px", decls)
+            return float(m.group(1)) if m else None
 
-        # 12) Uncached LOS defaults to false
-        self.assertIn("if (en._losCache === undefined) return false;", enemies_src)
+        boxes: dict[str, tuple[float, float, float, float]] = {}
+        for name, decls in pattern.findall(self.css):
+            w, h = offset(decls, "width"), offset(decls, "height")
+            if w is None or h is None:
+                continue
+            left, right = offset(decls, "left"), offset(decls, "right")
+            top, bottom = offset(decls, "top"), offset(decls, "bottom")
+            x = left if left is not None else vw - right - w
+            y = top if top is not None else vh - bottom - h
+            boxes[name] = (x, y, x + w, y + h)
+        return boxes
 
-        # 13) Viewmodel material disposal
-        self.assertIn("if (o.material)", weapons_src)
+    @staticmethod
+    def _overlap(a, b) -> tuple[float, float]:
+        return (min(a[2], b[2]) - max(a[0], b[0]),
+                min(a[3], b[3]) - max(a[1], b[1]))
 
-        # 14) Weapon raise blocks firing
-        self.assertIn("gunSwitchT >= 1", weapons_src)
+    def test_stylesheet_defines_every_touch_control(self) -> None:
+        boxes = self._boxes()
+        expected = {"joy-base", "tbtn-fire", "tbtn-ads", "tbtn-jump", "tbtn-slide",
+                    "tbtn-reload", "tbtn-nade", "tbtn-swap", "tbtn-pause"}
+        self.assertEqual(expected, set(boxes), "touch control set changed — update this test")
 
-    def test_box_man_hitbox_invariant(self) -> None:
-        import re
-        enemy_source = ENEMIES.read_text()
-        body_match = re.search(r"hitBody\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);\s*hitBody\.position\.y\s*=\s*([\d.]+);", enemy_source)
-        self.assertIsNotNone(body_match, "Could not find box-man hitBody definition")
-        body_h = float(body_match.group(1))
-        body_y = float(body_match.group(2))
-        body_top = body_y + body_h / 2
+    def test_no_two_touch_controls_overlap(self) -> None:
+        boxes = self._boxes()
+        for a, b in itertools.combinations(sorted(boxes), 2):
+            ix, iy = self._overlap(boxes[a], boxes[b])
+            self.assertFalse(ix > 0 and iy > 0,
+                             f"{a} and {b} overlap by {ix:.0f}x{iy:.0f}px at "
+                             f"{self.VIEWPORT[0]}x{self.VIEWPORT[1]} — a tap there is ambiguous")
 
-        head_match = re.search(r"hitHead\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);", enemy_source)
-        self.assertIsNotNone(head_match, "Could not find box-man hitHead definition")
-        head_h = float(head_match.group(1))
+    def test_controls_stay_inside_the_viewport(self) -> None:
+        vw, vh = self.VIEWPORT
+        for name, (x, y, r, b) in sorted(self._boxes().items()):
+            self.assertGreaterEqual(x, 0, f"{name} runs off the left edge")
+            self.assertGreaterEqual(y, 0, f"{name} runs off the top edge")
+            self.assertLessEqual(r, vw, f"{name} runs off the right edge")
+            self.assertLessEqual(b, vh, f"{name} runs off the bottom edge")
 
-        pelvis_h = float(re.search(r"pelvisH:\s*([\d.]+)", enemy_source).group(1))
-        body_dim_h = float(re.search(r"bodyH:\s*([\d.]+)", enemy_source).group(1))
-        head_y = pelvis_h + body_dim_h + 0.16
-        head_bottom = head_y - head_h / 2
+    def test_tap_targets_meet_the_44px_minimum(self) -> None:
+        for name, (x, y, r, b) in sorted(self._boxes().items()):
+            self.assertGreaterEqual(min(r - x, b - y), 44,
+                                    f"{name} is smaller than a 44px tap target")
 
-        self.assertLess(body_top, head_bottom, f"hitBody top ({body_top}) must be below hitHead bottom ({head_bottom})")
+    def test_end_screens_can_scroll_when_content_overflows(self) -> None:
+        """A 15-wave run ends here; the buttons must never be unreachable.
 
-    def test_ground_mesh_in_raycast_colliders(self) -> None:
-        world_source = (ROOT / "src" / "10_config_world.js").read_text()
-        self.assertIn("raycastColliders.push(ground);", world_source)
-        self.assertNotIn("colliders.push(ground)", world_source)
-        self.assertIn("scene.add(ground);\nraycastColliders.push(ground);", world_source)
+        Flex centring clips overflow at both ends with no way to scroll to it, which
+        is how MAIN MENU ended up off-screen on a 360px-tall phone.
+        """
+        for panel in ("#death-screen", "#victory-screen"):
+            rule = re.search(rf"[^\n]*{re.escape(panel)}[^{{\n]*\{{([^}}]*overflow-y:auto[^}}]*)\}}",
+                             self.css)
+            self.assertIsNotNone(rule, f"{panel} has no overflow-y:auto rule")
+            self.assertIn("safe center", rule.group(1),
+                          f"{panel} centres without `safe`, so overflow is unreachable")
 
-    def test_skinned_soldier_rebind_helper(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        self.assertIn("function skClone(source)", enemy_source)
-        self.assertIn("skClone(gltf.scene)", enemy_source)
-        self.assertIn("node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix)", enemy_source)
+    def test_edge_anchored_controls_inset_past_the_display_cutout(self) -> None:
+        """The viewport meta opts into viewport-fit=cover, so insets are mandatory."""
+        self.assertIn("viewport-fit=cover", self.css)
+        self.assertIn("env(safe-area-inset-top", self.css)
+        for name in ("tbtn-fire", "tbtn-pause", "tbtn-reload", "joy-base"):
+            decls = re.search(rf"body\.touch\s+#{name}\{{([^}}]*)\}}", self.css).group(1)
+            self.assertIn("var(--sa-", decls,
+                          f"{name} is edge-anchored but never insets past the cutout")
 
-    def test_menu_assets_embedded_and_dist_under_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "Operation Blackout.html"
-            result = subprocess.run(
-                [sys.executable, str(BUILD), str(ROOT), "--output", str(output)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-            content = output.read_text()
-            self.assertIn("data:image/jpeg;base64,", content)
-            self.assertIn("data:image/svg+xml;base64,", content)
-            self.assertIn("menu-emblem", content)
-            self.assertLess(output.stat().st_size, 2 * 1024 * 1024)
+
+class CoreBehaviourTests(unittest.TestCase):
+    """Drive the headless gameplay-rule tests so one command covers both suites."""
+
+    @unittest.skipIf(shutil.which("node") is None, "node not available")
+    def test_core_rules_pass(self) -> None:
+        proc = subprocess.run(
+            [shutil.which("node"), "--test", str(CORE_TESTS)],
+            capture_output=True, text=True, check=False, cwd=str(ROOT),
+        )
+        self.assertEqual(proc.returncode, 0,
+                         f"tests/test_core.js failed:\n{proc.stdout[-4000:]}\n{proc.stderr[-2000:]}")
 
 
 if __name__ == "__main__":

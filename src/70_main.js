@@ -2,6 +2,13 @@
 'use strict';
 // ---- Flow ----
 function pauseGame() {
+  // A charged grenade is a committed action: throw it rather than silently
+  // discarding the charge with no feedback.
+  if (typeof grenadeCharging !== 'undefined' && grenadeCharging && !player.dead) {
+    const spd = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+    cancelGrenadeCharge();
+    throwGrenade(spd);
+  }
   paused = true;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'flex';
@@ -15,6 +22,7 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
@@ -24,19 +32,30 @@ function killPlayer() {
   $id('pause-menu').style.display = 'none';
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+  clearCheckpoint();   // a lost run is not resumable
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
   $id('ds-stats').innerHTML =
-    'Waves survived: <b>' + waveNum + '</b><br>Score: <b>' + score + '</b><br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')';
+    'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
   setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
 }
 function victory() {
   gameEnded = true;
+  stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
   $id('vs-stats').innerHTML =
-    'Final score: <b>' + score + '</b><br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')';
+    'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
   $id('victory-screen').style.display = 'flex';
 }
 
@@ -70,6 +89,8 @@ function resetGame() {
     im.m.visible = false;
     if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
       impactPool.push(im.m);
+    } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+      releaseBlastFlash(im.m);
     } else {
       if (im.m.geometry) im.m.geometry.dispose();
       if (im.m.material) im.m.material.dispose();
@@ -105,6 +126,7 @@ function resetGame() {
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
+  runId++;   // invalidate anything the previous run scheduled
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
@@ -125,11 +147,87 @@ function resetGame() {
   hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
+// ---- Settings panel ---------------------------------------------------------
+// Built from CORE.SETTINGS_SCHEMA so a new setting needs one schema entry, not a
+// schema entry plus a hand-written row plus a hand-written validator.
+let settingsReturnTo = 'menu';
+function buildSettingsUI() {
+  const list = $id('settings-list');
+  list.innerHTML = '';
+  for (const key in CORE.SETTINGS_SCHEMA) {
+    const spec = CORE.SETTINGS_SCHEMA[key];
+    const row = document.createElement('div');
+    row.className = 'set-row';
+    const id = 'set-' + key;
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.textContent = spec.label;
+    row.appendChild(label);
+
+    const wrap = document.createElement('div');
+    if (spec.type === 'number') {
+      const input = document.createElement('input');
+      input.type = 'range'; input.id = id;
+      input.min = spec.min; input.max = spec.max; input.step = spec.step;
+      input.value = getSetting(key);
+      const val = document.createElement('span');
+      val.className = 'set-val';
+      const fmt = function (v) { return key === 'masterVolume' ? Math.round(v * 100) + '%' : (spec.step < 1 ? (+v).toFixed(2) : Math.round(v)); };
+      val.textContent = fmt(input.value);
+      input.addEventListener('input', function () { setSetting(key, input.value); val.textContent = fmt(input.value); });
+      wrap.appendChild(val); wrap.appendChild(input);
+    } else if (spec.type === 'bool') {
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.id = id;
+      input.checked = !!getSetting(key);
+      input.addEventListener('change', function () { setSetting(key, input.checked); });
+      wrap.appendChild(input);
+    } else {
+      const sel = document.createElement('select');
+      sel.id = id;
+      spec.values.forEach(function (v) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v.toUpperCase();
+        sel.appendChild(o);
+      });
+      sel.value = getSetting(key);
+      sel.addEventListener('change', function () { setSetting(key, sel.value); });
+      wrap.appendChild(sel);
+    }
+    row.appendChild(wrap);
+    list.appendChild(row);
+  }
+}
+function openSettings(from) {
+  settingsReturnTo = from || 'menu';
+  buildSettingsUI();
+  $id('settings-screen').style.display = 'flex';
+}
+function closeSettings() {
+  $id('settings-screen').style.display = 'none';
+  if (settingsReturnTo === 'pause') $id('pause-menu').style.display = 'flex';
+}
+function refreshMenuStats() {
+  const el = $id('menu-stats');
+  if (el) el.innerHTML = statsSummaryHtml();
+}
+
 // gun select UI
-function buildGunSelect() {
+// Two-step deploy: primary, then secondary. The secondary used to be forced to
+// (primary + 1) % 4 with no say in it, which made the SWAP key a coin toss the
+// player never called.
+let pickingSlot = 0;
+let pendingSecondary = -1;
+function buildGunSelect(slot) {
+  pickingSlot = slot || 0;
+  if (pickingSlot === 0) { pendingSecondary = -1; buildDifficultyRow(); }
+  $id('diff-row').style.display = pickingSlot === 0 ? 'flex' : 'none';
+  document.querySelector('#gun-select h2').textContent =
+    pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
+    if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
     const card = document.createElement('div');
     card.className = 'gun-card';
     enableMenuKeyboard(card);
@@ -141,9 +239,34 @@ function buildGunSelect() {
     wrap.appendChild(card);
   });
 }
+function buildDifficultyRow() {
+  const row = $id('diff-row');
+  row.innerHTML = '';
+  Object.keys(CORE.DIFFICULTIES).forEach(function (key) {
+    const d = CORE.DIFFICULTIES[key];
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (key === runDifficulty ? ' on' : '');
+    b.innerHTML = d.label + '<small>' + d.blurb + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      runDifficulty = key;
+      buildDifficultyRow();
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
 function pickGun(i) {
-  weaponsOwned[0] = i;
-  weaponsOwned[1] = -1;
+  if (pickingSlot === 0) {
+    weaponsOwned[0] = i;
+    weaponsOwned[1] = -1;
+    buildGunSelect(1);        // now choose what gets unlocked on the first wave clear
+    return;
+  }
+  pendingSecondary = i;
+  endlessMode = false;
+  clearCheckpoint();          // starting fresh invalidates any saved run
   $id('gun-select').style.display = 'none';
   paused = false;              // always start unpaused — fixes frozen redeploy
   $id('pause-menu').style.display = 'none';
@@ -156,8 +279,6 @@ let assetsReady = false;
 function setDeployReady(ready) {
   const deploy = $id('btn-start');
   deploy.classList.toggle('disabled', !ready);
-  deploy.setAttribute('aria-disabled', String(!ready));
-  deploy.tabIndex = ready ? 0 : -1;
   deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
 }
 function startGame() {
@@ -167,7 +288,58 @@ function startGame() {
   resetGame();
   showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
+  document.body.classList.add('started');
+  startMusic();
   canvas.requestPointerLock();
+}
+
+// Resume a saved run. Only ever written between waves, so the restored state is
+// always a clean wave boundary — no half-resolved combat to reconstruct.
+function resumeRun() {
+  const cp = loadCheckpoint();
+  if (!cp || !assetsReady) return;
+  started = true; paused = false;
+  resetGame();
+  runDifficulty = cp.difficulty;
+  endlessMode = cp.endless;
+  weaponsOwned[0] = cp.weapons[0].gi;
+  weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
+  initWeapons();
+  for (let i = 0; i < 2; i++) {
+    if (!wState[i] || !cp.weapons[i]) continue;
+    wState[i].ammo = Math.min(CFG.weapons[weaponsOwned[i]].mag, cp.weapons[i].ammo);
+    wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
+  }
+  curWeapon = 0; buildViewmodel();
+  score = cp.score; kills = cp.kills; headshots = cp.headshots;
+  shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
+  player.health = cp.health; player.armor = cp.armor;
+  grenades.count = cp.grenades;
+  waveNum = cp.wave;                  // next startWave() call is wave+1
+  waveActive = false; betweenWaveT = CFG.wave.startDelay;
+  hud.waveNum.textContent = waveNum;
+  hud.scoreVal.textContent = score;
+  updateHudHealth(); updateHudAmmo();
+  showWaveBanner(0);
+  $id('start-screen').style.display = 'none';
+  document.body.classList.add('started');
+  startMusic();
+  canvas.requestPointerLock();
+}
+
+function refreshResumeButton() {
+  const cp = loadCheckpoint();
+  const btn = $id('btn-resume-run');
+  const note = $id('save-note');
+  if (cp) {
+    btn.style.display = '';
+    btn.textContent = 'RESUME — WAVE ' + (cp.wave + 1);
+    if (note) note.textContent = CORE.difficulty(cp.difficulty).label + (cp.endless ? ' · ENDLESS' : '') +
+      ' · score ' + cp.score;
+  } else {
+    btn.style.display = 'none';
+    if (note) note.textContent = '';
+  }
 }
 
 // Keyboard-operable menu controls, including dynamically created weapon cards.
@@ -188,34 +360,72 @@ document.addEventListener('click', function (e) {
 // buttons
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
-  buildGunSelect();
+  buildGunSelect(0);
+  $id('start-screen').style.display = 'none';   // was left visible, bleeding through
   $id('gun-select').style.display = 'flex';
   $id('gun-select').scrollTop = 0;
   $id('gun-cards').firstElementChild.focus({ preventScroll: true });
   audioCtx(); // unlock audio on user gesture
+  // Render every one-shot to a buffer while the player is still choosing a weapon,
+  // so the first trigger of each is already a single BufferSource rather than a
+  // freshly built node graph.
+  prerenderSounds();
 });
+$id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
+$id('btn-settings-pause').addEventListener('click', function () {
+  $id('pause-menu').style.display = 'none';
+  openSettings('pause');
+});
+$id('btn-settings-back').addEventListener('click', closeSettings);
+$id('btn-resume-run').addEventListener('click', function () { audioCtx(); prerenderSounds(); resumeRun(); });
+$id('btn-endless').addEventListener('click', function () {
+  // Victory is no longer a dead end: keep the run going with escalating waves.
+  $id('victory-screen').style.display = 'none';
+  endlessMode = true;
+  gameEnded = false;
+  waveActive = false;
+  betweenWaveT = CFG.wave.startDelay;
+  paused = false;
+  showWaveBanner(0);
+  canvas.requestPointerLock();
+});
+$id('btn-settings-reset').addEventListener('click', function () { resetSettings(); buildSettingsUI(); });
 $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
+  stopMusic();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+  refreshResumeButton();
   resetGame();
 });
 $id('btn-restart').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
-  buildGunSelect();
+  buildGunSelect(0);
   $id('gun-select').style.display = 'flex';
   $id('gun-select').scrollTop = 0;
   $id('gun-cards').firstElementChild.focus({ preventScroll: true });
 });
+// Esc backs out of the gun select / settings instead of trapping the player there.
+addEventListener('keydown', function (e) {
+  if (e.code !== 'Escape') return;
+  if ($id('settings-screen').style.display === 'flex') { closeSettings(); return; }
+  if ($id('gun-select').style.display === 'flex' && !started) {
+    $id('gun-select').style.display = 'none';
+    $id('start-screen').style.display = 'flex';
+  }
+});
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+  refreshResumeButton();
   resetGame(); started = false;
 });
 $id('btn-v-restart').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
-  buildGunSelect();
+  buildGunSelect(0);
   $id('gun-select').style.display = 'flex';
   $id('gun-select').scrollTop = 0;
   $id('gun-cards').firstElementChild.focus({ preventScroll: true });
@@ -223,6 +433,7 @@ $id('btn-v-restart').addEventListener('click', function () {
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
   resetGame(); started = false;
 });
 
@@ -230,6 +441,7 @@ $id('btn-v-quit').addEventListener('click', function () {
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
 let qualityAdjustT = 0; // avoid resolution thrashing every half-second
+let upscaleStreak = 0;  // consecutive good samples before raising resolution again
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
 let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
@@ -240,6 +452,9 @@ function frame(now) {
   let dt = (now - lastT) / 1000;
   lastT = now;
   if (dt > 0.1) dt = 0.1;
+  // Nothing can be drawn until the driver hands the context back; rendering into a
+  // lost context throws every frame and buries the console.
+  if (contextLost) return;
   // Measure real frame time, not the clamped simulation timestep.
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
@@ -248,14 +463,22 @@ function frame(now) {
     // Adapt deliberately, not every sample: frequent canvas reallocations cause
     // the camera to appear to hitch on slower GPUs.
     qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 4.5) {
+    // An explicit quality preset means the player has decided; stop second-guessing.
+    if (qualityAdjustT >= 4.5 && qualityIsAuto()) {
       const maxPR = Math.min(window.devicePixelRatio, 1.5);
       const currentPR = renderer.getPixelRatio();
       let desiredPR = currentPR;
       if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
       // Upscale threshold must be below 60 (58) because vsync on 60 Hz displays caps fps near 60,
       // which would make >62 unreachable and prevent resolution from recovering after a hitch.
-      else if (fps > 58 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
+      // Asymmetric on purpose: each change reallocates the drawing buffer, which is
+      // itself a hitch, so step down readily but require several consecutive good
+      // samples before stepping back up. Stops the oscillation near the threshold.
+      else if (fps > 58 && currentPR < maxPR) {
+        upscaleStreak++;
+        if (upscaleStreak >= 3) { desiredPR = Math.min(maxPR, currentPR + 0.1); upscaleStreak = 0; }
+      } else upscaleStreak = 0;
+      if (desiredPR < currentPR) upscaleStreak = 0;
       if (Math.abs(desiredPR - currentPR) >= 0.05) {
         renderer.setPixelRatio(desiredPR);
       }
@@ -275,9 +498,21 @@ function frame(now) {
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);
+    updateAmmoRelief(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
+    updateSunShadow(player.pos.x, player.pos.z);
+    // Adaptive score: follows the fight rather than looping regardless of it.
+    let nearest;
+    for (let i = 0; i < enemies.length; i++) {
+      if (enemies[i].dead) continue;
+      const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
+      if (nearest === undefined || d < nearest) nearest = d;
+    }
+    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveEnemies(),
+                      nearestEnemy: nearest, health: player.health });
+    updateHitArcs();
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
     // frame: they cost significant CPU overhead on 2D contexts and the
@@ -310,25 +545,27 @@ function frame(now) {
 
   // camera pose
   if (!player.dead) {
-    const bobY = Math.abs(Math.sin(player.bobPhase)) * player.bobAmp * 0.05;
-    const bobX = Math.sin(player.bobPhase) * player.bobAmp * 0.025;
+    // GAP-08: reduced motion strips the bob and roll that make some players ill.
+    const motion = getSetting('reducedMotion') ? 0 : 1;
+    const bobY = Math.abs(Math.sin(player.bobPhase)) * player.bobAmp * 0.05 * motion;
+    const bobX = Math.sin(player.bobPhase) * player.bobAmp * 0.025 * motion;
     // slide: lower camera + roll tilt + slight FOV widen
     const slideBlend = player.sliding ? 1 : 0;
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
     // Ease toward one bounded FOV target. The old incremental update let FOV
     // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = 72 - adsAmount * (curW().type === 'SR' ? 52 : 24);
+    const baseFov = getSetting('fov') - adsAmount * (curW().type === 'SR' ? 52 : 24);
     const targetFov = baseFov + slideFov;
     const previousFov = camera.fov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
-    const slideDip = slideBlend * 0.45;
+    const slideDip = slideBlend * 0.45 * motion;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw + player.recoilY;
     camera.rotation.x = player.pitch + player.recoilP;
     // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0);
+    camera.rotation.z = (Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16) * motion + (adsAmount > 0.8 ? swayX * 0.5 : 0);
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground
@@ -343,17 +580,10 @@ function frame(now) {
     updateViewmodel(dt);
   }
 }
-function triggerMuzzleFlashIdle() { /* flash triggered in fireShot via flashT */ }
 
-// hook muzzle flash + sniper boom + muzzle light into fireShot (defined earlier; patch via wrapper)
-const _origFire = fireShot;
-fireShot = function () {
-  _origFire();
-  triggerMuzzleFlash();
-  flashMuzzleLight();
-  if (curW().type === 'SR') playSound('sniper');
-};
-
+applyAllSettings();
+refreshMenuStats();
+refreshResumeButton();
 initWeapons();
 buildViewmodel();
 updateHudHealth();

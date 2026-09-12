@@ -73,6 +73,14 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
 const STEP_H = 0.60;
+// Distance from the eye to the top of the head. The ceiling resolve keeps this
+// much space between the camera and any slab overhead.
+const HEAD_CLEARANCE = 0.20;
+// Collision is discrete AABB overlap, not swept, so one long frame can teleport
+// straight through a wall. The thinnest collidable wall in the arena is 0.8 m and
+// dt is clamped at 0.1 s, which at sprint speed is 0.89 m of travel — enough to
+// pass clean through. Cap per-substep travel well under that.
+const MAX_MOVE_STEP = 0.30;
 
 // Horizontal AABB resolve with step-up allowance
 function resolveXZ(pos, r) {
@@ -99,6 +107,7 @@ function resolveXZ(pos, r) {
 function resolveVertical(pos, r) {
   const feet = pos.y - eyeHeight();
   let floorY = GROUND;
+  let ceilY = Infinity;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
@@ -106,15 +115,21 @@ function resolveVertical(pos, r) {
     const dx = pos.x - cx, dz = pos.z - cz;
     if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;   // not above/below this collider footprint
     if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
-    if (c.min.y > feet && c.min.y < (pos.y + 0.2)) {                     // ceiling candidate
-      if (pos.y + 0.2 > c.min.y && player.vel.y > 0) player.vel.y = 0;    // bonk head
-    }
+    // Lowest slab overhead. Tracked unconditionally rather than only when already
+    // intersecting it: the old test could only react once the head was inside, and
+    // then only zeroed velocity, so a large dt stepped straight past it (BUG-11).
+    if (c.min.y > feet && c.min.y < ceilY) ceilY = c.min.y;
   }
   const target = floorY + eyeHeight();
   if (pos.y <= target + 0.001 && player.vel.y <= 0) {
     pos.y = target; player.vel.y = 0; player.onGround = true;
   } else {
     player.onGround = false;
+  }
+  const clamped = CORE.ceilingClamp(pos.y, floorY, ceilY, eyeHeight(), HEAD_CLEARANCE);
+  if (clamped < pos.y) {
+    pos.y = clamped;
+    if (player.vel.y > 0) player.vel.y = 0;   // bonk head
   }
 }
 
@@ -126,7 +141,8 @@ function updatePlayer(dt) {
   // mobile: joystick axes -> keys/look accumulators
   applyTouchInput();
   // look
-  const sens = 0.0022 * (adsAmount > 0.5 ? 0.6 : 1);
+  const sens = CORE.lookSensitivity(getSetting('sensitivity'), adsAmount);
+  const invertY = getSetting('invertY') ? -1 : 1;
   // aim assist: when ADS/scoped and near an enemy, add a gentle pull toward chest
   let assistYaw = 0, assistPitch = 0;
   if (adsAmount > 0.8 && enemies.length) {
@@ -140,9 +156,9 @@ function updatePlayer(dt) {
     if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
     if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
   }
-  player.yaw -= (mouseX - assistYaw * 0) * sens;   // base look
+  player.yaw -= mouseX * sens;                     // base look
   player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
-  player.pitch -= mouseY * sens;
+  player.pitch -= mouseY * sens * invertY;
   player.pitch += assistPitch * 3.5 * dt;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
@@ -285,17 +301,22 @@ function updatePlayer(dt) {
     playSound('jump');
   }
 
-  // gravity + integrate
-  player.vel.y -= CFG.player.gravity * dt;
-  player.pos.x += player.vel.x * dt;
-  player.pos.z += player.vel.z * dt;
-  player.pos.y += player.vel.y * dt;
-  resolveXZ(player.pos, CFG.player.radius);
-  resolveVertical(player.pos, CFG.player.radius);
+  // gravity + integrate, sub-stepped so a long frame cannot tunnel a thin wall
+  const moveSpeedNow = Math.max(Math.hypot(player.vel.x, player.vel.z), Math.abs(player.vel.y));
+  const steps = CORE.subStepCount(moveSpeedNow, dt, MAX_MOVE_STEP);
+  const sdt = dt / steps;
+  for (let s = 0; s < steps; s++) {
+    player.vel.y -= CFG.player.gravity * sdt;
+    player.pos.x += player.vel.x * sdt;
+    player.pos.z += player.vel.z * sdt;
+    player.pos.y += player.vel.y * sdt;
+    resolveXZ(player.pos, CFG.player.radius);
+    resolveVertical(player.pos, CFG.player.radius);
+  }
 
   // health regen
   if (gameT - player.lastDamageT > CFG.player.regenDelay && player.health < CFG.player.health) {
-    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * dt);
+    player.health = Math.min(CFG.player.health, player.health + CFG.player.regenRate * diff().regen * dt);
   }
 
   // head bob

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>OPERATION BLACKOUT — FPS</title>
 <style>
+  /* The viewport meta uses viewport-fit=cover, so the page paints UNDER the display
+     cutout and the gesture bar. Every edge-anchored control has to be inset back out
+     by hand or it lands under the hardware. Resolves to 0px everywhere else. */
+  :root{--sa-t:env(safe-area-inset-top,0px);--sa-r:env(safe-area-inset-right,0px);--sa-b:env(safe-area-inset-bottom,0px);--sa-l:env(safe-area-inset-left,0px)}
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',Arial,sans-serif;user-select:none;-webkit-user-select:none;cursor:default}
   #game-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
   .hud{position:absolute;pointer-events:none;z-index:10}
@@ -19,11 +23,11 @@
   #crosshair .hitmark span{position:absolute;background:#ff4a3d;box-shadow:0 0 2px #000}
   #crosshair .hitmark .h1{top:0;left:2px;width:2px;height:6px}#crosshair .hitmark .h2{top:2px;left:0;width:6px;height:2px}
   #health-container{bottom:28px;left:28px;display:flex;align-items:center;gap:12px}
-  .health-bar-bg{width:220px;height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
+  .health-bar-bg{width:min(220px,38vw);height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
   #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s}
   #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px}
   #armor-container{bottom:52px;left:28px;display:flex;align-items:center;gap:12px;opacity:.9}
-  .armor-bar-bg{width:220px;height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
+  .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
@@ -38,10 +42,13 @@
   #wave-title{font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.65);font-weight:700}
   #wave-num{font-size:30px;font-weight:800}
   #enemies-left{font-size:11px;letter-spacing:2px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px}
-  #compass{top:54px;left:50%;transform:translateX(-50%)}
+  /* Clears #wave-hud, which stacks title + number + hostile count to ~76px from
+     its own top:20px. At 54px the compass strip ran its letters straight through
+     the hostiles line at every size, desktop included. */
+  #compass{top:100px;left:50%;transform:translateX(-50%)}
   #compass-strip{width:280px;height:18px;overflow:hidden;position:relative}
   #compass-strip:before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:#ffd24a;transform:translateX(-50%)}
-  #compass-canvas{position:absolute;top:0;left:0}
+  #compass-canvas{position:absolute;top:0;left:0;width:280px;height:18px}
   #minimap{top:20px;left:26px;width:150px;height:150px;border-radius:50%;overflow:hidden;background:rgba(10,14,10,.72);border:2px solid rgba(255,255,255,.28);box-shadow:0 2px 10px rgba(0,0,0,.5)}
   #minimap-canvas{width:100%;height:100%}
   #hit-dir-container{top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:240px}
@@ -71,7 +78,13 @@
   #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
   #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
-  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px)}
+  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
+  /* A 15-wave run ends on one of these, and a landscape phone is ~360px tall while the
+     victory screen is ~430px of content. Plain `justify-content:center` clips the
+     overflow at BOTH ends and leaves it unreachable — the title and MAIN MENU were
+     scrolled off with no way back. `safe center` centres only while it fits and
+     top-aligns once it does not; the plain `center` before it is the fallback. */
+  #pause-menu,#death-screen,#start-screen,#victory-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
   #start-screen{display:flex}
   #menu-emblem{display:block;margin:0 auto 14px auto;width:112px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.75))}
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
@@ -88,6 +101,16 @@
   #death-screen h2{color:#ff4030;font-size:48px;letter-spacing:10px;font-weight:900;margin:0 0 10px;text-shadow:0 0 30px rgba(255,60,30,.5),0 3px 8px #000}
   #victory-screen h2{color:#7ee08a;font-size:44px;letter-spacing:10px;font-weight:900;margin:0 0 10px;text-shadow:0 0 30px rgba(80,255,120,.3)}
   .end-stats{margin:18px 0 28px;color:rgba(255,255,255,.85);font-size:15px;text-align:center;line-height:1.9}
+  /* A landscape phone is ~360px tall and the victory screen is 521px of content at
+     desktop sizing. Scrolling (above) makes the buttons reachable, but an end screen
+     should not need a scroll to find MAIN MENU — shrink the type so it simply fits. */
+  @media (max-height:480px){
+    #death-screen h2{font-size:26px;letter-spacing:6px;margin:0 0 4px}
+    #victory-screen h2{font-size:24px;letter-spacing:6px;margin:0 0 4px}
+    #pause-menu h2,#gun-select h2{font-size:22px;letter-spacing:5px;margin:0 0 10px}
+    .end-stats{margin:8px 0 12px;font-size:12px;line-height:1.55}
+    .menu-btn{margin:5px;padding:9px 34px;font-size:14px;letter-spacing:3px}
+  }
   .end-stats b{color:#ffd24a}
   .gun-card{display:inline-block;width:190px;margin:10px;padding:18px 14px;background:rgba(20,26,20,.9);border:1px solid rgba(255,255,255,.2);border-radius:6px;text-align:center;cursor:pointer;transition:all .15s;pointer-events:auto}
   .gun-card:hover{border-color:#ffdf8a;box-shadow:0 0 20px rgba(255,190,60,.3);transform:translateY(-3px)}
@@ -99,27 +122,81 @@
   /* ---- Touch UI (mobile) ---- */
   #touch-ui{display:none}
   body.touch #touch-ui{display:block;position:absolute;inset:0;z-index:20;pointer-events:none}
-  body.touch #joy-base{position:absolute;left:26px;bottom:90px;width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
+  body.touch #joy-base{position:absolute;left:calc(26px + var(--sa-l));bottom:calc(90px + var(--sa-b));width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
   body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.35);border:2px solid rgba(255,255,255,.5)}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.3);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   body.touch .tbtn.on{background:rgba(255,210,74,.45);border-color:#ffd24a;color:#fff}
-  body.touch #tbtn-fire{right:30px;bottom:110px;width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
-  body.touch #tbtn-ads{right:130px;bottom:170px;width:56px;height:56px}
-  body.touch #tbtn-jump{right:34px;bottom:210px;width:56px;height:56px}
-  body.touch #tbtn-slide{right:120px;bottom:250px;width:56px;height:56px}
-  body.touch #tbtn-reload{right:30px;bottom:290px;width:56px;height:56px}
-  body.touch #tbtn-nade{left:150px;bottom:110px;width:56px;height:56px}
-  body.touch #tbtn-swap{left:26px;bottom:210px;width:56px;height:56px}
-  body.touch #tbtn-pause{right:14px;top:14px;width:44px;height:44px;background:rgba(0,0,0,.3)}
+  /* Right-hand cluster. The old layout stacked five controls in one column reaching
+     346px up from the bottom; a landscape phone is 360px tall, so RELOAD arrived at
+     the top edge and overlapped PAUSE by its full height — a tap in that zone could
+     pause the fight instead of reloading. Two staggered columns keep the whole
+     cluster inside 244px, clear of the top-right corner at every size. Nothing sits
+     within 50px of the bottom edge either: Android reports safe-area-inset-bottom as
+     0 in landscape, yet a tap that close still competes with the gesture bar. */
+  body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
+  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px}
+  /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
+     reaches the minimap the way a single tall column did. */
+  body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
+  body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
+  body.touch #score-hud .val{font-size:20px}
+  /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
+     underneath the FIRE button — i.e. under your own thumb — at every screen size
+     tested, desktop-width tablets included. Centred along the bottom it stays clear
+     of both thumb clusters. */
+  body.touch #hud-bottom-right{left:50%;right:auto;transform:translateX(-50%);bottom:calc(16px + var(--sa-b));text-align:center}
+  body.touch #killfeed{top:calc(52px + var(--sa-t));right:calc(16px + var(--sa-r))}
+  body.touch #minimap{top:calc(20px + var(--sa-t));left:calc(16px + var(--sa-l))}
+  body.touch #health-container{bottom:calc(20px + var(--sa-b));left:calc(16px + var(--sa-l))}
+  body.touch #armor-container{bottom:calc(42px + var(--sa-b));left:calc(16px + var(--sa-l))}
+  body.touch #fps-counter{bottom:calc(6px + var(--sa-b));left:calc(8px + var(--sa-l))}
   body.touch #start-screen .controls{display:none}
   body.touch #minimap{width:100px;height:100px}
   body.touch #ammo-mag{font-size:30px}
   #gun-select{overflow-y:auto;box-sizing:border-box;justify-content:flex-start;padding:24px 12px;max-height:100%;}
   #gun-cards{flex-shrink:0;max-width:100%;}
   body.touch #start-screen h1{font-size:clamp(24px,7vw,48px);letter-spacing:2px;}
-  body.touch #start-screen>div{max-width:100%;box-sizing:border-box;padding:12px;}
+  body.touch #start-screen>div{max-width:100%;box-sizing:border-box;padding:12px;text-align:center;}
+  body.touch #gun-cards{text-align:center;}
   .menu-btn:focus-visible,.gun-card:focus-visible{outline:3px solid #ffd24a;outline-offset:3px;}
+  /* ---- Accessibility ---- */
+  body.reduced-motion .killfeed-item{animation:none;opacity:1}
+  body.reduced-motion #center-msg,body.reduced-motion #wave-banner{transition:none}
+  @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
+  /* ---- Settings panel ---- */
+  #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
+  #settings-screen h2{color:#ffdf8a;font-size:30px;letter-spacing:8px;font-weight:900;margin:0 0 18px;text-shadow:0 2px 10px #000;width:100%;text-align:center}
+  #settings-list{width:min(520px,94vw);margin:0 auto;display:flex;flex-direction:column;gap:2px}
+  .set-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:14px;padding:9px 12px;border-radius:4px}
+  .set-row:nth-child(odd){background:rgba(255,255,255,.04)}
+  .set-row label{color:rgba(255,255,255,.85);font-size:13px;letter-spacing:1px}
+  .set-row .set-val{color:#ffdf8a;font-size:12px;font-weight:700;min-width:52px;text-align:right;display:inline-block}
+  .set-row input[type=range]{width:min(230px,42vw);accent-color:#ffd24a;pointer-events:auto}
+  .set-row input[type=checkbox]{width:20px;height:20px;accent-color:#ffd24a;pointer-events:auto}
+  .set-row select{background:rgba(20,26,20,.95);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:3px;padding:5px 8px;font-size:12px;pointer-events:auto}
+  #settings-actions{width:min(520px,94vw);margin:20px auto 0;text-align:center}
+  #settings-screen .set-note{width:min(520px,94vw);margin:14px auto 0;color:rgba(255,255,255,.5);font-size:11px;line-height:1.6;text-align:center}
+  #menu-stats{color:rgba(255,255,255,.7);font-size:12px;line-height:1.7;margin:14px 0 0;text-align:center}
+  #diff-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:0 0 20px}
+  .diff-btn{padding:9px 22px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:rgba(20,26,20,.85);color:rgba(255,255,255,.75);font-size:12px;letter-spacing:3px;font-weight:800;cursor:pointer;pointer-events:auto;transition:all .15s;text-align:center}
+  .diff-btn small{display:block;font-size:9px;letter-spacing:1px;font-weight:500;opacity:.6;margin-top:3px}
+  .diff-btn:hover{border-color:#ffdf8a;color:#ffdf8a}
+  .diff-btn.on{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a}
+  #save-note{color:rgba(255,255,255,.45);font-size:11px;letter-spacing:1px;margin:8px 0 0;text-align:center}
+  #menu-stats b{color:#ffd24a}
+  /* high-contrast enemy markers for colourblind players */
+  body.cb-markers #minimap{border-color:#ffd24a}
+  /* ---- Landscape prompt (mobile) ---- */
+  #rotate-prompt{display:none}
+  body.touch #rotate-prompt{position:absolute;inset:0;z-index:70;background:#060a06;color:#ffdf8a;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:30px;font-size:15px;letter-spacing:3px;font-weight:700}
+  body.touch #rotate-prompt .rp-icon{font-size:46px;margin-bottom:16px}
+  @media (orientation: portrait){ body.touch.started #rotate-prompt{display:flex} }
 </style>
 </head>
 <body>
@@ -135,7 +212,7 @@
   <div class="c-line c-h left"></div><div class="c-line c-h right"></div>
   <div class="hitmark"><span class="h1"></span><span class="h2"></span></div>
 </div>
-<div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="560" height="18"></canvas></div></div>
+<div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
@@ -156,7 +233,11 @@
     <h1>OPERATION BLACKOUT</h1>
     <h2>WAVE DEFENSE FPS</h2>
     <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
+    <div class="menu-btn" id="btn-resume-run" style="display:none">RESUME RUN</div>
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-settings">SETTINGS</div>
+    <p id="menu-stats"></p>
+    <p id="save-note"></p>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
@@ -171,8 +252,10 @@
     </div>
   </div>
 </div>
-<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="gun-cards"></div></div>
-<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
+<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
+<div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
-<div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
+<div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-endless">CONTINUE — ENDLESS</div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
 <div id="fps-counter" class="hud"></div>

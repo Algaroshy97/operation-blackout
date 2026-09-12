@@ -1,7 +1,7 @@
 // ============ VFX & AUDIO ============
 'use strict';
 // ---- Pooled VFX ----
-const vfx = { tracers: [], impacts: [], blood: [], muzzleLights: [] };
+const vfx = { tracers: [], impacts: [], blood: [] };
 const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
 const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
@@ -13,6 +13,7 @@ const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
 const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
 const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
 const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+// casings are 3 cm and there can be 24 of them; never worth a shadow-pass draw
 const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
@@ -240,16 +241,17 @@ function spawnSlideDust(pos) {
 let muzzleLight = null;
 function flashMuzzleLight() {
   if (!muzzleLight) {
+    // Punctual lights are in candela since r155; decay 2 is now the default.
     muzzleLight = new THREE.PointLight(0xffcc88, 0, 9, 2);
     muzzleLight.userData.vfx = true;
     scene.add(muzzleLight);
   }
   muzzleLight.position.copy(camera.position);
-  muzzleLight.intensity = 3.2;
+  muzzleLight.intensity = 3.2 * LIGHT_COMPAT * 4;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {
-    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 26);
+    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 26 * LIGHT_COMPAT * 4);
   }
 }
 function updateVfx(dt) {
@@ -272,6 +274,8 @@ function updateVfx(dt) {
       im.m.visible = false;
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
         impactPool.push(im.m);
+      } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+        releaseBlastFlash(im.m);   // shared geo/material: recycle, never dispose
       } else {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
@@ -298,6 +302,39 @@ function updateVfx(dt) {
 
 // ---- Audio (WebAudio, all synthesized — no assets) ----
 let AC = null;
+let masterGain = null;
+// Every sound used to connect straight to ctx.destination, which meant there was
+// nowhere to put a volume control and no way to see how many voices were live.
+// One bus fixes both.
+function audioMaster() {
+  const ctx = audioCtx();
+  if (!ctx) return null;
+  if (!masterGain) {
+    masterGain = ctx.createGain();
+    masterGain.gain.value = AUDIO.master;
+    masterGain.connect(ctx.destination);
+  }
+  return masterGain;
+}
+const AUDIO = { master: 0.9, voices: 0, maxVoices: 24 };
+function setMasterVolume(v) {
+  AUDIO.master = Math.max(0, Math.min(1, v));
+  const g = audioMaster();
+  if (g) g.gain.value = AUDIO.master;
+}
+// Rate-limit per sound name. At 750 RPM the impact ping alone was building ~5
+// WebAudio nodes 12 times a second; measured, synthesised audio was the single
+// largest cost in fireShot — larger than both raycasts combined.
+const _sndLast = Object.create(null);
+const SND_MIN_GAP = { impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03 };
+function soundThrottled(name) {
+  const gap = SND_MIN_GAP[name];
+  if (gap === undefined) return false;
+  const now = performance.now() / 1000;
+  if (_sndLast[name] !== undefined && now - _sndLast[name] < gap) return true;
+  _sndLast[name] = now;
+  return false;
+}
 function audioCtx() {
   if (!AC) {
     try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; }
@@ -313,67 +350,143 @@ function noiseBuffer(ctx) {
   return buf;
 }
 let noiseBuf = null;
-function playSound(name, dest) {
-  const ctx = audioCtx();
-  if (!ctx) return;
-  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
-  const t = ctx.currentTime;
+
+// ---- Sound recipes ---------------------------------------------------------
+// Every sound is a short stack of two primitives, so the same description can be
+// synthesised live OR rendered once into an AudioBuffer and replayed. Layers:
+//   ['noise', dur, gain, freq, q]        band-passed white noise
+//   ['osc', type, f0, f1, dur, gain]     oscillator with an optional pitch ramp
+// Keeping these as data — rather than the switch that used to build nodes inline —
+// is what makes the pre-render below possible.
+const SOUND_RECIPES = {
+  shot:        [['noise', 0.09, 0.5, 900, 0.7], ['osc', 'square', 190, 70, 0.07, 0.28]],
+  sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
+  scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
+  slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
+  casing:      [['osc', 'square', 2400, 1800, 0.03, 0.04]],
+  eshot:       [['noise', 0.11, 0.24, 500, 0.8], ['osc', 'sawtooth', 140, 55, 0.09, 0.14]],
+  impact:      [['noise', 0.05, 0.18, 2400, 2]],
+  explosion:   [['noise', 0.6, 0.55, 180, 0.5], ['osc', 'sine', 120, 25, 0.5, 0.4], ['noise', 0.3, 0.3, 700, 0.6]],
+  bounce:      [['osc', 'sine', 500, 350, 0.04, 0.1]],
+  pin:         [['noise', 0.05, 0.15, 2000, 3]],
+  reload_out:  [['noise', 0.06, 0.2, 1300, 3], ['osc', 'square', 220, 140, 0.05, 0.06]],
+  reload_in:   [['noise', 0.05, 0.22, 1600, 3], ['osc', 'square', 300, 200, 0.04, 0.07]],
+  dry:         [['osc', 'square', 900, 700, 0.03, 0.1]],
+  draw:        [['noise', 0.05, 0.15, 1800, 2]],
+  melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
+  hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
+  kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
+  wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
+  death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
+  victory:     [['osc', 'sine', 523, 0, 0.3, 0.18], ['osc', 'sine', 659, 0, 0.3, 0.18], ['osc', 'sine', 784, 0, 0.6, 0.2]],
+  step:        [['noise', 0.04, 0.05, 500, 1]],
+  jump:        [['noise', 0.06, 0.06, 700, 1]],
+  land:        [['noise', 0.08, 0.12, 300, 0.8]],
+  click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
+  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]]  // bright medkit chime
+};
+
+// Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
+// every time, so these get a few percent of pitch jitter — which is more variation
+// than the old live synthesis had, since its parameters were fixed too.
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1 };
+
+function recipeDuration(recipe) {
+  let d = 0;
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    d = Math.max(d, L[0] === 'noise' ? L[1] : L[4]);
+  }
+  return d + 0.05;
+}
+
+// Build one recipe into `ctx` at time `t`, connected to `out`. Shared by the live
+// path and the offline render, so the two cannot drift apart.
+function buildSound(ctx, recipe, out, t, noise) {
   function env(g0, dur) {
     const g = ctx.createGain();
     g.gain.setValueAtTime(g0, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    g.connect(dest || ctx.destination);
+    g.connect(out);
     return g;
   }
-  function osc(type, f0, f1, dur, g0) {
-    const o = ctx.createOscillator();
-    o.type = type; o.frequency.setValueAtTime(f0, t);
-    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    o.connect(env(g0, dur));
-    o.start(t); o.stop(t + dur + 0.02);
-    return o;
-  }
-  function noise(dur, g0, freq, q) {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1;
-    src.connect(f); f.connect(env(g0, dur));
-    src.start(t); src.stop(t + dur + 0.02);
-  }
-  switch (name) {
-    case 'shot':      noise(0.09, 0.5, 900, 0.7); osc('square', 190, 70, 0.07, 0.28); break;
-    case 'sniper':    noise(0.16, 0.6, 700, 0.6); osc('sine', 150, 40, 0.22, 0.4); noise(0.5, 0.25, 220, 0.4); break;
-    case 'scope_in':  osc('sine', 900, 1300, 0.09, 0.08); break;
-    case 'scope_out': osc('sine', 1300, 800, 0.09, 0.08); break;
-    case 'slide':     noise(0.25, 0.3, 420, 0.5); noise(0.18, 0.2, 150, 0.4); break;
-    case 'casing':    osc('square', 2400, 1800, 0.03, 0.04); break;
-    case 'eshot':     noise(0.11, 0.24, 500, 0.8); osc('sawtooth', 140, 55, 0.09, 0.14); break;
-    case 'impact':    noise(0.05, 0.18, 2400, 2); break;
-    case 'explosion': noise(0.6, 0.55, 180, 0.5); osc('sine', 120, 25, 0.5, 0.4); noise(0.3, 0.3, 700, 0.6); break;
-    case 'bounce':    osc('sine', 500, 350, 0.04, 0.1); break;
-    case 'pin':       noise(0.05, 0.15, 2000, 3); break;
-    case 'reload_out': noise(0.06, 0.2, 1300, 3); osc('square', 220, 140, 0.05, 0.06); break;
-    case 'reload_in': noise(0.05, 0.22, 1600, 3); osc('square', 300, 200, 0.04, 0.07); break;
-    case 'dry':       osc('square', 900, 700, 0.03, 0.1); break;
-    case 'draw':      noise(0.05, 0.15, 1800, 2); break;
-    case 'melee':     noise(0.12, 0.3, 300, 0.6); osc('sawtooth', 90, 45, 0.11, 0.2); break;
-    case 'hit':       osc('sine', 1150, 900, 0.05, 0.16); break;
-    case 'headshot':  osc('sine', 1500, 1150, 0.07, 0.2); osc('sine', 750, 600, 0.07, 0.12); break;
-    case 'kill':      osc('sine', 600, 400, 0.09, 0.14); break;
-    case 'hurt':      osc('sawtooth', 180, 90, 0.16, 0.22); noise(0.14, 0.16, 400, 0.7); break;
-    case 'wave':      osc('sine', 220, 0, 0.5, 0.2); osc('sine', 330, 0, 0.5, 0.14); osc('sine', 440, 0, 0.7, 0.1); break;
-    case 'death':     osc('sawtooth', 200, 30, 1.2, 0.3); noise(0.8, 0.2, 200, 0.5); break;
-    case 'victory':   osc('sine', 523, 0, 0.3, 0.18); osc('sine', 659, 0, 0.3, 0.18); osc('sine', 784, 0, 0.6, 0.2); break;
-    case 'step':      noise(0.04, 0.05, 500, 1); break;
-    case 'jump':      noise(0.06, 0.06, 700, 1); break;
-    case 'land':      noise(0.08, 0.12, 300, 0.8); break;
-    case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
-    case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
-    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
-    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    if (L[0] === 'osc') {
+      const o = ctx.createOscillator();
+      o.type = L[1]; o.frequency.setValueAtTime(L[2], t);
+      if (L[3]) o.frequency.exponentialRampToValueAtTime(L[3], t + L[4]);
+      o.connect(env(L[5], L[4]));
+      o.start(t); o.stop(t + L[4] + 0.02);
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = L[3]; f.Q.value = L[4] || 1;
+      src.connect(f); f.connect(env(L[2], L[1]));
+      src.start(t); src.stop(t + L[1] + 0.02);
+    }
   }
 }
+
+// ---- Pre-rendered one-shots ------------------------------------------------
+// Synthesising a gunshot per trigger was the largest single cost in fireShot
+// (0.116 ms of a 0.263 ms budget), because every shot allocated and connected
+// five WebAudio nodes. Rendering each recipe once through an OfflineAudioContext
+// turns playback into a single BufferSource.
+const _sndBuffers = Object.create(null);
+const _sndRendering = Object.create(null);
+function renderSoundBuffer(name) {
+  if (_sndBuffers[name] || _sndRendering[name]) return;
+  const ctx = audioCtx();
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!ctx || !OAC || !SOUND_RECIPES[name]) return;
+  _sndRendering[name] = true;
+  try {
+    const rate = ctx.sampleRate;
+    const off = new OAC(1, Math.ceil(recipeDuration(SOUND_RECIPES[name]) * rate), rate);
+    buildSound(off, SOUND_RECIPES[name], off.destination, 0, noiseBuffer(off));
+    const done = off.startRendering();
+    // Older Safari resolves through oncomplete rather than the returned promise.
+    if (done && done.then) {
+      done.then(function (buf) { _sndBuffers[name] = buf; },
+                function () { _sndRendering[name] = false; });
+    } else {
+      off.oncomplete = function (e) { _sndBuffers[name] = e.renderedBuffer; };
+    }
+  } catch (e) { _sndRendering[name] = false; }
+}
+// Called once the audio context exists, so even the first shot is already cheap.
+function prerenderSounds() {
+  for (const name in SOUND_RECIPES) renderSoundBuffer(name);
+}
+
+function playSound(name, dest) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  if (soundThrottled(name)) return;
+  const out = dest || audioMaster() || ctx.destination;
+  const buf = _sndBuffers[name];
+  if (buf) {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (SOUND_VARIED[name]) src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.06;
+    src.connect(out);
+    src.start(ctx.currentTime);
+    return;
+  }
+  const recipe = SOUND_RECIPES[name];
+  if (!recipe) return;
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
+  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+}
+
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
 function playSound3D(name, x, y, z) {
@@ -394,8 +507,8 @@ function playSound3D(name, x, y, z) {
   if (ctx.createStereoPanner) {
     p = ctx.createStereoPanner();
     p.pan.value = pan;
-    g.connect(p); p.connect(ctx.destination);
-  } else g.connect(ctx.destination);
+    g.connect(p); p.connect(audioMaster() || ctx.destination);
+  } else g.connect(audioMaster() || ctx.destination);
   playSound(name, g);
   setTimeout(() => {
     try {
@@ -414,7 +527,111 @@ function updateFootsteps(dt) {
     if (stepT <= 0) { playSound('step'); stepT = 1; }
   }
   // landing
-  if (player.onGround && !wasGround && hs >= 0) playSound('land');
+  if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true
   wasGround = player.onGround;
 }
 let wasGround = true;
+
+// ============ ADAPTIVE MUSIC & AMBIENCE ============
+// Everything here is synthesised, like the rest of the audio — no asset bytes.
+//
+// Built as ONE persistent graph rather than scheduled notes: continuous
+// oscillators whose gains and filter cutoff are modulated per frame. That keeps
+// the node count constant (a per-note scheduler would allocate forever, which is
+// exactly the cost that made fireShot expensive before it was throttled).
+const MUSIC = {
+  built: false, ctx: null, bus: null,
+  drone: null, tension: null, pulseGain: null, filter: null,
+  intensity: 0, pulsePhase: 0, running: false
+};
+
+function buildMusicGraph() {
+  const ctx = audioCtx();
+  if (!ctx || MUSIC.built) return MUSIC.built;
+  const master = audioMaster();
+  if (!master) return false;
+
+  MUSIC.ctx = ctx;
+  MUSIC.bus = ctx.createGain();
+  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  MUSIC.bus.connect(master);
+
+  // Low drone: two slightly detuned voices a fifth apart. Quiet, tense, endless.
+  MUSIC.filter = ctx.createBiquadFilter();
+  MUSIC.filter.type = 'lowpass';
+  MUSIC.filter.frequency.value = 240;
+  MUSIC.filter.Q.value = 4;
+  MUSIC.filter.connect(MUSIC.bus);
+
+  MUSIC.drone = ctx.createGain();
+  MUSIC.drone.gain.value = 0.5;
+  MUSIC.drone.connect(MUSIC.filter);
+  [55, 82.41, 55.4].forEach(function (f) {       // A1, E2, and a detuned A1 for beating
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    o.connect(MUSIC.drone);
+    o.start();
+  });
+
+  // Tension voice: a minor third that only appears when things get bad.
+  MUSIC.tension = ctx.createGain();
+  MUSIC.tension.gain.value = 0;
+  MUSIC.tension.connect(MUSIC.filter);
+  [98, 130.81].forEach(function (f) {             // G2, C3
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    o.connect(MUSIC.tension);
+    o.start();
+  });
+
+  // Pulse: filtered noise gated by a per-frame envelope — a heartbeat that
+  // speeds up with the fight.
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  MUSIC.pulseGain = ctx.createGain();
+  MUSIC.pulseGain.gain.value = 0;
+  const pf = ctx.createBiquadFilter();
+  pf.type = 'bandpass'; pf.frequency.value = 90; pf.Q.value = 1.2;
+  MUSIC.pulseGain.connect(pf); pf.connect(MUSIC.bus);
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true;
+  src.connect(MUSIC.pulseGain);
+  src.start();
+
+  MUSIC.built = true;
+  return true;
+}
+
+function startMusic() {
+  if (!buildMusicGraph()) return;
+  MUSIC.running = true;
+}
+function stopMusic() {
+  MUSIC.running = false;
+  if (MUSIC.bus) MUSIC.bus.gain.value = 0;
+  if (MUSIC.pulseGain) MUSIC.pulseGain.gain.value = 0;
+}
+
+// Called every frame while playing.
+function updateMusic(dt, state) {
+  if (!MUSIC.built || !MUSIC.running) return;
+  const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
+  const target = CORE.combatIntensity(state);
+  // Ease toward the target: intensity should swell and settle, not snap.
+  const rate = target > MUSIC.intensity ? 1.6 : 0.5;    // rise fast, fall slow
+  MUSIC.intensity += (target - MUSIC.intensity) * Math.min(1, rate * dt);
+  const i = MUSIC.intensity;
+
+  MUSIC.bus.gain.value = vol * (0.22 + i * 0.5);
+  MUSIC.tension.gain.value = Math.max(0, (i - 0.25) / 0.75) * 0.16;
+  MUSIC.filter.frequency.value = 200 + i * 900;
+
+  // Heartbeat: 46 bpm at rest up to ~132 bpm at full intensity.
+  const bpm = 46 + i * 86;
+  MUSIC.pulsePhase += dt * (bpm / 60);
+  if (MUSIC.pulsePhase >= 1) MUSIC.pulsePhase -= 1;
+  // Sharp attack, exponential decay, shaped so it reads as a pulse not a hum.
+  const env = Math.pow(1 - MUSIC.pulsePhase, 6);
+  MUSIC.pulseGain.gain.value = env * (0.05 + i * 0.5);
+}

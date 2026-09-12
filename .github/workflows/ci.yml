@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Gameplay rules (headless, no browser needed).
+      - name: Core behaviour tests
+        run: node --test tests/test_core.js
+
+      # Build integrity + bundle parse. Also drives the node suite.
+      - name: Release build tests
+        run: python -m unittest tests.test_release_build -v
+
+      # Full end-to-end run in a real browser.
+      - name: Install browser probe deps
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Build release
+        run: python scripts/build.py .
+
+      - name: Live gameplay probe
+        run: python scripts/probe_live.py
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: operation-blackout
+          path: dist/Operation Blackout.html

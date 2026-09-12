@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 *.log
 .DS_Store
+
+# Build output is committed on purpose: dist/ IS the shippable game.
+# (Nothing to add here yet — kept for future tooling.)

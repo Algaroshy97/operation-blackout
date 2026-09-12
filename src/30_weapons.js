@@ -20,8 +20,21 @@ function switchWeapon(slot) {
   if (slot === curWeapon) return;
   const s = ((slot % 2) + 2) % 2;
   if (weaponsOwned[s] < 0) return;
-  if (curS()) { curS().reloading = false; }
+  // BUG-05: this used to drop `reloading` with no rollback, no cue and no HUD
+  // change, so a player who swapped mid-reload came back to an empty magazine
+  // believing they had reloaded. Remember the progress and resume it on return.
+  const prev = curS();
+  if (prev && prev.reloading) {
+    prev.reloading = false;
+    prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
+  }
   curWeapon = s;
+  const next = curS();
+  if (next && next.reloadPaused) {
+    next.reloadPaused = false;
+    next.reloading = true;           // resume where it left off
+    playSound('reload_out');
+  }
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
   updateHudAmmo();
@@ -30,7 +43,10 @@ function switchWeapon(slot) {
 
 function tryReload() {
   const s = curS(); if (!s || s.reloading || s.ammo >= curW().mag || s.reserve <= 0) return;
-  s.reloading = true; s.reloadT = 0;
+  s.reloading = true;
+  // Resume a reload that a weapon swap interrupted rather than restarting it.
+  if (!s.reloadPaused) s.reloadT = 0;
+  s.reloadPaused = false;
   updateHudAmmo();
   playSound('reload_out');
 }
@@ -44,7 +60,7 @@ function updateWeapons(dt) {
       const need = w.mag - s.ammo;
       const take = Math.min(need, s.reserve);
       s.ammo += take; s.reserve -= take;
-      s.reloading = false;
+      s.reloading = false; s.reloadPaused = false;
       playSound('reload_in');
       updateHudAmmo();
     }
@@ -55,7 +71,6 @@ function updateWeapons(dt) {
       if (!w.auto) mouse1Down = false;
       fireShot();
     } else if (gameT >= s.nextShot && s.ammo === 0) {
-      if (pressed['noop']) {} // dry
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
@@ -109,7 +124,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.15, en.pos.z);   // chest
+    _aimTgt.set(en.pos.x, en.pos.y + 1.0, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
     if (ang < bestAng) {
@@ -118,7 +133,7 @@ function applyAimAssist(dir, from) {
       hasBest = true;
     }
     // head magnet (smaller box)
-    _aimTgt.set(en.pos.x, en.pos.y + 1.72, en.pos.z);
+    _aimTgt.set(en.pos.x, en.pos.y + 1.68, en.pos.z);   // head centre
     _assistToH.subVectors(_aimTgt, from).normalize();
     const angH = dir.angleTo(_assistToH);
     if (angH < bestAng * 0.55) {
@@ -134,17 +149,21 @@ function applyAimAssist(dir, from) {
   return _assistNudged;
 }
 // bullet magnetism: at fire time, snap within a small cone
+// Scratch vectors, not per-enemy clones: this runs on every shot, and the SMG
+// fires 15 times a second.
+const _magTo = new THREE.Vector3();
+const _magBest = new THREE.Vector3();
 function magnetizeBullet(dir, from) {
-  let bestDir = dir, bestAng = CFG.assist.bulletAngle;
+  let bestAng = CFG.assist.bulletAngle, found = false;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.35, en.pos.z);
-    const to = _aimTgt.clone().sub(from).normalize();
-    const ang = dir.angleTo(to);
-    if (ang < bestAng) { bestAng = ang; bestDir = to; }
+    _aimTgt.set(en.pos.x, en.pos.y + 1.1, en.pos.z);    // centre mass
+    _magTo.subVectors(_aimTgt, from).normalize();
+    const ang = dir.angleTo(_magTo);
+    if (ang < bestAng) { bestAng = ang; _magBest.copy(_magTo); found = true; }
   }
-  return bestDir;
+  return found ? _magBest : dir;
 }
 
 function fireShot() {
@@ -173,7 +192,7 @@ function fireShot() {
     if (enemies[i].dead) continue;
     if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
   }
-  const worldHits = raycaster.intersectObjects(raycastColliders, true);
+  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
   const enemyHits = raycaster.intersectObjects(targets, true);
   let hit = null, isEnemy = false, isHead = false;
   if (enemyHits.length && worldHits.length) {
@@ -192,7 +211,7 @@ function fireShot() {
   if (hit && isEnemy) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
-    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(w.dmg, hit.distance, w.range);
+    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(hit.distance, w.range);
     damageEnemy(en, dmg, hit.point, isHead);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
@@ -207,10 +226,15 @@ function fireShot() {
   player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  if (w.type !== 'SR') playSound('shot');
+  if (w.type === 'SR') playSound('sniper'); else playSound('shot');
+  triggerMuzzleFlash();
+  flashMuzzleLight();
   updateHudAmmo();
 }
-function distanceFalloff(base, dist, range) { return dist > range * 0.6 ? 0.65 : 1; }
+// Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
+// version was a binary step: an M4 did 26 damage at 71 m and 16.9 at 72 m, moving
+// shots-to-kill from 4 to 6 across a single metre with no feedback to the player.
+function distanceFalloff(dist, range) { return CORE.distanceFalloff(dist, range); }
 let hSpeedForSpread = 0;
 let shotKick = 0;
 
@@ -225,7 +249,6 @@ const gunMats = {
   wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.85, depthTest: false }),
   hand: new THREE.MeshStandardMaterial({ color: 0xb08d6a, roughness: 0.9, depthTest: false })
 };
-const gunScene = null;   // legacy: viewmodel now lives on the camera
 scene.add(camera);       // camera children render in the main pass
 let gunGroup = null;
 let muzzleFlash = null;
@@ -369,9 +392,17 @@ function updateViewmodel(dt) {
     flashT -= dt * 12;
     if (flashT <= 0) muzzleFlash.visible = false;
   }
+  // UI-01: camera.fov is VERTICAL. On a 9:16 phone held upright the horizontal
+  // FOV collapses and the gun, which sits at x = +0.22, leaves the frustum
+  // entirely — measured at NDC 13.1 on a 375x812 screen. Pull the viewmodel
+  // toward the centre as the viewport narrows so it stays framed.
+  const aspect = camera.aspect || 1;
+  const narrow = Math.max(0, Math.min(1, (1.2 - aspect) / 0.7));
+  gunGroup.position.x -= gunGroup.position.x * 0.75 * narrow;
+  gunGroup.position.y += 0.05 * narrow;
   // camera FOV: ads zoom (sniper much tighter)
   const sniperZoom = w.type === 'SR' ? 52 : 24;
-  const targetFov = 72 - adsAmount * sniperZoom;
+  const targetFov = getSetting('fov') - adsAmount * sniperZoom;
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, 10 * dt); camera.updateProjectionMatrix(); }
   // scope overlay for BR / SR
   const scopeOv = $id('scoping-overlay');
