@@ -161,8 +161,6 @@ function fireShot() {
   const targets = [];
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
-    targets.push(enemies[i].hitBody);
-    targets.push(enemies[i].hitHead);
     if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
   }
   const worldHits = raycaster.intersectObjects(raycastColliders, true);
@@ -200,7 +198,6 @@ function fireShot() {
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
   if (w.type !== 'SR') playSound('shot');
-  if (w.type === 'SR') { playSound('scope_out'); }
   updateHudAmmo();
 }
 function distanceFalloff(base, dist, range) { return dist > range * 0.6 ? 0.65 : 1; }

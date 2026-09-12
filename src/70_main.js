@@ -46,10 +46,40 @@ function resetGame() {
   for (let i = liveGrenades.length - 1; i >= 0; i--) scene.remove(liveGrenades[i].m);
   liveGrenades.length = 0;
   // clear vfx
-  for (const arr of [vfx.tracers, vfx.impacts, vfx.blood]) {
-    for (let i = arr.length - 1; i >= 0; i--) scene.remove(arr[i].m);
-    arr.length = 0;
+  for (let i = vfx.tracers.length - 1; i >= 0; i--) {
+    const t = vfx.tracers[i];
+    scene.remove(t.m);
+    t.m.visible = false;
+    tracerPool.push(t.m);
   }
+  vfx.tracers.length = 0;
+  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+    const im = vfx.impacts[i];
+    scene.remove(im.m);
+    im.m.visible = false;
+    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+      impactPool.push(im.m);
+    } else {
+      if (im.m.geometry) im.m.geometry.dispose();
+      if (im.m.material) im.m.material.dispose();
+    }
+  }
+  vfx.impacts.length = 0;
+  for (let i = vfx.blood.length - 1; i >= 0; i--) {
+    const b = vfx.blood[i];
+    scene.remove(b.m);
+    b.m.visible = false;
+    if (b.isSpark) sparkPool.push(b.m);
+    else if (b.isBlood) bloodPool.push(b.m);
+  }
+  vfx.blood.length = 0;
+  for (let i = casings.length - 1; i >= 0; i--) {
+    const c = casings[i];
+    scene.remove(c.m);
+    c.m.visible = false;
+    casingPool.push(c.m);
+  }
+  casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run

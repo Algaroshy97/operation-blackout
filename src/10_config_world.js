@@ -161,7 +161,7 @@ function buildArena() {
   // Split north/south parapets so each staircase has a landing opening.
   [[-5.4,-7.0],[5.4,-7.0],[-5.4,7.0],[5.4,7.0]].forEach(function(p) { addBox(p[0], 4.55, p[1], 7.2, 0.9, 0.8, MAT.concrete2); });
   addBox(-9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2);
-  addBox(9.0, 4.4, 0, 0.8, 0.6, 14, MAT.concrete2);
+  addBox(9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2);
   // Walkable external stairs: 0.4m rises stay below the controller's 0.55m step limit.
   for (let i = 0; i < 10; i++) {
     const top = (i + 1) * 0.4;

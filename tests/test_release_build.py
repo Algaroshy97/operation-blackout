@@ -79,6 +79,46 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn('id="asset-loading"', head_source)
         self.assertIn('id="asset-load-progress"', head_source)
 
+    def test_review_findings_fixes(self) -> None:
+        # 1) Grenade-flash pool pollution
+        vfx_src = (ROOT / "src" / "50_vfx_audio.js").read_text()
+        grenades_src = (ROOT / "src" / "55_grenades.js").read_text()
+        self.assertIn("isBulletImpact: true", vfx_src)
+        self.assertIn("impactPool.push(im.m)", vfx_src)
+        self.assertIn("im.m.geometry.dispose()", vfx_src)
+        self.assertIn("isBulletImpact: false", grenades_src)
+
+        # 2) East parapet climb
+        world_src = (ROOT / "src" / "10_config_world.js").read_text()
+        self.assertIn("addBox(9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2)", world_src)
+        self.assertNotIn("addBox(9.0, 4.4, 0, 0.8, 0.6, 14, MAT.concrete2)", world_src)
+
+        # 3) Slide-jump double sound/velocity
+        player_src = (ROOT / "src" / "20_player.js").read_text()
+        self.assertIn("player.jumpBufT = 0", player_src)
+        self.assertIn("player.coyoteT = 0", player_src)
+
+        # 4) Sniper doubled scope_out
+        weapons_src = (ROOT / "src" / "30_weapons.js").read_text()
+        self.assertNotIn("playSound('scope_out')", weapons_src)
+
+        # 5) Enemy ledge float+snap
+        enemies_src = (ROOT / "src" / "40_enemies.js").read_text()
+        self.assertIn("const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;", enemies_src)
+        self.assertIn("dt * fallSpeed", enemies_src)
+        self.assertNotIn("en.pos.y = floorY;", enemies_src)
+
+        # 6) Restart pool leak
+        main_src = (ROOT / "src" / "70_main.js").read_text()
+        self.assertIn("tracerPool.push(t.m)", main_src)
+        self.assertIn("impactPool.push(im.m)", main_src)
+        self.assertIn("casingPool.push(c.m)", main_src)
+        self.assertIn("casings.length = 0", main_src)
+
+        # 7) Hitbox double raycast
+        self.assertNotIn("targets.push(enemies[i].hitBody)", weapons_src)
+        self.assertNotIn("targets.push(enemies[i].hitHead)", weapons_src)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

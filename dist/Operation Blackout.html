@@ -4032,7 +4032,7 @@ function buildArena() {
   // Split north/south parapets so each staircase has a landing opening.
   [[-5.4,-7.0],[5.4,-7.0],[-5.4,7.0],[5.4,7.0]].forEach(function(p) { addBox(p[0], 4.55, p[1], 7.2, 0.9, 0.8, MAT.concrete2); });
   addBox(-9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2);
-  addBox(9.0, 4.4, 0, 0.8, 0.6, 14, MAT.concrete2);
+  addBox(9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2);
   // Walkable external stairs: 0.4m rises stay below the controller's 0.55m step limit.
   for (let i = 0; i < 10; i++) {
     const top = (i + 1) * 0.4;
@@ -4444,6 +4444,8 @@ function updatePlayer(dt) {
       player.vel.x *= boost; player.vel.z *= boost;
       player.vel.y = CFG.player.jumpVel * 1.08;
       player.onGround = false;
+      player.jumpBufT = 0;
+      player.coyoteT = 0;
       playSound('jump');
       spawnSlideDust(player.pos);
     }
@@ -4899,8 +4901,6 @@ function fireShot() {
   const targets = [];
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
-    targets.push(enemies[i].hitBody);
-    targets.push(enemies[i].hitHead);
     if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
   }
   const worldHits = raycaster.intersectObjects(raycastColliders, true);
@@ -4938,7 +4938,6 @@ function fireShot() {
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
   if (w.type !== 'SR') playSound('shot');
-  if (w.type === 'SR') { playSound('scope_out'); }
   updateHudAmmo();
 }
 function distanceFalloff(base, dist, range) { return dist > range * 0.6 ? 0.65 : 1; }
@@ -5431,12 +5430,19 @@ function moveEnemy(en, dt) {
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
+    const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;
     const dx = en.pos.x - cx, dz = en.pos.z - cz;
     if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
     if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
   }
-  en.pos.y = floorY;
+  const fallSpeed = 6;
+  if (floorY < en.pos.y) {
+    const needed = en.pos.y - floorY;
+    en.pos.y -= Math.min(needed, dt * fallSpeed);
+  } else if (floorY > en.pos.y && (floorY - en.pos.y) <= stepH) {
+    const needed = floorY - en.pos.y;
+    en.pos.y += Math.min(needed, dt * fallSpeed);
+  }
 }
 
 // LOS check: ray from enemy eye to player eye against static world
@@ -5752,8 +5758,9 @@ function spawnImpact(point, normal, obj) {
   const m = getImpactMesh();
   m.position.copy(point);
   m.scale.set(1, 1, 1);
+  m.userData.isBulletImpact = true;
   scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25 });
+  vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
   // sparks
   for (let i = 0; i < 4; i++) {
     const s = getSparkMesh();
@@ -5912,7 +5919,12 @@ function updateVfx(dt) {
     if (im.life <= 0) {
       scene.remove(im.m);
       im.m.visible = false;
-      impactPool.push(im.m);
+      if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+        impactPool.push(im.m);
+      } else {
+        if (im.m.geometry) im.m.geometry.dispose();
+        if (im.m.material) im.m.material.dispose();
+      }
       vfx.impacts.splice(i, 1);
     }
   }
@@ -6137,8 +6149,9 @@ function explodeGrenade(pos) {
   const flash = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 }));
   flash.position.copy(pos);
   flash.userData.vfx = true;
+  flash.userData.isBulletImpact = false;
   scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35 });
+  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false });
   // smoke/spark debris
   for (let i = 0; i < 14; i++) {
     const s = new THREE.Mesh(sparkGeo, sparkMat);
@@ -6590,10 +6603,40 @@ function resetGame() {
   for (let i = liveGrenades.length - 1; i >= 0; i--) scene.remove(liveGrenades[i].m);
   liveGrenades.length = 0;
   // clear vfx
-  for (const arr of [vfx.tracers, vfx.impacts, vfx.blood]) {
-    for (let i = arr.length - 1; i >= 0; i--) scene.remove(arr[i].m);
-    arr.length = 0;
+  for (let i = vfx.tracers.length - 1; i >= 0; i--) {
+    const t = vfx.tracers[i];
+    scene.remove(t.m);
+    t.m.visible = false;
+    tracerPool.push(t.m);
   }
+  vfx.tracers.length = 0;
+  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+    const im = vfx.impacts[i];
+    scene.remove(im.m);
+    im.m.visible = false;
+    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+      impactPool.push(im.m);
+    } else {
+      if (im.m.geometry) im.m.geometry.dispose();
+      if (im.m.material) im.m.material.dispose();
+    }
+  }
+  vfx.impacts.length = 0;
+  for (let i = vfx.blood.length - 1; i >= 0; i--) {
+    const b = vfx.blood[i];
+    scene.remove(b.m);
+    b.m.visible = false;
+    if (b.isSpark) sparkPool.push(b.m);
+    else if (b.isBlood) bloodPool.push(b.m);
+  }
+  vfx.blood.length = 0;
+  for (let i = casings.length - 1; i >= 0; i--) {
+    const c = casings[i];
+    scene.remove(c.m);
+    c.m.visible = false;
+    casingPool.push(c.m);
+  }
+  casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run

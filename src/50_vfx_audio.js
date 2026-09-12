@@ -94,8 +94,9 @@ function spawnImpact(point, normal, obj) {
   const m = getImpactMesh();
   m.position.copy(point);
   m.scale.set(1, 1, 1);
+  m.userData.isBulletImpact = true;
   scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25 });
+  vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
   // sparks
   for (let i = 0; i < 4; i++) {
     const s = getSparkMesh();
@@ -254,7 +255,12 @@ function updateVfx(dt) {
     if (im.life <= 0) {
       scene.remove(im.m);
       im.m.visible = false;
-      impactPool.push(im.m);
+      if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+        impactPool.push(im.m);
+      } else {
+        if (im.m.geometry) im.m.geometry.dispose();
+        if (im.m.material) im.m.material.dispose();
+      }
       vfx.impacts.splice(i, 1);
     }
   }

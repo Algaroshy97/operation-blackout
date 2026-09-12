@@ -311,12 +311,19 @@ function moveEnemy(en, dt) {
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
+    const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;
     const dx = en.pos.x - cx, dz = en.pos.z - cz;
     if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
     if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
   }
-  en.pos.y = floorY;
+  const fallSpeed = 6;
+  if (floorY < en.pos.y) {
+    const needed = en.pos.y - floorY;
+    en.pos.y -= Math.min(needed, dt * fallSpeed);
+  } else if (floorY > en.pos.y && (floorY - en.pos.y) <= stepH) {
+    const needed = floorY - en.pos.y;
+    en.pos.y += Math.min(needed, dt * fallSpeed);
+  }
 }
 
 // LOS check: ray from enemy eye to player eye against static world

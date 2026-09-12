@@ -87,8 +87,9 @@ function explodeGrenade(pos) {
   const flash = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 }));
   flash.position.copy(pos);
   flash.userData.vfx = true;
+  flash.userData.isBulletImpact = false;
   scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35 });
+  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false });
   // smoke/spark debris
   for (let i = 0; i < 14; i++) {
     const s = new THREE.Mesh(sparkGeo, sparkMat);

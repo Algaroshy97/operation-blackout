@@ -190,6 +190,8 @@ function updatePlayer(dt) {
       player.vel.x *= boost; player.vel.z *= boost;
       player.vel.y = CFG.player.jumpVel * 1.08;
       player.onGround = false;
+      player.jumpBufT = 0;
+      player.coyoteT = 0;
       playSound('jump');
       spawnSlideDust(player.pos);
     }
