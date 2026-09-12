@@ -716,6 +716,41 @@
 > exactly its 180 rounds, ran dry and stalled, because it never walks to the ammo cache
 > `updateAmmoRelief` drops for it. A bot that cannot move is not a difficulty test.
 
+> **Draw-call pass.** The one open performance risk from the integration check, and the
+> reason to act on it is that mobile is an advertised platform. Where the calls went, at
+> a wave-15 load with everything live: **70 static batches, 56 live enemy meshes, 32
+> shadow-pass, 32 corpse meshes.** Corpses were the surprise — more draw calls than the
+> live roster's entire shadow pass, for bodies lying flat on the floor.
+>
+> `RAGDOLL_BUDGET` only limited how many corpses were *stepped*; every corpse still
+> rendered and nothing capped how many existed. `RAGDOLL_MAX` caps the count at six
+> (three on touch) and retires the oldest.
+>
+> `STATIC_REGION_SIZE` was 30 m, chosen in Phase 2 without measuring the trade — and
+> Phase 2 chose region batching precisely so frustum culling and raycast rejection keep
+> working, so both had to be measured, not just the draw calls:
+>
+> | region | batches | draw calls (centre/spawn/corner) | AI LOS | fireShot |
+> |---|---|---|---|---|
+> | 30 m | 70 | 219 / 137 / 136 | 0.0165 ms | 0.267 ms |
+> | **45 m** | **49** | **194 / 120 / 118** | 0.0222 ms | 0.267 ms |
+> | 90 m (one region) | 47 | 194 / 118 / 117 | 0.0228 ms | 0.280 ms |
+>
+> 45 m buys 21 fewer batches and 25 fewer draw calls for **0.0057 ms** of extra
+> line-of-sight work against a 16.7 ms budget. Collapsing to a single region buys
+> nothing more and costs more on *both* raycast paths — the culling loss Phase 2 was
+> protecting against, showing up on the measurement.
+>
+> Full worst case on the final build — 14 enemies with elites, 6 corpses, smoke,
+> thermite, a sentry, a munitions box, a live objective and a UAV: **275 draw calls,
+> ~50k triangles, 3.31 ms/frame.** 302 fps on a desktop GPU, and still silent on phones.
+>
+> **Methodology note:** the region comparison is the trustworthy number because the
+> three builds were measured back to back on the same scene. Every attempt to A/B the
+> corpse changes over a timed window failed the same way — corpses expire in about five
+> seconds, shorter than a stable window, so the second arm ran with zero bodies. The
+> corpse cap is therefore claimed as a count reduction, not a timing one.
+
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
 `scripts/build.py` output modulo line endings.

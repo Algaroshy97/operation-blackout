@@ -19,7 +19,13 @@
 // Corpses are simulated only while they still have energy. A settled body stops
 // costing anything, which is what makes running a dozen of them free.
 
-const RAGDOLL_BUDGET = IS_TOUCH ? 4 : 10;   // concurrent simulating corpses
+const RAGDOLL_BUDGET = IS_TOUCH ? 4 : 10;   // concurrent SIMULATING corpses
+// And a hard cap on how many EXIST. The simulation budget only decided how many
+// were stepped; every corpse still rendered, and each is about four meshes. Eight
+// on screen measured 32 draw calls of bodies lying on the floor — more than the
+// live roster's shadow pass. The oldest is retired when a new one arrives, which
+// is also the one the player is least likely to still be looking at.
+const RAGDOLL_MAX = IS_TOUCH ? 3 : 6;
 const ragdolls = [];
 
 const _rdV = new THREE.Vector3();
@@ -75,6 +81,9 @@ function spawnRagdoll(en, impulse) {
   // them in world space means taking them out of that hierarchy first.
   if (!entry.useBones && entry.box) detachBoxParts(entry);
   ragdolls.push(entry);
+  while (ragdolls.length > RAGDOLL_MAX) {
+    removeRagdoll(ragdolls.shift());
+  }
   return entry;
 }
 

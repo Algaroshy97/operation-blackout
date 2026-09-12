@@ -224,7 +224,19 @@ function penMaterialFor(mat) {
 // one mesh per (material x spatial region) by flushStaticBatches(); the AABB in
 // `colliders[]` is still added immediately, so collision is completely unaffected.
 const staticQueue = [];
-const STATIC_REGION_SIZE = 30;   // 3x3 regions across the 90 m arena
+// 2x2 regions across the 90 m arena. Phase 2 chose region batching over a plain
+// merge-by-material so frustum culling and raycast bounding-sphere rejection keep
+// working, and 30 m was picked without measuring the trade. Measured now, at a
+// wave-15 load with six corpses:
+//               batches   draw calls (centre/spawn/corner)   AI LOS    fireShot
+//   30 m          70          219 / 137 / 136                0.0165 ms  0.267 ms
+//   45 m          49          194 / 120 / 118                0.0222 ms  0.267 ms
+//   90 m (one)    47          194 / 118 / 117                0.0228 ms  0.280 ms
+// 45 m buys 21 fewer batches and ~25 fewer draw calls for six microseconds of
+// extra line-of-sight work. Collapsing to a single region buys nothing beyond it
+// and costs more on both raycast paths, which is exactly the culling loss Phase 2
+// was protecting against.
+const STATIC_REGION_SIZE = 45;
 // Queue a piece of static world geometry. `geo` must already be baked into world
 // space (the batch mesh itself sits at the origin); x/z decide its region.
 function queueStatic(geo, x, z, mat, noShadow) {
