@@ -259,11 +259,19 @@ function updatePlayer(dt) {
   const wz = ix * (-sy) + iz * (-cy);
   const targetVX = wx * speed, targetVZ = wz * speed;
   // air control: partial authority while airborne (not while sliding)
-  let accel = player.onGround ? CFG.player.accel : 4;
-  if (!player.onGround && !player.sliding) accel = 7;   // snappier air control
+  let rate;
+  if (!player.onGround) {
+    rate = player.sliding ? 4 : 7;
+  } else {
+    // ground: tighten deceleration when movement keys are released to stop in ~0.1s without snappy acceleration
+    rate = len > 0 ? CFG.player.accel : (CFG.player.decel || 38);
+  }
   if (!player.sliding) {
-    player.vel.x += (targetVX - player.vel.x) * Math.min(1, accel * dt);
-    player.vel.z += (targetVZ - player.vel.z) * Math.min(1, accel * dt);
+    player.vel.x += (targetVX - player.vel.x) * Math.min(1, rate * dt);
+    player.vel.z += (targetVZ - player.vel.z) * Math.min(1, rate * dt);
+    if (player.onGround && len === 0 && Math.hypot(player.vel.x, player.vel.z) < 0.05) {
+      player.vel.x = 0; player.vel.z = 0;
+    }
   }
 
   // jump: coyote time (0.12s grace after leaving ground) + jump buffering (0.15s)

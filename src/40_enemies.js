@@ -566,12 +566,23 @@ function animateEnemy(en, dt, dist) {
     if (en.kind === 1 && en.state === 'strafe') clip = moving > 0.5 ? 'holding-right-shoot' : 'holding-right';
     if (en.kind === 1) clip = en.swinging !== undefined && en.swinging > 0 ? 'holding-right-shoot' : (moving > 0.5 ? 'holding-right' : 'idle');
     setEnemyAnim(en, clip, 0.12);
+    if (en.actions[en.animCur]) {
+      const isMove = en.animCur === 'walk' || en.animCur === 'sprint' || en.animCur === 'holding-right' || en.animCur === 'holding-right-shoot';
+      if (isMove && moving > 0.1) {
+        const refSpeed = 3.2; // reference speed matching walk stride
+        const timeScale = moving / refSpeed;
+        en.actions[en.animCur].setEffectiveTimeScale(timeScale);
+      } else {
+        en.actions[en.animCur].setEffectiveTimeScale(1.0);
+      }
+    }
     return;
   }
   // ---- procedural fallback (box-man) ----
   if (en.dead) return;
-  const moving = Math.hypot(en.vel.x, en.vel.z) > 0.3;
-  const spd = moving ? 9 * (en.kind === 0 ? 1.5 : 1) : 0;
+  const moveSpd = Math.hypot(en.vel.x, en.vel.z);
+  const moving = moveSpd > 0.3;
+  const spd = moving ? 9 * (moveSpd / 3.2) * (en.kind === 0 ? 1.5 : 1) : 0;
   en.walkPhase += spd * dt;
   const swing = Math.sin(en.walkPhase) * (moving ? 0.55 : 0.06);
   p.legL.rotation.x = swing;
