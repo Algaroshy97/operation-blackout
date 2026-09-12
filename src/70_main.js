@@ -3,17 +3,20 @@
 // ---- Flow ----
 function pauseGame() {
   paused = true;
+  if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'flex';
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function resumeGame() {
   paused = false;
+  if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'none';
   canvas.requestPointerLock();
 }
 function killPlayer() {
   player.dead = true;
   mouse1Down = false;
+  if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
   if (document.pointerLockElement) document.exitPointerLock();
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
@@ -27,6 +30,7 @@ function killPlayer() {
 }
 function victory() {
   gameEnded = true;
+  if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
@@ -38,6 +42,7 @@ function victory() {
 
 function resetGame() {
   paused = false;   // never reset into a paused state
+  if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   // remove all enemies + pickups + grenades
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;

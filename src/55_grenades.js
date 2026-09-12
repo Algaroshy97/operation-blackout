@@ -156,6 +156,13 @@ function throwGrenade(customSpeed) {
   updateHudAmmo();
 }
 
+function cancelGrenadeCharge() {
+  grenadeCharging = false;
+  grenadeChargeT = 0;
+  hidePreviewDots();
+  if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+}
+
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
 
@@ -168,10 +175,7 @@ function updateGrenades(dt) {
     }
     if (grenadeCharging) {
       if (player.dead || paused || !started || grenades.count <= 0) {
-        grenadeCharging = false;
-        grenadeChargeT = 0;
-        hidePreviewDots();
-        if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+        cancelGrenadeCharge();
       } else {
         grenadeChargeT += dt;
         const curSpeed = getGrenadeSpeed();
@@ -180,17 +184,17 @@ function updateGrenades(dt) {
         if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(true, chargePct, curSpeed);
       }
     } else {
-      hidePreviewDots();
-      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+      cancelGrenadeCharge();
     }
   } else {
     if (grenadeCharging) {
-      const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
-      grenadeCharging = false;
-      grenadeChargeT = 0;
-      hidePreviewDots();
-      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
-      throwGrenade(throwSpeed);
+      if (player.dead || paused || !started || grenades.count <= 0) {
+        cancelGrenadeCharge();
+      } else {
+        const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+        cancelGrenadeCharge();
+        throwGrenade(throwSpeed);
+      }
     } else {
       hidePreviewDots();
       if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
