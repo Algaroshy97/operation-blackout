@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-6 complete (2026-09-12)
+> ## Status — Phases 0-7 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -184,15 +184,82 @@
 > **Still not done:** the wave-15 boss, dropped deliberately in favour of spreading
 > variety across the whole curve.
 >
+> **Phase 7 — the Android pass.** The README advertised Android, and nothing in Phases
+> 0-6 had been checked on a touch layout in landscape. Tested under Chrome device
+> emulation (Pixel 8 UA, 5 touch points, `pointer: coarse`, so `IS_TOUCH` resolved true
+> and the real mobile path ran) at 800×360, 844×390, 915×412 and 1024×600, plus 375×812
+> portrait. Four defects, measured rather than eyeballed:
+>
+> | ID | | before | after |
+> |---|---|---|---|
+> | MOB-01 | MAIN MENU on the victory screen, 800×360 | **0 px visible** | fully visible, no scroll |
+> | MOB-01 | MAIN MENU on the death screen, 800×360 | 12 of 51 px | fully visible, no scroll |
+> | MOB-02 | FIRE button over the ammo readout | 86×39 px, **every size tested** | none |
+> | MOB-03 | RELOAD over PAUSE (two live tap targets) | 31×47 px at ≤844×390 | none |
+> | MOB-04 | edge-anchored controls with no cutout inset | 6 of 9 | 0 |
+>
+> **MOB-01 — the end screens clipped their own buttons.** `#death-screen` and
+> `#victory-screen` are `justify-content:center` with `overflow:visible`. Content taller
+> than the viewport is then clipped at *both* ends and unreachable in either direction:
+> at 800×360 the victory screen is 430 px of content in 360 px, so "AREA SECURED" and
+> MAIN MENU were both entirely off-screen. Winning a 15-wave run left the player unable
+> to reach the menu without reloading the page. The fix already existed in the codebase
+> and had simply never been applied here — `#gun-select` and `#settings-screen` both
+> carry `overflow-y:auto`. Added that plus `justify-content:safe center` (plain `center`
+> first as the fallback), and a `@media (max-height:480px)` type scale so the content
+> fits outright rather than merely scrolling.
+>
+> **MOB-02 — the ammo counter was under the firing thumb.** `#hud-bottom-right` and
+> `#tbtn-fire` were both anchored bottom-right. Not a small-screen edge case: the
+> overlap was identical at 1024×600. Ammo now sits bottom-centre, clear of both thumb
+> clusters.
+>
+> **MOB-03 — RELOAD and PAUSE shared 31×47 px.** Five controls stacked in one column
+> reached 346 px up from the bottom; a landscape phone is 360 px tall, so the top of the
+> column arrived at the pause button. A tap in the shared zone could pause the fight
+> instead of reloading. The right-hand cluster is now two staggered columns bounded to
+> 244 px, and nothing sits within 50 px of the bottom edge, where a tap competes with
+> the gesture bar.
+>
+> **MOB-04 — `viewport-fit=cover` with no safe-area insets.** The meta tag opts the page
+> in under the display cutout and gesture bar, and `env(safe-area-inset-*)` appeared
+> nowhere in the stylesheet — the worst combination. Six of nine controls sat within
+> 48 px of an edge, PAUSE 14 px from the top-right corner where a landscape punch-hole
+> camera lives. Every edge-anchored control and HUD readout now insets through
+> `--sa-t/r/b/l`.
+>
+> Six new tests in `tests/test_release_build.py` solve the touch CSS box model at
+> 800×360 and intersect the rectangles, so this is caught without a browser.
+> Mutation-checked: restoring the old RELOAD offset, dropping `safe center`, or removing
+> one control's inset each fails the suite.
+>
+> **Passed, and left alone:** touch detection, the portrait rotate-gate, `touch-action:
+> none` on every control (no pull-to-refresh or accidental zoom), WebAudio unlocking on
+> first gesture, all tap targets ≥44 px, gun-select and settings scrolling correctly,
+> and the dynamic resolution scaler, which drops pixel ratio to 0.65 below 48 fps and
+> steps back up asymmetrically to avoid oscillation.
+>
+> **Not covered by this pass, and still unmeasured:** real GPU throughput, thermal
+> throttling, memory pressure and touch ergonomics. The emulator runs a desktop GPU and
+> backgrounded the tab during measurement, so every frame-rate number collected was
+> meaningless and none is quoted here. Shadows are on at 1024² with 107 casters on
+> touch — the most likely real-device cost, and untested on hardware.
+>
+> **One overlap found and deliberately not fixed:** `#compass` (top:54px) intersects
+> `#wave-hud` by 78×18 px. It is pre-existing, present at every size including desktop,
+> and cosmetic — the compass letters run through the hostiles line. Logged, not changed,
+> because it was outside the four defects this pass was asked to fix.
+>
 > Closed: BUG-01, BUG-02, BUG-03, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09,
 > BUG-10, UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, ROB-01, ROB-02, ROB-03,
 > ROB-04, ROB-05, PERF-01, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08,
 > PERF-09, GAP-01, GAP-02, GAP-03, GAP-05, GAP-06, GAP-08, GAP-09,
-> ENG-01, ENG-02, ENG-03, ENG-06, ENG-08.
+> ENG-01, ENG-02, ENG-03, ENG-06, ENG-08, MOB-01, MOB-02, MOB-03, MOB-04.
 > **Still open:** the wave-15 boss, BUG-11 (latent ceiling clipping), ENG-05 (278
-> globals, mitigated by the bundle-parse test), and the two carried-forward Phase 2
-> criteria (<60 draw calls — now 97; <0.1 ms `fireShot` — now 0.263 ms, floored by
-> one synthesised gunshot per shot). ENG-04 is closed by Phase 6.
+> globals, mitigated by the bundle-parse test), MOB-05 (the compass/wave-counter
+> overlap, cosmetic), on-device performance verification, and the two carried-forward
+> Phase 2 criteria (<60 draw calls — now 97; <0.1 ms `fireShot` — now 0.263 ms, floored
+> by one synthesised gunshot per shot). ENG-04 is closed by Phase 6.
 > Sections below are the original audit, unedited except where a correction is noted.
 
 **Audit date:** 2026-09-12

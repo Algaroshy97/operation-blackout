@@ -15,6 +15,7 @@ Run:
 """
 from __future__ import annotations
 
+import itertools
 import re
 import shutil
 import subprocess
@@ -101,6 +102,101 @@ class BuildIntegrityTests(unittest.TestCase):
             first_line = module.read_text(encoding="utf-8").splitlines()[0]
             self.assertIn(first_line, self.content,
                           f"{module.name} did not make it into the build")
+
+
+class TouchLayoutTests(unittest.TestCase):
+    """Solve the touch HUD's CSS box model on the smallest landscape phone.
+
+    Guards the Android pass: RELOAD used to overlap PAUSE by its full height (a tap
+    there could pause the fight instead of reloading) and FIRE sat on top of the ammo
+    readout at every size. Both are pure geometry, so they can be checked without a
+    browser — parse the offsets out of the stylesheet and intersect the rectangles.
+    """
+
+    # 1600x720 and 1440x720 panels at dpr 2. The shortest landscape viewport in
+    # common use, and the one where a bottom-anchored column runs out of room.
+    VIEWPORT = (800, 360)
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.css = (ROOT / "src" / "00_head.html").read_text(encoding="utf-8")
+
+    def _boxes(self) -> dict[str, tuple[float, float, float, float]]:
+        """(x, y, right, bottom) for every body.touch control, in viewport pixels."""
+        vw, vh = self.VIEWPORT
+        pattern = re.compile(
+            r"body\.touch\s+#(tbtn-[\w-]+|joy-base)\{([^}]*)\}")
+
+        def offset(decls: str, prop: str) -> float | None:
+            # `right:calc(26px + var(--sa-r))` — safe-area vars are 0 without a cutout.
+            m = re.search(rf"(?:^|;){prop}:\s*(?:calc\(\s*)?(-?[\d.]+)px", decls)
+            return float(m.group(1)) if m else None
+
+        boxes: dict[str, tuple[float, float, float, float]] = {}
+        for name, decls in pattern.findall(self.css):
+            w, h = offset(decls, "width"), offset(decls, "height")
+            if w is None or h is None:
+                continue
+            left, right = offset(decls, "left"), offset(decls, "right")
+            top, bottom = offset(decls, "top"), offset(decls, "bottom")
+            x = left if left is not None else vw - right - w
+            y = top if top is not None else vh - bottom - h
+            boxes[name] = (x, y, x + w, y + h)
+        return boxes
+
+    @staticmethod
+    def _overlap(a, b) -> tuple[float, float]:
+        return (min(a[2], b[2]) - max(a[0], b[0]),
+                min(a[3], b[3]) - max(a[1], b[1]))
+
+    def test_stylesheet_defines_every_touch_control(self) -> None:
+        boxes = self._boxes()
+        expected = {"joy-base", "tbtn-fire", "tbtn-ads", "tbtn-jump", "tbtn-slide",
+                    "tbtn-reload", "tbtn-nade", "tbtn-swap", "tbtn-pause"}
+        self.assertEqual(expected, set(boxes), "touch control set changed — update this test")
+
+    def test_no_two_touch_controls_overlap(self) -> None:
+        boxes = self._boxes()
+        for a, b in itertools.combinations(sorted(boxes), 2):
+            ix, iy = self._overlap(boxes[a], boxes[b])
+            self.assertFalse(ix > 0 and iy > 0,
+                             f"{a} and {b} overlap by {ix:.0f}x{iy:.0f}px at "
+                             f"{self.VIEWPORT[0]}x{self.VIEWPORT[1]} — a tap there is ambiguous")
+
+    def test_controls_stay_inside_the_viewport(self) -> None:
+        vw, vh = self.VIEWPORT
+        for name, (x, y, r, b) in sorted(self._boxes().items()):
+            self.assertGreaterEqual(x, 0, f"{name} runs off the left edge")
+            self.assertGreaterEqual(y, 0, f"{name} runs off the top edge")
+            self.assertLessEqual(r, vw, f"{name} runs off the right edge")
+            self.assertLessEqual(b, vh, f"{name} runs off the bottom edge")
+
+    def test_tap_targets_meet_the_44px_minimum(self) -> None:
+        for name, (x, y, r, b) in sorted(self._boxes().items()):
+            self.assertGreaterEqual(min(r - x, b - y), 44,
+                                    f"{name} is smaller than a 44px tap target")
+
+    def test_end_screens_can_scroll_when_content_overflows(self) -> None:
+        """A 15-wave run ends here; the buttons must never be unreachable.
+
+        Flex centring clips overflow at both ends with no way to scroll to it, which
+        is how MAIN MENU ended up off-screen on a 360px-tall phone.
+        """
+        for panel in ("#death-screen", "#victory-screen"):
+            rule = re.search(rf"[^\n]*{re.escape(panel)}[^{{\n]*\{{([^}}]*overflow-y:auto[^}}]*)\}}",
+                             self.css)
+            self.assertIsNotNone(rule, f"{panel} has no overflow-y:auto rule")
+            self.assertIn("safe center", rule.group(1),
+                          f"{panel} centres without `safe`, so overflow is unreachable")
+
+    def test_edge_anchored_controls_inset_past_the_display_cutout(self) -> None:
+        """The viewport meta opts into viewport-fit=cover, so insets are mandatory."""
+        self.assertIn("viewport-fit=cover", self.css)
+        self.assertIn("env(safe-area-inset-top", self.css)
+        for name in ("tbtn-fire", "tbtn-pause", "tbtn-reload", "joy-base"):
+            decls = re.search(rf"body\.touch\s+#{name}\{{([^}}]*)\}}", self.css).group(1)
+            self.assertIn("var(--sa-", decls,
+                          f"{name} is edge-anchored but never insets past the cutout")
 
 
 class CoreBehaviourTests(unittest.TestCase):

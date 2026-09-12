@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>OPERATION BLACKOUT — FPS</title>
 <style>
+  /* The viewport meta uses viewport-fit=cover, so the page paints UNDER the display
+     cutout and the gesture bar. Every edge-anchored control has to be inset back out
+     by hand or it lands under the hardware. Resolves to 0px everywhere else. */
+  :root{--sa-t:env(safe-area-inset-top,0px);--sa-r:env(safe-area-inset-right,0px);--sa-b:env(safe-area-inset-bottom,0px);--sa-l:env(safe-area-inset-left,0px)}
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',Arial,sans-serif;user-select:none;-webkit-user-select:none;cursor:default}
   #game-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
   .hud{position:absolute;pointer-events:none;z-index:10}
@@ -71,7 +75,13 @@
   #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
   #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
-  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px)}
+  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
+  /* A 15-wave run ends on one of these, and a landscape phone is ~360px tall while the
+     victory screen is ~430px of content. Plain `justify-content:center` clips the
+     overflow at BOTH ends and leaves it unreachable — the title and MAIN MENU were
+     scrolled off with no way back. `safe center` centres only while it fits and
+     top-aligns once it does not; the plain `center` before it is the fallback. */
+  #pause-menu,#death-screen,#start-screen,#victory-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
   #start-screen{display:flex}
   #menu-emblem{display:block;margin:0 auto 14px auto;width:112px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.75))}
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
@@ -88,6 +98,16 @@
   #death-screen h2{color:#ff4030;font-size:48px;letter-spacing:10px;font-weight:900;margin:0 0 10px;text-shadow:0 0 30px rgba(255,60,30,.5),0 3px 8px #000}
   #victory-screen h2{color:#7ee08a;font-size:44px;letter-spacing:10px;font-weight:900;margin:0 0 10px;text-shadow:0 0 30px rgba(80,255,120,.3)}
   .end-stats{margin:18px 0 28px;color:rgba(255,255,255,.85);font-size:15px;text-align:center;line-height:1.9}
+  /* A landscape phone is ~360px tall and the victory screen is 521px of content at
+     desktop sizing. Scrolling (above) makes the buttons reachable, but an end screen
+     should not need a scroll to find MAIN MENU — shrink the type so it simply fits. */
+  @media (max-height:480px){
+    #death-screen h2{font-size:26px;letter-spacing:6px;margin:0 0 4px}
+    #victory-screen h2{font-size:24px;letter-spacing:6px;margin:0 0 4px}
+    #pause-menu h2,#gun-select h2{font-size:22px;letter-spacing:5px;margin:0 0 10px}
+    .end-stats{margin:8px 0 12px;font-size:12px;line-height:1.55}
+    .menu-btn{margin:5px;padding:9px 34px;font-size:14px;letter-spacing:3px}
+  }
   .end-stats b{color:#ffd24a}
   .gun-card{display:inline-block;width:190px;margin:10px;padding:18px 14px;background:rgba(20,26,20,.9);border:1px solid rgba(255,255,255,.2);border-radius:6px;text-align:center;cursor:pointer;transition:all .15s;pointer-events:auto}
   .gun-card:hover{border-color:#ffdf8a;box-shadow:0 0 20px rgba(255,190,60,.3);transform:translateY(-3px)}
@@ -99,24 +119,40 @@
   /* ---- Touch UI (mobile) ---- */
   #touch-ui{display:none}
   body.touch #touch-ui{display:block;position:absolute;inset:0;z-index:20;pointer-events:none}
-  body.touch #joy-base{position:absolute;left:26px;bottom:90px;width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
+  body.touch #joy-base{position:absolute;left:calc(26px + var(--sa-l));bottom:calc(90px + var(--sa-b));width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
   body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.35);border:2px solid rgba(255,255,255,.5)}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.3);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   body.touch .tbtn.on{background:rgba(255,210,74,.45);border-color:#ffd24a;color:#fff}
-  body.touch #tbtn-fire{right:30px;bottom:110px;width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
-  body.touch #tbtn-ads{right:130px;bottom:170px;width:56px;height:56px}
-  body.touch #tbtn-jump{right:34px;bottom:210px;width:56px;height:56px}
-  body.touch #tbtn-slide{right:120px;bottom:250px;width:56px;height:56px}
-  body.touch #tbtn-reload{right:30px;bottom:290px;width:56px;height:56px}
-  body.touch #tbtn-nade{left:150px;bottom:110px;width:56px;height:56px}
-  body.touch #tbtn-swap{left:26px;bottom:210px;width:56px;height:56px}
-  body.touch #tbtn-pause{right:14px;top:14px;width:44px;height:44px;background:rgba(0,0,0,.3)}
-  body.touch #score-hud{top:66px;right:16px}
+  /* Right-hand cluster. The old layout stacked five controls in one column reaching
+     346px up from the bottom; a landscape phone is 360px tall, so RELOAD arrived at
+     the top edge and overlapped PAUSE by its full height — a tap in that zone could
+     pause the fight instead of reloading. Two staggered columns keep the whole
+     cluster inside 244px, clear of the top-right corner at every size. Nothing sits
+     within 50px of the bottom edge either: Android reports safe-area-inset-bottom as
+     0 in landscape, yet a tap that close still competes with the gesture bar. */
+  body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
+  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px}
+  /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
+     reaches the minimap the way a single tall column did. */
+  body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
+  body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
-  body.touch #hud-bottom-right{bottom:96px;right:16px}
-  body.touch #health-container{bottom:20px;left:16px}
-  body.touch #armor-container{bottom:42px;left:16px}
+  /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
+     underneath the FIRE button — i.e. under your own thumb — at every screen size
+     tested, desktop-width tablets included. Centred along the bottom it stays clear
+     of both thumb clusters. */
+  body.touch #hud-bottom-right{left:50%;right:auto;transform:translateX(-50%);bottom:calc(16px + var(--sa-b));text-align:center}
+  body.touch #killfeed{top:calc(52px + var(--sa-t));right:calc(16px + var(--sa-r))}
+  body.touch #minimap{top:calc(20px + var(--sa-t));left:calc(16px + var(--sa-l))}
+  body.touch #health-container{bottom:calc(20px + var(--sa-b));left:calc(16px + var(--sa-l))}
+  body.touch #armor-container{bottom:calc(42px + var(--sa-b));left:calc(16px + var(--sa-l))}
+  body.touch #fps-counter{bottom:calc(6px + var(--sa-b));left:calc(8px + var(--sa-l))}
   body.touch #start-screen .controls{display:none}
   body.touch #minimap{width:100px;height:100px}
   body.touch #ammo-mag{font-size:30px}

@@ -8,7 +8,7 @@ A single-file, offline, wave-defense FPS built with Three.js. One HTML file — 
 
 **Windows / desktop (tested best):** download `dist/Operation Blackout.html`, double-click, play. Right-click → *Save link as* works too if your browser opens it as text.
 
-**Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints).
+**Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints). Landscape is required; the touch HUD and the end screens are laid out for viewports down to 800x360 and inset past display cutouts and the gesture bar.
 
 Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · P/Esc pause.
 
@@ -73,7 +73,7 @@ Neither suite measures real-GPU frame rate or replaces playtesting on Android ha
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-6 are complete.
+phased plan. Phases 0-7 are complete.
 
 ## Credits
 
