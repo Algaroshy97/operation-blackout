@@ -58,6 +58,33 @@ def main() -> int:
         page.wait_for_timeout(300)
         cards = page.evaluate("() => document.querySelectorAll('#gun-select .gun-card').length")
         checks.append(("weapon-cards-present", cards > 0))
+        # Exercise the real settings checkbox, then inspect a genuinely hovered card.
+        def motion_setting(enabled):
+            page.evaluate("() => document.getElementById('btn-settings').click()")
+            page.evaluate("""enabled => {
+                const box = document.getElementById('set-reducedMotion');
+                if (box.checked !== enabled) box.click();
+                document.getElementById('btn-settings-back').click();
+            }""", enabled)
+
+        motion_setting(False)
+        page.hover('#gun-select .gun-card')
+        page.wait_for_timeout(200)
+        motion_normal = page.evaluate("""() => {
+            const s = getComputedStyle(document.querySelector('#gun-select .gun-card'));
+            return s.transitionDuration === '0.15s' && s.transform !== 'none';
+        }""")
+        checks.append(("loadout-normal-hover-preserved", motion_normal))
+        motion_setting(True)
+        motion_reduced = page.evaluate("""() => {
+            const card = document.querySelector('#gun-select .gun-card');
+            const controls = document.querySelectorAll('.gun-card,.menu-btn,.diff-btn');
+            return document.body.classList.contains('reduced-motion') &&
+                getComputedStyle(card).transform === 'none' &&
+                Array.from(controls).every(el => getComputedStyle(el).transitionDuration === '0s');
+        }""")
+        checks.append(("reduced-motion-menu-feedback", motion_reduced))
+        motion_setting(False)
         page.evaluate("() => document.querySelector('#gun-select .gun-card').click()")
         page.wait_for_timeout(600)
         checks.append(("secondary-prompt-shown", wait_until(

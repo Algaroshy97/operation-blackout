@@ -5,4 +5,6 @@ __pycache__/
 .DS_Store
 
 # Build output is committed on purpose: dist/ IS the shippable game.
-# (Nothing to add here yet — kept for future tooling.)
+# Local convenience copies/snapshots; the public playable file stays in dist/.
+/index.html
+/Operation Blackout*.html

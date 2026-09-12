@@ -259,6 +259,9 @@
   /* ---- Accessibility ---- */
   body.reduced-motion .killfeed-item{animation:none;opacity:1}
   body.reduced-motion #center-msg,body.reduced-motion #wave-banner{transition:none}
+  /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
+  body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
+  body.reduced-motion .gun-card:hover{transform:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
