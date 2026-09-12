@@ -5385,11 +5385,13 @@ function spawnEnemy(kind, x, z) {
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const waveMul = Math.min(2.2, 1 + 0.06 * (Math.max(1, curWave) - 1));
   const hp = Math.round(baseHp * waveMul);
+  const dx = player.pos.x - x, dz = player.pos.z - z;
+  const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
     kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
-    yaw: 0,
+    yaw: initYaw,
     health: hp, maxHealth: hp,
     dead: false, deathT: 0,
     parts: parts,
@@ -5418,6 +5420,7 @@ function spawnEnemy(kind, x, z) {
   });
   // Place the mesh immediately; otherwise it renders and raycasts at the world origin for its first frame.
   parts.group.position.set(x, 0, z);
+  parts.group.rotation.y = parts.glb ? initYaw : (initYaw + Math.PI);
   scene.add(parts.group);
   enemies.push(en);
   return en;
@@ -5559,7 +5562,12 @@ function updateEnemies(dt) {
       // death animation: GLB die clip or fall-over for box-man, then sink+remove
       en.deathT += dt;
       const p = en.parts;
-      if (!en.actions) p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
+      if (en.actions) {
+        setEnemyAnim(en, 'die', 0.1);
+        if (en.mixer) en.mixer.update(dt);
+      } else {
+        p.group.rotation.z = Math.min(Math.PI / 2, en.deathT * 4);
+      }
       p.group.position.y = en.pos.y - Math.max(0, en.deathT - 1.2) * 0.6;
       if (en.deathT > 4) {
         scene.remove(p.group);
@@ -5705,7 +5713,7 @@ function setEnemyAnim(en, name, fade) {
 function animateEnemy(en, dt, dist) {
   const p = en.parts;
   p.group.position.set(en.pos.x, en.pos.y, en.pos.z);
-  p.group.rotation.y = en.yaw + Math.PI;
+  p.group.rotation.y = p.glb ? en.yaw : (en.yaw + Math.PI);
   if (en.mixer) en.mixer.update(dt);
   if (en.dead) {
     if (en.actions) setEnemyAnim(en, 'die', 0.1);
