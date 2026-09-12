@@ -54,6 +54,8 @@ function resetSettings() {
 // ---- Side-effects -----------------------------------------------------------
 function applySetting(key) {
   switch (key) {
+    case 'musicVolume':
+      break;   // read live by updateMusic each frame
     case 'masterVolume':
     case 'muted':
       if (typeof setMasterVolume === 'function') {

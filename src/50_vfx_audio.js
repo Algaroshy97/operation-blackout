@@ -456,3 +456,107 @@ function updateFootsteps(dt) {
   wasGround = player.onGround;
 }
 let wasGround = true;
+
+// ============ ADAPTIVE MUSIC & AMBIENCE ============
+// Everything here is synthesised, like the rest of the audio — no asset bytes.
+//
+// Built as ONE persistent graph rather than scheduled notes: continuous
+// oscillators whose gains and filter cutoff are modulated per frame. That keeps
+// the node count constant (a per-note scheduler would allocate forever, which is
+// exactly the cost that made fireShot expensive before it was throttled).
+const MUSIC = {
+  built: false, ctx: null, bus: null,
+  drone: null, tension: null, pulseGain: null, filter: null,
+  intensity: 0, pulsePhase: 0, running: false
+};
+
+function buildMusicGraph() {
+  const ctx = audioCtx();
+  if (!ctx || MUSIC.built) return MUSIC.built;
+  const master = audioMaster();
+  if (!master) return false;
+
+  MUSIC.ctx = ctx;
+  MUSIC.bus = ctx.createGain();
+  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  MUSIC.bus.connect(master);
+
+  // Low drone: two slightly detuned voices a fifth apart. Quiet, tense, endless.
+  MUSIC.filter = ctx.createBiquadFilter();
+  MUSIC.filter.type = 'lowpass';
+  MUSIC.filter.frequency.value = 240;
+  MUSIC.filter.Q.value = 4;
+  MUSIC.filter.connect(MUSIC.bus);
+
+  MUSIC.drone = ctx.createGain();
+  MUSIC.drone.gain.value = 0.5;
+  MUSIC.drone.connect(MUSIC.filter);
+  [55, 82.41, 55.4].forEach(function (f) {       // A1, E2, and a detuned A1 for beating
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    o.connect(MUSIC.drone);
+    o.start();
+  });
+
+  // Tension voice: a minor third that only appears when things get bad.
+  MUSIC.tension = ctx.createGain();
+  MUSIC.tension.gain.value = 0;
+  MUSIC.tension.connect(MUSIC.filter);
+  [98, 130.81].forEach(function (f) {             // G2, C3
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    o.connect(MUSIC.tension);
+    o.start();
+  });
+
+  // Pulse: filtered noise gated by a per-frame envelope — a heartbeat that
+  // speeds up with the fight.
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  MUSIC.pulseGain = ctx.createGain();
+  MUSIC.pulseGain.gain.value = 0;
+  const pf = ctx.createBiquadFilter();
+  pf.type = 'bandpass'; pf.frequency.value = 90; pf.Q.value = 1.2;
+  MUSIC.pulseGain.connect(pf); pf.connect(MUSIC.bus);
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true;
+  src.connect(MUSIC.pulseGain);
+  src.start();
+
+  MUSIC.built = true;
+  return true;
+}
+
+function startMusic() {
+  if (!buildMusicGraph()) return;
+  MUSIC.running = true;
+}
+function stopMusic() {
+  MUSIC.running = false;
+  if (MUSIC.bus) MUSIC.bus.gain.value = 0;
+  if (MUSIC.pulseGain) MUSIC.pulseGain.gain.value = 0;
+}
+
+// Called every frame while playing.
+function updateMusic(dt, state) {
+  if (!MUSIC.built || !MUSIC.running) return;
+  const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
+  const target = CORE.combatIntensity(state);
+  // Ease toward the target: intensity should swell and settle, not snap.
+  const rate = target > MUSIC.intensity ? 1.6 : 0.5;    // rise fast, fall slow
+  MUSIC.intensity += (target - MUSIC.intensity) * Math.min(1, rate * dt);
+  const i = MUSIC.intensity;
+
+  MUSIC.bus.gain.value = vol * (0.22 + i * 0.5);
+  MUSIC.tension.gain.value = Math.max(0, (i - 0.25) / 0.75) * 0.16;
+  MUSIC.filter.frequency.value = 200 + i * 900;
+
+  // Heartbeat: 46 bpm at rest up to ~132 bpm at full intensity.
+  const bpm = 46 + i * 86;
+  MUSIC.pulsePhase += dt * (bpm / 60);
+  if (MUSIC.pulsePhase >= 1) MUSIC.pulsePhase -= 1;
+  // Sharp attack, exponential decay, shaped so it reads as a pulse not a hum.
+  const env = Math.pow(1 - MUSIC.pulsePhase, 6);
+  MUSIC.pulseGain.gain.value = env * (0.05 + i * 0.5);
+}

@@ -92,6 +92,7 @@ const CORE = (function () {
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },
     masterVolume: { type: 'number', def: 0.9, min: 0, max: 1, step: 0.05, label: 'Master volume' },
+    musicVolume: { type: 'number', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Music & ambience' },
     muted: { type: 'bool', def: false, label: 'Mute all audio' },
     quality: { type: 'enum', def: 'auto', values: ['low', 'medium', 'high', 'auto'], label: 'Graphics quality' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
@@ -137,6 +138,27 @@ const CORE = (function () {
   function lookSensitivity(settingsSensitivity, adsAmount) {
     const ads = adsAmount > 0.5 ? 0.6 : 1;
     return BASE_SENSITIVITY * settingsSensitivity * ads;
+  }
+
+  // ---- Adaptive music -----------------------------------------------------
+  // One number, 0..1, describing how much trouble the player is in. The audio
+  // layer maps it to filter cutoff, pulse tempo and tension-voice gain, so the
+  // soundtrack follows the fight instead of looping regardless of it.
+  function combatIntensity(state) {
+    if (!state || !state.inCombat) return 0;
+    // Sanitise first: Math.min/Math.max propagate NaN rather than clamping it, and
+    // a NaN here would silently pin the music gain to NaN for the rest of the run.
+    const num = function (v, def) {
+      const n = typeof v === 'number' ? v : parseFloat(v);
+      return isFinite(n) ? n : def;
+    };
+    const clamp01 = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+    const enemyLoad = clamp01(num(state.aliveEnemies, 0) / 8);
+    const proximity = state.nearestEnemy === undefined ? 0
+      : clamp01(1 - (num(state.nearestEnemy, 99) - 4) / 26);
+    const hurt = 1 - clamp01(num(state.health, 100) / 100);
+    // Enemy pressure dominates; being hurt or crowded pushes it to the top.
+    return clamp01(enemyLoad * 0.55 + proximity * 0.3 + hurt * 0.35);
   }
 
   // ---- Persistent career stats ------------------------------------------------
@@ -273,6 +295,25 @@ const CORE = (function () {
   function endlessEnemyCount(n, baseCount, growth, victoryWave, maxCount) {
     const raw = waveEnemyCount(n, baseCount, growth);
     return Math.min(maxCount === undefined ? 60 : maxCount, raw);
+  }
+
+  // ---- Pickup drops -----------------------------------------------------------
+  // Ammo drops were a flat 30% roll, which can soft-lock a run: a player with poor
+  // accuracy empties both weapons, cannot get kills, so cannot get drops, and
+  // resupply only fires on a wave CLEAR they can no longer reach. Measured at
+  // wave 2 with a fixed-skill bot — 0 ammo, 0 reserve, 0 pickups, two enemies left.
+  //
+  // So: the drop roll gets a floor that rises as the player runs dry, reaching a
+  // guarantee when they are nearly empty.
+  function ammoDropChance(roundsLeft, magSize, baseChance) {
+    const base = baseChance === undefined ? 0.30 : baseChance;
+    const mag = magSize > 0 ? magSize : 30;
+    const magsLeft = roundsLeft / mag;
+    if (magsLeft <= 0.5) return 1;              // effectively dry: always drop
+    if (magsLeft >= 3) return base;             // comfortable: normal odds
+    // ramp between
+    const t = (3 - magsLeft) / 2.5;
+    return Math.min(1, base + (1 - base) * t * t);
   }
 
   // ---- Checkpoint save --------------------------------------------------------
@@ -587,6 +628,29 @@ const CORE = (function () {
     return dist > stopDist + (slack === undefined ? 1.5 : slack);
   }
 
+  // A second, complementary stall detector. updateStuck only catches an agent that
+  // is not MOVING; an agent that circles the player forever moves plenty while
+  // never arriving, and a wave that is waiting on it never ends. Track the best
+  // approach so far: if it has not improved in a while, the agent is not making
+  // progress no matter how busy it looks.
+  function updateProgress(state, dist, dt, opts) {
+    opts = opts || {};
+    const improveEps = opts.improveEps === undefined ? 1.0 : opts.improveEps;
+    const giveUpAfter = opts.giveUpAfter === undefined ? 16 : opts.giveUpAfter;
+    if (state.best === undefined || dist < state.best - improveEps) {
+      state.best = dist;
+      state.sinceImproved = 0;
+      return 'ok';
+    }
+    state.sinceImproved = (state.sinceImproved || 0) + dt;
+    if (state.sinceImproved >= giveUpAfter) {
+      state.sinceImproved = 0;
+      state.best = dist;
+      return 'reposition';
+    }
+    return 'ok';
+  }
+
   function updateStuck(state, x, z, dt, opts) {
     opts = opts || {};
     const moveEps = opts.moveEps === undefined ? 0.3 : opts.moveEps;
@@ -630,6 +694,7 @@ const CORE = (function () {
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
     lookSensitivity: lookSensitivity,
+    combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,
     defaultStats: defaultStats,
     sanitizeStats: sanitizeStats,
@@ -652,6 +717,7 @@ const CORE = (function () {
     endlessHpMultiplier: endlessHpMultiplier,
     endlessEnemyCount: endlessEnemyCount,
     SAVE_VERSION: SAVE_VERSION,
+    ammoDropChance: ammoDropChance,
     makeCheckpoint: makeCheckpoint,
     validateCheckpoint: validateCheckpoint,
     regionKey: regionKey,
@@ -669,6 +735,7 @@ const CORE = (function () {
     navDistanceAt: navDistanceAt,
     flowDirAt: flowDirAt,
     updateStuck: updateStuck,
+    updateProgress: updateProgress,
     isClosingDistance: isClosingDistance,
     UNREACHABLE: UNREACHABLE
   };

@@ -1,9 +1,9 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-4 complete (2026-09-12)
+> ## Status — Phases 0-5 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
-> engine-free pure functions; `tests/test_core.js` executes them under `node --test` (39 tests).
+> engine-free pure functions; `tests/test_core.js` executes them under `node --test` (54 tests).
 > `tests/test_release_build.py` was rewritten from ~40 source-text greps into 7 artifact-integrity
 > checks and now also drives the node suite. Mutation-checked: reintroducing BUG-03, BUG-04 or
 > BUG-07 fails the suite. CI workflow added.
@@ -99,19 +99,63 @@
 > inside the player, max enemy Y 0 (nobody on the stairs), 0 geometry growth, 0 mesh
 > growth, no console errors.
 >
-> **Not done in Phase 4:** the wave-15 boss (4.3) and the music/ambience layer (4.7).
-> Both are real work rather than quick wins, and neither is a defect — they are the
-> two remaining items on the original plan.
+> **Phase 5 — roster, audio, batching and a balance pass.**
+>
+> Three more archetypes rather than a boss (a deliberate call): **scout** (wave 3,
+> fast, fragile, always flanks), **grenadier** (wave 6, holds range and denies
+> position) and **shielded advancer** (wave 9). Every wave band now plays
+> differently instead of one wave being a set-piece. Composition is weight-based so
+> adding a kind cannot silently starve an existing one — verified by test.
+>
+> Adaptive music, fully synthesised: a drone bed plus a tension voice and a
+> heartbeat pulse driven by one intensity number. Measured response — idle 46 bpm /
+> 200 Hz cutoff, overrun 132 bpm / 1098 Hz, tension voice fading in past 25%.
+> Mute and stop both take it to exactly 0.
+>
+> Prop batching: the 48 scattered GLB props became **4 merged meshes**, taking draw
+> calls **166 → 106**. The `fireShot` monkey-patch (ENG-07) is gone.
+>
+> **The balance pass found two genuine defects**, both invisible without measuring:
+>
+> - **A wave could stall forever.** `updateStuck` only catches an agent that stops
+>   moving; one that circles the player moves constantly while never arriving, and
+>   the wave waits on it. Wave 4 ran **434 s without completing**. Added
+>   `updateProgress`, which tracks closest-approach-so-far and repositions an agent
+>   that has not improved in 16 s. Wave 4 now clears in **19 s**.
+> - **Running dry was a soft-lock.** Ammo dropped on a flat 30% roll, so an
+>   inaccurate player empties both weapons, can no longer get the kills that produce
+>   drops, and can never reach the wave clear that resupplies. Measured at wave 2:
+>   0 rounds, 0 pickups, enemies alive. Added a drop floor that rises as the player
+>   runs dry, plus an emergency cache that does not require a kill.
+>
+> Difficulty tiers confirmed genuinely different with one fixed-skill bot:
+>
+> | | wave reached | died | HP lost | time |
+> |---|---|---|---|---|
+> | RECRUIT | 8 (cap) | no | 23 | 187 s |
+> | REGULAR | 8 (cap) | no | 55 | 234 s |
+> | VETERAN | **4** | **yes** | 100 | 70 s |
+>
+> Two regressions I introduced and caught by measuring: the grenadier walked into
+> the player (1146 frames inside the body) because it was left off a hand-kept
+> stop-distance list — now table-driven; and scouts orbited forever (only **75%**
+> ever arrived) because the flank bias never expired — now time-boxed, back to
+> **100%** across all five archetypes, 48/48 each.
+>
+> **Still not done:** the wave-15 boss, and the three.js r128 upgrade. The boss was
+> dropped deliberately in favour of spreading variety across the whole curve; the
+> engine upgrade needs its own verification pass and would also mean replacing the
+> vendored GLTFLoader.
 >
 > Closed: BUG-01, BUG-02, BUG-03, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09,
 > BUG-10, UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, ROB-01, ROB-02, ROB-03,
 > ROB-04, ROB-05, PERF-01, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08,
 > PERF-09, GAP-01, GAP-02, GAP-03, GAP-05, GAP-06, GAP-08, GAP-09,
 > ENG-01, ENG-02, ENG-03, ENG-06, ENG-08.
-> **Still open:** GAP-04 partial (shielded advancer landed; the wave-15 boss did not),
-> GAP-07 (music/ambience), BUG-11 (latent ceiling clipping), ENG-04 (three.js r128),
-> ENG-05 (278 globals), ENG-07 (`fireShot` monkey-patch), and the two carried-forward
-> Phase 2 criteria (<60 draw calls, <0.1 ms `fireShot`).
+> **Still open:** the wave-15 boss, BUG-11 (latent ceiling clipping), ENG-04
+> (three.js r128), ENG-05 (278 globals, mitigated by the bundle-parse test), and the
+> two carried-forward Phase 2 criteria (<60 draw calls — now 106; <0.1 ms `fireShot`
+> — now 0.287 ms, floored by one synthesised gunshot per shot).
 > Sections below are the original audit, unedited except where a correction is noted.
 
 **Audit date:** 2026-09-12

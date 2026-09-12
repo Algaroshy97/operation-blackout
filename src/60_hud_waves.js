@@ -261,6 +261,35 @@ function updateWaves(dt) {
   }
 }
 let _hudEnemiesLeft = -1;
+// Zero ammo means zero kills, which means zero drops, which means the run can
+// never recover — measured at wave 2 with a fixed-skill bot: 0 rounds, 0 pickups,
+// enemies still alive. Drop a cache directly when the player has been dry for a
+// few seconds, so the floor does not depend on getting a kill first.
+let dryT = 0, nextCacheT = -99;
+function updateAmmoRelief(dt) {
+  if (!waveActive || player.dead) { dryT = 0; return; }
+  let rounds = 0;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    rounds += wState[i].ammo + wState[i].reserve;
+  }
+  if (rounds > 0) { dryT = 0; return; }
+  dryT += dt;
+  if (dryT > 5 && gameT > nextCacheT) {
+    nextCacheT = gameT + 18;
+    // just in front of the player, never inside geometry
+    for (let a = 0; a < 8; a++) {
+      const ang = player.yaw + Math.PI + a * 0.8;
+      const x = player.pos.x + Math.sin(ang) * 4, z = player.pos.z + Math.cos(ang) * 4;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) continue;
+      if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.4)) continue;
+      forceAmmoPickup(x, z);
+      showCenterMsg('AMMO CACHE DROPPED');
+      return;
+    }
+  }
+}
+
 function aliveEnemies() {
   let n = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) n++;

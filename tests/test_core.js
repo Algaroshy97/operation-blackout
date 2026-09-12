@@ -617,3 +617,89 @@ test('flanking is time-boxed so a fast agent cannot orbit forever', () => {
     assert.strictEqual(CORE.flankBiasNow(-2, d), 0);
   }
 });
+
+// ---------------------------------------------------------------- GAP-07
+test('combat intensity is silent out of combat and rises with pressure', () => {
+  assert.strictEqual(CORE.combatIntensity({ inCombat: false, aliveEnemies: 9 }), 0,
+    'between waves the score must settle, not keep pounding');
+  assert.strictEqual(CORE.combatIntensity(null), 0);
+  const calm = CORE.combatIntensity({ inCombat: true, aliveEnemies: 1, nearestEnemy: 30, health: 100 });
+  const busy = CORE.combatIntensity({ inCombat: true, aliveEnemies: 6, nearestEnemy: 30, health: 100 });
+  const close = CORE.combatIntensity({ inCombat: true, aliveEnemies: 6, nearestEnemy: 5, health: 100 });
+  const dying = CORE.combatIntensity({ inCombat: true, aliveEnemies: 6, nearestEnemy: 5, health: 15 });
+  assert.ok(busy > calm, 'more enemies is more intense');
+  assert.ok(close > busy, 'closer enemies is more intense');
+  assert.ok(dying > close, 'being hurt is more intense');
+});
+
+test('combat intensity stays in 0..1 for any input, including nonsense', () => {
+  const cases = [
+    { inCombat: true, aliveEnemies: 9999, nearestEnemy: -50, health: -100 },
+    { inCombat: true, aliveEnemies: 0, nearestEnemy: 1e9, health: 1e9 },
+    { inCombat: true },
+    { inCombat: true, aliveEnemies: NaN, nearestEnemy: NaN, health: NaN }
+  ];
+  for (const c of cases) {
+    const v = CORE.combatIntensity(c);
+    assert.ok(v >= 0 && v <= 1 && isFinite(v), `intensity ${v} out of range for ${JSON.stringify(c)}`);
+  }
+});
+
+// ---------------------------------------------------------------- ammo economy
+test('ammo drops are guaranteed once the player is effectively dry', () => {
+  // A flat 30% roll soft-locked runs: empty both weapons, and you can no longer
+  // get the kills that produce drops, nor reach the wave clear that resupplies.
+  assert.strictEqual(CORE.ammoDropChance(0, 30), 1, 'completely dry must always drop');
+  assert.strictEqual(CORE.ammoDropChance(15, 30), 1, 'half a magazine is dry enough');
+  assert.ok(CORE.ammoDropChance(90, 30) <= 0.31, 'three magazines is comfortable: base odds');
+  assert.ok(CORE.ammoDropChance(400, 30) <= 0.31, 'plenty of ammo does not inflate drops');
+});
+
+test('ammo drop chance rises monotonically as the player runs dry', () => {
+  let prev = 0;
+  for (let rounds = 180; rounds >= 0; rounds -= 5) {
+    const c = CORE.ammoDropChance(rounds, 30);
+    assert.ok(c >= prev - 1e-12, `chance dipped at ${rounds} rounds (${c} < ${prev})`);
+    assert.ok(c >= 0 && c <= 1, `chance ${c} out of range`);
+    prev = c;
+  }
+});
+
+test('ammo drop chance handles odd magazine sizes and junk input', () => {
+  assert.strictEqual(CORE.ammoDropChance(0, 5), 1, 'sniper: 0 rounds still guarantees');
+  assert.ok(CORE.ammoDropChance(35, 5) <= 0.31, 'seven sniper magazines is comfortable');
+  for (const mag of [0, -1, undefined, NaN]) {
+    const c = CORE.ammoDropChance(10, mag);
+    assert.ok(isFinite(c) && c >= 0 && c <= 1, `bad mag size ${mag} gave ${c}`);
+  }
+});
+
+test('progress tracking catches an agent that circles without ever arriving', () => {
+  // updateStuck only catches an agent that stops moving. One that orbits the
+  // player moves constantly while never closing, and the wave waits on it forever.
+  const s = {};
+  assert.strictEqual(CORE.updateProgress(s, 30, 0.1), 'ok', 'first sample anchors');
+  // closing steadily: never flagged
+  for (let d = 29; d > 3; d -= 0.5) {
+    assert.strictEqual(CORE.updateProgress(s, d, 0.1), 'ok', `flagged while closing at ${d}`);
+  }
+  // now orbit at a fixed distance
+  const orbit = {};
+  CORE.updateProgress(orbit, 12, 0.1);
+  let flagged = false;
+  for (let i = 0; i < 200; i++) {
+    if (CORE.updateProgress(orbit, 12 + Math.sin(i) * 0.4, 0.1) === 'reposition') flagged = true;
+  }
+  assert.ok(flagged, 'an orbiting agent must eventually be repositioned');
+});
+
+test('progress tracking does not fire for slow but real progress', () => {
+  const s = {};
+  CORE.updateProgress(s, 40, 1 / 60);
+  let flagged = false;
+  // 0.25 m/s toward the player — slow, but genuinely arriving
+  for (let d = 40; d > 2; d -= 0.25 / 60) {
+    if (CORE.updateProgress(s, d, 1 / 60) === 'reposition') flagged = true;
+  }
+  assert.ok(!flagged, 'steady approach must never be treated as a stall');
+});

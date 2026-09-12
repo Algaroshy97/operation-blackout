@@ -528,9 +528,77 @@ function scatterProps() {
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
+  batchScatteredProps();   // 48 GLB clones -> a handful of merged meshes
   rebuildNavGrid();        // props add colliders; the AI grid must see them
   rebuildWorldRayGrid();   // props/barrels changed raycastColliders
   return placed;
+}
+
+// The scattered cover (trees, crates, columns, barrels) arrives as ~48 cloned GLB
+// scene graphs, each its own draw call, all sharing a handful of materials. They
+// never move, so bake their world transforms and merge them the same way the
+// arena boxes are merged. Collision is untouched — colliders[] is a separate
+// AABB list built when the props were placed.
+function batchScatteredProps() {
+  // Ancestors first. Object3D.updateMatrixWorld(force) composes matrixWorld from
+  // the PARENT's matrixWorld, so calling it on a leaf whose group has never been
+  // updated bakes an identity transform — which collapsed all 48 props onto the
+  // origin at local scale the first time this was written.
+  scene.updateMatrixWorld(true);
+  const byMat = new Map();
+  const roots = [];
+  scene.traverse(function (o) {
+    if (o.isMesh && o.userData && o.userData.prop) {
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (!mat || !o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
+      // Only merge the plain attribute layout the merge helper understands.
+      if (!o.geometry.attributes.normal || !o.geometry.attributes.uv) return;
+      let list = byMat.get(mat.uuid);
+      if (!list) { list = { mat: mat, meshes: [] }; byMat.set(mat.uuid, list); }
+      list.meshes.push(o);
+    }
+  });
+  if (!byMat.size) return 0;
+
+  // Remember which top-level objects the props belong to, so they can be removed
+  // from the scene and from raycastColliders once merged.
+  scene.children.forEach(function (c) {
+    let isProp = false;
+    c.traverse(function (o) { if (o.isMesh && o.userData && o.userData.prop) isProp = true; });
+    if (isProp) roots.push(c);
+  });
+
+  let made = 0;
+  byMat.forEach(function (entry) {
+    const geos = [];
+    let castShadow = false;
+    for (let i = 0; i < entry.meshes.length; i++) {
+      const m = entry.meshes[i];
+      m.updateMatrixWorld(true);
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrixWorld);
+      geos.push(g);
+      if (m.castShadow) castShadow = true;
+    }
+    if (!geos.length) return;
+    const merged = new THREE.Mesh(mergeGeometries(geos), entry.mat);
+    merged.castShadow = castShadow;
+    merged.receiveShadow = true;
+    merged.userData.prop = true;
+    merged.userData.staticBatch = true;
+    scene.add(merged);
+    raycastColliders.push(merged);
+    made++;
+  });
+
+  // Drop the originals.
+  for (let i = 0; i < roots.length; i++) {
+    scene.remove(roots[i]);
+    const idx = raycastColliders.indexOf(roots[i]);
+    if (idx !== -1) raycastColliders.splice(idx, 1);
+  }
+  console.log('prop batches:', made, 'from', roots.length, 'objects');
+  return made;
 }
 
 // ---- World ray broad-phase --------------------------------------------------

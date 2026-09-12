@@ -18,7 +18,11 @@ Pick a difficulty and both weapons at deploy, then survive 15 waves — or take 
 
 Your run is **checkpointed after every wave**, so closing the tab does not cost you the session — RESUME RUN appears on the main menu.
 
-Hostiles escalate by *behaviour*, not just by count: they fire on the move from wave 5, flank from wave 8, fire in bursts from wave 10, and start throwing grenades to flush you out of cover from wave 12. Shielded advancers arrive at wave 9 with a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
+Hostiles escalate by *behaviour*, not just by count: they fire on the move from wave 5, flank from wave 8, fire in bursts from wave 10, and start throwing grenades to flush you out of cover from wave 12.
+
+New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
+
+The soundtrack is synthesised in-browser and follows the fight: a drone between waves, a heartbeat that climbs from 46 to 132 bpm as enemies close in and your health drops.
 
 ## Repository layout
 
@@ -69,7 +73,7 @@ Neither suite measures real-GPU frame rate or replaces playtesting on Android ha
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-4 are complete.
+phased plan. Phases 0-5 are complete.
 
 ## Credits
 

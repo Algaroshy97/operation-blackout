@@ -22,6 +22,7 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
@@ -43,6 +44,7 @@ function killPlayer() {
 }
 function victory() {
   gameEnded = true;
+  stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
@@ -287,6 +289,7 @@ function startGame() {
   showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  startMusic();
   canvas.requestPointerLock();
 }
 
@@ -320,6 +323,7 @@ function resumeRun() {
   showWaveBanner(0);
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  startMusic();
   canvas.requestPointerLock();
 }
 
@@ -383,6 +387,7 @@ $id('btn-settings-reset').addEventListener('click', function () { resetSettings(
 $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
+  stopMusic();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
@@ -483,10 +488,20 @@ function frame(now) {
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);
+    updateAmmoRelief(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
+    // Adaptive score: follows the fight rather than looping regardless of it.
+    let nearest;
+    for (let i = 0; i < enemies.length; i++) {
+      if (enemies[i].dead) continue;
+      const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
+      if (nearest === undefined || d < nearest) nearest = d;
+    }
+    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveEnemies(),
+                      nearestEnemy: nearest, health: player.health });
     updateHitArcs();
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
@@ -555,15 +570,6 @@ function frame(now) {
     updateViewmodel(dt);
   }
 }
-
-// hook muzzle flash + sniper boom + muzzle light into fireShot (defined earlier; patch via wrapper)
-const _origFire = fireShot;
-fireShot = function () {
-  _origFire();
-  triggerMuzzleFlash();
-  flashMuzzleLight();
-  if (curW().type === 'SR') playSound('sniper');
-};
 
 applyAllSettings();
 refreshMenuStats();

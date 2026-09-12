@@ -605,6 +605,14 @@ function updateEnemies(dt) {
     } else if (en.stuck) {
       en.stuck = null;                             // arrived: forget the stall history
     }
+    // Catches the other failure mode: an enemy that circles busily but never gets
+    // closer, leaving a wave permanently one kill short.
+    if (closing) {
+      if (!en.progress) en.progress = {};
+      if (CORE.updateProgress(en.progress, dist, dt) === 'reposition') relocateStuckEnemy(en);
+    } else if (en.progress) {
+      en.progress = null;
+    }
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
     if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
     if (en.state !== 'spawn' && dist < 30 && !en.dead) {

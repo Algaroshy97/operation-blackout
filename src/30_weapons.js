@@ -226,7 +226,9 @@ function fireShot() {
   player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  if (w.type !== 'SR') playSound('shot');
+  if (w.type === 'SR') playSound('sniper'); else playSound('shot');
+  triggerMuzzleFlash();
+  flashMuzzleLight();
   updateHudAmmo();
 }
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old

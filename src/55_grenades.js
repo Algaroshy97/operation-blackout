@@ -377,10 +377,18 @@ const PICKUP_LIFE = 25;        // seconds before despawn
 const PICKUP_BLINK = 20;       // start blinking during the last 5s
 
 function dropPickup(pos) {
+  // Total rounds across everything the player is carrying.
+  let roundsLeft = 0, magSize = 30;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    roundsLeft += wState[i].ammo + wState[i].reserve;
+    if (i === curWeapon) magSize = CFG.weapons[weaponsOwned[i]].mag;
+  }
+  const ammoChance = CORE.ammoDropChance(roundsLeft, magSize);
   const roll = Math.random();
   let kind = null;
-  if (roll < 0.30) kind = 'ammo';
-  else if (roll < 0.45) kind = 'med';
+  if (roll < ammoChance) kind = 'ammo';
+  else if (player.health < CFG.player.health * 0.5 || roll < ammoChance + 0.15) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -394,6 +402,16 @@ function dropPickup(pos) {
   g.userData.pickup = kind;
   scene.add(g);
   pickups.push({ m: g, kind: kind, t: 0 });
+}
+
+// Drop an ammo box at a specific spot, bypassing the random roll.
+function forceAmmoPickup(x, z) {
+  const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
+  g.position.set(x, 0.3, z);
+  g.castShadow = true;
+  g.userData.pickup = 'ammo';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'ammo', t: 0 });
 }
 
 function updatePickups(dt) {

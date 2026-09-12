@@ -3957,6 +3957,7 @@ const CORE = (function () {
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },
     masterVolume: { type: 'number', def: 0.9, min: 0, max: 1, step: 0.05, label: 'Master volume' },
+    musicVolume: { type: 'number', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Music & ambience' },
     muted: { type: 'bool', def: false, label: 'Mute all audio' },
     quality: { type: 'enum', def: 'auto', values: ['low', 'medium', 'high', 'auto'], label: 'Graphics quality' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
@@ -4002,6 +4003,27 @@ const CORE = (function () {
   function lookSensitivity(settingsSensitivity, adsAmount) {
     const ads = adsAmount > 0.5 ? 0.6 : 1;
     return BASE_SENSITIVITY * settingsSensitivity * ads;
+  }
+
+  // ---- Adaptive music -----------------------------------------------------
+  // One number, 0..1, describing how much trouble the player is in. The audio
+  // layer maps it to filter cutoff, pulse tempo and tension-voice gain, so the
+  // soundtrack follows the fight instead of looping regardless of it.
+  function combatIntensity(state) {
+    if (!state || !state.inCombat) return 0;
+    // Sanitise first: Math.min/Math.max propagate NaN rather than clamping it, and
+    // a NaN here would silently pin the music gain to NaN for the rest of the run.
+    const num = function (v, def) {
+      const n = typeof v === 'number' ? v : parseFloat(v);
+      return isFinite(n) ? n : def;
+    };
+    const clamp01 = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+    const enemyLoad = clamp01(num(state.aliveEnemies, 0) / 8);
+    const proximity = state.nearestEnemy === undefined ? 0
+      : clamp01(1 - (num(state.nearestEnemy, 99) - 4) / 26);
+    const hurt = 1 - clamp01(num(state.health, 100) / 100);
+    // Enemy pressure dominates; being hurt or crowded pushes it to the top.
+    return clamp01(enemyLoad * 0.55 + proximity * 0.3 + hurt * 0.35);
   }
 
   // ---- Persistent career stats ------------------------------------------------
@@ -4138,6 +4160,25 @@ const CORE = (function () {
   function endlessEnemyCount(n, baseCount, growth, victoryWave, maxCount) {
     const raw = waveEnemyCount(n, baseCount, growth);
     return Math.min(maxCount === undefined ? 60 : maxCount, raw);
+  }
+
+  // ---- Pickup drops -----------------------------------------------------------
+  // Ammo drops were a flat 30% roll, which can soft-lock a run: a player with poor
+  // accuracy empties both weapons, cannot get kills, so cannot get drops, and
+  // resupply only fires on a wave CLEAR they can no longer reach. Measured at
+  // wave 2 with a fixed-skill bot — 0 ammo, 0 reserve, 0 pickups, two enemies left.
+  //
+  // So: the drop roll gets a floor that rises as the player runs dry, reaching a
+  // guarantee when they are nearly empty.
+  function ammoDropChance(roundsLeft, magSize, baseChance) {
+    const base = baseChance === undefined ? 0.30 : baseChance;
+    const mag = magSize > 0 ? magSize : 30;
+    const magsLeft = roundsLeft / mag;
+    if (magsLeft <= 0.5) return 1;              // effectively dry: always drop
+    if (magsLeft >= 3) return base;             // comfortable: normal odds
+    // ramp between
+    const t = (3 - magsLeft) / 2.5;
+    return Math.min(1, base + (1 - base) * t * t);
   }
 
   // ---- Checkpoint save --------------------------------------------------------
@@ -4452,6 +4493,29 @@ const CORE = (function () {
     return dist > stopDist + (slack === undefined ? 1.5 : slack);
   }
 
+  // A second, complementary stall detector. updateStuck only catches an agent that
+  // is not MOVING; an agent that circles the player forever moves plenty while
+  // never arriving, and a wave that is waiting on it never ends. Track the best
+  // approach so far: if it has not improved in a while, the agent is not making
+  // progress no matter how busy it looks.
+  function updateProgress(state, dist, dt, opts) {
+    opts = opts || {};
+    const improveEps = opts.improveEps === undefined ? 1.0 : opts.improveEps;
+    const giveUpAfter = opts.giveUpAfter === undefined ? 16 : opts.giveUpAfter;
+    if (state.best === undefined || dist < state.best - improveEps) {
+      state.best = dist;
+      state.sinceImproved = 0;
+      return 'ok';
+    }
+    state.sinceImproved = (state.sinceImproved || 0) + dt;
+    if (state.sinceImproved >= giveUpAfter) {
+      state.sinceImproved = 0;
+      state.best = dist;
+      return 'reposition';
+    }
+    return 'ok';
+  }
+
   function updateStuck(state, x, z, dt, opts) {
     opts = opts || {};
     const moveEps = opts.moveEps === undefined ? 0.3 : opts.moveEps;
@@ -4495,6 +4559,7 @@ const CORE = (function () {
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
     lookSensitivity: lookSensitivity,
+    combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,
     defaultStats: defaultStats,
     sanitizeStats: sanitizeStats,
@@ -4517,6 +4582,7 @@ const CORE = (function () {
     endlessHpMultiplier: endlessHpMultiplier,
     endlessEnemyCount: endlessEnemyCount,
     SAVE_VERSION: SAVE_VERSION,
+    ammoDropChance: ammoDropChance,
     makeCheckpoint: makeCheckpoint,
     validateCheckpoint: validateCheckpoint,
     regionKey: regionKey,
@@ -4534,6 +4600,7 @@ const CORE = (function () {
     navDistanceAt: navDistanceAt,
     flowDirAt: flowDirAt,
     updateStuck: updateStuck,
+    updateProgress: updateProgress,
     isClosingDistance: isClosingDistance,
     UNREACHABLE: UNREACHABLE
   };
@@ -4598,6 +4665,8 @@ function resetSettings() {
 // ---- Side-effects -----------------------------------------------------------
 function applySetting(key) {
   switch (key) {
+    case 'musicVolume':
+      break;   // read live by updateMusic each frame
     case 'masterVolume':
     case 'muted':
       if (typeof setMasterVolume === 'function') {
@@ -5302,9 +5371,77 @@ function scatterProps() {
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
+  batchScatteredProps();   // 48 GLB clones -> a handful of merged meshes
   rebuildNavGrid();        // props add colliders; the AI grid must see them
   rebuildWorldRayGrid();   // props/barrels changed raycastColliders
   return placed;
+}
+
+// The scattered cover (trees, crates, columns, barrels) arrives as ~48 cloned GLB
+// scene graphs, each its own draw call, all sharing a handful of materials. They
+// never move, so bake their world transforms and merge them the same way the
+// arena boxes are merged. Collision is untouched — colliders[] is a separate
+// AABB list built when the props were placed.
+function batchScatteredProps() {
+  // Ancestors first. Object3D.updateMatrixWorld(force) composes matrixWorld from
+  // the PARENT's matrixWorld, so calling it on a leaf whose group has never been
+  // updated bakes an identity transform — which collapsed all 48 props onto the
+  // origin at local scale the first time this was written.
+  scene.updateMatrixWorld(true);
+  const byMat = new Map();
+  const roots = [];
+  scene.traverse(function (o) {
+    if (o.isMesh && o.userData && o.userData.prop) {
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (!mat || !o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
+      // Only merge the plain attribute layout the merge helper understands.
+      if (!o.geometry.attributes.normal || !o.geometry.attributes.uv) return;
+      let list = byMat.get(mat.uuid);
+      if (!list) { list = { mat: mat, meshes: [] }; byMat.set(mat.uuid, list); }
+      list.meshes.push(o);
+    }
+  });
+  if (!byMat.size) return 0;
+
+  // Remember which top-level objects the props belong to, so they can be removed
+  // from the scene and from raycastColliders once merged.
+  scene.children.forEach(function (c) {
+    let isProp = false;
+    c.traverse(function (o) { if (o.isMesh && o.userData && o.userData.prop) isProp = true; });
+    if (isProp) roots.push(c);
+  });
+
+  let made = 0;
+  byMat.forEach(function (entry) {
+    const geos = [];
+    let castShadow = false;
+    for (let i = 0; i < entry.meshes.length; i++) {
+      const m = entry.meshes[i];
+      m.updateMatrixWorld(true);
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrixWorld);
+      geos.push(g);
+      if (m.castShadow) castShadow = true;
+    }
+    if (!geos.length) return;
+    const merged = new THREE.Mesh(mergeGeometries(geos), entry.mat);
+    merged.castShadow = castShadow;
+    merged.receiveShadow = true;
+    merged.userData.prop = true;
+    merged.userData.staticBatch = true;
+    scene.add(merged);
+    raycastColliders.push(merged);
+    made++;
+  });
+
+  // Drop the originals.
+  for (let i = 0; i < roots.length; i++) {
+    scene.remove(roots[i]);
+    const idx = raycastColliders.indexOf(roots[i]);
+    if (idx !== -1) raycastColliders.splice(idx, 1);
+  }
+  console.log('prop batches:', made, 'from', roots.length, 'objects');
+  return made;
 }
 
 // ---- World ray broad-phase --------------------------------------------------
@@ -6123,7 +6260,9 @@ function fireShot() {
   player.recoilP += w.recoilV * (0.8 + Math.random() * 0.4);
   player.recoilY += (Math.random() - 0.5) * 2 * w.recoilH;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  if (w.type !== 'SR') playSound('shot');
+  if (w.type === 'SR') playSound('sniper'); else playSound('shot');
+  triggerMuzzleFlash();
+  flashMuzzleLight();
   updateHudAmmo();
 }
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
@@ -6926,6 +7065,14 @@ function updateEnemies(dt) {
     } else if (en.stuck) {
       en.stuck = null;                             // arrived: forget the stall history
     }
+    // Catches the other failure mode: an enemy that circles busily but never gets
+    // closer, leaving a wave permanently one kill short.
+    if (closing) {
+      if (!en.progress) en.progress = {};
+      if (CORE.updateProgress(en.progress, dist, dt) === 'reposition') relocateStuckEnemy(en);
+    } else if (en.progress) {
+      en.progress = null;
+    }
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
     if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
     if (en.state !== 'spawn' && dist < 30 && !en.dead) {
@@ -7638,6 +7785,110 @@ function updateFootsteps(dt) {
 }
 let wasGround = true;
 
+// ============ ADAPTIVE MUSIC & AMBIENCE ============
+// Everything here is synthesised, like the rest of the audio — no asset bytes.
+//
+// Built as ONE persistent graph rather than scheduled notes: continuous
+// oscillators whose gains and filter cutoff are modulated per frame. That keeps
+// the node count constant (a per-note scheduler would allocate forever, which is
+// exactly the cost that made fireShot expensive before it was throttled).
+const MUSIC = {
+  built: false, ctx: null, bus: null,
+  drone: null, tension: null, pulseGain: null, filter: null,
+  intensity: 0, pulsePhase: 0, running: false
+};
+
+function buildMusicGraph() {
+  const ctx = audioCtx();
+  if (!ctx || MUSIC.built) return MUSIC.built;
+  const master = audioMaster();
+  if (!master) return false;
+
+  MUSIC.ctx = ctx;
+  MUSIC.bus = ctx.createGain();
+  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  MUSIC.bus.connect(master);
+
+  // Low drone: two slightly detuned voices a fifth apart. Quiet, tense, endless.
+  MUSIC.filter = ctx.createBiquadFilter();
+  MUSIC.filter.type = 'lowpass';
+  MUSIC.filter.frequency.value = 240;
+  MUSIC.filter.Q.value = 4;
+  MUSIC.filter.connect(MUSIC.bus);
+
+  MUSIC.drone = ctx.createGain();
+  MUSIC.drone.gain.value = 0.5;
+  MUSIC.drone.connect(MUSIC.filter);
+  [55, 82.41, 55.4].forEach(function (f) {       // A1, E2, and a detuned A1 for beating
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    o.connect(MUSIC.drone);
+    o.start();
+  });
+
+  // Tension voice: a minor third that only appears when things get bad.
+  MUSIC.tension = ctx.createGain();
+  MUSIC.tension.gain.value = 0;
+  MUSIC.tension.connect(MUSIC.filter);
+  [98, 130.81].forEach(function (f) {             // G2, C3
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    o.connect(MUSIC.tension);
+    o.start();
+  });
+
+  // Pulse: filtered noise gated by a per-frame envelope — a heartbeat that
+  // speeds up with the fight.
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  MUSIC.pulseGain = ctx.createGain();
+  MUSIC.pulseGain.gain.value = 0;
+  const pf = ctx.createBiquadFilter();
+  pf.type = 'bandpass'; pf.frequency.value = 90; pf.Q.value = 1.2;
+  MUSIC.pulseGain.connect(pf); pf.connect(MUSIC.bus);
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true;
+  src.connect(MUSIC.pulseGain);
+  src.start();
+
+  MUSIC.built = true;
+  return true;
+}
+
+function startMusic() {
+  if (!buildMusicGraph()) return;
+  MUSIC.running = true;
+}
+function stopMusic() {
+  MUSIC.running = false;
+  if (MUSIC.bus) MUSIC.bus.gain.value = 0;
+  if (MUSIC.pulseGain) MUSIC.pulseGain.gain.value = 0;
+}
+
+// Called every frame while playing.
+function updateMusic(dt, state) {
+  if (!MUSIC.built || !MUSIC.running) return;
+  const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
+  const target = CORE.combatIntensity(state);
+  // Ease toward the target: intensity should swell and settle, not snap.
+  const rate = target > MUSIC.intensity ? 1.6 : 0.5;    // rise fast, fall slow
+  MUSIC.intensity += (target - MUSIC.intensity) * Math.min(1, rate * dt);
+  const i = MUSIC.intensity;
+
+  MUSIC.bus.gain.value = vol * (0.22 + i * 0.5);
+  MUSIC.tension.gain.value = Math.max(0, (i - 0.25) / 0.75) * 0.16;
+  MUSIC.filter.frequency.value = 200 + i * 900;
+
+  // Heartbeat: 46 bpm at rest up to ~132 bpm at full intensity.
+  const bpm = 46 + i * 86;
+  MUSIC.pulsePhase += dt * (bpm / 60);
+  if (MUSIC.pulsePhase >= 1) MUSIC.pulsePhase -= 1;
+  // Sharp attack, exponential decay, shaped so it reads as a pulse not a hum.
+  const env = Math.pow(1 - MUSIC.pulsePhase, 6);
+  MUSIC.pulseGain.gain.value = env * (0.05 + i * 0.5);
+}
+
 // ============ GRENADES & PICKUPS (v2) ============
 'use strict';
 const grenades = { count: CFG.grenade.count, cd: 0 };
@@ -8017,10 +8268,18 @@ const PICKUP_LIFE = 25;        // seconds before despawn
 const PICKUP_BLINK = 20;       // start blinking during the last 5s
 
 function dropPickup(pos) {
+  // Total rounds across everything the player is carrying.
+  let roundsLeft = 0, magSize = 30;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    roundsLeft += wState[i].ammo + wState[i].reserve;
+    if (i === curWeapon) magSize = CFG.weapons[weaponsOwned[i]].mag;
+  }
+  const ammoChance = CORE.ammoDropChance(roundsLeft, magSize);
   const roll = Math.random();
   let kind = null;
-  if (roll < 0.30) kind = 'ammo';
-  else if (roll < 0.45) kind = 'med';
+  if (roll < ammoChance) kind = 'ammo';
+  else if (player.health < CFG.player.health * 0.5 || roll < ammoChance + 0.15) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -8034,6 +8293,16 @@ function dropPickup(pos) {
   g.userData.pickup = kind;
   scene.add(g);
   pickups.push({ m: g, kind: kind, t: 0 });
+}
+
+// Drop an ammo box at a specific spot, bypassing the random roll.
+function forceAmmoPickup(x, z) {
+  const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
+  g.position.set(x, 0.3, z);
+  g.castShadow = true;
+  g.userData.pickup = 'ammo';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'ammo', t: 0 });
 }
 
 function updatePickups(dt) {
@@ -8336,6 +8605,35 @@ function updateWaves(dt) {
   }
 }
 let _hudEnemiesLeft = -1;
+// Zero ammo means zero kills, which means zero drops, which means the run can
+// never recover — measured at wave 2 with a fixed-skill bot: 0 rounds, 0 pickups,
+// enemies still alive. Drop a cache directly when the player has been dry for a
+// few seconds, so the floor does not depend on getting a kill first.
+let dryT = 0, nextCacheT = -99;
+function updateAmmoRelief(dt) {
+  if (!waveActive || player.dead) { dryT = 0; return; }
+  let rounds = 0;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    rounds += wState[i].ammo + wState[i].reserve;
+  }
+  if (rounds > 0) { dryT = 0; return; }
+  dryT += dt;
+  if (dryT > 5 && gameT > nextCacheT) {
+    nextCacheT = gameT + 18;
+    // just in front of the player, never inside geometry
+    for (let a = 0; a < 8; a++) {
+      const ang = player.yaw + Math.PI + a * 0.8;
+      const x = player.pos.x + Math.sin(ang) * 4, z = player.pos.z + Math.cos(ang) * 4;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) continue;
+      if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.4)) continue;
+      forceAmmoPickup(x, z);
+      showCenterMsg('AMMO CACHE DROPPED');
+      return;
+    }
+  }
+}
+
 function aliveEnemies() {
   let n = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) n++;
@@ -8530,6 +8828,7 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
@@ -8551,6 +8850,7 @@ function killPlayer() {
 }
 function victory() {
   gameEnded = true;
+  stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
@@ -8795,6 +9095,7 @@ function startGame() {
   showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  startMusic();
   canvas.requestPointerLock();
 }
 
@@ -8828,6 +9129,7 @@ function resumeRun() {
   showWaveBanner(0);
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  startMusic();
   canvas.requestPointerLock();
 }
 
@@ -8891,6 +9193,7 @@ $id('btn-settings-reset').addEventListener('click', function () { resetSettings(
 $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
+  stopMusic();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
@@ -8991,10 +9294,20 @@ function frame(now) {
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);
+    updateAmmoRelief(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
+    // Adaptive score: follows the fight rather than looping regardless of it.
+    let nearest;
+    for (let i = 0; i < enemies.length; i++) {
+      if (enemies[i].dead) continue;
+      const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
+      if (nearest === undefined || d < nearest) nearest = d;
+    }
+    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveEnemies(),
+                      nearestEnemy: nearest, health: player.health });
     updateHitArcs();
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
@@ -9063,15 +9376,6 @@ function frame(now) {
     updateViewmodel(dt);
   }
 }
-
-// hook muzzle flash + sniper boom + muzzle light into fireShot (defined earlier; patch via wrapper)
-const _origFire = fireShot;
-fireShot = function () {
-  _origFire();
-  triggerMuzzleFlash();
-  flashMuzzleLight();
-  if (curW().type === 'SR') playSound('sniper');
-};
 
 applyAllSettings();
 refreshMenuStats();
