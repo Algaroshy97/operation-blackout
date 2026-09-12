@@ -131,7 +131,7 @@ function resetGame() {
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
-  waveSpecial = null; applySpecialLighting(null); resetDistricts();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
   resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0;
   updateHudPlates(); updateHudPerks();
@@ -163,6 +163,79 @@ function resetGame() {
 // ---- Settings panel ---------------------------------------------------------
 // Built from CORE.SETTINGS_SCHEMA so a new setting needs one schema entry, not a
 // schema entry plus a hand-written row plus a hand-written validator.
+// ---- Gunsmith ----------------------------------------------------------------
+// Which weapon the screen is currently editing. Per-screen state, not per-run.
+let gunsmithWeapon = 0;
+
+function openGunsmith() {
+  $id('start-screen').style.display = 'none';
+  $id('gunsmith-screen').style.display = 'flex';
+  buildGunsmith();
+}
+function closeGunsmith() {
+  $id('gunsmith-screen').style.display = 'none';
+  $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+}
+
+function buildGunsmith() {
+  const rank = playerRank();
+  const wrap = $id('gs-weapons');
+  wrap.innerHTML = '';
+  CFG.weapons.forEach(function (w, i) {
+    const b = document.createElement('button');
+    const unlocked = CORE.weaponUnlocked(i, rank);
+    b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
+    b.className = i === gunsmithWeapon ? 'on' : '';
+    b.disabled = !unlocked;
+    if (unlocked) b.addEventListener('click', function () { gunsmithWeapon = i; buildGunsmith(); });
+    wrap.appendChild(b);
+  });
+  if (!CORE.weaponUnlocked(gunsmithWeapon, rank)) {
+    gunsmithWeapon = 0;
+  }
+  const slots = $id('gs-slots');
+  slots.innerHTML = '';
+  const loadout = getLoadout(gunsmithWeapon);
+  CORE.ATTACH_SLOTS.forEach(function (slot) {
+    const box = document.createElement('div');
+    box.className = 'gs-slot';
+    const title = document.createElement('b');
+    title.textContent = CORE.ATTACH_SLOT_NAME[slot];
+    box.appendChild(title);
+    // "None" is a real option, not an absence: an empty slot is often the right call
+    // once every attachment is a trade.
+    box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
+    CORE.attachmentsForSlot(slot).forEach(function (a) {
+      box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+    });
+    slots.appendChild(box);
+  });
+}
+
+function gunsmithOption(slot, a, current, rank) {
+  const btn = document.createElement('button');
+  btn.className = 'gs-opt' + ((a ? a.key : null) === (current || null) ? ' on' : '');
+  if (!a) {
+    btn.innerHTML = 'NONE<i>No attachment</i>';
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, null); buildGunsmith(); });
+    return btn;
+  }
+  const unlocked = CORE.attachmentUnlocked(a.key, rank);
+  const d = CORE.attachmentDelta(a);
+  // Show the trade, not just the name: an attachment nobody can read the cost of is
+  // a coin flip.
+  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
+  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
+  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i>';
+  btn.disabled = !unlocked;
+  if (unlocked) {
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
+  }
+  return btn;
+}
+
 let settingsReturnTo = 'menu';
 function buildSettingsUI() {
   const list = $id('settings-list');
@@ -327,7 +400,9 @@ function resumeRun() {
   initWeapons();
   for (let i = 0; i < 2; i++) {
     if (!wState[i] || !cp.weapons[i]) continue;
-    wState[i].ammo = Math.min(CFG.weapons[weaponsOwned[i]].mag, cp.weapons[i].ammo);
+    refreshWeaponStats(i);
+    const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
+    wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
     wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
   }
   curWeapon = 0; buildViewmodel();
@@ -397,6 +472,8 @@ $id('btn-start').addEventListener('click', function () {
   prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
+$id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';
   openSettings('pause');

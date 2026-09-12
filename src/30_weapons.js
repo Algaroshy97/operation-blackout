@@ -12,15 +12,38 @@ function initWeapons() {
     const w = CFG.weapons[gi];
     wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
   }
+  refreshAllWeaponStats();
+  // Attachments can raise the magazine, and a fresh deploy should start full.
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || !wState[i].eff) continue;
+    wState[i].ammo = wState[i].eff.mag;
+    wState[i].reserve = wState[i].eff.reserveMax;
+  }
 }
 // Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
 // ~30 call sites without touching any of them. `s.up` is a whole stat block built
 // by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
 // runs and an in-place upgrade would leak into the next one.
+// Returns the EFFECTIVE weapon: base, then the armory upgrade, then attachments.
+// Cached on the slot rather than recomputed, because curW() is called many times a
+// frame and applyAttachments allocates.
 function curW() {
   const s = wState[curWeapon];
+  if (s && s.eff) return s.eff;
   return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
 }
+// Recompute a slot's effective stats. Must be called whenever the loadout, the
+// weapon or the armory upgrade changes — there is no other path that updates it.
+function refreshWeaponStats(slot) {
+  const s = wState[slot];
+  if (!s || weaponsOwned[slot] < 0) return;
+  const base = s.up || CFG.weapons[weaponsOwned[slot]];
+  s.eff = CORE.applyAttachments(base, getLoadout(weaponsOwned[slot]));
+  // An extended magazine must not leave the weapon holding more than it can.
+  if (s.ammo > s.eff.mag) s.ammo = s.eff.mag;
+  if (s.reserve > s.eff.reserveMax) s.reserve = s.eff.reserveMax;
+}
+function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
@@ -119,7 +142,7 @@ function updateSway(dt) {
   steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
   if (steadyActive) steadyT = Math.max(0, steadyT - dt);
   else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1);
+  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (curW().sway || 1);
   swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
   swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
 }
@@ -221,7 +244,7 @@ function fireShot() {
   // mesh raycast reports the entry AND exit faces of every box in a batch and
   // cannot tell one wall from two. The colliders are one entry per box and carry
   // the material tag.
-  const penStart = CORE.penetrationPower(w.type);
+  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
   const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
     _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
   let hit = null, isEnemy = false, isHead = false, penMul = 1;
@@ -416,7 +439,8 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * CORE.perkAdsMul(perks) * dt);
+  adsAmount += ((aimAds ? 1 : 0) - adsAmount)
+    * Math.min(1, 12 * CORE.perkAdsMul(perks) * (curW().adsSpeed || 1) * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;

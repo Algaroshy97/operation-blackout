@@ -330,7 +330,7 @@ function updatePlayer(dt) {
   if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
   if (player.landStunT > 0) speed *= 0.55;
   if (player.crouching) speed *= CFG.player.crouchMul;
-  if (adsDown()) speed *= 0.65;
+  if (adsDown()) speed *= 0.65 * (curW().moveMul || 1);   // stock attachments
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
   // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
   // ix=+1 (D) -> right; iz=+1 (W) -> forward

@@ -73,7 +73,7 @@ Neither suite measures real-GPU frame rate or replaces playtesting on Android ha
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-13 are complete bar two items, plus a physics pass (ragdoll deaths, fall damage).
+phased plan. Phases 0-13 are complete, plus a physics pass (ragdoll deaths, fall damage).
 
 ## Credits
 

@@ -67,11 +67,43 @@
   #challenge-list .chal i{font-style:normal;color:#ffdf8a;font-size:10px;letter-spacing:1px}
   #challenge-list .chal.done{border-color:rgba(143,214,106,.5)}
   #challenge-list .chal.done i{color:#8fd66a}
+  /* Gunsmith. Same overlay treatment as settings, including the scroll fix and the
+     safe-area padding the Phase 7 mobile pass established. */
+  #gunsmith-screen{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    z-index:31;background:rgba(6,10,14,.93);overflow-y:auto;overscroll-behavior:contain;
+    justify-content:center;justify-content:safe center;box-sizing:border-box;
+    padding:calc(20px + var(--sa-t)) calc(20px + var(--sa-r)) calc(20px + var(--sa-b)) calc(20px + var(--sa-l))}
+  #gunsmith-screen>div{text-align:center;max-width:760px;width:100%}
+  #gunsmith-screen h2{color:#ffdf8a;font-size:30px;letter-spacing:8px;font-weight:900;margin:0 0 18px;text-shadow:0 2px 10px #000}
+  #gs-weapons{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 16px}
+  #gs-weapons button{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);color:#e8ffe8;
+    font-family:inherit;font-size:12px;letter-spacing:2px;padding:7px 14px;border-radius:3px;cursor:pointer}
+  #gs-weapons button.on{border-color:#ffdf8a;color:#ffdf8a}
+  #gs-weapons button:disabled{opacity:.4;cursor:not-allowed}
+  #gs-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:0 0 18px;text-align:left}
+  .gs-slot{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:3px;padding:9px 11px}
+  .gs-slot>b{display:block;font-size:10px;letter-spacing:3px;color:rgba(255,255,255,.5);margin-bottom:6px}
+  .gs-opt{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+    color:#cfe0cf;font-family:inherit;font-size:12px;padding:5px 7px;border-radius:2px;cursor:pointer;margin-bottom:3px}
+  .gs-opt:hover{border-color:rgba(255,255,255,.25)}
+  .gs-opt.on{border-color:#ffdf8a;color:#ffdf8a}
+  .gs-opt:disabled{opacity:.4;cursor:not-allowed}
+  .gs-opt i{display:block;font-style:normal;font-size:10px;color:rgba(255,255,255,.45);letter-spacing:1px}
+  .gs-opt .up{color:#8fd66a}
+  .gs-opt .down{color:#ff8a70}
   .gun-card.locked{opacity:.45;cursor:not-allowed}
   .gun-card.locked .gc-lock{margin-top:6px;font-size:11px;letter-spacing:2px;color:#ffdf8a}
   @media (max-height:640px){#challenge-list{display:none}}
   #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
     padding:2px 6px;border-radius:2px;text-shadow:none}
+  /* Objective bar sits under the wave banner, where the wave's own information is. */
+  #objective-hud{top:104px;left:50%;transform:translateX(-50%);text-align:center;opacity:0;
+    transition:opacity .2s;color:#4fd08a;font-size:12px;font-weight:700;letter-spacing:3px;
+    text-shadow:0 1px 5px #000;white-space:nowrap}
+  #objective-bar{width:190px;height:4px;margin:4px auto 0;background:rgba(0,0,0,.55);border-radius:2px;overflow:hidden}
+  #objective-fill{height:100%;width:0;background:#4fd08a}
+  body.touch #objective-hud{top:calc(96px + var(--sa-t))}
+  body.reduced-motion #objective-hud{transition:none}
   #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
     letter-spacing:4px;text-shadow:0 2px 10px #000;opacity:0;transition:opacity .2s;white-space:nowrap}
   body.reduced-motion #buy-prompt,body.reduced-motion #down-timer{transition:none}
@@ -286,6 +318,7 @@
 <div id="sprint-ind" class="hud"></div>
 <div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
+<div id="objective-hud" class="hud"><div id="objective-txt"></div><div id="objective-bar"><div id="objective-fill"></div></div></div>
 <div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
 <div id="plate-hud" class="hud"></div>
 <div id="perk-hud" class="hud"></div>
@@ -301,6 +334,7 @@
     <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
     <div class="menu-btn" id="btn-resume-run" style="display:none">RESUME RUN</div>
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div class="menu-btn" id="btn-gunsmith">GUNSMITH</div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
     <p id="menu-stats"></p>
     <div id="challenge-list"></div>
@@ -321,6 +355,7 @@
 </div>
 <div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
 <div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
@@ -6256,6 +6291,176 @@ const CORE = (function () {
     return 1 - 0.65 * over;
   }
 
+  // ---- Attachments ---------------------------------------------------------------
+  // The deepest feature in the roadmap, and deliberately the last: an attachment that
+  // modifies a RANDOM recoil value modifies nothing a player can perceive. It only
+  // became worth building once Phase 9 gave recoil a learnable shape, bloom a cap and
+  // rounds a penetration budget — those are the things these actually move.
+  //
+  // Every mod is a MULTIPLIER on a named weapon field, so nothing here needs to know
+  // what a weapon is. Fields the base weapon does not carry (adsSpeed, penetration,
+  // sway, moveMul) default to 1 and are read by the engine as `w.field || 1`.
+  const ATTACH_SLOTS = ['optic', 'barrel', 'under', 'mag', 'stock'];
+  const ATTACH_SLOT_NAME = {
+    optic: 'OPTIC', barrel: 'BARREL', under: 'UNDERBARREL', mag: 'MAGAZINE', stock: 'STOCK'
+  };
+  // Every entry is a trade: nothing here is strictly better than the empty slot, or
+  // the "choice" is just a checklist.
+  const ATTACHMENTS = [
+    // optic
+    { key: 'reddot', slot: 'optic', rank: 2, name: 'RED DOT',
+      blurb: 'Faster aim, tighter sights', mods: { adsSpeed: 1.18, adsSpread: 0.85, spread: 1.06 } },
+    { key: 'scope4x', slot: 'optic', rank: 7, name: '4x SCOPE',
+      blurb: 'Precision at range, slow to raise', mods: { adsSpread: 0.55, range: 1.15, adsSpeed: 0.72, sway: 1.2 } },
+    // barrel
+    { key: 'longbarrel', slot: 'barrel', rank: 3, name: 'LONG BARREL',
+      blurb: 'More range and punch, heavier', mods: { range: 1.25, penetration: 1.3, adsSpeed: 0.85, recoilV: 1.08 } },
+    { key: 'suppressor', slot: 'barrel', rank: 9, name: 'SUPPRESSOR',
+      blurb: 'Quiet and steady, shorter reach', mods: { recoilV: 0.85, recoilH: 0.8, range: 0.82, dmg: 0.94 } },
+    // underbarrel
+    { key: 'foregrip', slot: 'under', rank: 4, name: 'FOREGRIP',
+      blurb: 'Controls climb, slower to swing', mods: { recoilV: 0.78, recoilH: 0.7, adsSpeed: 0.92 } },
+    { key: 'laser', slot: 'under', rank: 8, name: 'LASER',
+      blurb: 'Tight from the hip, visible', mods: { spread: 0.7, adsSpread: 1.08 } },
+    // magazine
+    { key: 'extmag', slot: 'mag', rank: 5, name: 'EXTENDED MAG',
+      blurb: 'More rounds, slower reload', mods: { mag: 1.4, reserveMax: 1.2, reload: 1.22 } },
+    { key: 'fastmag', slot: 'mag', rank: 6, name: 'FAST MAG',
+      blurb: 'Quick reloads, fewer rounds', mods: { reload: 0.68, mag: 0.85 } },
+    // stock
+    { key: 'lightstock', slot: 'stock', rank: 5, name: 'LIGHT STOCK',
+      blurb: 'Mobile while aiming, less steady', mods: { moveMul: 1.2, adsSpeed: 1.1, recoilH: 1.18 } },
+    { key: 'heavystock', slot: 'stock', rank: 10, name: 'HEAVY STOCK',
+      blurb: 'Rock steady, slow to move', mods: { recoilV: 0.82, sway: 0.6, moveMul: 0.85 } }
+  ];
+  function attachmentByKey(key) {
+    for (let i = 0; i < ATTACHMENTS.length; i++) if (ATTACHMENTS[i].key === key) return ATTACHMENTS[i];
+    return null;
+  }
+  function attachmentsForSlot(slot) {
+    return ATTACHMENTS.filter(function (a) { return a.slot === slot; });
+  }
+  function attachmentUnlocked(key, rank) {
+    const a = attachmentByKey(key);
+    return !!a && rank >= a.rank;
+  }
+  // Fields an attachment may multiply. Anything outside this list is ignored rather
+  // than silently written, so a typo in the table cannot invent a stat.
+  const ATTACH_FIELDS = ['dmg', 'rpm', 'mag', 'reserveMax', 'reload', 'spread', 'adsSpread',
+                         'recoilV', 'recoilH', 'range', 'adsSpeed', 'penetration', 'sway', 'moveMul'];
+  const ATTACH_DEFAULTS = { adsSpeed: 1, penetration: 1, sway: 1, moveMul: 1 };
+  // One loadout is at most one attachment per slot; anything else is a corrupt save
+  // or a UI bug, and is dropped rather than stacked.
+  function sanitizeLoadout(raw, rank) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (let i = 0; i < ATTACH_SLOTS.length; i++) {
+      const slot = ATTACH_SLOTS[i];
+      const key = raw[slot];
+      const a = attachmentByKey(key);
+      if (!a || a.slot !== slot) continue;
+      if (rank !== undefined && !attachmentUnlocked(key, rank)) continue;
+      out[slot] = key;
+    }
+    return out;
+  }
+  // Returns a NEW stat block. The base is never mutated: CFG.weapons is shared across
+  // runs, and an in-place modify would leak into the next one — the same trap the
+  // armory upgrade had to avoid.
+  function applyAttachments(base, loadout) {
+    const out = {};
+    for (const k in base) out[k] = base[k];
+    for (const k in ATTACH_DEFAULTS) if (out[k] === undefined) out[k] = ATTACH_DEFAULTS[k];
+    const keys = [];
+    for (let i = 0; i < ATTACH_SLOTS.length; i++) {
+      const key = loadout && loadout[ATTACH_SLOTS[i]];
+      if (key) keys.push(key);
+    }
+    for (let i = 0; i < keys.length; i++) {
+      const a = attachmentByKey(keys[i]);
+      if (!a) continue;
+      for (let f = 0; f < ATTACH_FIELDS.length; f++) {
+        const field = ATTACH_FIELDS[f];
+        const mul = a.mods[field];
+        if (mul === undefined || typeof out[field] !== 'number') continue;
+        out[field] = out[field] * mul;
+      }
+    }
+    // Magazine and reserve are counts, not ratios.
+    if (typeof out.mag === 'number') out.mag = Math.max(1, Math.round(out.mag));
+    if (typeof out.reserveMax === 'number') out.reserveMax = Math.max(0, Math.round(out.reserveMax));
+    out.attachments = keys.slice();
+    return out;
+  }
+  // What the gunsmith screen shows under a candidate attachment: the fields it moves
+  // and which way, so a trade-off is legible before it is chosen.
+  function attachmentDelta(a) {
+    const up = [], down = [];
+    if (!a) return { up: up, down: down };
+    // Lower is better for these, so the arrow has to be flipped.
+    const lowerIsBetter = { spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
+    for (const field in a.mods) {
+      const mul = a.mods[field];
+      if (mul === 1) continue;
+      const better = lowerIsBetter[field] ? mul < 1 : mul > 1;
+      const pct = Math.round(Math.abs(mul - 1) * 100);
+      (better ? up : down).push({ field: field, pct: pct });
+    }
+    return { up: up, down: down };
+  }
+
+  // ---- Objective waves -------------------------------------------------------------
+  // Task 12.4, held back until special waves proved the mechanism. A secondary goal on
+  // some waves: hold a marked zone while the wave runs. Borrowed from Hardpoint, and it
+  // works here for the same reason it works there — it pulls the player off whatever
+  // corner they have decided is safe.
+  //
+  // Never on a special wave: two announced modifiers at once reads as noise, and the
+  // player would not know which one killed them.
+  const OBJECTIVE_EVERY = 4;
+  const OBJECTIVE_HOLD = 25;        // seconds of occupancy to complete
+  const OBJECTIVE_RADIUS = 5.5;
+  const OBJECTIVE_CREDITS = 900;
+  function objectiveWaveAt(n) {
+    if (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0) return false;
+    if (specialWaveAt(n)) return false;
+    return true;
+  }
+  // Progress only moves while the player is inside, and it DRAINS when they leave —
+  // otherwise the objective is "stand here once", which is not a hold.
+  function objectiveProgress(current, dt, inside, holdTime) {
+    const need = holdTime === undefined ? OBJECTIVE_HOLD : holdTime;
+    const next = inside ? current + dt : current - dt * 0.5;
+    if (next < 0) return 0;
+    return next > need ? need : next;
+  }
+  function objectiveComplete(current, holdTime) {
+    return current >= (holdTime === undefined ? OBJECTIVE_HOLD : holdTime);
+  }
+  // Placed away from the player's spawn and away from the arena centre, so it is
+  // always a move rather than a stand-still.
+  function pickObjectiveSpot(candidates, px, pz, minDist) {
+    const min = minDist === undefined ? 18 : minDist;
+    let best = -1, bestScore = -Infinity;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      const d = horizDist(c[0], c[1], px, pz);
+      if (d < min) continue;
+      const score = -Math.abs(d - (min + 8));
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    if (best < 0) {
+      // Nothing far enough: take the furthest rather than refusing to place one.
+      let far = -1, farD = -1;
+      for (let i = 0; i < candidates.length; i++) {
+        const d = horizDist(candidates[i][0], candidates[i][1], px, pz);
+        if (d > farD) { farD = d; far = i; }
+      }
+      return far;
+    }
+    return best;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -6479,6 +6684,23 @@ const CORE = (function () {
     CHALLENGES: CHALLENGES,
     challengeProgress: challengeProgress,
     challengesDone: challengesDone,
+    ATTACH_SLOTS: ATTACH_SLOTS,
+    ATTACH_SLOT_NAME: ATTACH_SLOT_NAME,
+    ATTACHMENTS: ATTACHMENTS,
+    attachmentByKey: attachmentByKey,
+    attachmentsForSlot: attachmentsForSlot,
+    attachmentUnlocked: attachmentUnlocked,
+    sanitizeLoadout: sanitizeLoadout,
+    applyAttachments: applyAttachments,
+    attachmentDelta: attachmentDelta,
+    OBJECTIVE_EVERY: OBJECTIVE_EVERY,
+    OBJECTIVE_HOLD: OBJECTIVE_HOLD,
+    OBJECTIVE_RADIUS: OBJECTIVE_RADIUS,
+    OBJECTIVE_CREDITS: OBJECTIVE_CREDITS,
+    objectiveWaveAt: objectiveWaveAt,
+    objectiveProgress: objectiveProgress,
+    objectiveComplete: objectiveComplete,
+    pickObjectiveSpot: pickObjectiveSpot,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -6609,6 +6831,35 @@ function recordRun(run) {
 }
 function getStats() { return STATS; }
 function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
+
+// ---- Gunsmith loadouts --------------------------------------------------------
+// One attachment loadout per weapon index, persisted like settings. Kept out of the
+// checkpoint on purpose: a loadout is a career choice, not run state, and a resumed
+// run should use whatever the player has configured since.
+const STORE_KEY_LOADOUTS = 'ob_loadouts_v1';
+let LOADOUTS = (function () {
+  const raw = storageGet(STORE_KEY_LOADOUTS);
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const k in raw) out[k] = CORE.sanitizeLoadout(raw[k]);
+  }
+  return out;
+})();
+function getLoadout(weaponIndex) {
+  // Sanitised against the CURRENT rank on every read, so a loadout saved at a higher
+  // rank cannot be carried by a wiped career, and a removed attachment cannot
+  // resurrect.
+  return CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
+}
+function setAttachment(weaponIndex, slot, key) {
+  const cur = LOADOUTS[weaponIndex] || {};
+  const next = {};
+  for (const k in cur) next[k] = cur[k];
+  if (key) next[slot] = key; else delete next[slot];
+  LOADOUTS[weaponIndex] = CORE.sanitizeLoadout(next, playerRank());
+  storageSet(STORE_KEY_LOADOUTS, LOADOUTS);
+  return LOADOUTS[weaponIndex];
+}
 
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
@@ -7780,7 +8031,7 @@ function updatePlayer(dt) {
   if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
   if (player.landStunT > 0) speed *= 0.55;
   if (player.crouching) speed *= CFG.player.crouchMul;
-  if (adsDown()) speed *= 0.65;
+  if (adsDown()) speed *= 0.65 * (curW().moveMul || 1);   // stock attachments
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
   // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
   // ix=+1 (D) -> right; iz=+1 (W) -> forward
@@ -8130,15 +8381,38 @@ function initWeapons() {
     const w = CFG.weapons[gi];
     wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
   }
+  refreshAllWeaponStats();
+  // Attachments can raise the magazine, and a fresh deploy should start full.
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || !wState[i].eff) continue;
+    wState[i].ammo = wState[i].eff.mag;
+    wState[i].reserve = wState[i].eff.reserveMax;
+  }
 }
 // Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
 // ~30 call sites without touching any of them. `s.up` is a whole stat block built
 // by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
 // runs and an in-place upgrade would leak into the next one.
+// Returns the EFFECTIVE weapon: base, then the armory upgrade, then attachments.
+// Cached on the slot rather than recomputed, because curW() is called many times a
+// frame and applyAttachments allocates.
 function curW() {
   const s = wState[curWeapon];
+  if (s && s.eff) return s.eff;
   return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
 }
+// Recompute a slot's effective stats. Must be called whenever the loadout, the
+// weapon or the armory upgrade changes — there is no other path that updates it.
+function refreshWeaponStats(slot) {
+  const s = wState[slot];
+  if (!s || weaponsOwned[slot] < 0) return;
+  const base = s.up || CFG.weapons[weaponsOwned[slot]];
+  s.eff = CORE.applyAttachments(base, getLoadout(weaponsOwned[slot]));
+  // An extended magazine must not leave the weapon holding more than it can.
+  if (s.ammo > s.eff.mag) s.ammo = s.eff.mag;
+  if (s.reserve > s.eff.reserveMax) s.reserve = s.eff.reserveMax;
+}
+function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
@@ -8237,7 +8511,7 @@ function updateSway(dt) {
   steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
   if (steadyActive) steadyT = Math.max(0, steadyT - dt);
   else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1);
+  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (curW().sway || 1);
   swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
   swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
 }
@@ -8339,7 +8613,7 @@ function fireShot() {
   // mesh raycast reports the entry AND exit faces of every box in a batch and
   // cannot tell one wall from two. The colliders are one entry per box and carry
   // the material tag.
-  const penStart = CORE.penetrationPower(w.type);
+  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
   const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
     _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
   let hit = null, isEnemy = false, isHead = false, penMul = 1;
@@ -8534,7 +8808,8 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, 12 * CORE.perkAdsMul(perks) * dt);
+  adsAmount += ((aimAds ? 1 : 0) - adsAmount)
+    * Math.min(1, 12 * CORE.perkAdsMul(perks) * (curW().adsSpeed || 1) * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;
@@ -11399,6 +11674,9 @@ function purchase(st) {
       const w = CFG.weapons[st.weapon];
       weaponsOwned[curWeapon] = st.weapon;
       wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+      refreshWeaponStats(curWeapon);
+      wState[curWeapon].ammo = curW().mag;
+      wState[curWeapon].reserve = curW().reserveMax;
       buildViewmodel();
       showCenterMsg(w.name.toUpperCase() + ' ACQUIRED');
     }
@@ -11406,8 +11684,9 @@ function purchase(st) {
   } else if (st.kind === 'armory') {
     const s = curS();
     s.up = CORE.armoryUpgrade(CFG.weapons[weaponsOwned[curWeapon]]);
-    s.ammo = s.up.mag;
-    s.reserve = s.up.reserveMax;
+    refreshWeaponStats(curWeapon);   // the upgrade feeds through the attachments
+    s.ammo = curW().mag;
+    s.reserve = curW().reserveMax;
     showCenterMsg(s.up.name.toUpperCase());
     updateHudAmmo();
   } else if (st.kind === 'plate') {
@@ -12084,6 +12363,10 @@ let waveBehaviours = {};
 // The wave-15 boss was dropped in favour of spreading variety across the curve.
 // This is that decision carried through: every fifth wave is an announced modifier.
 let waveSpecial = null;
+// Task 12.4, held back until special waves proved the mechanism. A held zone on some
+// waves, borrowed from Hardpoint: it works here for the same reason it works there —
+// it pulls the player off whatever corner they have decided is safe.
+let objective = null;
 // Districts the player has paid to open. Per-run, like credits.
 let openDistricts = [];
 
@@ -12111,6 +12394,7 @@ function startWave(n) {
   waveBehaviours = CORE.behavioursAtWave(n);
   waveSpecial = CORE.specialWaveAt(n);
   applySpecialLighting(waveSpecial);
+  startObjective(n);
   waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
     CFG.wave.victoryWave, diff().count, waveSpecial);
   if (waveSpecial) {
@@ -12159,7 +12443,67 @@ function applySpecialLighting(special) {
   }
 }
 
+// ---- Objective zone ----------------------------------------------------------
+const objRingGeo = new THREE.RingGeometry(CORE.OBJECTIVE_RADIUS - 0.25, CORE.OBJECTIVE_RADIUS, 48);
+const objRingMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+const objPillarGeo = new THREE.BoxGeometry(0.5, 4, 0.5);
+const objPillarMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.3 });
+let objRing = null, objPillar = null;
+
+function startObjective(n) {
+  clearObjective();
+  if (!CORE.objectiveWaveAt(n)) return;
+  // Reuse the spawn ring as candidate spots: they are already validated open ground,
+  // already excluded from sealed districts, and already spread around the arena.
+  const ring = openSpawnPoints();
+  const idx = CORE.pickObjectiveSpot(ring, player.pos.x, player.pos.z);
+  if (idx < 0) return;
+  const spot = ring[idx];
+  objective = { x: spot[0], z: spot[1], t: 0, done: false };
+  objRing = new THREE.Mesh(objRingGeo, objRingMat);
+  objRing.rotation.x = -Math.PI / 2;
+  objRing.position.set(spot[0], 0.05, spot[1]);
+  scene.add(objRing);
+  objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
+  objPillar.position.set(spot[0], 2, spot[1]);
+  scene.add(objPillar);
+  setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
+}
+
+function clearObjective() {
+  objective = null;
+  if (objRing) { scene.remove(objRing); objRing = null; }
+  if (objPillar) { scene.remove(objPillar); objPillar = null; }
+  const el = $id('objective-hud');
+  if (el) el.style.opacity = '0';
+}
+
+function updateObjective(dt) {
+  const el = $id('objective-hud');
+  if (!objective || objective.done || player.dead) { if (el) el.style.opacity = '0'; return; }
+  const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
+  objective.t = CORE.objectiveProgress(objective.t, dt, inside);
+  const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
+  if (el) {
+    el.style.opacity = '1';
+    const bar = $id('objective-fill');
+    if (bar) bar.style.width = pct + '%';
+    const txt = $id('objective-txt');
+    if (txt) txt.textContent = inside ? 'HOLDING — ' + pct + '%' : 'RETURN TO THE ZONE — ' + pct + '%';
+  }
+  if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
+  if (CORE.objectiveComplete(objective.t)) {
+    objective.done = true;
+    addCredits(CORE.OBJECTIVE_CREDITS);
+    addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
+    showCenterMsg('ZONE SECURED');
+    playSound('powerup');
+    clearObjective();
+  }
+}
+
 function updateWaves(dt) {
+  updateObjective(dt);
   if (gameEnded || player.dead) return;
   if (waveActive) {
     // spawn queue drains in bursts of 3-4 enemies, respecting max active
@@ -12188,6 +12532,7 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
+      clearObjective();   // the zone belongs to the wave that spawned it
       reviveFromDown();   // holding out to the wave clear is the other way back up
       unlockSecondary();
       resupply();
@@ -12318,6 +12663,9 @@ function unlockSecondary() {
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.
   wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  refreshWeaponStats(1);
+  wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
+  wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound('draw');
@@ -12378,6 +12726,14 @@ function drawMinimap() {
   // Baseline detection is near-only; the UAV reveals the whole arena. That split
   // is what gives the minimap — and the streak — any meaning at all.
   const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
+  if (objective && !objective.done) {
+    const ox = (objective.x - px) * scale, oz = (objective.z - pz) * scale;
+    mmCtx.strokeStyle = '#4fd08a';
+    mmCtx.lineWidth = 2;
+    mmCtx.beginPath();
+    mmCtx.arc(ox, oz, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
+    mmCtx.stroke();
+  }
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.
   for (let i = 0; i < stations.length; i++) {
@@ -12583,7 +12939,7 @@ function resetGame() {
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
-  waveSpecial = null; applySpecialLighting(null); resetDistricts();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
   resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0;
   updateHudPlates(); updateHudPerks();
@@ -12615,6 +12971,79 @@ function resetGame() {
 // ---- Settings panel ---------------------------------------------------------
 // Built from CORE.SETTINGS_SCHEMA so a new setting needs one schema entry, not a
 // schema entry plus a hand-written row plus a hand-written validator.
+// ---- Gunsmith ----------------------------------------------------------------
+// Which weapon the screen is currently editing. Per-screen state, not per-run.
+let gunsmithWeapon = 0;
+
+function openGunsmith() {
+  $id('start-screen').style.display = 'none';
+  $id('gunsmith-screen').style.display = 'flex';
+  buildGunsmith();
+}
+function closeGunsmith() {
+  $id('gunsmith-screen').style.display = 'none';
+  $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+}
+
+function buildGunsmith() {
+  const rank = playerRank();
+  const wrap = $id('gs-weapons');
+  wrap.innerHTML = '';
+  CFG.weapons.forEach(function (w, i) {
+    const b = document.createElement('button');
+    const unlocked = CORE.weaponUnlocked(i, rank);
+    b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
+    b.className = i === gunsmithWeapon ? 'on' : '';
+    b.disabled = !unlocked;
+    if (unlocked) b.addEventListener('click', function () { gunsmithWeapon = i; buildGunsmith(); });
+    wrap.appendChild(b);
+  });
+  if (!CORE.weaponUnlocked(gunsmithWeapon, rank)) {
+    gunsmithWeapon = 0;
+  }
+  const slots = $id('gs-slots');
+  slots.innerHTML = '';
+  const loadout = getLoadout(gunsmithWeapon);
+  CORE.ATTACH_SLOTS.forEach(function (slot) {
+    const box = document.createElement('div');
+    box.className = 'gs-slot';
+    const title = document.createElement('b');
+    title.textContent = CORE.ATTACH_SLOT_NAME[slot];
+    box.appendChild(title);
+    // "None" is a real option, not an absence: an empty slot is often the right call
+    // once every attachment is a trade.
+    box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
+    CORE.attachmentsForSlot(slot).forEach(function (a) {
+      box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+    });
+    slots.appendChild(box);
+  });
+}
+
+function gunsmithOption(slot, a, current, rank) {
+  const btn = document.createElement('button');
+  btn.className = 'gs-opt' + ((a ? a.key : null) === (current || null) ? ' on' : '');
+  if (!a) {
+    btn.innerHTML = 'NONE<i>No attachment</i>';
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, null); buildGunsmith(); });
+    return btn;
+  }
+  const unlocked = CORE.attachmentUnlocked(a.key, rank);
+  const d = CORE.attachmentDelta(a);
+  // Show the trade, not just the name: an attachment nobody can read the cost of is
+  // a coin flip.
+  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
+  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
+  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i>';
+  btn.disabled = !unlocked;
+  if (unlocked) {
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
+  }
+  return btn;
+}
+
 let settingsReturnTo = 'menu';
 function buildSettingsUI() {
   const list = $id('settings-list');
@@ -12779,7 +13208,9 @@ function resumeRun() {
   initWeapons();
   for (let i = 0; i < 2; i++) {
     if (!wState[i] || !cp.weapons[i]) continue;
-    wState[i].ammo = Math.min(CFG.weapons[weaponsOwned[i]].mag, cp.weapons[i].ammo);
+    refreshWeaponStats(i);
+    const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
+    wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
     wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
   }
   curWeapon = 0; buildViewmodel();
@@ -12849,6 +13280,8 @@ $id('btn-start').addEventListener('click', function () {
   prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
+$id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';
   openSettings('pause');

@@ -1703,6 +1703,176 @@ const CORE = (function () {
     return 1 - 0.65 * over;
   }
 
+  // ---- Attachments ---------------------------------------------------------------
+  // The deepest feature in the roadmap, and deliberately the last: an attachment that
+  // modifies a RANDOM recoil value modifies nothing a player can perceive. It only
+  // became worth building once Phase 9 gave recoil a learnable shape, bloom a cap and
+  // rounds a penetration budget — those are the things these actually move.
+  //
+  // Every mod is a MULTIPLIER on a named weapon field, so nothing here needs to know
+  // what a weapon is. Fields the base weapon does not carry (adsSpeed, penetration,
+  // sway, moveMul) default to 1 and are read by the engine as `w.field || 1`.
+  const ATTACH_SLOTS = ['optic', 'barrel', 'under', 'mag', 'stock'];
+  const ATTACH_SLOT_NAME = {
+    optic: 'OPTIC', barrel: 'BARREL', under: 'UNDERBARREL', mag: 'MAGAZINE', stock: 'STOCK'
+  };
+  // Every entry is a trade: nothing here is strictly better than the empty slot, or
+  // the "choice" is just a checklist.
+  const ATTACHMENTS = [
+    // optic
+    { key: 'reddot', slot: 'optic', rank: 2, name: 'RED DOT',
+      blurb: 'Faster aim, tighter sights', mods: { adsSpeed: 1.18, adsSpread: 0.85, spread: 1.06 } },
+    { key: 'scope4x', slot: 'optic', rank: 7, name: '4x SCOPE',
+      blurb: 'Precision at range, slow to raise', mods: { adsSpread: 0.55, range: 1.15, adsSpeed: 0.72, sway: 1.2 } },
+    // barrel
+    { key: 'longbarrel', slot: 'barrel', rank: 3, name: 'LONG BARREL',
+      blurb: 'More range and punch, heavier', mods: { range: 1.25, penetration: 1.3, adsSpeed: 0.85, recoilV: 1.08 } },
+    { key: 'suppressor', slot: 'barrel', rank: 9, name: 'SUPPRESSOR',
+      blurb: 'Quiet and steady, shorter reach', mods: { recoilV: 0.85, recoilH: 0.8, range: 0.82, dmg: 0.94 } },
+    // underbarrel
+    { key: 'foregrip', slot: 'under', rank: 4, name: 'FOREGRIP',
+      blurb: 'Controls climb, slower to swing', mods: { recoilV: 0.78, recoilH: 0.7, adsSpeed: 0.92 } },
+    { key: 'laser', slot: 'under', rank: 8, name: 'LASER',
+      blurb: 'Tight from the hip, visible', mods: { spread: 0.7, adsSpread: 1.08 } },
+    // magazine
+    { key: 'extmag', slot: 'mag', rank: 5, name: 'EXTENDED MAG',
+      blurb: 'More rounds, slower reload', mods: { mag: 1.4, reserveMax: 1.2, reload: 1.22 } },
+    { key: 'fastmag', slot: 'mag', rank: 6, name: 'FAST MAG',
+      blurb: 'Quick reloads, fewer rounds', mods: { reload: 0.68, mag: 0.85 } },
+    // stock
+    { key: 'lightstock', slot: 'stock', rank: 5, name: 'LIGHT STOCK',
+      blurb: 'Mobile while aiming, less steady', mods: { moveMul: 1.2, adsSpeed: 1.1, recoilH: 1.18 } },
+    { key: 'heavystock', slot: 'stock', rank: 10, name: 'HEAVY STOCK',
+      blurb: 'Rock steady, slow to move', mods: { recoilV: 0.82, sway: 0.6, moveMul: 0.85 } }
+  ];
+  function attachmentByKey(key) {
+    for (let i = 0; i < ATTACHMENTS.length; i++) if (ATTACHMENTS[i].key === key) return ATTACHMENTS[i];
+    return null;
+  }
+  function attachmentsForSlot(slot) {
+    return ATTACHMENTS.filter(function (a) { return a.slot === slot; });
+  }
+  function attachmentUnlocked(key, rank) {
+    const a = attachmentByKey(key);
+    return !!a && rank >= a.rank;
+  }
+  // Fields an attachment may multiply. Anything outside this list is ignored rather
+  // than silently written, so a typo in the table cannot invent a stat.
+  const ATTACH_FIELDS = ['dmg', 'rpm', 'mag', 'reserveMax', 'reload', 'spread', 'adsSpread',
+                         'recoilV', 'recoilH', 'range', 'adsSpeed', 'penetration', 'sway', 'moveMul'];
+  const ATTACH_DEFAULTS = { adsSpeed: 1, penetration: 1, sway: 1, moveMul: 1 };
+  // One loadout is at most one attachment per slot; anything else is a corrupt save
+  // or a UI bug, and is dropped rather than stacked.
+  function sanitizeLoadout(raw, rank) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (let i = 0; i < ATTACH_SLOTS.length; i++) {
+      const slot = ATTACH_SLOTS[i];
+      const key = raw[slot];
+      const a = attachmentByKey(key);
+      if (!a || a.slot !== slot) continue;
+      if (rank !== undefined && !attachmentUnlocked(key, rank)) continue;
+      out[slot] = key;
+    }
+    return out;
+  }
+  // Returns a NEW stat block. The base is never mutated: CFG.weapons is shared across
+  // runs, and an in-place modify would leak into the next one — the same trap the
+  // armory upgrade had to avoid.
+  function applyAttachments(base, loadout) {
+    const out = {};
+    for (const k in base) out[k] = base[k];
+    for (const k in ATTACH_DEFAULTS) if (out[k] === undefined) out[k] = ATTACH_DEFAULTS[k];
+    const keys = [];
+    for (let i = 0; i < ATTACH_SLOTS.length; i++) {
+      const key = loadout && loadout[ATTACH_SLOTS[i]];
+      if (key) keys.push(key);
+    }
+    for (let i = 0; i < keys.length; i++) {
+      const a = attachmentByKey(keys[i]);
+      if (!a) continue;
+      for (let f = 0; f < ATTACH_FIELDS.length; f++) {
+        const field = ATTACH_FIELDS[f];
+        const mul = a.mods[field];
+        if (mul === undefined || typeof out[field] !== 'number') continue;
+        out[field] = out[field] * mul;
+      }
+    }
+    // Magazine and reserve are counts, not ratios.
+    if (typeof out.mag === 'number') out.mag = Math.max(1, Math.round(out.mag));
+    if (typeof out.reserveMax === 'number') out.reserveMax = Math.max(0, Math.round(out.reserveMax));
+    out.attachments = keys.slice();
+    return out;
+  }
+  // What the gunsmith screen shows under a candidate attachment: the fields it moves
+  // and which way, so a trade-off is legible before it is chosen.
+  function attachmentDelta(a) {
+    const up = [], down = [];
+    if (!a) return { up: up, down: down };
+    // Lower is better for these, so the arrow has to be flipped.
+    const lowerIsBetter = { spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
+    for (const field in a.mods) {
+      const mul = a.mods[field];
+      if (mul === 1) continue;
+      const better = lowerIsBetter[field] ? mul < 1 : mul > 1;
+      const pct = Math.round(Math.abs(mul - 1) * 100);
+      (better ? up : down).push({ field: field, pct: pct });
+    }
+    return { up: up, down: down };
+  }
+
+  // ---- Objective waves -------------------------------------------------------------
+  // Task 12.4, held back until special waves proved the mechanism. A secondary goal on
+  // some waves: hold a marked zone while the wave runs. Borrowed from Hardpoint, and it
+  // works here for the same reason it works there — it pulls the player off whatever
+  // corner they have decided is safe.
+  //
+  // Never on a special wave: two announced modifiers at once reads as noise, and the
+  // player would not know which one killed them.
+  const OBJECTIVE_EVERY = 4;
+  const OBJECTIVE_HOLD = 25;        // seconds of occupancy to complete
+  const OBJECTIVE_RADIUS = 5.5;
+  const OBJECTIVE_CREDITS = 900;
+  function objectiveWaveAt(n) {
+    if (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0) return false;
+    if (specialWaveAt(n)) return false;
+    return true;
+  }
+  // Progress only moves while the player is inside, and it DRAINS when they leave —
+  // otherwise the objective is "stand here once", which is not a hold.
+  function objectiveProgress(current, dt, inside, holdTime) {
+    const need = holdTime === undefined ? OBJECTIVE_HOLD : holdTime;
+    const next = inside ? current + dt : current - dt * 0.5;
+    if (next < 0) return 0;
+    return next > need ? need : next;
+  }
+  function objectiveComplete(current, holdTime) {
+    return current >= (holdTime === undefined ? OBJECTIVE_HOLD : holdTime);
+  }
+  // Placed away from the player's spawn and away from the arena centre, so it is
+  // always a move rather than a stand-still.
+  function pickObjectiveSpot(candidates, px, pz, minDist) {
+    const min = minDist === undefined ? 18 : minDist;
+    let best = -1, bestScore = -Infinity;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      const d = horizDist(c[0], c[1], px, pz);
+      if (d < min) continue;
+      const score = -Math.abs(d - (min + 8));
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    if (best < 0) {
+      // Nothing far enough: take the furthest rather than refusing to place one.
+      let far = -1, farD = -1;
+      for (let i = 0; i < candidates.length; i++) {
+        const d = horizDist(candidates[i][0], candidates[i][1], px, pz);
+        if (d > farD) { farD = d; far = i; }
+      }
+      return far;
+    }
+    return best;
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -1926,6 +2096,23 @@ const CORE = (function () {
     CHALLENGES: CHALLENGES,
     challengeProgress: challengeProgress,
     challengesDone: challengesDone,
+    ATTACH_SLOTS: ATTACH_SLOTS,
+    ATTACH_SLOT_NAME: ATTACH_SLOT_NAME,
+    ATTACHMENTS: ATTACHMENTS,
+    attachmentByKey: attachmentByKey,
+    attachmentsForSlot: attachmentsForSlot,
+    attachmentUnlocked: attachmentUnlocked,
+    sanitizeLoadout: sanitizeLoadout,
+    applyAttachments: applyAttachments,
+    attachmentDelta: attachmentDelta,
+    OBJECTIVE_EVERY: OBJECTIVE_EVERY,
+    OBJECTIVE_HOLD: OBJECTIVE_HOLD,
+    OBJECTIVE_RADIUS: OBJECTIVE_RADIUS,
+    OBJECTIVE_CREDITS: OBJECTIVE_CREDITS,
+    objectiveWaveAt: objectiveWaveAt,
+    objectiveProgress: objectiveProgress,
+    objectiveComplete: objectiveComplete,
+    pickObjectiveSpot: pickObjectiveSpot,
     UNREACHABLE: UNREACHABLE
   };
 })();

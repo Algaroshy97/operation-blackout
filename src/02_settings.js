@@ -122,6 +122,35 @@ function recordRun(run) {
 function getStats() { return STATS; }
 function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
 
+// ---- Gunsmith loadouts --------------------------------------------------------
+// One attachment loadout per weapon index, persisted like settings. Kept out of the
+// checkpoint on purpose: a loadout is a career choice, not run state, and a resumed
+// run should use whatever the player has configured since.
+const STORE_KEY_LOADOUTS = 'ob_loadouts_v1';
+let LOADOUTS = (function () {
+  const raw = storageGet(STORE_KEY_LOADOUTS);
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const k in raw) out[k] = CORE.sanitizeLoadout(raw[k]);
+  }
+  return out;
+})();
+function getLoadout(weaponIndex) {
+  // Sanitised against the CURRENT rank on every read, so a loadout saved at a higher
+  // rank cannot be carried by a wiped career, and a removed attachment cannot
+  // resurrect.
+  return CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
+}
+function setAttachment(weaponIndex, slot, key) {
+  const cur = LOADOUTS[weaponIndex] || {};
+  const next = {};
+  for (const k in cur) next[k] = cur[k];
+  if (key) next[slot] = key; else delete next[slot];
+  LOADOUTS[weaponIndex] = CORE.sanitizeLoadout(next, playerRank());
+  storageSet(STORE_KEY_LOADOUTS, LOADOUTS);
+  return LOADOUTS[weaponIndex];
+}
+
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
 function saveCheckpoint(state) {

@@ -282,6 +282,9 @@ function purchase(st) {
       const w = CFG.weapons[st.weapon];
       weaponsOwned[curWeapon] = st.weapon;
       wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+      refreshWeaponStats(curWeapon);
+      wState[curWeapon].ammo = curW().mag;
+      wState[curWeapon].reserve = curW().reserveMax;
       buildViewmodel();
       showCenterMsg(w.name.toUpperCase() + ' ACQUIRED');
     }
@@ -289,8 +292,9 @@ function purchase(st) {
   } else if (st.kind === 'armory') {
     const s = curS();
     s.up = CORE.armoryUpgrade(CFG.weapons[weaponsOwned[curWeapon]]);
-    s.ammo = s.up.mag;
-    s.reserve = s.up.reserveMax;
+    refreshWeaponStats(curWeapon);   // the upgrade feeds through the attachments
+    s.ammo = curW().mag;
+    s.reserve = curW().reserveMax;
     showCenterMsg(s.up.name.toUpperCase());
     updateHudAmmo();
   } else if (st.kind === 'plate') {

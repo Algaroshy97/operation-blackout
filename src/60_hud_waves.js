@@ -248,6 +248,10 @@ let waveBehaviours = {};
 // The wave-15 boss was dropped in favour of spreading variety across the curve.
 // This is that decision carried through: every fifth wave is an announced modifier.
 let waveSpecial = null;
+// Task 12.4, held back until special waves proved the mechanism. A held zone on some
+// waves, borrowed from Hardpoint: it works here for the same reason it works there —
+// it pulls the player off whatever corner they have decided is safe.
+let objective = null;
 // Districts the player has paid to open. Per-run, like credits.
 let openDistricts = [];
 
@@ -275,6 +279,7 @@ function startWave(n) {
   waveBehaviours = CORE.behavioursAtWave(n);
   waveSpecial = CORE.specialWaveAt(n);
   applySpecialLighting(waveSpecial);
+  startObjective(n);
   waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
     CFG.wave.victoryWave, diff().count, waveSpecial);
   if (waveSpecial) {
@@ -323,7 +328,67 @@ function applySpecialLighting(special) {
   }
 }
 
+// ---- Objective zone ----------------------------------------------------------
+const objRingGeo = new THREE.RingGeometry(CORE.OBJECTIVE_RADIUS - 0.25, CORE.OBJECTIVE_RADIUS, 48);
+const objRingMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+const objPillarGeo = new THREE.BoxGeometry(0.5, 4, 0.5);
+const objPillarMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.3 });
+let objRing = null, objPillar = null;
+
+function startObjective(n) {
+  clearObjective();
+  if (!CORE.objectiveWaveAt(n)) return;
+  // Reuse the spawn ring as candidate spots: they are already validated open ground,
+  // already excluded from sealed districts, and already spread around the arena.
+  const ring = openSpawnPoints();
+  const idx = CORE.pickObjectiveSpot(ring, player.pos.x, player.pos.z);
+  if (idx < 0) return;
+  const spot = ring[idx];
+  objective = { x: spot[0], z: spot[1], t: 0, done: false };
+  objRing = new THREE.Mesh(objRingGeo, objRingMat);
+  objRing.rotation.x = -Math.PI / 2;
+  objRing.position.set(spot[0], 0.05, spot[1]);
+  scene.add(objRing);
+  objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
+  objPillar.position.set(spot[0], 2, spot[1]);
+  scene.add(objPillar);
+  setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
+}
+
+function clearObjective() {
+  objective = null;
+  if (objRing) { scene.remove(objRing); objRing = null; }
+  if (objPillar) { scene.remove(objPillar); objPillar = null; }
+  const el = $id('objective-hud');
+  if (el) el.style.opacity = '0';
+}
+
+function updateObjective(dt) {
+  const el = $id('objective-hud');
+  if (!objective || objective.done || player.dead) { if (el) el.style.opacity = '0'; return; }
+  const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
+  objective.t = CORE.objectiveProgress(objective.t, dt, inside);
+  const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
+  if (el) {
+    el.style.opacity = '1';
+    const bar = $id('objective-fill');
+    if (bar) bar.style.width = pct + '%';
+    const txt = $id('objective-txt');
+    if (txt) txt.textContent = inside ? 'HOLDING — ' + pct + '%' : 'RETURN TO THE ZONE — ' + pct + '%';
+  }
+  if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
+  if (CORE.objectiveComplete(objective.t)) {
+    objective.done = true;
+    addCredits(CORE.OBJECTIVE_CREDITS);
+    addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
+    showCenterMsg('ZONE SECURED');
+    playSound('powerup');
+    clearObjective();
+  }
+}
+
 function updateWaves(dt) {
+  updateObjective(dt);
   if (gameEnded || player.dead) return;
   if (waveActive) {
     // spawn queue drains in bursts of 3-4 enemies, respecting max active
@@ -352,6 +417,7 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
+      clearObjective();   // the zone belongs to the wave that spawned it
       reviveFromDown();   // holding out to the wave clear is the other way back up
       unlockSecondary();
       resupply();
@@ -482,6 +548,9 @@ function unlockSecondary() {
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.
   wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  refreshWeaponStats(1);
+  wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
+  wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound('draw');
@@ -542,6 +611,14 @@ function drawMinimap() {
   // Baseline detection is near-only; the UAV reveals the whole arena. That split
   // is what gives the minimap — and the streak — any meaning at all.
   const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
+  if (objective && !objective.done) {
+    const ox = (objective.x - px) * scale, oz = (objective.z - pz) * scale;
+    mmCtx.strokeStyle = '#4fd08a';
+    mmCtx.lineWidth = 2;
+    mmCtx.beginPath();
+    mmCtx.arc(ox, oz, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
+    mmCtx.stroke();
+  }
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.
   for (let i = 0; i < stations.length; i++) {

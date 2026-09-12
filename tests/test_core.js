@@ -2178,3 +2178,224 @@ test('a corrupt XP total is clamped, not trusted', () => {
     assert.ok(CORE.rankForXp(s.xp) >= 1);
   }
 });
+
+// ============================================================================
+// Attachments (13.3) and objective waves (12.4)
+// ============================================================================
+
+const M4 = { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150,
+             reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006,
+             range: 120, auto: true };
+
+test('every attachment declares a real slot, a rank and a trade', () => {
+  for (const a of CORE.ATTACHMENTS) {
+    assert.ok(CORE.ATTACH_SLOTS.indexOf(a.slot) >= 0, a.key + ' has slot "' + a.slot + '"');
+    assert.ok(a.rank >= 1, a.key + ' needs an unlock rank');
+    assert.ok(a.name && a.blurb, a.key + ' needs a name and a blurb');
+    assert.ok(Object.keys(a.mods).length > 0, a.key + ' modifies nothing');
+    assert.strictEqual(CORE.attachmentByKey(a.key), a);
+  }
+  assert.strictEqual(CORE.attachmentByKey('laser_sight_9000'), null);
+});
+
+test('nothing is strictly better than an empty slot', () => {
+  // If an attachment is all upside, the "choice" is a checklist.
+  for (const a of CORE.ATTACHMENTS) {
+    const d = CORE.attachmentDelta(a);
+    assert.ok(d.down.length > 0, a.key + ' has no downside, so it is not a trade');
+    assert.ok(d.up.length > 0, a.key + ' has no upside, so nobody would take it');
+  }
+});
+
+test('every slot has something in it, and every attachment is reachable', () => {
+  for (const slot of CORE.ATTACH_SLOTS) {
+    assert.ok(CORE.attachmentsForSlot(slot).length > 0, slot + ' is empty');
+    assert.ok(CORE.ATTACH_SLOT_NAME[slot], slot + ' has no display name');
+  }
+  for (const a of CORE.ATTACHMENTS) {
+    assert.ok(a.rank <= CORE.MAX_RANK, a.key + ' needs rank ' + a.rank + ' but max is ' + CORE.MAX_RANK);
+  }
+  const keys = CORE.ATTACHMENTS.map((a) => a.key);
+  assert.strictEqual(new Set(keys).size, keys.length, 'duplicate attachment key');
+});
+
+test('attachments multiply the fields they name and leave the rest alone', () => {
+  const eff = CORE.applyAttachments(M4, { mag: 'extmag' });
+  const ext = CORE.attachmentByKey('extmag');
+  assert.strictEqual(eff.mag, Math.round(M4.mag * ext.mods.mag));
+  assert.ok(Math.abs(eff.reload - M4.reload * ext.mods.reload) < 1e-9);
+  assert.strictEqual(eff.dmg, M4.dmg, 'an untouched field must not move');
+  assert.strictEqual(eff.name, M4.name);
+});
+
+test('applying attachments never mutates the base weapon', () => {
+  // CFG.weapons is shared across runs; an in-place modify leaks into the next one.
+  const snapshot = JSON.stringify(M4);
+  CORE.applyAttachments(M4, { mag: 'extmag', barrel: 'longbarrel', under: 'foregrip' });
+  assert.strictEqual(JSON.stringify(M4), snapshot);
+});
+
+test('a full loadout composes, one slot at a time', () => {
+  const full = { optic: 'reddot', barrel: 'longbarrel', under: 'foregrip',
+                 mag: 'extmag', stock: 'heavystock' };
+  const eff = CORE.applyAttachments(M4, full);
+  let expectedRecoilV = M4.recoilV;
+  for (const key of ['reddot', 'longbarrel', 'foregrip', 'extmag', 'heavystock']) {
+    const m = CORE.attachmentByKey(key).mods.recoilV;
+    if (m !== undefined) expectedRecoilV *= m;
+  }
+  assert.ok(Math.abs(eff.recoilV - expectedRecoilV) < 1e-12, 'recoil must compose across slots');
+  assert.strictEqual(eff.attachments.length, 5);
+});
+
+test('magazine and reserve stay whole numbers', () => {
+  for (const w of [M4, { mag: 5, reserveMax: 35, dmg: 120 }, { mag: 32, reserveMax: 160, dmg: 18 }]) {
+    const eff = CORE.applyAttachments(w, { mag: 'extmag' });
+    assert.strictEqual(eff.mag, Math.round(eff.mag), 'a magazine of 7.5 rounds is not a thing');
+    assert.strictEqual(eff.reserveMax, Math.round(eff.reserveMax));
+    assert.ok(eff.mag >= 1, 'a magazine can never round down to zero');
+  }
+  // Even a shrinking magazine must leave at least one round. mag 1 x 0.85 rounds
+  // back to 1, so the case that actually exercises the floor is a zero.
+  assert.ok(CORE.applyAttachments({ mag: 1, reserveMax: 0 }, { mag: 'fastmag' }).mag >= 1);
+  assert.ok(CORE.applyAttachments({ mag: 0, reserveMax: 0 }, { mag: 'fastmag' }).mag >= 1,
+    'a weapon can never end up unable to hold a round');
+  assert.ok(CORE.applyAttachments({ mag: 0, reserveMax: 0 }, {}).mag >= 1);
+});
+
+test('a non-numeric weapon field is left alone rather than turned into NaN', () => {
+  // applyAttachments walks a fixed field list, so the only thing standing between a
+  // malformed weapon and a NaN magazine is the type guard.
+  // '30' and null both COERCE to numbers, so they prove nothing — the values that
+  // expose a missing type guard are the ones that coerce to NaN.
+  const weird = { mag: 'thirty', reserveMax: undefined, reload: 2.1, dmg: 26 };
+  const eff = CORE.applyAttachments(weird, { mag: 'extmag' });
+  assert.ok(!Number.isNaN(eff.reserveMax), 'reserveMax must not become NaN');
+  assert.ok(!Number.isNaN(eff.mag), 'mag must not become NaN, it must be left as it was');
+  assert.strictEqual(eff.mag, 'thirty', 'a non-numeric field is left untouched');
+  assert.ok(Math.abs(eff.reload - 2.1 * CORE.attachmentByKey('extmag').mods.reload) < 1e-9,
+    'and the fields that ARE numeric still apply');
+});
+
+test('fields the base weapon lacks get a neutral default', () => {
+  const eff = CORE.applyAttachments(M4, {});
+  assert.strictEqual(eff.adsSpeed, 1);
+  assert.strictEqual(eff.penetration, 1);
+  assert.strictEqual(eff.sway, 1);
+  assert.strictEqual(eff.moveMul, 1);
+});
+
+test('a loadout is sanitised against slot, existence and rank', () => {
+  assert.deepStrictEqual(CORE.sanitizeLoadout({ optic: 'foregrip' }, 99), {},
+    'a foregrip is not an optic');
+  assert.deepStrictEqual(CORE.sanitizeLoadout({ optic: 'not_a_thing' }, 99), {});
+  assert.deepStrictEqual(CORE.sanitizeLoadout({ optic: 'reddot' }, 1), {},
+    'rank 1 cannot equip a rank 2 optic');
+  assert.deepStrictEqual(CORE.sanitizeLoadout({ optic: 'reddot' }, 99), { optic: 'reddot' });
+  assert.deepStrictEqual(CORE.sanitizeLoadout(null, 99), {});
+  assert.deepStrictEqual(CORE.sanitizeLoadout('nope', 99), {});
+});
+
+test('a loadout can never stack two attachments in one slot', () => {
+  const lo = CORE.sanitizeLoadout({ optic: 'reddot', barrel: 'longbarrel' }, 99);
+  assert.strictEqual(Object.keys(lo).length, 2);
+  for (const slot in lo) {
+    assert.strictEqual(CORE.attachmentByKey(lo[slot]).slot, slot);
+  }
+});
+
+test('an unsanitised loadout cannot smuggle a locked attachment through', () => {
+  // applyAttachments trusts its input, so the rank gate lives in sanitizeLoadout and
+  // every read path has to go through it.
+  const gated = CORE.sanitizeLoadout({ optic: 'scope4x' }, 1);
+  assert.deepStrictEqual(gated, {});
+  const eff = CORE.applyAttachments(M4, gated);
+  assert.strictEqual(eff.adsSpread, M4.adsSpread, 'nothing should have been applied');
+});
+
+test('the delta flips the arrow for stats where lower is better', () => {
+  const grip = CORE.attachmentDelta(CORE.attachmentByKey('foregrip'));
+  const fields = grip.up.map((x) => x.field);
+  assert.ok(fields.indexOf('recoilV') >= 0, 'less recoil has to read as an upside');
+  assert.ok(grip.down.map((x) => x.field).indexOf('adsSpeed') >= 0, 'slower ADS is a downside');
+  const ext = CORE.attachmentDelta(CORE.attachmentByKey('extmag'));
+  assert.ok(ext.down.map((x) => x.field).indexOf('reload') >= 0, 'a longer reload is a downside');
+  assert.deepStrictEqual(CORE.attachmentDelta(null), { up: [], down: [] });
+});
+
+// ---- Objective waves ----
+test('objective waves land on their cadence and never on a special', () => {
+  for (let n = 1; n <= 60; n++) {
+    const obj = CORE.objectiveWaveAt(n);
+    if (CORE.specialWaveAt(n)) {
+      assert.strictEqual(obj, false,
+        'wave ' + n + ' is already a special — two announced modifiers reads as noise');
+    } else if (n >= CORE.OBJECTIVE_EVERY && n % CORE.OBJECTIVE_EVERY === 0) {
+      assert.strictEqual(obj, true, 'wave ' + n);
+    } else {
+      assert.strictEqual(obj, false, 'wave ' + n);
+    }
+  }
+});
+
+test('early waves carry no objective', () => {
+  for (let n = 1; n < CORE.OBJECTIVE_EVERY; n++) {
+    assert.strictEqual(CORE.objectiveWaveAt(n), false);
+  }
+});
+
+test('holding builds progress and leaving drains it', () => {
+  // "Stand here once" is not a hold. Leaving has to cost something.
+  let t = 0;
+  for (let i = 0; i < 60 * 5; i++) t = CORE.objectiveProgress(t, 1 / 60, true);
+  assert.ok(Math.abs(t - 5) < 0.05, 'five seconds inside is five seconds of progress');
+  const peak = t;
+  for (let i = 0; i < 60 * 4; i++) t = CORE.objectiveProgress(t, 1 / 60, false);
+  assert.ok(t < peak, 'leaving must drain');
+  assert.ok(t > 0, 'but not instantly wipe it');
+});
+
+test('progress never goes negative or past the requirement', () => {
+  let t = 0;
+  for (let i = 0; i < 60 * 30; i++) t = CORE.objectiveProgress(t, 1 / 60, false);
+  assert.strictEqual(t, 0, 'draining bottoms out at zero');
+  for (let i = 0; i < 60 * 120; i++) t = CORE.objectiveProgress(t, 1 / 60, true);
+  assert.strictEqual(t, CORE.OBJECTIVE_HOLD, 'and banking stops at the requirement');
+  assert.strictEqual(CORE.objectiveComplete(t), true);
+});
+
+test('an objective completes only at the full hold', () => {
+  assert.strictEqual(CORE.objectiveComplete(CORE.OBJECTIVE_HOLD - 0.01), false);
+  assert.strictEqual(CORE.objectiveComplete(CORE.OBJECTIVE_HOLD), true);
+  assert.strictEqual(CORE.objectiveComplete(0), false);
+});
+
+test('the zone is placed away from the player', () => {
+  const ring = [];
+  for (let a = 0; a < 12; a++) {
+    const g = a / 12 * Math.PI * 2;
+    ring.push([Math.cos(g) * 33, Math.sin(g) * 33]);
+  }
+  const i = CORE.pickObjectiveSpot(ring, 0, 24, 18);
+  assert.ok(i >= 0);
+  const d = Math.hypot(ring[i][0] - 0, ring[i][1] - 24);
+  assert.ok(d >= 18, 'the objective must be a move, not a stand-still: ' + d.toFixed(1));
+});
+
+test('a zone is still placed when nothing is far enough away', () => {
+  // Refusing to place one would silently drop the objective for that wave.
+  const cramped = [[0, 0], [1, 0], [0, 1]];
+  const i = CORE.pickObjectiveSpot(cramped, 0, 0, 50);
+  assert.ok(i >= 0 && i < cramped.length, 'it must fall back to the furthest option');
+});
+
+test('the minimum distance is a hard floor, not just a preference', () => {
+  // The scoring prefers roughly min+8, which USUALLY excludes near points on its
+  // own. This is the arrangement where it does not: a point just inside the floor
+  // scores better than the only qualifying one, so only the explicit guard keeps
+  // the objective from spawning on top of the player.
+  const candidates = [[0, 17], [0, 60]];
+  const i = CORE.pickObjectiveSpot(candidates, 0, 0, 18);
+  assert.strictEqual(i, 1,
+    'the 17 m option is inside the floor and must be rejected even though it scores better');
+});

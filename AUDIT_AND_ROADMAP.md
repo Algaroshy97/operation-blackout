@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-13 complete bar two items (2026-09-12)
+> ## Status — Phases 0-13 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -611,6 +611,44 @@
 > **Still open, and the last two items in `COD_ROADMAP.md`:** 12.4 objective waves, and
 > 13.3 attachments — the largest single task in the document, and one that wants its own
 > pass now that recoil patterns and bloom exist for it to modify.
+
+> **Attachments and objective waves — the roadmap is complete.** The last two items,
+> and attachments were sequenced last on purpose: one that modifies a *random* recoil
+> value modifies nothing a player can perceive. Measured with a full five-slot loadout
+> on the M4:
+>
+> | | base | with attachments |
+> |---|---|---|
+> | magazine / reserve | 30 / 150 | **42 / 180** |
+> | reload | 2.10 s | **2.56 s** |
+> | range | 120 m | **150 m** |
+> | vertical / horizontal recoil | 0.01400 / 0.00600 | **0.00967 / 0.00420** |
+> | ADS speed / sway / ADS movement | 1.00 | **0.92 / 0.60 / 0.85** |
+> | penetration budget (AR) | 0.75 | **0.975** |
+>
+> Every mod is a multiplier on a named field, so nothing in CORE knows what a weapon
+> is, and the base is never mutated. **Every attachment is a trade** — a test asserts
+> that none has an empty downside, because an all-upside attachment turns the choice
+> into a checklist.
+>
+> The gunsmith is a screen off the **main menu**, not a step in the deploy flow: a
+> loadout is a career choice, and adding a step would have broken
+> `scripts/probe_live.py` for the second time. Loadouts are re-sanitised against the
+> current rank on every read, so one saved at a higher rank cannot be carried by a wiped
+> career.
+>
+> **Objective waves** land on waves 4, 8, 12, 16, 24 — never on a special wave, because
+> two announced modifiers at once reads as noise. Verified: 3 s outside banks nothing,
+> 5 s inside banks 5.02, leaving drains 5.02 → 3.01 over 4 s, and a completed hold pays
+> 900 credits. Progress **drains** when the player leaves; without that it is "stand here
+> once", which is not a hold.
+>
+> 21 new node tests (232 total). Mutation-checked 15 of 15 — but only after three
+> survivors turned out to be weak tests rather than equivalent mutants: a magazine floor
+> never exercised because 1 × 0.85 rounds back to 1; a type guard tested with values that
+> silently coerce instead of producing NaN; and a minimum-distance floor that agrees with
+> the placement scoring on every normal input, so only a contrived arrangement separates
+> them.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh
