@@ -169,6 +169,12 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertNotIn("colliders.push(ground)", world_source)
         self.assertIn("scene.add(ground);\nraycastColliders.push(ground);", world_source)
 
+    def test_skinned_soldier_rebind_helper(self) -> None:
+        enemy_source = ENEMIES.read_text()
+        self.assertIn("function skClone(source)", enemy_source)
+        self.assertIn("skClone(gltf.scene)", enemy_source)
+        self.assertIn("node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix)", enemy_source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -105,8 +105,10 @@ function probeSkinnedSoldier() {
     position: camera.position.clone(), rotation: camera.rotation.clone(),
     fov: camera.fov, aspect: camera.aspect
   };
+  const gunVisible = typeof gunGroup !== 'undefined' ? gunGroup.visible : true;
   let probe = null;
   try {
+    if (typeof gunGroup !== 'undefined') gunGroup.visible = false;
     camera.position.set(0, 1.7, -31);
     camera.lookAt(0, 1.0, -35);
     camera.updateMatrixWorld(true);
@@ -131,6 +133,7 @@ function probeSkinnedSoldier() {
     GLB_SOLDIER_BROKEN = true;
     console.warn('Soldier probe threw, using simple enemy models.', err);
   } finally {
+    if (typeof gunGroup !== 'undefined') gunGroup.visible = gunVisible;
     if (probe) {
       scene.remove(probe.parts.group);
       const idx = enemies.indexOf(probe);
@@ -149,6 +152,22 @@ function probeSkinnedSoldier() {
   }
 }
 
+function skClone(source) {
+  const lookup = new Map();
+  const clone = source.clone(true);
+  (function parallel(a, b) {
+    lookup.set(a, b);
+    for (let i = 0; i < a.children.length; i++) parallel(a.children[i], b.children[i]);
+  })(source, clone);
+  clone.traverse(function (node) {
+    if (node.isSkinnedMesh && node.skeleton) {
+      const bones = node.skeleton.bones.map(function (b) { return lookup.get(b) || b; });
+      node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix);
+    }
+  });
+  return clone;
+}
+
 function spawnEnemy(kind, x, z) {
   let parts = null;
   let mixer = null;
@@ -161,7 +180,7 @@ function spawnEnemy(kind, x, z) {
   const GLB_SOLDIER_SCALE = 1.85 / 0.84;
   if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
     const gltf = GLB_PARSED.SOLDIER;
-    const root = gltf.scene.clone(true);
+    const root = skClone(gltf.scene);
     root.scale.setScalar(GLB_SOLDIER_SCALE);
     // Animated skinned bounds can become stale on some GPUs, causing false culling.
     root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
