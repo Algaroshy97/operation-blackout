@@ -11,7 +11,7 @@ const CFG = {
     { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
     { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false }
   ],
-  ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 2.2, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
+  ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
   score: { kill: 100, headshot: 50, waveClear: 250, multikill: 60 },
   assist: { angle: 0.14, strength: 2.2, bulletAngle: 0.03, swayAmp: 0.0042, steadyMul: 0.14 }

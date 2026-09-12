@@ -67,6 +67,9 @@
   #scoping-overlay.scope-sniper .scope-cross{display:block}
   #steady-ind{top:62%;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .2s}
   #steady-ind.steady-on{color:#7ee08a}
+  #grenade-charge{top:58%;left:50%;transform:translateX(-50%);color:#ffd24a;font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 4px #000;opacity:0;transition:opacity .15s;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+  #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
+  #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
   #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px)}
   #start-screen{display:flex}
@@ -140,6 +143,7 @@
   <div id="weapon-name">M4 Carbine</div><div id="reload-hint">RELOADING</div>
 </div>
 <div id="sprint-ind" class="hud"></div>
+<div id="grenade-charge" class="hud"><div id="grenade-charge-txt">CHARGE</div><div id="grenade-charge-bar"><div id="grenade-charge-fill"></div></div></div>
 <div id="wave-banner" class="hud"><div class="wb-big" id="wb-big">WAVE 2</div><div class="wb-sub" id="wb-sub">HOSTILES INBOUND</div></div>
 <div id="center-msg" class="hud"></div>
 <div id="start-screen">
@@ -3871,6 +3875,7 @@ function loadEmbeddedAssets(onProgress) {
 
 // ============ CONFIG, RENDERER & WORLD BUILD ============
 'use strict';
+const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
 const CFG = {
   player: { height: 1.7, crouchHeight: 1.05, radius: 0.35, speed: 5.4, sprintMul: 1.65, crouchMul: 0.55, accel: 16, jumpVel: 5.6, gravity: 16, health: 100, armor: 50, regenDelay: 3.5, regenRate: 12, maxStamina: 3.2 },
   world: { size: 90, fogColor: 0x1a1f2b, skyColor: 0x8aa4c8 },
@@ -3881,7 +3886,7 @@ const CFG = {
     { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
     { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false }
   ],
-  ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 2.2, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
+  ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
   score: { kill: 100, headshot: 50, waveClear: 250, multikill: 60 },
   assist: { angle: 0.14, strength: 2.2, bulletAngle: 0.03, swayAmp: 0.0042, steadyMul: 0.14 }
@@ -3894,7 +3899,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
@@ -3915,7 +3920,7 @@ addEventListener('resize', () => {
 const sun = new THREE.DirectionalLight(0xffd9b0, 1.35);
 sun.position.set(45, 55, -30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
 sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
 sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
@@ -4590,8 +4595,7 @@ function startSlide() {
 
 // ============ MOBILE TOUCH CONTROLS ============
 'use strict';
-// Detect touch device once
-const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
+// IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
 
@@ -4702,7 +4706,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     keys['KeyC'] = true;
   }, function () { keys['KeyC'] = false; });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
-  holdBtn('tbtn-nade', function () { pressed['KeyG'] = true; }, function () {});
+  holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
@@ -4801,8 +4805,7 @@ function updateWeapons(dt) {
       if (s.reserve > 0) tryReload();
     }
   } else { dryPlayed = false; }
-  // grenade
-  if (pressed['KeyG']) throwGrenade();
+  // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
@@ -5349,7 +5352,10 @@ function spawnEnemy(kind, x, z) {
   }
   const scale = kind === 2 ? 1.25 : 1;
   parts.group.scale.set(scale, scale, scale);
-  const hp = kind === 0 ? CFG.ai.maxHealth : kind === 1 ? CFG.ai.maxHealth * 1.35 : CFG.ai.maxHealth * 2.6;
+  const baseHp = kind === 0 ? CFG.ai.maxHealth : kind === 1 ? CFG.ai.maxHealth * 1.35 : 320;
+  const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
+  const waveMul = Math.min(2.2, 1 + 0.06 * (Math.max(1, curWave) - 1));
+  const hp = Math.round(baseHp * waveMul);
   const en = {
     kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
@@ -6128,10 +6134,120 @@ const grenadeGeo = new THREE.SphereGeometry(0.11, 10, 8);
 const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2e, roughness: 0.5, metalness: 0.3 });
 const fuseLightMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
 
-function throwGrenade() {
+// ---- Trajectory preview pool (zero per-frame allocation) ----
+const PREVIEW_DOT_COUNT = 28;
+const previewDotGeo = new THREE.SphereGeometry(0.04, 6, 4);
+const previewDotMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.8 });
+const previewDots = [];
+for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
+  const dot = new THREE.Mesh(previewDotGeo, previewDotMat);
+  dot.visible = false;
+  dot.userData.vfx = true;
+  dot.castShadow = false;
+  dot.receiveShadow = false;
+  scene.add(dot);
+  previewDots.push(dot);
+}
+function hidePreviewDots() {
+  for (let i = 0; i < previewDots.length; i++) previewDots[i].visible = false;
+}
+
+// ---- Blast radius ring pool ----
+const blastRingGeo = new THREE.RingGeometry(CFG.grenade.radius - 0.09, CFG.grenade.radius, 48);
+const blastRingPool = [];
+function getBlastRing() {
+  if (blastRingPool.length > 0) return blastRingPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+  const r = new THREE.Mesh(blastRingGeo, mat);
+  r.rotation.x = -Math.PI / 2;
+  r.userData.vfx = true;
+  r.castShadow = false;
+  r.receiveShadow = false;
+  return r;
+}
+function releaseBlastRing(ring) {
+  if (!ring) return;
+  scene.remove(ring);
+  blastRingPool.push(ring);
+}
+
+// ---- Grenade hold-to-charge state ----
+let grenadeCharging = false;
+let grenadeChargeT = 0;
+const GRENADE_MIN_SPEED = 6.0;
+const GRENADE_MAX_SPEED = 13.0;
+const GRENADE_RAMP_DURATION = 1.0;
+const GRENADE_TAP_THRESHOLD = 0.22;
+
+function getGrenadeSpeed() {
+  const ratio = Math.min(1, grenadeChargeT / GRENADE_RAMP_DURATION);
+  return GRENADE_MIN_SPEED + ratio * (GRENADE_MAX_SPEED - GRENADE_MIN_SPEED);
+}
+
+const _prevDir = new THREE.Vector3();
+function updateGrenadePreview(speed) {
+  if (grenades.count <= 0 || player.dead || paused || !started) {
+    hidePreviewDots();
+    return;
+  }
+  _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _prevDir.y += 0.45;
+  _prevDir.normalize();
+
+  let px = camera.position.x;
+  let py = camera.position.y - 0.1;
+  let pz = camera.position.z;
+  let vx = _prevDir.x * speed;
+  let vy = _prevDir.y * speed;
+  let vz = _prevDir.z * speed;
+  const dtStep = 0.04;
+
+  let stopped = false;
+  for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
+    if (stopped) {
+      previewDots[i].visible = false;
+      continue;
+    }
+    vy -= 14 * dtStep;
+    px += vx * dtStep;
+    py += vy * dtStep;
+    pz += vz * dtStep;
+
+    // ground hit check
+    if (py <= 0.11) {
+      py = 0.11;
+      previewDots[i].position.set(px, py, pz);
+      previewDots[i].visible = true;
+      stopped = true;
+      continue;
+    }
+    // wall hit check (colliders array)
+    let hitWall = false;
+    for (let c = 0; c < colliders.length; c++) {
+      const col = colliders[c];
+      if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
+          py > col.min.y && py < col.max.y &&
+          pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
+        hitWall = true;
+        break;
+      }
+    }
+    if (hitWall) {
+      previewDots[i].position.set(px, py, pz);
+      previewDots[i].visible = true;
+      stopped = true;
+      continue;
+    }
+    previewDots[i].position.set(px, py, pz);
+    previewDots[i].visible = true;
+  }
+}
+
+function throwGrenade(customSpeed) {
   if (grenades.count <= 0 || grenades.cd > 0 || player.dead) return;
   grenades.count--;
   grenades.cd = 0.8;
+  const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), fuseLightMat);
   blink.position.y = 0.1;
@@ -6140,14 +6256,62 @@ function throwGrenade() {
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   dir.y += 0.45; dir.normalize();
-  liveGrenades.push({ m: m, vel: dir.multiplyScalar(CFG.grenade.speed), fuse: CFG.grenade.fuse, blink: blink });
+  liveGrenades.push({
+    m: m,
+    vel: dir.multiplyScalar(speed),
+    fuse: CFG.grenade.fuse,
+    blink: blink,
+    atRest: false,
+    ring: null,
+    restFuse: CFG.grenade.fuse
+  });
   scene.add(m);
+  playSound('pin');
   playSound('draw');
   updateHudAmmo();
 }
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+
+  // Charge / aim input handling
+  const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
+  if (keys['KeyG']) {
+    if (!grenadeCharging && canCharge) {
+      grenadeCharging = true;
+      grenadeChargeT = 0;
+    }
+    if (grenadeCharging) {
+      if (player.dead || paused || !started || grenades.count <= 0) {
+        grenadeCharging = false;
+        grenadeChargeT = 0;
+        hidePreviewDots();
+        if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+      } else {
+        grenadeChargeT += dt;
+        const curSpeed = getGrenadeSpeed();
+        updateGrenadePreview(curSpeed);
+        const chargePct = Math.min(100, Math.round((grenadeChargeT / GRENADE_RAMP_DURATION) * 100));
+        if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(true, chargePct, curSpeed);
+      }
+    } else {
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+    }
+  } else {
+    if (grenadeCharging) {
+      const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+      grenadeCharging = false;
+      grenadeChargeT = 0;
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+      throwGrenade(throwSpeed);
+    } else {
+      hidePreviewDots();
+      if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(false);
+    }
+  }
+
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
     g.fuse -= dt;
@@ -6177,10 +6341,29 @@ function updateGrenades(dt) {
         g.vel.y *= 0.8;
       }
     }
+    // detect when grenade comes to rest on ground
+    const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
+    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+      g.atRest = true;
+      g.restFuse = Math.max(0.1, g.fuse);
+      const ring = getBlastRing();
+      ring.position.set(g.m.position.x, 0.03, g.m.position.z);
+      ring.material.opacity = 0.32;
+      scene.add(ring);
+      g.ring = ring;
+    }
+    if (g.ring) {
+      const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
+      g.ring.material.opacity = 0.32 * fade;
+    }
     // blink faster as fuse burns
     g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
     if (g.fuse <= 0) {
       explodeGrenade(g.m.position);
+      if (g.ring) {
+        releaseBlastRing(g.ring);
+        g.ring = null;
+      }
       scene.remove(g.m);
       liveGrenades.splice(i, 1);
     }
@@ -6339,8 +6522,27 @@ const hud = {
   hitmark: document.querySelector('#crosshair .hitmark'),
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
-  minimap: $id('minimap-canvas'), compass: $id('compass-canvas')
+  minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
+  grenadeCharge: $id('grenade-charge'),
+  grenadeChargeTxt: $id('grenade-charge-txt'),
+  grenadeChargeFill: $id('grenade-charge-fill')
 };
+
+function updateHudGrenadeCharge(visible, pct, speed) {
+  if (!hud.grenadeCharge) {
+    hud.grenadeCharge = $id('grenade-charge');
+    hud.grenadeChargeTxt = $id('grenade-charge-txt');
+    hud.grenadeChargeFill = $id('grenade-charge-fill');
+    if (!hud.grenadeCharge) return;
+  }
+  if (!visible) {
+    hud.grenadeCharge.style.opacity = '0';
+    return;
+  }
+  hud.grenadeCharge.style.opacity = '1';
+  if (hud.grenadeChargeFill) hud.grenadeChargeFill.style.width = pct + '%';
+  if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = 'GRENADE ' + Math.round(speed || 0) + ' M/S (' + pct + '%)';
+}
 
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
@@ -6430,6 +6632,8 @@ let waveQueue = 0, spawnTimer = 0, waveActive = false, gameEnded = false, gameT 
 let betweenWaveT = 0;
 let nextEstepT = 0;   // global throttle for positional enemy footsteps
 
+function getWaveNum() { return waveNum; }
+
 function startWave(n) {
   waveNum = n;
   waveQueue = Math.round(CFG.wave.baseCount + (n - 1) * CFG.wave.growth);
@@ -6443,12 +6647,21 @@ function startWave(n) {
 function updateWaves(dt) {
   if (gameEnded || player.dead) return;
   if (waveActive) {
-    // spawn queue drains over time, respecting max active
+    // spawn queue drains in bursts of 3-4 enemies, respecting max active
     if (waveQueue > 0) {
       spawnTimer -= dt;
-      if (spawnTimer <= 0 && aliveEnemies() < CFG.wave.maxActive) {
-        spawnFromQueue();
-        spawnTimer = CFG.wave.spawnInterval[0] + Math.random() * (CFG.wave.spawnInterval[1] - CFG.wave.spawnInterval[0]);
+      if (spawnTimer <= 0) {
+        const canSpawn = Math.max(0, CFG.wave.maxActive - aliveEnemies());
+        if (canSpawn > 0) {
+          const burstSize = Math.floor(Math.random() * 2) + 3; // 3 or 4 enemies
+          const count = Math.min(burstSize, waveQueue, canSpawn);
+          for (let i = 0; i < count; i++) {
+            spawnFromQueue();
+          }
+          spawnTimer = 2.5 + Math.random() * 1.5; // short pause between bursts
+        } else {
+          spawnTimer = 0.5;
+        }
       }
     } else if (aliveEnemies() === 0) {
       // wave cleared
@@ -6671,7 +6884,13 @@ function resetGame() {
   enemies.length = 0;
   for (let i = pickups.length - 1; i >= 0; i--) scene.remove(pickups[i].m);
   pickups.length = 0;
-  for (let i = liveGrenades.length - 1; i >= 0; i--) scene.remove(liveGrenades[i].m);
+  for (let i = liveGrenades.length - 1; i >= 0; i--) {
+    if (liveGrenades[i].ring) {
+      scene.remove(liveGrenades[i].ring);
+      if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+    }
+    scene.remove(liveGrenades[i].m);
+  }
   liveGrenades.length = 0;
   // clear vfx
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
@@ -6857,10 +7076,15 @@ function frame(now) {
     // Adapt deliberately, not every sample: frequent canvas reallocations cause
     // the camera to appear to hitch on slower GPUs.
     qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 1.5) {
+    if (qualityAdjustT >= 4.5) {
       const maxPR = Math.min(window.devicePixelRatio, 1.5);
-      if (fps < 48 && renderer.getPixelRatio() > 0.65) renderer.setPixelRatio(Math.max(0.65, renderer.getPixelRatio() - 0.1));
-      else if (fps > 62 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
+      const currentPR = renderer.getPixelRatio();
+      let desiredPR = currentPR;
+      if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
+      else if (fps > 62 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
+      if (Math.abs(desiredPR - currentPR) >= 0.05) {
+        renderer.setPixelRatio(desiredPR);
+      }
       qualityAdjustT = 0;
     }
     fpsAcc = 0; fpsN = 0;

@@ -122,6 +122,8 @@ let waveQueue = 0, spawnTimer = 0, waveActive = false, gameEnded = false, gameT 
 let betweenWaveT = 0;
 let nextEstepT = 0;   // global throttle for positional enemy footsteps
 
+function getWaveNum() { return waveNum; }
+
 function startWave(n) {
   waveNum = n;
   waveQueue = Math.round(CFG.wave.baseCount + (n - 1) * CFG.wave.growth);
@@ -135,12 +137,21 @@ function startWave(n) {
 function updateWaves(dt) {
   if (gameEnded || player.dead) return;
   if (waveActive) {
-    // spawn queue drains over time, respecting max active
+    // spawn queue drains in bursts of 3-4 enemies, respecting max active
     if (waveQueue > 0) {
       spawnTimer -= dt;
-      if (spawnTimer <= 0 && aliveEnemies() < CFG.wave.maxActive) {
-        spawnFromQueue();
-        spawnTimer = CFG.wave.spawnInterval[0] + Math.random() * (CFG.wave.spawnInterval[1] - CFG.wave.spawnInterval[0]);
+      if (spawnTimer <= 0) {
+        const canSpawn = Math.max(0, CFG.wave.maxActive - aliveEnemies());
+        if (canSpawn > 0) {
+          const burstSize = Math.floor(Math.random() * 2) + 3; // 3 or 4 enemies
+          const count = Math.min(burstSize, waveQueue, canSpawn);
+          for (let i = 0; i < count; i++) {
+            spawnFromQueue();
+          }
+          spawnTimer = 2.5 + Math.random() * 1.5; // short pause between bursts
+        } else {
+          spawnTimer = 0.5;
+        }
       }
     } else if (aliveEnemies() === 0) {
       // wave cleared

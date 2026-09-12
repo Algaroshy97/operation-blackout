@@ -212,7 +212,10 @@ function spawnEnemy(kind, x, z) {
   }
   const scale = kind === 2 ? 1.25 : 1;
   parts.group.scale.set(scale, scale, scale);
-  const hp = kind === 0 ? CFG.ai.maxHealth : kind === 1 ? CFG.ai.maxHealth * 1.35 : CFG.ai.maxHealth * 2.6;
+  const baseHp = kind === 0 ? CFG.ai.maxHealth : kind === 1 ? CFG.ai.maxHealth * 1.35 : 320;
+  const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
+  const waveMul = Math.min(2.2, 1 + 0.06 * (Math.max(1, curWave) - 1));
+  const hp = Math.round(baseHp * waveMul);
   const en = {
     kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
