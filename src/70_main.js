@@ -33,7 +33,8 @@ function killPlayer() {
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   clearCheckpoint();   // a lost run is not resumable
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: false });
   $id('ds-stats').innerHTML =
     'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
@@ -50,7 +51,8 @@ function victory() {
   if (document.pointerLockElement) document.exitPointerLock();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: true });
   $id('vs-stats').innerHTML =
     'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
@@ -220,7 +222,9 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = statsSummaryHtml();
+  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  const ch = $id('challenge-list');
+  if (ch) ch.innerHTML = challengesHtml();
 }
 
 // gun select UI
@@ -237,16 +241,21 @@ function buildGunSelect(slot) {
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
+  const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
-    card.className = 'gun-card';
-    enableMenuKeyboard(card);
+    card.className = 'gun-card' + (unlocked ? '' : ' locked');
+    // A locked card is shown rather than hidden: knowing what is coming is most of
+    // what a progression system is for.
+    if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
       '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>';
-    card.addEventListener('click', function () { pickGun(i); });
+      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
+    if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
 }

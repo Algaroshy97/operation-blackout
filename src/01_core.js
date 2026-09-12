@@ -194,7 +194,8 @@ const CORE = (function () {
 
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
-    return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0 };
+    return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
+             xp: 0, totalHeadshots: 0, totalStreaks: 0 };
   }
   function sanitizeStats(stored) {
     const out = defaultStats();
@@ -214,7 +215,101 @@ const CORE = (function () {
     if (run.accuracy > next.bestAccuracy) { next.bestAccuracy = run.accuracy; beat.accuracy = true; }
     next.runs = next.runs + 1;
     next.totalKills = next.totalKills + (run.kills || 0);
-    return { stats: next, beat: beat };
+    next.totalHeadshots = next.totalHeadshots + (run.headshots || 0);
+    next.totalStreaks = next.totalStreaks + (run.streaks || 0);
+    // Rank is derived from XP rather than stored, so a corrupted rank cannot exist.
+    const rankBefore = rankForXp(next.xp);
+    const gained = runXp(run);
+    next.xp = next.xp + gained;
+    const rankAfter = rankForXp(next.xp);
+    beat.rank = rankAfter > rankBefore;
+    return { stats: next, beat: beat, xpGained: gained, rank: rankAfter, rankBefore: rankBefore };
+  }
+
+  // ---- Meta progression: XP, rank and unlocks -----------------------------------
+  // Career stats already survived a reload; nothing was ever unlocked by them, so a
+  // second run started exactly like the first. XP is earned from the things the run
+  // already counts, and rank gates the weapon roster.
+  //
+  // A quadratic curve rather than a flat one: early ranks arrive fast enough to be
+  // felt in the first two runs, and the last ones take long enough to still mean
+  // something.
+  const MAX_RANK = 20;
+  const XP_BASE = 900;
+  function xpForRank(rank) {
+    if (rank <= 1) return 0;
+    const r = rank - 1;
+    return Math.round(XP_BASE * r * (1 + r * 0.22));
+  }
+  function rankForXp(xp) {
+    const x = xp > 0 ? xp : 0;
+    let r = 1;
+    while (r < MAX_RANK && x >= xpForRank(r + 1)) r++;
+    return r;
+  }
+  // Progress toward the NEXT rank, for the bar on the menu. At max rank the bar is
+  // full rather than empty, which is the difference between "done" and "broken".
+  function rankProgress(xp) {
+    const rank = rankForXp(xp);
+    if (rank >= MAX_RANK) return { rank: rank, into: 1, need: 1, pct: 1, max: true };
+    const base = xpForRank(rank), next = xpForRank(rank + 1);
+    const into = Math.max(0, xp - base), need = next - base;
+    return { rank: rank, into: into, need: need, pct: need > 0 ? into / need : 1, max: false };
+  }
+  // XP from one run. Weighted toward the things that are hard rather than the things
+  // that are long: a headshot is worth more than a body shot, and reaching a wave is
+  // worth more than farming an early one.
+  const XP_PER = { kill: 12, headshot: 8, wave: 90, victory: 900, accuracyBonus: 600 };
+  function runXp(run) {
+    if (!run) return 0;
+    const kills = Math.max(0, run.kills || 0);
+    const heads = Math.max(0, run.headshots || 0);
+    const wave = Math.max(0, run.wave || 0);
+    const acc = Math.max(0, Math.min(100, run.accuracy || 0));
+    let xp = kills * XP_PER.kill + heads * XP_PER.headshot;
+    // Waves are worth progressively more, so wave 14 is not wave 1 fourteen times.
+    xp += XP_PER.wave * wave * (1 + wave * 0.06);
+    if (run.victory) xp += XP_PER.victory;
+    xp += Math.round(XP_PER.accuracyBonus * (acc / 100) * (acc / 100));
+    return Math.round(xp);
+  }
+
+  // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
+  // available so a new player still has a choice on their first deploy.
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6];
+  function weaponUnlockRank(index) {
+    const r = WEAPON_UNLOCK_RANK[index];
+    return r === undefined ? 1 : r;
+  }
+  function weaponUnlocked(index, rank) { return rank >= weaponUnlockRank(index); }
+
+  // ---- Challenges ----------------------------------------------------------------
+  // Cheap retention that rides the stats store rather than adding one. Each is a
+  // counter with a target; nothing here needs to know how the counter is produced.
+  const CHALLENGES = [
+    { key: 'kills100',   stat: 'totalKills',   target: 100,  name: 'BODY COUNT',   blurb: '100 hostiles eliminated' },
+    { key: 'kills1000',  stat: 'totalKills',   target: 1000, name: 'ATTRITION',    blurb: '1000 hostiles eliminated' },
+    { key: 'heads100',   stat: 'totalHeadshots', target: 100, name: 'MARKSMAN',    blurb: '100 headshots' },
+    { key: 'wave10',     stat: 'bestWave',     target: 10,   name: 'DUG IN',       blurb: 'Reach wave 10' },
+    { key: 'wave15',     stat: 'bestWave',     target: 15,   name: 'AREA SECURED', blurb: 'Clear all 15 waves' },
+    { key: 'acc50',      stat: 'bestAccuracy', target: 50,   name: 'DISCIPLINED',  blurb: '50% accuracy in a run' },
+    { key: 'runs25',     stat: 'runs',         target: 25,   name: 'VETERAN',      blurb: '25 deployments' },
+    { key: 'streaks10',  stat: 'totalStreaks', target: 10,   name: 'AIR SUPPORT',  blurb: '10 scorestreaks earned' }
+  ];
+  function challengeProgress(stats, def) {
+    const s = sanitizeStats(stats);
+    const have = s[def.stat] || 0;
+    return { key: def.key, name: def.name, blurb: def.blurb,
+             have: have, target: def.target,
+             done: have >= def.target,
+             pct: Math.min(1, def.target > 0 ? have / def.target : 1) };
+  }
+  function challengesDone(stats) {
+    let n = 0;
+    for (let i = 0; i < CHALLENGES.length; i++) {
+      if (challengeProgress(stats, CHALLENGES[i]).done) n++;
+    }
+    return n;
   }
 
   // ---- Difficulty -------------------------------------------------------------
@@ -1819,6 +1914,18 @@ const CORE = (function () {
     FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
     fallDamage: fallDamage,
     landingSpeedMul: landingSpeedMul,
+    MAX_RANK: MAX_RANK,
+    xpForRank: xpForRank,
+    rankForXp: rankForXp,
+    rankProgress: rankProgress,
+    XP_PER: XP_PER,
+    runXp: runXp,
+    WEAPON_UNLOCK_RANK: WEAPON_UNLOCK_RANK,
+    weaponUnlockRank: weaponUnlockRank,
+    weaponUnlocked: weaponUnlocked,
+    CHALLENGES: CHALLENGES,
+    challengeProgress: challengeProgress,
+    challengesDone: challengesDone,
     UNREACHABLE: UNREACHABLE
   };
 })();

@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-12 complete, plus a physics pass (2026-09-12)
+> ## Status — Phases 0-13 complete bar two items (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -576,6 +576,41 @@
 > 33 new node tests (187 total). Mutation-checked 12 of 12 after strengthening one weak
 > test that compared the struck node against an unstruck one, where the spread factor
 > already differentiated them and inverse mass was never exercised.
+
+> **Phase 13 — meta progression.** Career stats already survived a reload and nothing
+> was ever unlocked by them, so a second run started exactly like the first. Measured:
+>
+> | | before | after |
+> |---|---|---|
+> | a fresh career | 4 weapons, no progression | **rank 1, 2 of 4 weapons, 8 challenges** |
+> | one run (wave 12, 180 kills, 55% acc) | nothing changed | **+4600 XP, rank 1 -> 4**, SCAR-H unlocked |
+> | a locked weapon | n/a | shown as **LOCKED - RANK 6**, not clickable |
+> | the menu | best score / wave / accuracy | **rank bar + XP + 8 challenge cards** |
+>
+> **Rank is derived from XP rather than stored**, so a corrupt rank cannot exist — only
+> a corrupt XP total, which `sanitizeStats` already clamps. The curve is quadratic: rank
+> 2 costs 1098 and rank 20 costs 88578, so early ranks land inside the first two runs and
+> the last ones still mean something.
+>
+> **XP rewards difficulty rather than duration.** Headshots pay more than body shots,
+> accuracy pays quadratically, and wave value accelerates so wave 10 beats wave 5 twice
+> over. Accuracy is clamped at 100 so a bogus 900% cannot mint XP.
+>
+> Locked weapons are shown rather than hidden: knowing what is coming is most of what a
+> progression system is for.
+>
+> **One of my own assertions was wrong and was removed rather than worked around.** It
+> compared one deep run against fourteen shallow ones and required the deep one to win —
+> fourteen runs bank fourteen runs of kills, so that can never hold and should not. The
+> test now pins the property that matters: each wave is worth more than the one before.
+>
+> 24 new node tests (211 total). Mutation-checked 16 of 17; the survivor is a confirmed
+> equivalent mutant, because the rank loop never advances on negative input and
+> `rankProgress` clamps separately.
+>
+> **Still open, and the last two items in `COD_ROADMAP.md`:** 12.4 objective waves, and
+> 13.3 attachments — the largest single task in the document, and one that wants its own
+> pass now that recoil patterns and bloom exist for it to modify.
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

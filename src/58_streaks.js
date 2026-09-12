@@ -17,6 +17,7 @@ const SENTRY_ROF = 0.22;
 const SENTRY_DMG = 22;
 
 let fieldCharge = 0;
+let runStreaksEarned = 0;   // career challenge counter, banked at end of run
 const munitions = [];         // deployed munitions boxes
 
 function resetStreaks() {
@@ -24,6 +25,7 @@ function resetStreaks() {
   streakBank.length = 0;
   uavUntil = -99;
   fieldCharge = 0;
+  runStreaksEarned = 0;
   for (let i = sentries.length - 1; i >= 0; i--) scene.remove(sentries[i].m);
   sentries.length = 0;
   for (let i = munitions.length - 1; i >= 0; i--) scene.remove(munitions[i].m);
@@ -39,6 +41,7 @@ function registerStreakKill() {
   const earned = CORE.streaksEarnedAt(streakKills);
   for (let i = 0; i < earned.length; i++) {
     streakBank.push(earned[i].key);
+    runStreaksEarned++;
     showCenterMsg(earned[i].name + ' READY');
     playSound('powerup');
   }

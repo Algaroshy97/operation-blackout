@@ -51,6 +51,25 @@
   #streak-hud span.ready{background:#ffd24a;color:#231a00}
   #streak-hud span.field{background:#8fd66a;color:#0f2008}
   #streak-hud span.next{background:rgba(0,0,0,.45);color:rgba(255,255,255,.7);font-weight:600}
+  /* Rank bar and challenge list on the main menu. Rank is derived from XP, so the
+     bar is the only place either number is shown. */
+  .rank-row{display:flex;align-items:center;gap:10px;justify-content:center;margin:0 0 8px}
+  .rank-label{font-size:12px;letter-spacing:2px;color:#ffdf8a;white-space:nowrap}
+  .rank-bar{display:block;width:min(220px,44vw);height:6px;background:rgba(0,0,0,.5);
+    border:1px solid rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
+  .rank-bar i{display:block;height:100%;background:linear-gradient(90deg,#c9a227,#ffdf8a)}
+  #challenge-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:6px;margin:14px auto 0;max-width:620px;text-align:left}
+  #challenge-list .chal{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);
+    border-radius:3px;padding:6px 9px;font-size:11px;line-height:1.45}
+  #challenge-list .chal b{display:block;font-size:11px;letter-spacing:2px;color:#e8ffe8}
+  #challenge-list .chal span{display:block;color:rgba(255,255,255,.55)}
+  #challenge-list .chal i{font-style:normal;color:#ffdf8a;font-size:10px;letter-spacing:1px}
+  #challenge-list .chal.done{border-color:rgba(143,214,106,.5)}
+  #challenge-list .chal.done i{color:#8fd66a}
+  .gun-card.locked{opacity:.45;cursor:not-allowed}
+  .gun-card.locked .gc-lock{margin-top:6px;font-size:11px;letter-spacing:2px;color:#ffdf8a}
+  @media (max-height:640px){#challenge-list{display:none}}
   #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
     padding:2px 6px;border-radius:2px;text-shadow:none}
   #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
@@ -284,6 +303,7 @@
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
     <p id="menu-stats"></p>
+    <div id="challenge-list"></div>
     <p id="save-note"></p>
     <div class="controls">
       <b>WASD</b><span>Move</span>

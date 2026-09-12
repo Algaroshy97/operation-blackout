@@ -51,6 +51,25 @@
   #streak-hud span.ready{background:#ffd24a;color:#231a00}
   #streak-hud span.field{background:#8fd66a;color:#0f2008}
   #streak-hud span.next{background:rgba(0,0,0,.45);color:rgba(255,255,255,.7);font-weight:600}
+  /* Rank bar and challenge list on the main menu. Rank is derived from XP, so the
+     bar is the only place either number is shown. */
+  .rank-row{display:flex;align-items:center;gap:10px;justify-content:center;margin:0 0 8px}
+  .rank-label{font-size:12px;letter-spacing:2px;color:#ffdf8a;white-space:nowrap}
+  .rank-bar{display:block;width:min(220px,44vw);height:6px;background:rgba(0,0,0,.5);
+    border:1px solid rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
+  .rank-bar i{display:block;height:100%;background:linear-gradient(90deg,#c9a227,#ffdf8a)}
+  #challenge-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:6px;margin:14px auto 0;max-width:620px;text-align:left}
+  #challenge-list .chal{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);
+    border-radius:3px;padding:6px 9px;font-size:11px;line-height:1.45}
+  #challenge-list .chal b{display:block;font-size:11px;letter-spacing:2px;color:#e8ffe8}
+  #challenge-list .chal span{display:block;color:rgba(255,255,255,.55)}
+  #challenge-list .chal i{font-style:normal;color:#ffdf8a;font-size:10px;letter-spacing:1px}
+  #challenge-list .chal.done{border-color:rgba(143,214,106,.5)}
+  #challenge-list .chal.done i{color:#8fd66a}
+  .gun-card.locked{opacity:.45;cursor:not-allowed}
+  .gun-card.locked .gc-lock{margin-top:6px;font-size:11px;letter-spacing:2px;color:#ffdf8a}
+  @media (max-height:640px){#challenge-list{display:none}}
   #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
     padding:2px 6px;border-radius:2px;text-shadow:none}
   #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
@@ -284,6 +303,7 @@
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
     <p id="menu-stats"></p>
+    <div id="challenge-list"></div>
     <p id="save-note"></p>
     <div class="controls">
       <b>WASD</b><span>Move</span>
@@ -4727,7 +4747,8 @@ const CORE = (function () {
 
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
-    return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0 };
+    return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
+             xp: 0, totalHeadshots: 0, totalStreaks: 0 };
   }
   function sanitizeStats(stored) {
     const out = defaultStats();
@@ -4747,7 +4768,101 @@ const CORE = (function () {
     if (run.accuracy > next.bestAccuracy) { next.bestAccuracy = run.accuracy; beat.accuracy = true; }
     next.runs = next.runs + 1;
     next.totalKills = next.totalKills + (run.kills || 0);
-    return { stats: next, beat: beat };
+    next.totalHeadshots = next.totalHeadshots + (run.headshots || 0);
+    next.totalStreaks = next.totalStreaks + (run.streaks || 0);
+    // Rank is derived from XP rather than stored, so a corrupted rank cannot exist.
+    const rankBefore = rankForXp(next.xp);
+    const gained = runXp(run);
+    next.xp = next.xp + gained;
+    const rankAfter = rankForXp(next.xp);
+    beat.rank = rankAfter > rankBefore;
+    return { stats: next, beat: beat, xpGained: gained, rank: rankAfter, rankBefore: rankBefore };
+  }
+
+  // ---- Meta progression: XP, rank and unlocks -----------------------------------
+  // Career stats already survived a reload; nothing was ever unlocked by them, so a
+  // second run started exactly like the first. XP is earned from the things the run
+  // already counts, and rank gates the weapon roster.
+  //
+  // A quadratic curve rather than a flat one: early ranks arrive fast enough to be
+  // felt in the first two runs, and the last ones take long enough to still mean
+  // something.
+  const MAX_RANK = 20;
+  const XP_BASE = 900;
+  function xpForRank(rank) {
+    if (rank <= 1) return 0;
+    const r = rank - 1;
+    return Math.round(XP_BASE * r * (1 + r * 0.22));
+  }
+  function rankForXp(xp) {
+    const x = xp > 0 ? xp : 0;
+    let r = 1;
+    while (r < MAX_RANK && x >= xpForRank(r + 1)) r++;
+    return r;
+  }
+  // Progress toward the NEXT rank, for the bar on the menu. At max rank the bar is
+  // full rather than empty, which is the difference between "done" and "broken".
+  function rankProgress(xp) {
+    const rank = rankForXp(xp);
+    if (rank >= MAX_RANK) return { rank: rank, into: 1, need: 1, pct: 1, max: true };
+    const base = xpForRank(rank), next = xpForRank(rank + 1);
+    const into = Math.max(0, xp - base), need = next - base;
+    return { rank: rank, into: into, need: need, pct: need > 0 ? into / need : 1, max: false };
+  }
+  // XP from one run. Weighted toward the things that are hard rather than the things
+  // that are long: a headshot is worth more than a body shot, and reaching a wave is
+  // worth more than farming an early one.
+  const XP_PER = { kill: 12, headshot: 8, wave: 90, victory: 900, accuracyBonus: 600 };
+  function runXp(run) {
+    if (!run) return 0;
+    const kills = Math.max(0, run.kills || 0);
+    const heads = Math.max(0, run.headshots || 0);
+    const wave = Math.max(0, run.wave || 0);
+    const acc = Math.max(0, Math.min(100, run.accuracy || 0));
+    let xp = kills * XP_PER.kill + heads * XP_PER.headshot;
+    // Waves are worth progressively more, so wave 14 is not wave 1 fourteen times.
+    xp += XP_PER.wave * wave * (1 + wave * 0.06);
+    if (run.victory) xp += XP_PER.victory;
+    xp += Math.round(XP_PER.accuracyBonus * (acc / 100) * (acc / 100));
+    return Math.round(xp);
+  }
+
+  // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
+  // available so a new player still has a choice on their first deploy.
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6];
+  function weaponUnlockRank(index) {
+    const r = WEAPON_UNLOCK_RANK[index];
+    return r === undefined ? 1 : r;
+  }
+  function weaponUnlocked(index, rank) { return rank >= weaponUnlockRank(index); }
+
+  // ---- Challenges ----------------------------------------------------------------
+  // Cheap retention that rides the stats store rather than adding one. Each is a
+  // counter with a target; nothing here needs to know how the counter is produced.
+  const CHALLENGES = [
+    { key: 'kills100',   stat: 'totalKills',   target: 100,  name: 'BODY COUNT',   blurb: '100 hostiles eliminated' },
+    { key: 'kills1000',  stat: 'totalKills',   target: 1000, name: 'ATTRITION',    blurb: '1000 hostiles eliminated' },
+    { key: 'heads100',   stat: 'totalHeadshots', target: 100, name: 'MARKSMAN',    blurb: '100 headshots' },
+    { key: 'wave10',     stat: 'bestWave',     target: 10,   name: 'DUG IN',       blurb: 'Reach wave 10' },
+    { key: 'wave15',     stat: 'bestWave',     target: 15,   name: 'AREA SECURED', blurb: 'Clear all 15 waves' },
+    { key: 'acc50',      stat: 'bestAccuracy', target: 50,   name: 'DISCIPLINED',  blurb: '50% accuracy in a run' },
+    { key: 'runs25',     stat: 'runs',         target: 25,   name: 'VETERAN',      blurb: '25 deployments' },
+    { key: 'streaks10',  stat: 'totalStreaks', target: 10,   name: 'AIR SUPPORT',  blurb: '10 scorestreaks earned' }
+  ];
+  function challengeProgress(stats, def) {
+    const s = sanitizeStats(stats);
+    const have = s[def.stat] || 0;
+    return { key: def.key, name: def.name, blurb: def.blurb,
+             have: have, target: def.target,
+             done: have >= def.target,
+             pct: Math.min(1, def.target > 0 ? have / def.target : 1) };
+  }
+  function challengesDone(stats) {
+    let n = 0;
+    for (let i = 0; i < CHALLENGES.length; i++) {
+      if (challengeProgress(stats, CHALLENGES[i]).done) n++;
+    }
+    return n;
   }
 
   // ---- Difficulty -------------------------------------------------------------
@@ -6352,6 +6467,18 @@ const CORE = (function () {
     FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
     fallDamage: fallDamage,
     landingSpeedMul: landingSpeedMul,
+    MAX_RANK: MAX_RANK,
+    xpForRank: xpForRank,
+    rankForXp: rankForXp,
+    rankProgress: rankProgress,
+    XP_PER: XP_PER,
+    runXp: runXp,
+    WEAPON_UNLOCK_RANK: WEAPON_UNLOCK_RANK,
+    weaponUnlockRank: weaponUnlockRank,
+    weaponUnlocked: weaponUnlocked,
+    CHALLENGES: CHALLENGES,
+    challengeProgress: challengeProgress,
+    challengesDone: challengesDone,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -6472,9 +6599,16 @@ function recordRun(run) {
   const merged = CORE.mergeRunIntoStats(STATS, run);
   STATS = merged.stats;
   saveStats();
+  // The caller wants the XP and rank too, so the end screen can say what the run
+  // earned rather than only what it beat.
+  merged.beat.xpGained = merged.xpGained;
+  merged.beat.rank = merged.beat.rank;
+  merged.beat.rankNow = merged.rank;
+  merged.beat.rankBefore = merged.rankBefore;
   return merged.beat;
 }
 function getStats() { return STATS; }
+function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
 
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
@@ -6495,6 +6629,29 @@ function statsSummaryHtml() {
     '</b> &nbsp;·&nbsp; Best accuracy <b>' + Math.round(STATS.bestAccuracy) + '%</b><br>' +
     '<span style="opacity:.65">' + STATS.runs + ' deployment' + (STATS.runs === 1 ? '' : 's') +
     ' · ' + STATS.totalKills + ' total kills</span>';
+}
+
+// Rank bar for the main menu. Rank is derived from XP rather than stored, so there
+// is no such thing as a corrupt rank — only a corrupt XP total, which is clamped.
+function rankBarHtml() {
+  const p = CORE.rankProgress(CORE.sanitizeStats(STATS).xp);
+  const pct = Math.round(p.pct * 100);
+  const label = p.max ? 'RANK ' + p.rank + ' — MAX'
+    : 'RANK ' + p.rank + '  ·  ' + Math.round(p.into) + ' / ' + Math.round(p.need) + ' XP';
+  return '<div class="rank-row"><span class="rank-label">' + label + '</span>' +
+    '<span class="rank-bar"><i style="width:' + pct + '%"></i></span></div>';
+}
+
+function challengesHtml() {
+  const stats = CORE.sanitizeStats(STATS);
+  let out = '';
+  for (let i = 0; i < CORE.CHALLENGES.length; i++) {
+    const c = CORE.challengeProgress(stats, CORE.CHALLENGES[i]);
+    out += '<div class="chal' + (c.done ? ' done' : '') + '">' +
+      '<b>' + c.name + '</b><span>' + c.blurb + '</span>' +
+      '<i>' + (c.done ? 'COMPLETE' : Math.floor(c.have) + ' / ' + c.target) + '</i></div>';
+  }
+  return out;
 }
 
 // ============ EMBEDDED GLB ASSETS (CC0, Kenney) ============
@@ -11461,6 +11618,7 @@ const SENTRY_ROF = 0.22;
 const SENTRY_DMG = 22;
 
 let fieldCharge = 0;
+let runStreaksEarned = 0;   // career challenge counter, banked at end of run
 const munitions = [];         // deployed munitions boxes
 
 function resetStreaks() {
@@ -11468,6 +11626,7 @@ function resetStreaks() {
   streakBank.length = 0;
   uavUntil = -99;
   fieldCharge = 0;
+  runStreaksEarned = 0;
   for (let i = sentries.length - 1; i >= 0; i--) scene.remove(sentries[i].m);
   sentries.length = 0;
   for (let i = munitions.length - 1; i >= 0; i--) scene.remove(munitions[i].m);
@@ -11483,6 +11642,7 @@ function registerStreakKill() {
   const earned = CORE.streaksEarnedAt(streakKills);
   for (let i = 0; i < earned.length; i++) {
     streakBank.push(earned[i].key);
+    runStreaksEarned++;
     showCenterMsg(earned[i].name + ' READY');
     playSound('powerup');
   }
@@ -12325,7 +12485,8 @@ function killPlayer() {
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   clearCheckpoint();   // a lost run is not resumable
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: false });
   $id('ds-stats').innerHTML =
     'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
@@ -12342,7 +12503,8 @@ function victory() {
   if (document.pointerLockElement) document.exitPointerLock();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills });
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: true });
   $id('vs-stats').innerHTML =
     'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
@@ -12512,7 +12674,9 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = statsSummaryHtml();
+  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  const ch = $id('challenge-list');
+  if (ch) ch.innerHTML = challengesHtml();
 }
 
 // gun select UI
@@ -12529,16 +12693,21 @@ function buildGunSelect(slot) {
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
+  const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
-    card.className = 'gun-card';
-    enableMenuKeyboard(card);
+    card.className = 'gun-card' + (unlocked ? '' : ' locked');
+    // A locked card is shown rather than hidden: knowing what is coming is most of
+    // what a progression system is for.
+    if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
       '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>';
-    card.addEventListener('click', function () { pickGun(i); });
+      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
+    if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
 }

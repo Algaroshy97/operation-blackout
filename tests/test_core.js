@@ -382,19 +382,27 @@ test('look sensitivity scales with the setting and tightens while aiming', () =>
 test('career stats record personal bests and report what was beaten', () => {
   let s = CORE.defaultStats();
   let r = CORE.mergeRunIntoStats(s, { score: 5000, wave: 7, accuracy: 41, kills: 60 });
-  assert.deepStrictEqual(r.beat, { score: true, wave: true, accuracy: true });
+  // `beat.rank` joined the contract when XP landed; the three records are what this
+  // test is about, so assert on them by name rather than on the object's shape.
+  assert.strictEqual(r.beat.score, true);
+  assert.strictEqual(r.beat.wave, true);
+  assert.strictEqual(r.beat.accuracy, true);
   assert.strictEqual(r.stats.bestScore, 5000);
   assert.strictEqual(r.stats.runs, 1);
   // a worse run must not regress any record, but still counts as a run
   r = CORE.mergeRunIntoStats(r.stats, { score: 100, wave: 2, accuracy: 12, kills: 5 });
-  assert.deepStrictEqual(r.beat, { score: false, wave: false, accuracy: false });
+  assert.strictEqual(r.beat.score, false);
+  assert.strictEqual(r.beat.wave, false);
+  assert.strictEqual(r.beat.accuracy, false);
   assert.strictEqual(r.stats.bestScore, 5000);
   assert.strictEqual(r.stats.bestWave, 7);
   assert.strictEqual(r.stats.runs, 2);
   assert.strictEqual(r.stats.totalKills, 65);
   // one record can fall without the others
   r = CORE.mergeRunIntoStats(r.stats, { score: 200, wave: 9, accuracy: 10, kills: 1 });
-  assert.deepStrictEqual(r.beat, { score: false, wave: true, accuracy: false });
+  assert.strictEqual(r.beat.score, false);
+  assert.strictEqual(r.beat.wave, true);
+  assert.strictEqual(r.beat.accuracy, false);
 });
 
 test('corrupt stored stats never produce a negative or NaN record', () => {
@@ -1936,5 +1944,237 @@ test('a hard landing costs speed, a soft one does not', () => {
     const m = CORE.landingSpeedMul(v);
     assert.ok(m <= prev + 1e-9, 'the penalty must not ease off as the drop grows');
     prev = m;
+  }
+});
+
+// ============================================================================
+// Phase 13 — meta progression
+// ============================================================================
+
+test('rank thresholds ascend and rank 1 is free', () => {
+  assert.strictEqual(CORE.xpForRank(1), 0, 'a new player starts at rank 1');
+  assert.strictEqual(CORE.xpForRank(0), 0, 'and no rank below it costs anything');
+  for (let r = 2; r <= CORE.MAX_RANK; r++) {
+    assert.ok(CORE.xpForRank(r) > CORE.xpForRank(r - 1), 'rank ' + r + ' must cost more');
+  }
+});
+
+test('later ranks cost more than earlier ones', () => {
+  // A flat curve makes rank 19 feel the same as rank 2. "Never decreases" is not
+  // enough to catch that — a straight line satisfies it — so require the last step
+  // to be meaningfully larger than the first.
+  let prevStep = 0;
+  const steps = [];
+  for (let r = 2; r <= CORE.MAX_RANK; r++) {
+    const step = CORE.xpForRank(r) - CORE.xpForRank(r - 1);
+    assert.ok(step >= prevStep, 'the curve flattened at rank ' + r);
+    steps.push(step);
+    prevStep = step;
+  }
+  assert.ok(steps[steps.length - 1] > steps[0] * 2,
+    'the last rank must cost far more than the first: ' +
+    steps[0] + ' -> ' + steps[steps.length - 1]);
+});
+
+test('rank is derived from XP, so a corrupt rank cannot exist', () => {
+  assert.strictEqual(CORE.rankForXp(0), 1);
+  assert.strictEqual(CORE.rankForXp(-9999), 1, 'negative XP is still rank 1');
+  assert.strictEqual(CORE.rankForXp(CORE.xpForRank(5)), 5, 'exactly on a threshold ranks up');
+  assert.strictEqual(CORE.rankForXp(CORE.xpForRank(5) - 1), 4, 'one short does not');
+  assert.strictEqual(CORE.rankForXp(1e12), CORE.MAX_RANK, 'and it caps');
+});
+
+test('the rank bar is full at max rank, not empty', () => {
+  const mid = CORE.rankProgress(CORE.xpForRank(3));
+  assert.strictEqual(mid.rank, 3);
+  assert.strictEqual(mid.max, false);
+  assert.ok(mid.pct >= 0 && mid.pct < 1);
+  const max = CORE.rankProgress(1e12);
+  assert.strictEqual(max.max, true);
+  assert.strictEqual(max.pct, 1, 'a maxed bar reading empty looks like a bug');
+});
+
+test('rank progress never divides by zero or reports nonsense', () => {
+  for (const xp of [0, 1, 500, 5000, 50000, 1e9]) {
+    const p = CORE.rankProgress(xp);
+    assert.ok(isFinite(p.pct) && p.pct >= 0 && p.pct <= 1, 'xp ' + xp + ' gave pct ' + p.pct);
+    assert.ok(p.rank >= 1 && p.rank <= CORE.MAX_RANK);
+  }
+});
+
+test('XP rewards difficulty rather than duration', () => {
+  const base = { kills: 100, headshots: 0, wave: 5, accuracy: 20 };
+  const moreHeads = Object.assign({}, base, { headshots: 40 });
+  const deeper = Object.assign({}, base, { wave: 10 });
+  const sharper = Object.assign({}, base, { accuracy: 70 });
+  assert.ok(CORE.runXp(moreHeads) > CORE.runXp(base), 'headshots are worth more');
+  assert.ok(CORE.runXp(deeper) > CORE.runXp(base), 'getting further is worth more');
+  assert.ok(CORE.runXp(sharper) > CORE.runXp(base), 'accuracy is worth more');
+});
+
+test('wave value accelerates, so progress beats repetition', () => {
+  // Comparing one deep run against fourteen shallow ones proves nothing — fourteen
+  // runs bank fourteen runs' worth of kills. The property that actually matters is
+  // that each wave is worth MORE than the one before, so pushing deeper pays better
+  // per run than restarting.
+  assert.ok(CORE.runXp({ wave: 10 }) > CORE.runXp({ wave: 5 }) * 2,
+    'wave value must accelerate, not stay linear');
+  let prevStep = 0;
+  for (let w = 2; w <= 20; w++) {
+    const step = CORE.runXp({ wave: w }) - CORE.runXp({ wave: w - 1 });
+    assert.ok(step >= prevStep, 'wave ' + w + ' is worth less than the step before it');
+    prevStep = step;
+  }
+  // And with kills held equal, the deeper run wins outright.
+  const deep = CORE.runXp({ kills: 50, headshots: 0, wave: 14, accuracy: 30 });
+  const shallow = CORE.runXp({ kills: 50, headshots: 0, wave: 1, accuracy: 30 });
+  assert.ok(deep > shallow * 3, 'same kills, far deeper: ' + deep + ' vs ' + shallow);
+});
+
+test('a victory is worth more than dying on the last wave', () => {
+  const run = { kills: 300, headshots: 60, wave: 15, accuracy: 45 };
+  assert.ok(CORE.runXp(Object.assign({}, run, { victory: true })) > CORE.runXp(run));
+});
+
+test('XP is never negative and tolerates a missing or junk run', () => {
+  assert.strictEqual(CORE.runXp(null), 0);
+  assert.strictEqual(CORE.runXp(undefined), 0);
+  assert.strictEqual(CORE.runXp({}), 0);
+  assert.ok(CORE.runXp({ kills: -50, headshots: -9, wave: -3, accuracy: -100 }) >= 0);
+  assert.ok(isFinite(CORE.runXp({ kills: 1e9, wave: 1e9, accuracy: 1e9 })));
+});
+
+test('accuracy is clamped, so a bogus 900% does not mint XP', () => {
+  const fair = CORE.runXp({ kills: 10, headshots: 0, wave: 1, accuracy: 100 });
+  const bogus = CORE.runXp({ kills: 10, headshots: 0, wave: 1, accuracy: 900 });
+  assert.strictEqual(bogus, fair);
+});
+
+// ---- Weapon unlocks ----
+test('two weapons are available at rank 1 and the rest are earned', () => {
+  const atOne = [0, 1, 2, 3].filter((i) => CORE.weaponUnlocked(i, 1));
+  assert.strictEqual(atOne.length, 2, 'a new player still needs a choice on deploy');
+  const atMax = [0, 1, 2, 3].filter((i) => CORE.weaponUnlocked(i, CORE.MAX_RANK));
+  assert.strictEqual(atMax.length, 4, 'everything unlocks eventually');
+});
+
+test('a weapon unlock never un-unlocks as rank climbs', () => {
+  for (let i = 0; i < 4; i++) {
+    let seen = false;
+    for (let r = 1; r <= CORE.MAX_RANK; r++) {
+      const u = CORE.weaponUnlocked(i, r);
+      if (seen) assert.strictEqual(u, true, 'weapon ' + i + ' re-locked at rank ' + r);
+      if (u) seen = true;
+    }
+    assert.strictEqual(seen, true, 'weapon ' + i + ' never unlocks at all');
+  }
+});
+
+test('an unknown weapon index is unlocked rather than unreachable', () => {
+  // A weapon added to CFG without a rank entry must be usable, not a dead card.
+  assert.strictEqual(CORE.weaponUnlocked(99, 1), true);
+  assert.strictEqual(CORE.weaponUnlockRank(99), 1);
+});
+
+test('every unlock rank is reachable', () => {
+  for (let i = 0; i < CORE.WEAPON_UNLOCK_RANK.length; i++) {
+    assert.ok(CORE.weaponUnlockRank(i) <= CORE.MAX_RANK,
+      'weapon ' + i + ' needs rank ' + CORE.weaponUnlockRank(i) + ' but max is ' + CORE.MAX_RANK);
+  }
+});
+
+// ---- Challenges ----
+test('every challenge names a stat the store actually has', () => {
+  const stats = CORE.defaultStats();
+  for (const c of CORE.CHALLENGES) {
+    assert.ok(Object.prototype.hasOwnProperty.call(stats, c.stat),
+      c.key + ' tracks "' + c.stat + '", which is not a stat');
+    assert.ok(c.target > 0, c.key + ' needs a target');
+    assert.ok(c.name && c.blurb, c.key + ' needs a name and a blurb');
+  }
+});
+
+test('challenge keys are unique', () => {
+  const keys = CORE.CHALLENGES.map((c) => c.key);
+  assert.strictEqual(new Set(keys).size, keys.length);
+});
+
+test('nothing is complete on a fresh save and progress is reported honestly', () => {
+  const fresh = CORE.defaultStats();
+  assert.strictEqual(CORE.challengesDone(fresh), 0);
+  for (const c of CORE.CHALLENGES) {
+    const p = CORE.challengeProgress(fresh, c);
+    assert.strictEqual(p.done, false);
+    assert.strictEqual(p.pct, 0);
+  }
+});
+
+test('a challenge completes exactly at its target and stays complete', () => {
+  const def = CORE.CHALLENGES.filter((c) => c.stat === 'totalKills')[0];
+  const just = CORE.challengeProgress({ totalKills: def.target }, def);
+  assert.strictEqual(just.done, true);
+  assert.strictEqual(just.pct, 1);
+  const short = CORE.challengeProgress({ totalKills: def.target - 1 }, def);
+  assert.strictEqual(short.done, false);
+  const over = CORE.challengeProgress({ totalKills: def.target * 10 }, def);
+  assert.strictEqual(over.done, true);
+  assert.strictEqual(over.pct, 1, 'the bar must not overflow past full');
+});
+
+test('challenge progress survives corrupt stats', () => {
+  for (const bad of [null, undefined, 'nope', { totalKills: 'lots' }, { totalKills: NaN }]) {
+    const p = CORE.challengeProgress(bad, CORE.CHALLENGES[0]);
+    assert.ok(isFinite(p.pct) && p.pct >= 0 && p.pct <= 1, JSON.stringify(bad));
+    assert.strictEqual(p.done, false);
+  }
+});
+
+// ---- The run -> stats -> rank round trip ----
+test('a run banks XP, headshots and streaks into the career store', () => {
+  const run = { score: 9000, wave: 12, accuracy: 50, kills: 150, headshots: 40, streaks: 3 };
+  const r = CORE.mergeRunIntoStats(CORE.defaultStats(), run);
+  assert.strictEqual(r.stats.totalKills, 150);
+  assert.strictEqual(r.stats.totalHeadshots, 40);
+  assert.strictEqual(r.stats.totalStreaks, 3);
+  assert.strictEqual(r.stats.xp, CORE.runXp(run));
+  assert.strictEqual(r.xpGained, CORE.runXp(run));
+  assert.strictEqual(r.rank, CORE.rankForXp(r.stats.xp));
+});
+
+test('ranking up is reported once, on the run that does it', () => {
+  let stats = CORE.defaultStats();
+  const tiny = { score: 1, wave: 1, accuracy: 0, kills: 1, headshots: 0, streaks: 0 };
+  let sawRankUp = 0, ranks = [1];
+  for (let i = 0; i < 12; i++) {
+    const r = CORE.mergeRunIntoStats(stats, tiny);
+    stats = r.stats;
+    if (r.beat.rank) sawRankUp++;
+    ranks.push(r.rank);
+  }
+  const distinct = new Set(ranks).size - 1;
+  assert.strictEqual(sawRankUp, distinct,
+    'a rank-up must be announced exactly as often as the rank actually changes');
+});
+
+test('a run with no XP does not rank anyone up', () => {
+  const r = CORE.mergeRunIntoStats(CORE.defaultStats(), {});
+  assert.strictEqual(r.xpGained, 0);
+  assert.strictEqual(r.beat.rank, false);
+  assert.strictEqual(r.rank, 1);
+});
+
+test('career XP accumulates across runs rather than replacing', () => {
+  const run = { score: 1, wave: 4, accuracy: 20, kills: 30, headshots: 5 };
+  const a = CORE.mergeRunIntoStats(CORE.defaultStats(), run);
+  const b = CORE.mergeRunIntoStats(a.stats, run);
+  assert.strictEqual(b.stats.xp, a.stats.xp * 2);
+  assert.strictEqual(b.stats.runs, 2);
+});
+
+test('a corrupt XP total is clamped, not trusted', () => {
+  for (const bad of [-5000, NaN, Infinity, 'loads', null]) {
+    const s = CORE.sanitizeStats({ xp: bad });
+    assert.ok(isFinite(s.xp) && s.xp >= 0, 'xp: ' + String(bad));
+    assert.ok(CORE.rankForXp(s.xp) >= 1);
   }
 });
