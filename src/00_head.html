@@ -45,6 +45,12 @@
   #plate-hud i{width:13px;height:7px;border:1px solid rgba(255,255,255,.35);border-radius:1px;display:block}
   #plate-hud i.on{background:#4fa3d8;border-color:#4fa3d8}
   #perk-hud{bottom:78px;left:28px;display:flex;gap:6px}
+  /* Streaks sit under the credits: both answer "what can I spend right now". */
+  #streak-hud{top:134px;right:30px;display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;max-width:190px}
+  #streak-hud span{font-size:10px;letter-spacing:1px;font-weight:700;padding:2px 6px;border-radius:2px;text-shadow:none}
+  #streak-hud span.ready{background:#ffd24a;color:#231a00}
+  #streak-hud span.field{background:#8fd66a;color:#0f2008}
+  #streak-hud span.next{background:rgba(0,0,0,.45);color:rgba(255,255,255,.7);font-weight:600}
   #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
     padding:2px 6px;border-radius:2px;text-shadow:none}
   #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
@@ -173,6 +179,8 @@
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
@@ -262,6 +270,7 @@
 <div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
 <div id="plate-hud" class="hud"></div>
 <div id="perk-hud" class="hud"></div>
+<div id="streak-hud" class="hud"></div>
 <div id="down-timer" class="hud"></div>
 <div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>

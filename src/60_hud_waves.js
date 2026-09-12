@@ -14,6 +14,7 @@ const hud = {
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
   minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
   credits: $id('credit-val'),
+  streaks: $id('streak-hud'),
   powerBanner: $id('power-banner'),
   grenadeCharge: $id('grenade-charge'),
   grenadeChargeTxt: $id('grenade-charge-txt'),
@@ -57,7 +58,12 @@ function updateHudAmmo() {
   const s = curS();
   if (!s) { hud.ammoMag.textContent = '—'; hud.ammoRes.textContent = ''; return; }
   hud.ammoMag.textContent = s.ammo;
-  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + grenades.count + ' Frag';
+  const lname = (CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]).name;
+  let eq = grenades.count + ' ' + lname;
+  if (equippedTactical) {
+    eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
+  }
+  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
   hud.ammoMag.classList.toggle('low', s.ammo <= curW().mag * 0.25);
   hud.weaponName.textContent = curW().name;
   // Distinguish an empty reserve from an ordinary reload on both input paths.
@@ -454,7 +460,12 @@ function showCenterMsg(txt) {
 // ---- Minimap + compass ----
 const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
-const MM_STATION_COLOR = { wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd' };
+const MM_STATION_COLOR = {
+  wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd',
+  lethal: '#ff8a6a', tactical: '#6fd8e8'
+};
+// Metres of unaided detection. The UAV lifts this to the whole minimap.
+const MM_BASE_DETECT = 26;
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -473,6 +484,9 @@ function drawMinimap() {
     if (x * x + z * z > R * R * 2.4) continue;
     mmCtx.fillRect(x, z, w, h);
   }
+  // Baseline detection is near-only; the UAV reveals the whole arena. That split
+  // is what gives the minimap — and the streak — any meaning at all.
+  const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.
   for (let i = 0; i < stations.length; i++) {
@@ -490,7 +504,7 @@ function drawMinimap() {
     const e = enemies[i];
     if (e.dead) continue;
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
-    if (x * x + z * z > R * R) continue;
+    if (x * x + z * z > Math.min(R * R, detect)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
     mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
     // GAP-08: colourblind players get a shape cue, not just a hue cue.

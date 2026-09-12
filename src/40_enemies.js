@@ -248,6 +248,7 @@ function spawnEnemy(kind, x, z) {
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
+    blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
@@ -353,6 +354,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   // hit, so the shield mechanic was invisible unless you read the patch notes.
   showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
   addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
+  addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
   else {
@@ -372,6 +374,7 @@ function killEnemy(en, isHead) {
   // dropped a magazine would waste the drop.
   if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
   else dropPickup(en.pos);
+  registerStreakKill();
   playSound('kill');
 }
 
@@ -525,7 +528,12 @@ function hasLOS(en) {
   // "is a wall in the way" does not need triangle precision.
   const blocked = CORE.segmentBlocked(
     _losFrom.x, _losFrom.y, _losFrom.z,
-    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25);
+    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25)
+    // Smoke is one sphere test on a path that is already analytic, which is the
+    // only reason it is affordable — a second mesh raycast per enemy per tick
+    // would not have been.
+    || CORE.smokeBlocks(_losFrom.x, _losFrom.y, _losFrom.z,
+        _losTo.x, _losTo.y, _losTo.z, smokeVolumes());
   en._losCache = !blocked;
   return !blocked;
 }
@@ -561,7 +569,31 @@ function updateEnemyShadowBudget(dt) {
   for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
 }
 
+// A stun slows; a flash stops the agent shooting and scrambles its facing. Both
+// are read by moveEnemy (speedMul) and enemyShoot (blindT) rather than by a new
+// state, so no archetype needs to know they exist.
+function updateStatusEffects(dt) {
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (en.stunT > 0) {
+      en.stunT = Math.max(0, en.stunT - dt);
+      en.speedMul = en.baseSpeedMul === undefined ? (en.speedMul || 1) : en.baseSpeedMul;
+      if (en.baseSpeedMul === undefined) en.baseSpeedMul = en.speedMul;
+      en.speedMul = en.baseSpeedMul * 0.35;
+    } else if (en.baseSpeedMul !== undefined) {
+      en.speedMul = en.baseSpeedMul;
+      en.baseSpeedMul = undefined;
+    }
+    if (en.blindT > 0) {
+      en.blindT = Math.max(0, en.blindT - dt);
+      en.yaw += dt * 1.6;          // wanders instead of holding an aim
+    }
+  }
+}
+
 function updateEnemies(dt) {
+  updateStatusEffects(dt);
   losFrame++;
   updateFlowField(dt);
   updateEnemyShadowBudget(dt);
@@ -822,6 +854,7 @@ function showCenterMsgThrottled(txt) {
 const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
+  if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);

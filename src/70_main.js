@@ -128,7 +128,7 @@ function resetGame() {
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
-  resetStations(); clearDowned();
+  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;
@@ -514,6 +514,7 @@ function frame(now) {
     updateAmmoRelief(dt);
     updateStations(dt);
     updateDowned(dt);
+    updateStreaks(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

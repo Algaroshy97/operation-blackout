@@ -45,6 +45,12 @@
   #plate-hud i{width:13px;height:7px;border:1px solid rgba(255,255,255,.35);border-radius:1px;display:block}
   #plate-hud i.on{background:#4fa3d8;border-color:#4fa3d8}
   #perk-hud{bottom:78px;left:28px;display:flex;gap:6px}
+  /* Streaks sit under the credits: both answer "what can I spend right now". */
+  #streak-hud{top:134px;right:30px;display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;max-width:190px}
+  #streak-hud span{font-size:10px;letter-spacing:1px;font-weight:700;padding:2px 6px;border-radius:2px;text-shadow:none}
+  #streak-hud span.ready{background:#ffd24a;color:#231a00}
+  #streak-hud span.field{background:#8fd66a;color:#0f2008}
+  #streak-hud span.next{background:rgba(0,0,0,.45);color:rgba(255,255,255,.7);font-weight:600}
   #perk-hud span{font-size:10px;letter-spacing:1px;font-weight:700;color:#0d1420;background:#6fa8ff;
     padding:2px 6px;border-radius:2px;text-shadow:none}
   #down-timer{top:58%;left:50%;transform:translate(-50%,-50%);color:#ff5f4a;font-size:20px;font-weight:800;
@@ -173,6 +179,8 @@
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
@@ -262,6 +270,7 @@
 <div id="buy-prompt" class="hud"><div id="buy-prompt-txt"></div><div id="buy-prompt-bar"><div id="buy-prompt-fill"></div></div></div>
 <div id="plate-hud" class="hud"></div>
 <div id="perk-hud" class="hud"></div>
+<div id="streak-hud" class="hud"></div>
 <div id="down-timer" class="hud"></div>
 <div id="power-banner" class="hud"></div>
 <div id="center-msg" class="hud"></div>
@@ -5698,6 +5707,135 @@ const CORE = (function () {
     return left > 0 ? left : 0;
   }
 
+  // ---- Equipment ---------------------------------------------------------------
+  // The grenade was the most reusable system in the project and the only thing
+  // mounted on it was a single frag. Charge-throw, the trajectory preview, bounce
+  // physics and blast line-of-sight are all payload-agnostic, so every entry below
+  // is a different payload on machinery that already exists and is already tested.
+  //
+  // `mode` is what updateGrenades has to branch on, and nothing else:
+  //   timed      - fuse runs down, then it detonates (frag, semtex)
+  //   burn       - detonates on fuse, then leaves burning ground for `burnTime`
+  //   proximity  - arms on rest, then detonates when something enters `trigger`
+  //   tactical   - fuse runs down, then applies an effect instead of damage
+  const LETHALS = [
+    { key: 'frag',     name: 'FRAG',     price: 0,   fuse: 2.2, sticky: false, mode: 'timed',     bounce: 0.45 },
+    { key: 'semtex',   name: 'SEMTEX',   price: 750, fuse: 1.4, sticky: true,  mode: 'timed',     bounce: 0 },
+    { key: 'thermite', name: 'THERMITE', price: 900, fuse: 0.5, sticky: true,  mode: 'burn',      bounce: 0,
+      burnTime: 6, burnRadius: 3.2, burnDps: 55 },
+    { key: 'claymore', name: 'CLAYMORE', price: 800, fuse: 0,   sticky: false, mode: 'proximity', bounce: 0.1,
+      arm: 0.8, trigger: 4.0, arc: Math.cos(Math.PI / 3) }
+  ];
+  const TACTICALS = [
+    { key: 'flash', name: 'FLASHBANG', price: 600, fuse: 1.4, mode: 'tactical',
+      effect: 'blind', dur: 4.5, radius: 14 },
+    { key: 'stun',  name: 'STUN',      price: 600, fuse: 1.2, mode: 'tactical',
+      effect: 'slow',  dur: 4.0, radius: 9 },
+    { key: 'smoke', name: 'SMOKE',     price: 500, fuse: 1.0, mode: 'tactical',
+      effect: 'smoke', dur: 12,  radius: 6 }
+  ];
+  function equipmentByKey(key) {
+    for (let i = 0; i < LETHALS.length; i++) if (LETHALS[i].key === key) return LETHALS[i];
+    for (let i = 0; i < TACTICALS.length; i++) if (TACTICALS[i].key === key) return TACTICALS[i];
+    return null;
+  }
+  // A flashbang only blinds what is actually looking at it, and only for as long as
+  // the angle and distance deserve. A full-strength blind from behind a wall or from
+  // 30 m away is the thing that makes flashbangs feel arbitrary.
+  // `facing` is the dot of the target's forward with the direction TO the flash.
+  function flashStrength(dist, radius, facing) {
+    if (dist >= radius) return 0;
+    const d = 1 - dist / radius;
+    // Looking away still counts for something — it went off next to them.
+    const f = facing > 0 ? 0.35 + 0.65 * facing : 0.35 * (1 + facing);
+    return f <= 0 ? 0 : d * f;
+  }
+  function flashDuration(strength, maxDur) {
+    return strength <= 0 ? 0 : strength * maxDur;
+  }
+
+  // Directional trigger, used by the claymore. The facing is normalised HERE
+  // rather than trusted from the caller: the first version stored it after
+  // `dir.multiplyScalar(speed)` had already mutated the vector, so the dot product
+  // carried a magnitude of ~6.7 and `dot/d >= 0.5` became `cos >= 0.075` — an
+  // 86-degree half-angle instead of 60, which is most of a hemisphere.
+  function coneHit(ox, oz, tx, tz, faceX, faceZ, range, cosArc) {
+    const dx = tx - ox, dz = tz - oz;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d > range || d < 1e-6) return false;
+    const f = Math.sqrt(faceX * faceX + faceZ * faceZ);
+    if (f < 1e-6) return false;
+    return (dx * faceX + dz * faceZ) / (d * f) >= cosArc;
+  }
+
+  // ---- Smoke: a volume that blocks line of sight ---------------------------------
+  // Enemy LOS is an analytic slab test against collider AABBs (Phase 6), never a
+  // mesh raycast, so adding a sphere to it costs a few operations rather than a
+  // second raycast pass. That is the only reason smoke is affordable here.
+  function segmentHitsSphere(ax, ay, az, bx, by, bz, cx, cy, cz, r) {
+    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len2 = dx * dx + dy * dy + dz * dz;
+    if (len2 < 1e-12) {
+      const ex = ax - cx, ey = ay - cy, ez = az - cz;
+      return ex * ex + ey * ey + ez * ez <= r * r;
+    }
+    // Closest approach of the SEGMENT (not the infinite line) to the centre.
+    let t = ((cx - ax) * dx + (cy - ay) * dy + (cz - az) * dz) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const px = ax + dx * t, py = ay + dy * t, pz = az + dz * t;
+    const ex = px - cx, ey = py - cy, ez = pz - cz;
+    return ex * ex + ey * ey + ez * ez <= r * r;
+  }
+  // `clouds` is [{ x, y, z, r }]. Expired clouds must be removed by the caller.
+  function smokeBlocks(ax, ay, az, bx, by, bz, clouds) {
+    if (!clouds) return false;
+    for (let i = 0; i < clouds.length; i++) {
+      const c = clouds[i];
+      if (segmentHitsSphere(ax, ay, az, bx, by, bz, c.x, c.y, c.z, c.r)) return true;
+    }
+    return false;
+  }
+
+  // ---- Scorestreaks --------------------------------------------------------------
+  // registerKillT() already tracked a 4-second multi-kill window and did nothing
+  // with it but print RAMPAGE. This is the other streak — consecutive kills without
+  // going down — which is the one CoD is actually known for.
+  const STREAKS = [
+    { key: 'uav',       short: 'UAV', name: 'UAV',                 kills: 8,  dur: 30 },
+    { key: 'airstrike', short: 'AIR', name: 'PRECISION AIRSTRIKE', kills: 12, dur: 0 },
+    { key: 'sentry',    short: 'SEN', name: 'SENTRY GUN',          kills: 16, dur: 45 }
+  ];
+  function streakByKey(key) {
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].key === key) return STREAKS[i];
+    return null;
+  }
+  // Earned at EXACTLY this count, so a streak is banked once and not re-granted on
+  // every subsequent kill.
+  function streaksEarnedAt(n) {
+    const out = [];
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].kills === n) out.push(STREAKS[i]);
+    return out;
+  }
+  // What the HUD shows as the next goal. Returns null once everything is earned.
+  function nextStreak(n) {
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].kills > n) return STREAKS[i];
+    return null;
+  }
+
+  // ---- Field upgrade -------------------------------------------------------------
+  // One, charged by damage dealt rather than by time, so it rewards fighting instead
+  // of waiting. Munitions Box over Deployable Cover: the ammo economy is the thing
+  // the player actually runs out of.
+  const FIELD_UPGRADE = { key: 'munitions', name: 'MUNITIONS BOX', charge: 3000, dur: 25, radius: 3 };
+  function fieldChargeAfter(current, damage, needed) {
+    const c = current + damage;
+    const n = needed === undefined ? FIELD_UPGRADE.charge : needed;
+    return c > n ? n : c;
+  }
+  function fieldReady(current, needed) {
+    return current >= (needed === undefined ? FIELD_UPGRADE.charge : needed);
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -5866,6 +6004,21 @@ const CORE = (function () {
     DOWN_SPEED_MUL: DOWN_SPEED_MUL,
     lethalOutcome: lethalOutcome,
     bleedOutRemaining: bleedOutRemaining,
+    LETHALS: LETHALS,
+    TACTICALS: TACTICALS,
+    equipmentByKey: equipmentByKey,
+    flashStrength: flashStrength,
+    flashDuration: flashDuration,
+    segmentHitsSphere: segmentHitsSphere,
+    smokeBlocks: smokeBlocks,
+    STREAKS: STREAKS,
+    streakByKey: streakByKey,
+    streaksEarnedAt: streaksEarnedAt,
+    nextStreak: nextStreak,
+    FIELD_UPGRADE: FIELD_UPGRADE,
+    fieldChargeAfter: fieldChargeAfter,
+    fieldReady: fieldReady,
+    coneHit: coneHit,
     UNREACHABLE: UNREACHABLE
   };
 })();
@@ -7288,6 +7441,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
     <div id="tbtn-use" class="tbtn tbtn-sm">USE</div>
     <div id="tbtn-plate" class="tbtn tbtn-sm">PLATE</div>
+    <div id="tbtn-tactical" class="tbtn tbtn-sm">TAC</div>
+    <div id="tbtn-streak" class="tbtn tbtn-sm">STRK</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -7407,6 +7562,10 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   // USE is a HOLD, matching the keyboard: a purchase must never fire from a stray tap.
   holdBtn('tbtn-use', function () { keys['__use'] = true; }, function () { keys['__use'] = false; });
   holdBtn('tbtn-plate', function () { pressed['__plate'] = true; }, function () {});
+  holdBtn('tbtn-tactical', function () { pressed['__tactical'] = true; }, function () {});
+  // One control for both: a banked streak first, the field upgrade otherwise.
+  // Two more buttons would not have fitted the cluster without a tray.
+  holdBtn('tbtn-streak', function () { pressed['__streak'] = true; pressed['__field'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
@@ -8188,6 +8347,7 @@ function spawnEnemy(kind, x, z) {
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
+    blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     kind: kind,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
@@ -8293,6 +8453,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   // hit, so the shield mechanic was invisible unless you read the patch notes.
   showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
   addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
+  addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
   if (en.health <= 0) killEnemy(en, isHead);
   else {
@@ -8312,6 +8473,7 @@ function killEnemy(en, isHead) {
   // dropped a magazine would waste the drop.
   if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
   else dropPickup(en.pos);
+  registerStreakKill();
   playSound('kill');
 }
 
@@ -8465,7 +8627,12 @@ function hasLOS(en) {
   // "is a wall in the way" does not need triangle precision.
   const blocked = CORE.segmentBlocked(
     _losFrom.x, _losFrom.y, _losFrom.z,
-    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25);
+    _losTo.x, _losTo.y, _losTo.z, colliders, 0.25)
+    // Smoke is one sphere test on a path that is already analytic, which is the
+    // only reason it is affordable — a second mesh raycast per enemy per tick
+    // would not have been.
+    || CORE.smokeBlocks(_losFrom.x, _losFrom.y, _losFrom.z,
+        _losTo.x, _losTo.y, _losTo.z, smokeVolumes());
   en._losCache = !blocked;
   return !blocked;
 }
@@ -8501,7 +8668,31 @@ function updateEnemyShadowBudget(dt) {
   for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
 }
 
+// A stun slows; a flash stops the agent shooting and scrambles its facing. Both
+// are read by moveEnemy (speedMul) and enemyShoot (blindT) rather than by a new
+// state, so no archetype needs to know they exist.
+function updateStatusEffects(dt) {
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (en.stunT > 0) {
+      en.stunT = Math.max(0, en.stunT - dt);
+      en.speedMul = en.baseSpeedMul === undefined ? (en.speedMul || 1) : en.baseSpeedMul;
+      if (en.baseSpeedMul === undefined) en.baseSpeedMul = en.speedMul;
+      en.speedMul = en.baseSpeedMul * 0.35;
+    } else if (en.baseSpeedMul !== undefined) {
+      en.speedMul = en.baseSpeedMul;
+      en.baseSpeedMul = undefined;
+    }
+    if (en.blindT > 0) {
+      en.blindT = Math.max(0, en.blindT - dt);
+      en.yaw += dt * 1.6;          // wanders instead of holding an aim
+    }
+  }
+}
+
 function updateEnemies(dt) {
+  updateStatusEffects(dt);
   losFrame++;
   updateFlowField(dt);
   updateEnemyShadowBudget(dt);
@@ -8762,6 +8953,7 @@ function showCenterMsgThrottled(txt) {
 const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
+  if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -9540,6 +9732,40 @@ function releaseBlastRing(ring) {
 }
 
 // ---- Grenade hold-to-charge state ----
+// ---- Equipment selection ----
+// The grenade was the most reusable system here and the only thing mounted on it
+// was a single frag. Charge-throw, the preview, bounce and blast LOS are all
+// payload-agnostic, so a variant is a different payload rather than a new system.
+let equippedLethal = 'frag';
+let equippedTactical = null;
+let tacticalCount = 0;
+const TACTICAL_MAX = 2;
+const EQUIP_COLOR = {
+  frag: 0x2e4a2e, semtex: 0x2f7a3f, thermite: 0xb05a1f, claymore: 0x4a4a3a,
+  flash: 0xd8d8c0, stun: 0x6fa8ff, smoke: 0x9aa0a8
+};
+const equipMats = {};
+function equipMaterial(key) {
+  if (!equipMats[key]) {
+    equipMats[key] = new THREE.MeshStandardMaterial({
+      color: EQUIP_COLOR[key] || 0x2e4a2e, roughness: 0.5, metalness: 0.3
+    });
+  }
+  return equipMats[key];
+}
+function lethalDef() { return CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]; }
+function tacticalDef() { return equippedTactical ? CORE.equipmentByKey(equippedTactical) : null; }
+
+// ---- Ground effects ----
+// Thermite leaves burning ground; smoke leaves a volume that blocks enemy LOS.
+// Both are plain data the update loop walks; neither needs a new subsystem.
+const burnPatches = [];
+const smokeClouds = [];
+const burnRingGeo = new THREE.RingGeometry(0.2, 3.2, 28);
+const burnRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+const smokeGeo = new THREE.SphereGeometry(1, 12, 10);
+const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62 });
+
 let grenadeCharging = false;
 let grenadeChargeT = 0;
 const GRENADE_MIN_SPEED = 6.0;
@@ -9640,12 +9866,17 @@ function updateGrenadePreview(speed) {
   }
 }
 
-function throwGrenade(customSpeed) {
-  if (grenades.count <= 0 || grenades.cd > 0 || player.dead) return;
-  grenades.count--;
+function throwGrenade(customSpeed, def) {
+  const d = def || lethalDef();
+  const tactical = d.mode === 'tactical';
+  if (tactical) {
+    if (tacticalCount <= 0) return;
+  } else if (grenades.count <= 0) return;
+  if (grenades.cd > 0 || player.dead) return;
+  if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = 0.8;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
-  const m = new THREE.Mesh(grenadeGeo, grenadeMat);
+  const m = new THREE.Mesh(grenadeGeo, equipMaterial(d.key));
   // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
   // throw and explodeGrenade() only scene.remove()d the mesh, leaking ~1 GPU
   // geometry per grenade for the life of the session.
@@ -9656,14 +9887,29 @@ function throwGrenade(customSpeed) {
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   dir.y += 0.45; dir.normalize();
+  // A claymore has no fuse at all: it arms where it lands and waits. Everything
+  // else counts down from its own value, not the frag's.
+  const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
+  // Capture the claymore's facing BEFORE the object literal below, because
+  // `vel: dir.multiplyScalar(speed)` mutates `dir` in place and a later
+  // `faceX: dir.x` would read the VELOCITY instead of a unit vector. With a
+  // magnitude of ~6.7 in it, the cone test `dot / d >= arc` was effectively
+  // comparing against 0.5/6.7 — an 86-degree half-angle instead of 60, which is
+  // most of a hemisphere and not a directional mine at all.
+  const faceLen = Math.hypot(dir.x, dir.z) || 1;
+  const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
   liveGrenades.push({
     m: m,
     vel: dir.multiplyScalar(speed),
-    fuse: CFG.grenade.fuse,
+    fuse: fuse,
     blink: blink,
     atRest: false,
     ring: null,
-    restFuse: CFG.grenade.fuse
+    restFuse: isFinite(fuse) ? fuse : 1,
+    def: d,
+    stuck: false,
+    armT: 0,
+    faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
   });
   scene.add(m);
   playSound('pin');
@@ -9680,6 +9926,15 @@ function cancelGrenadeCharge() {
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+  // Tacticals are a separate slot on a separate key, thrown at a fixed speed —
+  // there is no reason to cook a flashbang, and a charge bar on one would just be
+  // a second thing to learn.
+  if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
+      && !player.dead && started && !paused) {
+    throwGrenade(CFG.grenade.speed * 1.15, tacticalDef());
+    updateHudAmmo();
+  }
+  updateEquipmentEffects(dt);
 
   // Charge / aim input handling
   const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
@@ -9718,14 +9973,18 @@ function updateGrenades(dt) {
 
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
-    g.fuse -= dt;
+    const def = g.def || CORE.LETHALS[0];
+    if (isFinite(g.fuse)) g.fuse -= dt;
+    // Semtex and thermite stick where they land; nothing moves them afterwards.
+    if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
     g.m.position.addScaledVector(g.vel, dt);
     // ground bounce
     if (g.m.position.y < 0.11) {
       g.m.position.y = 0.11;
-      if (Math.abs(g.vel.y) > 1) playSound('bounce');
-      g.vel.y = -g.vel.y * CFG.grenade.bounce;
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
+      else if (Math.abs(g.vel.y) > 1) playSound('bounce');
+      g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
       g.vel.x *= 0.55; g.vel.z *= 0.55;
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
@@ -9743,6 +10002,7 @@ function updateGrenades(dt) {
         if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
         else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
         g.vel.y *= 0.8;
+        if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
       }
     }
     // detect when grenade comes to rest on ground
@@ -9760,18 +10020,166 @@ function updateGrenades(dt) {
       const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
       g.ring.material.opacity = 0.32 * fade;
     }
-    // blink faster as fuse burns
-    g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
-    if (g.fuse <= 0) {
-      explodeGrenade(g.m.position);
-      if (g.ring) {
-        releaseBlastRing(g.ring);
-        g.ring = null;
-      }
-      scene.remove(g.m);
-      liveGrenades.splice(i, 1);
+    stepLiveGrenade(g, dt, i, def);
+  }
+}
+
+// The per-payload half of the projectile loop, split out so the physics above
+// stays one path for every type.
+function stepLiveGrenade(g, dt, i, def) {
+  // blink faster as fuse burns; an armed claymore holds a steady light instead
+  g.blink.visible = isFinite(g.fuse)
+    ? Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0
+    : (g.armT >= (def.arm || 0));
+
+  if (def.mode === 'proximity') {
+    if (!g.atRest && !g.stuck) return;
+    g.armT += dt;
+    if (g.armT < (def.arm || 0)) return;
+    // Directional: a claymore facing away from an enemy does nothing, which is
+    // the whole reason to place one deliberately rather than lob it.
+    const p = g.m.position;
+    for (let e = 0; e < enemies.length; e++) {
+      const en = enemies[e];
+      if (en.dead) continue;
+      if (!CORE.coneHit(p.x, p.z, en.pos.x, en.pos.z, g.faceX, g.faceZ, def.trigger, def.arc)) continue;
+      detonate(g, i, def);
+      return;
+    }
+    return;
+  }
+  if (g.fuse <= 0) detonate(g, i, def);
+}
+
+function detonate(g, i, def) {
+  const p = g.m.position;
+  if (def.mode === 'tactical') {
+    applyTactical(def, p);
+  } else if (def.mode === 'burn') {
+    // Thermite trades burst damage for area denial: a smaller bang, then ground
+    // that stays lethal for six seconds.
+    explodeGrenade(p, 0.45);
+    addBurnPatch(p.x, p.z, def);
+  } else {
+    explodeGrenade(p);
+  }
+  if (g.ring) { releaseBlastRing(g.ring); g.ring = null; }
+  scene.remove(g.m);
+  liveGrenades.splice(i, 1);
+}
+
+// ---- Tactical payloads -------------------------------------------------------
+function applyTactical(def, pos) {
+  if (def.effect === 'smoke') {
+    addSmokeCloud(pos.x, Math.max(1.2, pos.y), pos.z, def);
+    playSound('explosion');
+    return;
+  }
+  playSound(def.effect === 'blind' ? 'headshot' : 'pin');
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    const d = CORE.horizDist(en.pos.x, en.pos.z, pos.x, pos.z);
+    if (d >= def.radius) continue;
+    // Behind cover means behind cover: a flash through a wall is the thing that
+    // makes tacticals feel arbitrary.
+    if (CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        en.pos.x, en.pos.y + 1.2, en.pos.z, colliders, 0.25)) continue;
+    if (def.effect === 'blind') {
+      const fx = Math.sin(en.yaw), fz = Math.cos(en.yaw);
+      const tx = (pos.x - en.pos.x) / (d || 1), tz = (pos.z - en.pos.z) / (d || 1);
+      const s = CORE.flashStrength(d, def.radius, tx * fx + tz * fz);
+      const dur = CORE.flashDuration(s, def.dur);
+      if (dur > en.blindT) en.blindT = dur;
+    } else {
+      en.stunT = Math.max(en.stunT || 0, def.dur);
     }
   }
+  // A flashbang the player is looking at blinds the player too. Anything else
+  // would make it a free win rather than a tool with a cost.
+  if (def.effect === 'blind') {
+    const pd = CORE.horizDist(player.pos.x, player.pos.z, pos.x, pos.z);
+    if (pd < def.radius && !CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) {
+      const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
+      const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
+      const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
+      playerFlashT = Math.max(playerFlashT, CORE.flashDuration(s, def.dur * 0.6));
+    }
+  }
+}
+
+let playerFlashT = 0;
+
+function addBurnPatch(x, z, def) {
+  const ring = new THREE.Mesh(burnRingGeo, burnRingMat.clone());
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.04, z);
+  ring.scale.setScalar(def.burnRadius / 3.2);
+  scene.add(ring);
+  burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
+                     r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
+}
+
+function addSmokeCloud(x, y, z, def) {
+  const m = new THREE.Mesh(smokeGeo, smokeMat.clone());
+  m.position.set(x, y, z);
+  m.scale.setScalar(0.2);
+  scene.add(m);
+  smokeClouds.push({ x: x, y: y, z: z, r: def.radius, t: def.dur, life: def.dur, m: m });
+}
+
+// Shared with enemy line-of-sight, which is why it is kept as plain data rather
+// than read off the meshes.
+function smokeVolumes() { return smokeClouds; }
+
+function updateEquipmentEffects(dt) {
+  if (playerFlashT > 0) {
+    playerFlashT = Math.max(0, playerFlashT - dt);
+    const el = $id('flash-overlay');
+    if (el) el.style.opacity = Math.min(0.92, playerFlashT / 1.5);
+  }
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    const b = burnPatches[i];
+    b.t -= dt;
+    b.tick -= dt;
+    b.m.material.opacity = 0.5 * Math.max(0, b.t / b.life);
+    if (b.tick <= 0) {
+      b.tick = 0.25;
+      for (let e = 0; e < enemies.length; e++) {
+        const en = enemies[e];
+        if (en.dead) continue;
+        if (CORE.horizDist(en.pos.x, en.pos.z, b.x, b.z) < b.r) {
+          damageEnemy(en, b.dps * 0.25, en.pos.clone().setY(en.pos.y + 1), false);
+        }
+      }
+    }
+    if (b.t <= 0) { scene.remove(b.m); b.m.material.dispose(); burnPatches.splice(i, 1); }
+  }
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    const c = smokeClouds[i];
+    c.t -= dt;
+    // Bloom out over the first second, then hold, then fade.
+    const grow = Math.min(1, (c.life - c.t) / 1.0);
+    c.m.scale.setScalar(c.r * (0.25 + 0.75 * grow));
+    c.m.material.opacity = 0.62 * Math.min(1, Math.max(0, c.t / 1.5));
+    if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
+  }
+}
+
+function resetEquipment() {
+  equippedLethal = 'frag';
+  equippedTactical = null;
+  tacticalCount = 0;
+  playerFlashT = 0;
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    scene.remove(burnPatches[i].m); burnPatches[i].m.material.dispose();
+  }
+  burnPatches.length = 0;
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    scene.remove(smokeClouds[i].m); smokeClouds[i].m.material.dispose();
+  }
+  smokeClouds.length = 0;
 }
 
 const grenadeLosRay = new THREE.Raycaster();
@@ -9804,7 +10212,8 @@ function refreshGrenadeTargets() {
   }
 }
 
-function explodeGrenade(pos) {
+function explodeGrenade(pos, scale) {
+  const dmgScale = scale === undefined ? 1 : scale;
   playSound('explosion');
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
@@ -9838,7 +10247,7 @@ function explodeGrenade(pos) {
     const target = en.pos.clone().setY(1.1);
     if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
       const falloff = 1 - d / CFG.grenade.radius;
-      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff);
+      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff) * dmgScale;
       damageEnemy(en, dmg, target, false);
     }
   }
@@ -10003,10 +10412,22 @@ const STATION_LAYOUT = [
   { kind: 'perk', x:  21, z:  10, perk: 'reload' },
   { kind: 'perk', x: -21, z: -10, perk: 'steady' },
   { kind: 'perk', x:  21, z: -10, perk: 'scav' },
-  { kind: 'perk', x:   0, z:  34, perk: 'wind' }
+  { kind: 'perk', x:   0, z:  34, perk: 'wind' },
+  // Equipment: one board cycles lethal variants, one cycles tacticals. Two boards
+  // rather than a menu, because a shop UI mid-firefight is a worse answer than
+  // walking to the thing you want.
+  { kind: 'lethal',   x: -12, z:  20 },
+  { kind: 'tactical', x:  12, z:  20 }
 ];
 
-const STATION_COLOR = { wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068 };
+const STATION_COLOR = {
+  wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068,
+  lethal: 0x7a3a2a, tactical: 0x2a6a7a
+};
+// Which variant each equipment board currently offers. Cycles on purchase, so one
+// board can sell the whole list without a menu.
+let lethalIdx = 1;      // index 0 is the free frag; the board sells the rest
+let tacticalIdx = 0;
 
 function buildStations() {
   for (let i = 0; i < STATION_LAYOUT.length; i++) {
@@ -10070,6 +10491,8 @@ function resetStations() {
   plateT = 0;
   activeStation = -1;
   stationHoldT = 0;
+  lethalIdx = 1;
+  tacticalIdx = 0;
   for (let i = 0; i < stations.length; i++) stations[i].holdT = 0;
 }
 
@@ -10101,6 +10524,21 @@ function stationOffer(st) {
     if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
     return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
   }
+  if (st.kind === 'lethal') {
+    const d = CORE.LETHALS[lethalIdx];
+    if (d.key === equippedLethal) {
+      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+    }
+    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true };
+  }
+  if (st.kind === 'tactical') {
+    const d = CORE.TACTICALS[tacticalIdx];
+    if (d.key === equippedTactical && tacticalCount >= TACTICAL_MAX) {
+      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+    }
+    const refill = d.key === equippedTactical;
+    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true };
+  }
   const p = CORE.perkByKey(st.perk);
   if (!p) return { label: 'PERK', price: 0, ok: false };
   const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
@@ -10111,6 +10549,13 @@ function stationOffer(st) {
 function purchase(st) {
   const offer = stationOffer(st);
   if (!offer.ok) return false;
+  if (offer.cycle) {
+    // Cycling the board costs nothing and buys nothing.
+    if (st.kind === 'lethal') lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length;
+    else if (st.kind === 'tactical') tacticalIdx = (tacticalIdx + 1) % CORE.TACTICALS.length;
+    playSound('draw');
+    return true;
+  }
   if (!spendCredits(offer.price)) {
     showCenterMsg('NEED ' + (offer.price - credits) + ' MORE CREDITS');
     return false;
@@ -10142,6 +10587,18 @@ function purchase(st) {
     plates = Math.min(CORE.PLATE_MAX, plates + 1);
     updateHudPlates();
     showCenterMsg('PLATE ' + plates + '/' + CORE.PLATE_MAX);
+  } else if (st.kind === 'lethal') {
+    if (offer.cycle) { lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length; return true; }
+    equippedLethal = CORE.LETHALS[lethalIdx].key;
+    grenades.count = CFG.grenade.count;
+    updateHudAmmo();
+    showCenterMsg(CORE.LETHALS[lethalIdx].name + ' EQUIPPED');
+  } else if (st.kind === 'tactical') {
+    if (offer.cycle) { tacticalIdx = (tacticalIdx + 1) % CORE.TACTICALS.length; return true; }
+    equippedTactical = CORE.TACTICALS[tacticalIdx].key;
+    tacticalCount = TACTICAL_MAX;
+    updateHudAmmo();
+    showCenterMsg(CORE.TACTICALS[tacticalIdx].name + ' EQUIPPED');
   } else {
     perks.push(st.perk);
     const p = CORE.perkByKey(st.perk);
@@ -10218,6 +10675,7 @@ function downPlayer() {
   }
   player.downed = true;
   downT = 0;
+  breakStreak();   // the streak is what going down costs you
   player.health = 1;
   player.crouching = true;
   player.sprinting = false;
@@ -10310,6 +10768,238 @@ flushStaticBatches();
 rebuildWorldRayGrid();
 rebuildNavGrid();
 
+// ============ SCORESTREAKS & FIELD UPGRADE ============
+'use strict';
+// registerKillT() already tracked a 4-second multi-kill window and did nothing with
+// it but print RAMPAGE. This is the other streak — consecutive kills without going
+// down — which is the one Call of Duty is actually known for.
+//
+// Everything here rides existing systems: the UAV reads the minimap that already
+// draws every enemy, the airstrike reuses explodeGrenade(), and the sentry reuses
+// hasLOS() pointed the other way.
+
+let streakKills = 0;          // consecutive kills since the last down
+const streakBank = [];        // earned, not yet used
+let uavUntil = -99;
+const sentries = [];
+const SENTRY_RANGE = 26;
+const SENTRY_ROF = 0.22;
+const SENTRY_DMG = 22;
+
+let fieldCharge = 0;
+const munitions = [];         // deployed munitions boxes
+
+function resetStreaks() {
+  streakKills = 0;
+  streakBank.length = 0;
+  uavUntil = -99;
+  fieldCharge = 0;
+  for (let i = sentries.length - 1; i >= 0; i--) scene.remove(sentries[i].m);
+  sentries.length = 0;
+  for (let i = munitions.length - 1; i >= 0; i--) scene.remove(munitions[i].m);
+  munitions.length = 0;
+  updateHudStreaks();
+}
+
+// ---- Earning -----------------------------------------------------------------
+// Called from killEnemy(). Earned at EXACTLY the threshold, so a streak is banked
+// once rather than re-granted on every kill past it.
+function registerStreakKill() {
+  streakKills++;
+  const earned = CORE.streaksEarnedAt(streakKills);
+  for (let i = 0; i < earned.length; i++) {
+    streakBank.push(earned[i].key);
+    showCenterMsg(earned[i].name + ' READY');
+    playSound('powerup');
+  }
+  updateHudStreaks();
+}
+// Going down is what resets it. Taking damage does not: a streak you can only keep
+// by not being shot at is a streak nobody sees.
+function breakStreak() {
+  streakKills = 0;
+  updateHudStreaks();
+}
+
+// The field upgrade charges on damage DEALT, so it rewards fighting rather than
+// waiting out a timer.
+function addFieldCharge(dmg) {
+  const was = CORE.fieldReady(fieldCharge);
+  fieldCharge = CORE.fieldChargeAfter(fieldCharge, dmg);
+  if (!was && CORE.fieldReady(fieldCharge)) {
+    showCenterMsg(CORE.FIELD_UPGRADE.name + ' READY');
+    playSound('powerup');
+  }
+  updateHudStreaks();
+}
+
+// ---- Using -------------------------------------------------------------------
+function useStreak() {
+  if (!streakBank.length) return false;
+  const key = streakBank.shift();
+  const def = CORE.streakByKey(key);
+  if (key === 'uav') {
+    uavUntil = gameT + def.dur;
+    showCenterMsg('UAV ONLINE');
+  } else if (key === 'airstrike') {
+    callAirstrike();
+  } else if (key === 'sentry') {
+    deploySentry();
+  }
+  playSound('wave');
+  updateHudStreaks();
+  return true;
+}
+
+function useFieldUpgrade() {
+  if (!CORE.fieldReady(fieldCharge)) return false;
+  fieldCharge = 0;
+  deployMunitions();
+  updateHudStreaks();
+  return true;
+}
+
+function uavActive() { return gameT < uavUntil; }
+
+// ---- Precision airstrike ------------------------------------------------------
+// Lands along the line the player is looking down, walking outward, so it is aimed
+// rather than dropped on the player's own head.
+function callAirstrike() {
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const ox = player.pos.x + dirX * 14, oz = player.pos.z + dirZ * 14;
+  showCenterMsg('AIRSTRIKE INBOUND');
+  const id = runId;
+  for (let i = 0; i < 6; i++) {
+    setTimeout(function () {
+      // The run can end mid-sequence; anything scheduled has to check (BUG-08).
+      if (id !== runId || !started || player.dead) return;
+      const x = ox + dirX * i * 5 + (Math.random() - 0.5) * 6;
+      const z = oz + dirZ * i * 5 + (Math.random() - 0.5) * 6;
+      if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) return;
+      _strikePos.set(x, 0.4, z);
+      explodeGrenade(_strikePos);
+    }, 700 + i * 260);
+  }
+}
+const _strikePos = new THREE.Vector3();
+
+// ---- Sentry gun ---------------------------------------------------------------
+const sentryBodyGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+const sentryBarrelGeo = new THREE.BoxGeometry(0.12, 0.12, 0.8);
+const sentryMat = new THREE.MeshStandardMaterial({ color: 0x3a4a58, roughness: 0.5, metalness: 0.6 });
+const _sentryFrom = new THREE.Vector3();
+const _sentryTo = new THREE.Vector3();
+
+function deploySentry() {
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  let x = player.pos.x + dirX * 2.2, z = player.pos.z + dirZ * 2.2;
+  if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(sentryBodyGeo, sentryMat);
+  body.position.y = 0.55;
+  const barrel = new THREE.Mesh(sentryBarrelGeo, sentryMat);
+  barrel.position.set(0, 0.6, -0.5);
+  g.add(body); g.add(barrel);
+  g.position.set(x, 0, z);
+  g.castShadow = true;
+  scene.add(g);
+  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0 });
+  showCenterMsg('SENTRY DEPLOYED');
+}
+
+function updateSentries(dt) {
+  for (let i = sentries.length - 1; i >= 0; i--) {
+    const s = sentries[i];
+    s.t -= dt;
+    s.cd -= dt;
+    if (s.t <= 0) { scene.remove(s.m); sentries.splice(i, 1); continue; }
+    // Nearest enemy it can actually see. Same analytic slab test the AI uses,
+    // pointed the other way — including through smoke, which cuts both ways.
+    let best = null, bestD = SENTRY_RANGE;
+    _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
+    for (let e = 0; e < enemies.length; e++) {
+      const en = enemies[e];
+      if (en.dead) continue;
+      const d = CORE.horizDist(en.pos.x, en.pos.z, s.m.position.x, s.m.position.z);
+      if (d >= bestD) continue;
+      _sentryTo.set(en.pos.x, en.pos.y + 1.1, en.pos.z);
+      if (CORE.segmentBlocked(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
+          _sentryTo.x, _sentryTo.y, _sentryTo.z, colliders, 0.25)) continue;
+      if (CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
+          _sentryTo.x, _sentryTo.y, _sentryTo.z, smokeVolumes())) continue;
+      best = en; bestD = d;
+    }
+    if (!best) continue;
+    s.m.rotation.y = Math.atan2(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z) + Math.PI;
+    if (s.cd > 0) continue;
+    s.cd = SENTRY_ROF;
+    _sentryTo.set(best.pos.x, best.pos.y + 1.1, best.pos.z);
+    spawnTracer(_sentryFrom, _sentryTo);
+    damageEnemy(best, SENTRY_DMG, _sentryTo.clone(), false);
+    playSound('eshot');
+  }
+}
+
+// ---- Munitions box ------------------------------------------------------------
+const munitionGeo = new THREE.BoxGeometry(0.7, 0.45, 0.5);
+const munitionMat = new THREE.MeshStandardMaterial({ color: 0x4a5a2f, roughness: 0.8 });
+
+function deployMunitions() {
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  let x = player.pos.x + dirX * 1.8, z = player.pos.z + dirZ * 1.8;
+  if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
+  const m = new THREE.Mesh(munitionGeo, munitionMat);
+  m.position.set(x, 0.23, z);
+  m.castShadow = true;
+  scene.add(m);
+  munitions.push({ m: m, t: CORE.FIELD_UPGRADE.dur, tick: 0 });
+  showCenterMsg('MUNITIONS BOX');
+}
+
+function updateMunitions(dt) {
+  for (let i = munitions.length - 1; i >= 0; i--) {
+    const b = munitions[i];
+    b.t -= dt;
+    b.tick -= dt;
+    if (b.tick <= 0 &&
+        CORE.horizDist(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z) < CORE.FIELD_UPGRADE.radius) {
+      b.tick = 1.0;
+      const s = curS();
+      if (s) {
+        const w = curW();
+        s.reserve = Math.min(w.reserveMax, s.reserve + Math.round(w.mag * 0.5));
+        updateHudAmmo();
+      }
+      if (grenades.count < CFG.grenade.count) { grenades.count++; updateHudAmmo(); }
+      else if (equippedTactical && tacticalCount < TACTICAL_MAX) { tacticalCount++; updateHudAmmo(); }
+    }
+    if (b.t <= 0) { scene.remove(b.m); munitions.splice(i, 1); }
+  }
+}
+
+function updateStreaks(dt) {
+  if (!started || paused || player.dead) return;
+  if (pressed['KeyZ'] || pressed['__streak']) useStreak();
+  if (pressed['KeyB'] || pressed['__field']) useFieldUpgrade();
+  updateSentries(dt);
+  updateMunitions(dt);
+}
+
+// ---- HUD ---------------------------------------------------------------------
+function updateHudStreaks() {
+  const el = $id('streak-hud');
+  if (!el) return;
+  let s = '';
+  for (let i = 0; i < streakBank.length; i++) {
+    const d = CORE.streakByKey(streakBank[i]);
+    if (d) s += '<span class="ready" title="' + d.name + '">' + d.short + '</span>';
+  }
+  if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
+  const next = CORE.nextStreak(streakKills);
+  if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
+  el.innerHTML = s;
+}
+
 // ============ HUD & WAVES ============
 'use strict';
 // ---- HUD refs ----
@@ -10326,6 +11016,7 @@ const hud = {
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
   minimap: $id('minimap-canvas'), compass: $id('compass-canvas'),
   credits: $id('credit-val'),
+  streaks: $id('streak-hud'),
   powerBanner: $id('power-banner'),
   grenadeCharge: $id('grenade-charge'),
   grenadeChargeTxt: $id('grenade-charge-txt'),
@@ -10369,7 +11060,12 @@ function updateHudAmmo() {
   const s = curS();
   if (!s) { hud.ammoMag.textContent = '—'; hud.ammoRes.textContent = ''; return; }
   hud.ammoMag.textContent = s.ammo;
-  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + grenades.count + ' Frag';
+  const lname = (CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]).name;
+  let eq = grenades.count + ' ' + lname;
+  if (equippedTactical) {
+    eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
+  }
+  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
   hud.ammoMag.classList.toggle('low', s.ammo <= curW().mag * 0.25);
   hud.weaponName.textContent = curW().name;
   // Distinguish an empty reserve from an ordinary reload on both input paths.
@@ -10766,7 +11462,12 @@ function showCenterMsg(txt) {
 // ---- Minimap + compass ----
 const mmCtx = hud.minimap.getContext('2d');
 const cpCtx = hud.compass.getContext('2d');
-const MM_STATION_COLOR = { wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd' };
+const MM_STATION_COLOR = {
+  wall: '#4fd08a', armory: '#ffd24a', perk: '#6fa8ff', plate: '#cfd6dd',
+  lethal: '#ff8a6a', tactical: '#6fd8e8'
+};
+// Metres of unaided detection. The UAV lifts this to the whole minimap.
+const MM_BASE_DETECT = 26;
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -10785,6 +11486,9 @@ function drawMinimap() {
     if (x * x + z * z > R * R * 2.4) continue;
     mmCtx.fillRect(x, z, w, h);
   }
+  // Baseline detection is near-only; the UAV reveals the whole arena. That split
+  // is what gives the minimap — and the streak — any meaning at all.
+  const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.
   for (let i = 0; i < stations.length; i++) {
@@ -10802,7 +11506,7 @@ function drawMinimap() {
     const e = enemies[i];
     if (e.dead) continue;
     const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
-    if (x * x + z * z > R * R) continue;
+    if (x * x + z * z > Math.min(R * R, detect)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
     mmCtx.beginPath(); mmCtx.arc(x, z, (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3, 0, 7); mmCtx.fill();
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
@@ -10982,7 +11686,7 @@ function resetGame() {
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
-  resetStations(); clearDowned();
+  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;
@@ -11368,6 +12072,7 @@ function frame(now) {
     updateAmmoRelief(dt);
     updateStations(dt);
     updateDowned(dt);
+    updateStreaks(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);

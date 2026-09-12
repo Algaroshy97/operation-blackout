@@ -26,10 +26,22 @@ const STATION_LAYOUT = [
   { kind: 'perk', x:  21, z:  10, perk: 'reload' },
   { kind: 'perk', x: -21, z: -10, perk: 'steady' },
   { kind: 'perk', x:  21, z: -10, perk: 'scav' },
-  { kind: 'perk', x:   0, z:  34, perk: 'wind' }
+  { kind: 'perk', x:   0, z:  34, perk: 'wind' },
+  // Equipment: one board cycles lethal variants, one cycles tacticals. Two boards
+  // rather than a menu, because a shop UI mid-firefight is a worse answer than
+  // walking to the thing you want.
+  { kind: 'lethal',   x: -12, z:  20 },
+  { kind: 'tactical', x:  12, z:  20 }
 ];
 
-const STATION_COLOR = { wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068 };
+const STATION_COLOR = {
+  wall: 0x2f6f4f, armory: 0x8a6a1f, perk: 0x2f4f78, plate: 0x5a6068,
+  lethal: 0x7a3a2a, tactical: 0x2a6a7a
+};
+// Which variant each equipment board currently offers. Cycles on purchase, so one
+// board can sell the whole list without a menu.
+let lethalIdx = 1;      // index 0 is the free frag; the board sells the rest
+let tacticalIdx = 0;
 
 function buildStations() {
   for (let i = 0; i < STATION_LAYOUT.length; i++) {
@@ -93,6 +105,8 @@ function resetStations() {
   plateT = 0;
   activeStation = -1;
   stationHoldT = 0;
+  lethalIdx = 1;
+  tacticalIdx = 0;
   for (let i = 0; i < stations.length; i++) stations[i].holdT = 0;
 }
 
@@ -124,6 +138,21 @@ function stationOffer(st) {
     if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
     return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
   }
+  if (st.kind === 'lethal') {
+    const d = CORE.LETHALS[lethalIdx];
+    if (d.key === equippedLethal) {
+      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+    }
+    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true };
+  }
+  if (st.kind === 'tactical') {
+    const d = CORE.TACTICALS[tacticalIdx];
+    if (d.key === equippedTactical && tacticalCount >= TACTICAL_MAX) {
+      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+    }
+    const refill = d.key === equippedTactical;
+    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true };
+  }
   const p = CORE.perkByKey(st.perk);
   if (!p) return { label: 'PERK', price: 0, ok: false };
   const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
@@ -134,6 +163,13 @@ function stationOffer(st) {
 function purchase(st) {
   const offer = stationOffer(st);
   if (!offer.ok) return false;
+  if (offer.cycle) {
+    // Cycling the board costs nothing and buys nothing.
+    if (st.kind === 'lethal') lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length;
+    else if (st.kind === 'tactical') tacticalIdx = (tacticalIdx + 1) % CORE.TACTICALS.length;
+    playSound('draw');
+    return true;
+  }
   if (!spendCredits(offer.price)) {
     showCenterMsg('NEED ' + (offer.price - credits) + ' MORE CREDITS');
     return false;
@@ -165,6 +201,18 @@ function purchase(st) {
     plates = Math.min(CORE.PLATE_MAX, plates + 1);
     updateHudPlates();
     showCenterMsg('PLATE ' + plates + '/' + CORE.PLATE_MAX);
+  } else if (st.kind === 'lethal') {
+    if (offer.cycle) { lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length; return true; }
+    equippedLethal = CORE.LETHALS[lethalIdx].key;
+    grenades.count = CFG.grenade.count;
+    updateHudAmmo();
+    showCenterMsg(CORE.LETHALS[lethalIdx].name + ' EQUIPPED');
+  } else if (st.kind === 'tactical') {
+    if (offer.cycle) { tacticalIdx = (tacticalIdx + 1) % CORE.TACTICALS.length; return true; }
+    equippedTactical = CORE.TACTICALS[tacticalIdx].key;
+    tacticalCount = TACTICAL_MAX;
+    updateHudAmmo();
+    showCenterMsg(CORE.TACTICALS[tacticalIdx].name + ' EQUIPPED');
   } else {
     perks.push(st.perk);
     const p = CORE.perkByKey(st.perk);
@@ -241,6 +289,7 @@ function downPlayer() {
   }
   player.downed = true;
   downT = 0;
+  breakStreak();   // the streak is what going down costs you
   player.health = 1;
   player.crouching = true;
   player.sprinting = false;

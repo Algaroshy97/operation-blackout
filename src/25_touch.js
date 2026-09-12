@@ -25,6 +25,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
     <div id="tbtn-use" class="tbtn tbtn-sm">USE</div>
     <div id="tbtn-plate" class="tbtn tbtn-sm">PLATE</div>
+    <div id="tbtn-tactical" class="tbtn tbtn-sm">TAC</div>
+    <div id="tbtn-streak" class="tbtn tbtn-sm">STRK</div>
     <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
@@ -144,6 +146,10 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   // USE is a HOLD, matching the keyboard: a purchase must never fire from a stray tap.
   holdBtn('tbtn-use', function () { keys['__use'] = true; }, function () { keys['__use'] = false; });
   holdBtn('tbtn-plate', function () { pressed['__plate'] = true; }, function () {});
+  holdBtn('tbtn-tactical', function () { pressed['__tactical'] = true; }, function () {});
+  // One control for both: a banked streak first, the field upgrade otherwise.
+  // Two more buttons would not have fitted the cluster without a tray.
+  holdBtn('tbtn-streak', function () { pressed['__streak'] = true; pressed['__field'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');

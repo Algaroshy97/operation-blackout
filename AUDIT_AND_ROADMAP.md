@@ -1,6 +1,6 @@
 # Operation Blackout — Audit & Roadmap
 
-> ## Status — Phases 0-10 complete (2026-09-12)
+> ## Status — Phases 0-11 complete (2026-09-12)
 >
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
@@ -430,6 +430,53 @@
 > **Still open from `COD_ROADMAP.md`:** all of Phase 11 (tacticals, lethal variants,
 > field upgrade, scorestreaks), Phase 12 (special waves, gated map areas, elite variants,
 > objective waves) and Phase 13 (XP, unlocks, attachments, camos).
+
+> **Phase 11 — equipment and streaks.** The grenade was the most reusable system in
+> the project and the only thing mounted on it was a single frag. Charge-throw, the
+> trajectory preview, bounce physics and blast line-of-sight are all payload-agnostic,
+> so every variant below is a payload rather than a subsystem. Measured before -> after:
+>
+> | | before | after |
+> |---|---|---|
+> | equipment | 2 frags | **4 lethals + 3 tacticals**, all reachable by cycling a board |
+> | a flashbang, looking at it / turned away / at range | n/a | **3.86 s / 0.19 s / 1.93 s** blind |
+> | a blinded enemy | n/a | **fires 0 tracers**, vs 1 with sight |
+> | a stun | n/a | speedMul **1.10 -> 0.38**, restored on expiry |
+> | enemy sight through smoke | always clear | **blocked**, and clear again on expiry |
+> | thermite burning ground | n/a | **110 damage over 2 s** at 55 dps, expires |
+> | semtex | n/a | **sticks on contact**; a frag in the same throw does not |
+> | a claymore at 0 / 75 / 180 degrees | n/a | **fires / holds / holds** |
+> | a precision airstrike | n/a | **956 damage across 6 targets** down the lane |
+> | a sentry gun | n/a | kills a 60 HP target in 1.2 s, expires at 45 s |
+> | the field upgrade | n/a | reserve **0 -> 45**, grenades **0 -> 2** |
+> | minimap detection | the whole arena, always | **26 m**, lifted to everything by the UAV |
+>
+> **The UAV is the interesting one**, because it is the cheapest item here and it
+> changes something that already existed: the minimap drew every enemy in the arena
+> unconditionally, so it had no value to add. Baseline detection is now 26 m, and the
+> streak lifts it. The same 30 seconds of information is worth having only because the
+> baseline is worth less.
+>
+> **Smoke is affordable because of a Phase 6 decision.** Enemy line-of-sight became an
+> analytic slab test against collider AABBs when prop batching made mesh raycasts cost
+> 1.37 ms/frame. Adding a sphere to an analytic path is a few operations; adding one to
+> a mesh raycast pass would have been a second full raycast per enemy per tick.
+>
+> **One real bug, found by measuring rather than by reading.** The claymore's facing was
+> captured in the object literal *after* `vel: dir.multiplyScalar(speed)` had already
+> mutated `dir` in place, so it stored the velocity — magnitude ~6.7 — instead of a unit
+> vector. The cone test `dot / d >= 0.5` then meant `cos >= 0.075`: an **86-degree**
+> half-angle instead of 60, which is most of a hemisphere and not a directional mine at
+> all. Fixed by moving the cone test into `CORE.coneHit`, which normalises the facing
+> itself, so no caller can reintroduce it.
+>
+> 22 new node tests (156 total). Mutation-checked 15 of 15, including reverting smoke to
+> an infinite-line test, making the flash ignore facing, and re-granting a streak on
+> every kill past its threshold. One apparent survivor was a broken mutation that added
+> an unused field instead of changing the one under test; corrected, it kills.
+>
+> **Still open from `COD_ROADMAP.md`:** Phase 12 (special waves, gated map areas, elite
+> variants, objective waves) and Phase 13 (XP, unlocks, attachments, camos).
 
 **Audit date:** 2026-09-12
 **Build under test:** `dist/Operation Blackout.html` (1,351,402 bytes), verified byte-identical to a fresh

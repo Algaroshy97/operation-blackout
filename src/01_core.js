@@ -1174,6 +1174,135 @@ const CORE = (function () {
     return left > 0 ? left : 0;
   }
 
+  // ---- Equipment ---------------------------------------------------------------
+  // The grenade was the most reusable system in the project and the only thing
+  // mounted on it was a single frag. Charge-throw, the trajectory preview, bounce
+  // physics and blast line-of-sight are all payload-agnostic, so every entry below
+  // is a different payload on machinery that already exists and is already tested.
+  //
+  // `mode` is what updateGrenades has to branch on, and nothing else:
+  //   timed      - fuse runs down, then it detonates (frag, semtex)
+  //   burn       - detonates on fuse, then leaves burning ground for `burnTime`
+  //   proximity  - arms on rest, then detonates when something enters `trigger`
+  //   tactical   - fuse runs down, then applies an effect instead of damage
+  const LETHALS = [
+    { key: 'frag',     name: 'FRAG',     price: 0,   fuse: 2.2, sticky: false, mode: 'timed',     bounce: 0.45 },
+    { key: 'semtex',   name: 'SEMTEX',   price: 750, fuse: 1.4, sticky: true,  mode: 'timed',     bounce: 0 },
+    { key: 'thermite', name: 'THERMITE', price: 900, fuse: 0.5, sticky: true,  mode: 'burn',      bounce: 0,
+      burnTime: 6, burnRadius: 3.2, burnDps: 55 },
+    { key: 'claymore', name: 'CLAYMORE', price: 800, fuse: 0,   sticky: false, mode: 'proximity', bounce: 0.1,
+      arm: 0.8, trigger: 4.0, arc: Math.cos(Math.PI / 3) }
+  ];
+  const TACTICALS = [
+    { key: 'flash', name: 'FLASHBANG', price: 600, fuse: 1.4, mode: 'tactical',
+      effect: 'blind', dur: 4.5, radius: 14 },
+    { key: 'stun',  name: 'STUN',      price: 600, fuse: 1.2, mode: 'tactical',
+      effect: 'slow',  dur: 4.0, radius: 9 },
+    { key: 'smoke', name: 'SMOKE',     price: 500, fuse: 1.0, mode: 'tactical',
+      effect: 'smoke', dur: 12,  radius: 6 }
+  ];
+  function equipmentByKey(key) {
+    for (let i = 0; i < LETHALS.length; i++) if (LETHALS[i].key === key) return LETHALS[i];
+    for (let i = 0; i < TACTICALS.length; i++) if (TACTICALS[i].key === key) return TACTICALS[i];
+    return null;
+  }
+  // A flashbang only blinds what is actually looking at it, and only for as long as
+  // the angle and distance deserve. A full-strength blind from behind a wall or from
+  // 30 m away is the thing that makes flashbangs feel arbitrary.
+  // `facing` is the dot of the target's forward with the direction TO the flash.
+  function flashStrength(dist, radius, facing) {
+    if (dist >= radius) return 0;
+    const d = 1 - dist / radius;
+    // Looking away still counts for something — it went off next to them.
+    const f = facing > 0 ? 0.35 + 0.65 * facing : 0.35 * (1 + facing);
+    return f <= 0 ? 0 : d * f;
+  }
+  function flashDuration(strength, maxDur) {
+    return strength <= 0 ? 0 : strength * maxDur;
+  }
+
+  // Directional trigger, used by the claymore. The facing is normalised HERE
+  // rather than trusted from the caller: the first version stored it after
+  // `dir.multiplyScalar(speed)` had already mutated the vector, so the dot product
+  // carried a magnitude of ~6.7 and `dot/d >= 0.5` became `cos >= 0.075` — an
+  // 86-degree half-angle instead of 60, which is most of a hemisphere.
+  function coneHit(ox, oz, tx, tz, faceX, faceZ, range, cosArc) {
+    const dx = tx - ox, dz = tz - oz;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d > range || d < 1e-6) return false;
+    const f = Math.sqrt(faceX * faceX + faceZ * faceZ);
+    if (f < 1e-6) return false;
+    return (dx * faceX + dz * faceZ) / (d * f) >= cosArc;
+  }
+
+  // ---- Smoke: a volume that blocks line of sight ---------------------------------
+  // Enemy LOS is an analytic slab test against collider AABBs (Phase 6), never a
+  // mesh raycast, so adding a sphere to it costs a few operations rather than a
+  // second raycast pass. That is the only reason smoke is affordable here.
+  function segmentHitsSphere(ax, ay, az, bx, by, bz, cx, cy, cz, r) {
+    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len2 = dx * dx + dy * dy + dz * dz;
+    if (len2 < 1e-12) {
+      const ex = ax - cx, ey = ay - cy, ez = az - cz;
+      return ex * ex + ey * ey + ez * ez <= r * r;
+    }
+    // Closest approach of the SEGMENT (not the infinite line) to the centre.
+    let t = ((cx - ax) * dx + (cy - ay) * dy + (cz - az) * dz) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const px = ax + dx * t, py = ay + dy * t, pz = az + dz * t;
+    const ex = px - cx, ey = py - cy, ez = pz - cz;
+    return ex * ex + ey * ey + ez * ez <= r * r;
+  }
+  // `clouds` is [{ x, y, z, r }]. Expired clouds must be removed by the caller.
+  function smokeBlocks(ax, ay, az, bx, by, bz, clouds) {
+    if (!clouds) return false;
+    for (let i = 0; i < clouds.length; i++) {
+      const c = clouds[i];
+      if (segmentHitsSphere(ax, ay, az, bx, by, bz, c.x, c.y, c.z, c.r)) return true;
+    }
+    return false;
+  }
+
+  // ---- Scorestreaks --------------------------------------------------------------
+  // registerKillT() already tracked a 4-second multi-kill window and did nothing
+  // with it but print RAMPAGE. This is the other streak — consecutive kills without
+  // going down — which is the one CoD is actually known for.
+  const STREAKS = [
+    { key: 'uav',       short: 'UAV', name: 'UAV',                 kills: 8,  dur: 30 },
+    { key: 'airstrike', short: 'AIR', name: 'PRECISION AIRSTRIKE', kills: 12, dur: 0 },
+    { key: 'sentry',    short: 'SEN', name: 'SENTRY GUN',          kills: 16, dur: 45 }
+  ];
+  function streakByKey(key) {
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].key === key) return STREAKS[i];
+    return null;
+  }
+  // Earned at EXACTLY this count, so a streak is banked once and not re-granted on
+  // every subsequent kill.
+  function streaksEarnedAt(n) {
+    const out = [];
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].kills === n) out.push(STREAKS[i]);
+    return out;
+  }
+  // What the HUD shows as the next goal. Returns null once everything is earned.
+  function nextStreak(n) {
+    for (let i = 0; i < STREAKS.length; i++) if (STREAKS[i].kills > n) return STREAKS[i];
+    return null;
+  }
+
+  // ---- Field upgrade -------------------------------------------------------------
+  // One, charged by damage dealt rather than by time, so it rewards fighting instead
+  // of waiting. Munitions Box over Deployable Cover: the ammo economy is the thing
+  // the player actually runs out of.
+  const FIELD_UPGRADE = { key: 'munitions', name: 'MUNITIONS BOX', charge: 3000, dur: 25, radius: 3 };
+  function fieldChargeAfter(current, damage, needed) {
+    const c = current + damage;
+    const n = needed === undefined ? FIELD_UPGRADE.charge : needed;
+    return c > n ? n : c;
+  }
+  function fieldReady(current, needed) {
+    return current >= (needed === undefined ? FIELD_UPGRADE.charge : needed);
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -1342,6 +1471,21 @@ const CORE = (function () {
     DOWN_SPEED_MUL: DOWN_SPEED_MUL,
     lethalOutcome: lethalOutcome,
     bleedOutRemaining: bleedOutRemaining,
+    LETHALS: LETHALS,
+    TACTICALS: TACTICALS,
+    equipmentByKey: equipmentByKey,
+    flashStrength: flashStrength,
+    flashDuration: flashDuration,
+    segmentHitsSphere: segmentHitsSphere,
+    smokeBlocks: smokeBlocks,
+    STREAKS: STREAKS,
+    streakByKey: streakByKey,
+    streaksEarnedAt: streaksEarnedAt,
+    nextStreak: nextStreak,
+    FIELD_UPGRADE: FIELD_UPGRADE,
+    fieldChargeAfter: fieldChargeAfter,
+    fieldReady: fieldReady,
+    coneHit: coneHit,
     UNREACHABLE: UNREACHABLE
   };
 })();

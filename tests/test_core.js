@@ -1386,3 +1386,193 @@ test('a save can never carry more perks than there are slots', () => {
   });
   assert.ok(CORE.validateCheckpoint(good).perks.length <= CORE.PERK_SLOTS);
 });
+
+// ============================================================================
+// Phase 11 — equipment and streaks
+// ============================================================================
+
+// ---- Equipment table (SYS-03) ----
+test('every payload declares the fields the projectile loop branches on', () => {
+  for (const d of CORE.LETHALS.concat(CORE.TACTICALS)) {
+    assert.ok(d.key && d.name, 'needs a key and a display name');
+    assert.ok(['timed', 'burn', 'proximity', 'tactical'].indexOf(d.mode) >= 0,
+      d.key + ': mode must be one the loop knows: ' + d.mode);
+    assert.ok(d.price >= 0, d.key + ' needs a price');
+    assert.strictEqual(CORE.equipmentByKey(d.key), d);
+  }
+  assert.strictEqual(CORE.equipmentByKey('rocket'), null);
+});
+
+test('the default lethal is free and everything else is not', () => {
+  assert.strictEqual(CORE.LETHALS[0].key, 'frag');
+  assert.strictEqual(CORE.LETHALS[0].price, 0, 'the starting frag must never cost credits');
+  for (let i = 1; i < CORE.LETHALS.length; i++) {
+    assert.ok(CORE.LETHALS[i].price > 0, CORE.LETHALS[i].key + ' must be bought');
+  }
+});
+
+test('sticky payloads do not bounce, and bouncing ones do', () => {
+  for (const d of CORE.LETHALS) {
+    if (d.sticky) assert.strictEqual(d.bounce, 0, d.key + ' sticks, so it cannot bounce');
+  }
+  assert.ok(CORE.equipmentByKey('frag').bounce > 0);
+  assert.strictEqual(CORE.equipmentByKey('semtex').bounce, 0);
+});
+
+test('a claymore is armed and directional, not a slow frag', () => {
+  const c = CORE.equipmentByKey('claymore');
+  assert.strictEqual(c.mode, 'proximity');
+  assert.ok(c.arm > 0, 'it must not trigger the instant it lands');
+  assert.ok(c.trigger > 0);
+  assert.ok(c.arc > 0 && c.arc < 1, 'a cone, not a sphere — placement has to matter');
+});
+
+test('thermite trades burst damage for area denial', () => {
+  const t = CORE.equipmentByKey('thermite');
+  assert.strictEqual(t.mode, 'burn');
+  assert.ok(t.burnTime > 1 && t.burnRadius > 0 && t.burnDps > 0);
+  assert.ok(t.fuse < CORE.equipmentByKey('frag').fuse, 'it detonates on contact, not on a cook');
+});
+
+// ---- Flashbang falloff ----
+test('a flashbang is strongest looking straight at it and weakest far away', () => {
+  const r = 14;
+  const near = CORE.flashStrength(1, r, 1);
+  const far = CORE.flashStrength(13, r, 1);
+  assert.ok(near > far, 'distance must matter');
+  assert.strictEqual(CORE.flashStrength(r, r, 1), 0, 'nothing at the edge');
+  assert.strictEqual(CORE.flashStrength(99, r, 1), 0, 'nothing beyond it');
+});
+
+test('looking away reduces a flash but does not cancel it', () => {
+  const r = 14;
+  const facing = CORE.flashStrength(3, r, 1);
+  const side = CORE.flashStrength(3, r, 0);
+  const away = CORE.flashStrength(3, r, -1);
+  assert.ok(facing > side && side > away, 'angle must grade it, not gate it');
+  assert.ok(side > 0, 'it still went off next to them');
+  assert.strictEqual(away, 0, 'directly away from it is the one case that is free');
+});
+
+test('flash duration scales with strength and never exceeds the declared maximum', () => {
+  const d = CORE.equipmentByKey('flash');
+  assert.strictEqual(CORE.flashDuration(0, d.dur), 0);
+  assert.ok(CORE.flashDuration(1, d.dur) <= d.dur + 1e-9);
+  assert.ok(CORE.flashDuration(0.5, d.dur) < CORE.flashDuration(1, d.dur));
+});
+
+// ---- Smoke as a line-of-sight volume ----
+test('smoke blocks a sight line that passes through it', () => {
+  assert.strictEqual(
+    CORE.smokeBlocks(0, 1.5, 0, 0, 1.5, 20, [{ x: 0, y: 1.5, z: 10, r: 6 }]), true);
+});
+
+test('smoke does not block a line that misses it', () => {
+  assert.strictEqual(
+    CORE.smokeBlocks(0, 1.5, 0, 0, 1.5, 20, [{ x: 30, y: 1.5, z: 10, r: 6 }]), false,
+    'beside the line');
+  assert.strictEqual(
+    CORE.smokeBlocks(0, 1.5, 0, 0, 1.5, 20, [{ x: 0, y: 40, z: 10, r: 6 }]), false,
+    'far above the line — the test is 3-D, not a floor plan');
+});
+
+test('smoke beyond the end of the sight line does not block it', () => {
+  // The classic bug in this shape of test: using the infinite line instead of the
+  // segment, so a cloud behind the SHOOTER or past the TARGET blocks the shot.
+  assert.strictEqual(
+    CORE.smokeBlocks(0, 1.5, 0, 0, 1.5, 4, [{ x: 0, y: 1.5, z: 40, r: 6 }]), false,
+    'past the target');
+  assert.strictEqual(
+    CORE.smokeBlocks(0, 1.5, 0, 0, 1.5, 20, [{ x: 0, y: 1.5, z: -40, r: 6 }]), false,
+    'behind the shooter');
+});
+
+test('a degenerate sight line still answers correctly', () => {
+  assert.strictEqual(CORE.smokeBlocks(5, 1, 5, 5, 1, 5, [{ x: 5, y: 1, z: 5, r: 2 }]), true);
+  assert.strictEqual(CORE.smokeBlocks(5, 1, 5, 5, 1, 5, [{ x: 50, y: 1, z: 5, r: 2 }]), false);
+});
+
+test('no clouds means no blocking, and a missing list is not a crash', () => {
+  assert.strictEqual(CORE.smokeBlocks(0, 1, 0, 0, 1, 20, []), false);
+  assert.strictEqual(CORE.smokeBlocks(0, 1, 0, 0, 1, 20, null), false);
+  assert.strictEqual(CORE.smokeBlocks(0, 1, 0, 0, 1, 20, undefined), false);
+});
+
+test('the sphere test uses the closest point on the segment', () => {
+  // A cloud beside the midpoint blocks; the same cloud beside an endpoint does not.
+  assert.strictEqual(CORE.segmentHitsSphere(0, 0, 0, 0, 0, 10, 3, 0, 5, 3.5), true);
+  assert.strictEqual(CORE.segmentHitsSphere(0, 0, 0, 0, 0, 10, 3, 0, 5, 2), false);
+});
+
+// ---- Scorestreaks (SYS-04) ----
+test('a streak is earned at exactly its threshold, not on every kill past it', () => {
+  assert.deepStrictEqual(CORE.streaksEarnedAt(8).map((s) => s.key), ['uav']);
+  assert.strictEqual(CORE.streaksEarnedAt(9).length, 0,
+    'banking it again on kill 9 would hand out an unlimited supply');
+  assert.strictEqual(CORE.streaksEarnedAt(0).length, 0);
+});
+
+test('every streak threshold grants something exactly once', () => {
+  const counts = {};
+  for (let n = 0; n <= 100; n++) {
+    for (const s of CORE.streaksEarnedAt(n)) counts[s.key] = (counts[s.key] || 0) + 1;
+  }
+  for (const s of CORE.STREAKS) {
+    assert.strictEqual(counts[s.key], 1, s.key + ' must be granted exactly once across a run');
+  }
+});
+
+test('streak thresholds ascend, so the HUD goal always moves forward', () => {
+  for (let i = 1; i < CORE.STREAKS.length; i++) {
+    assert.ok(CORE.STREAKS[i].kills > CORE.STREAKS[i - 1].kills);
+  }
+  assert.strictEqual(CORE.nextStreak(0).key, CORE.STREAKS[0].key);
+  assert.strictEqual(CORE.nextStreak(CORE.STREAKS[0].kills).key, CORE.STREAKS[1].key);
+  assert.strictEqual(CORE.nextStreak(9999), null, 'no goal once everything is earned');
+});
+
+test('every streak has a name and a HUD code', () => {
+  for (const s of CORE.STREAKS) {
+    assert.ok(s.name && s.name.length);
+    assert.ok(s.short && s.short.length <= 3, s.key + ' needs a short HUD code');
+    assert.strictEqual(CORE.streakByKey(s.key), s);
+  }
+  assert.strictEqual(CORE.streakByKey('nuke_from_orbit'), null);
+});
+
+// ---- Field upgrade ----
+test('the field upgrade charges on damage and caps at its requirement', () => {
+  const need = CORE.FIELD_UPGRADE.charge;
+  assert.strictEqual(CORE.fieldReady(0), false);
+  let c = 0;
+  for (let i = 0; i < 5; i++) c = CORE.fieldChargeAfter(c, need / 4);
+  assert.strictEqual(c, need, 'it must not bank overflow toward the next one');
+  assert.strictEqual(CORE.fieldReady(c), true);
+});
+
+test('a single huge hit cannot overcharge the field upgrade', () => {
+  assert.strictEqual(CORE.fieldChargeAfter(0, 1e9), CORE.FIELD_UPGRADE.charge);
+});
+
+test('the claymore cone is 60 degrees, whatever length the facing arrives at', () => {
+  const c = CORE.equipmentByKey('claymore');
+  const at = (deg, len) => {
+    const a = deg * Math.PI / 180;
+    return CORE.coneHit(0, 0, Math.sin(a) * 2, Math.cos(a) * 2, 0, len, c.trigger, c.arc);
+  };
+  for (const len of [1, 6.7, 0.01]) {
+    assert.strictEqual(at(0, len), true, 'dead ahead, |face| = ' + len);
+    assert.strictEqual(at(55, len), true, 'inside the cone, |face| = ' + len);
+    assert.strictEqual(at(75, len), false,
+      '75 degrees is outside a 60-degree cone — this is the case an unnormalised ' +
+      'facing let through, |face| = ' + len);
+    assert.strictEqual(at(180, len), false, 'behind it, |face| = ' + len);
+  }
+});
+
+test('the cone respects its trigger range and degenerate inputs', () => {
+  const c = CORE.equipmentByKey('claymore');
+  assert.strictEqual(CORE.coneHit(0, 0, 0, c.trigger + 1, 0, 1, c.trigger, c.arc), false);
+  assert.strictEqual(CORE.coneHit(0, 0, 0, 0, 0, 1, c.trigger, c.arc), false, 'on top of it');
+  assert.strictEqual(CORE.coneHit(0, 0, 0, 2, 0, 0, c.trigger, c.arc), false, 'no facing at all');
+});

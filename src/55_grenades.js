@@ -50,6 +50,40 @@ function releaseBlastRing(ring) {
 }
 
 // ---- Grenade hold-to-charge state ----
+// ---- Equipment selection ----
+// The grenade was the most reusable system here and the only thing mounted on it
+// was a single frag. Charge-throw, the preview, bounce and blast LOS are all
+// payload-agnostic, so a variant is a different payload rather than a new system.
+let equippedLethal = 'frag';
+let equippedTactical = null;
+let tacticalCount = 0;
+const TACTICAL_MAX = 2;
+const EQUIP_COLOR = {
+  frag: 0x2e4a2e, semtex: 0x2f7a3f, thermite: 0xb05a1f, claymore: 0x4a4a3a,
+  flash: 0xd8d8c0, stun: 0x6fa8ff, smoke: 0x9aa0a8
+};
+const equipMats = {};
+function equipMaterial(key) {
+  if (!equipMats[key]) {
+    equipMats[key] = new THREE.MeshStandardMaterial({
+      color: EQUIP_COLOR[key] || 0x2e4a2e, roughness: 0.5, metalness: 0.3
+    });
+  }
+  return equipMats[key];
+}
+function lethalDef() { return CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]; }
+function tacticalDef() { return equippedTactical ? CORE.equipmentByKey(equippedTactical) : null; }
+
+// ---- Ground effects ----
+// Thermite leaves burning ground; smoke leaves a volume that blocks enemy LOS.
+// Both are plain data the update loop walks; neither needs a new subsystem.
+const burnPatches = [];
+const smokeClouds = [];
+const burnRingGeo = new THREE.RingGeometry(0.2, 3.2, 28);
+const burnRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+const smokeGeo = new THREE.SphereGeometry(1, 12, 10);
+const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62 });
+
 let grenadeCharging = false;
 let grenadeChargeT = 0;
 const GRENADE_MIN_SPEED = 6.0;
@@ -150,12 +184,17 @@ function updateGrenadePreview(speed) {
   }
 }
 
-function throwGrenade(customSpeed) {
-  if (grenades.count <= 0 || grenades.cd > 0 || player.dead) return;
-  grenades.count--;
+function throwGrenade(customSpeed, def) {
+  const d = def || lethalDef();
+  const tactical = d.mode === 'tactical';
+  if (tactical) {
+    if (tacticalCount <= 0) return;
+  } else if (grenades.count <= 0) return;
+  if (grenades.cd > 0 || player.dead) return;
+  if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = 0.8;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
-  const m = new THREE.Mesh(grenadeGeo, grenadeMat);
+  const m = new THREE.Mesh(grenadeGeo, equipMaterial(d.key));
   // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
   // throw and explodeGrenade() only scene.remove()d the mesh, leaking ~1 GPU
   // geometry per grenade for the life of the session.
@@ -166,14 +205,29 @@ function throwGrenade(customSpeed) {
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   dir.y += 0.45; dir.normalize();
+  // A claymore has no fuse at all: it arms where it lands and waits. Everything
+  // else counts down from its own value, not the frag's.
+  const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
+  // Capture the claymore's facing BEFORE the object literal below, because
+  // `vel: dir.multiplyScalar(speed)` mutates `dir` in place and a later
+  // `faceX: dir.x` would read the VELOCITY instead of a unit vector. With a
+  // magnitude of ~6.7 in it, the cone test `dot / d >= arc` was effectively
+  // comparing against 0.5/6.7 — an 86-degree half-angle instead of 60, which is
+  // most of a hemisphere and not a directional mine at all.
+  const faceLen = Math.hypot(dir.x, dir.z) || 1;
+  const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
   liveGrenades.push({
     m: m,
     vel: dir.multiplyScalar(speed),
-    fuse: CFG.grenade.fuse,
+    fuse: fuse,
     blink: blink,
     atRest: false,
     ring: null,
-    restFuse: CFG.grenade.fuse
+    restFuse: isFinite(fuse) ? fuse : 1,
+    def: d,
+    stuck: false,
+    armT: 0,
+    faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
   });
   scene.add(m);
   playSound('pin');
@@ -190,6 +244,15 @@ function cancelGrenadeCharge() {
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+  // Tacticals are a separate slot on a separate key, thrown at a fixed speed —
+  // there is no reason to cook a flashbang, and a charge bar on one would just be
+  // a second thing to learn.
+  if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
+      && !player.dead && started && !paused) {
+    throwGrenade(CFG.grenade.speed * 1.15, tacticalDef());
+    updateHudAmmo();
+  }
+  updateEquipmentEffects(dt);
 
   // Charge / aim input handling
   const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
@@ -228,14 +291,18 @@ function updateGrenades(dt) {
 
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
-    g.fuse -= dt;
+    const def = g.def || CORE.LETHALS[0];
+    if (isFinite(g.fuse)) g.fuse -= dt;
+    // Semtex and thermite stick where they land; nothing moves them afterwards.
+    if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
     g.m.position.addScaledVector(g.vel, dt);
     // ground bounce
     if (g.m.position.y < 0.11) {
       g.m.position.y = 0.11;
-      if (Math.abs(g.vel.y) > 1) playSound('bounce');
-      g.vel.y = -g.vel.y * CFG.grenade.bounce;
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
+      else if (Math.abs(g.vel.y) > 1) playSound('bounce');
+      g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
       g.vel.x *= 0.55; g.vel.z *= 0.55;
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
@@ -253,6 +320,7 @@ function updateGrenades(dt) {
         if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
         else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
         g.vel.y *= 0.8;
+        if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
       }
     }
     // detect when grenade comes to rest on ground
@@ -270,18 +338,166 @@ function updateGrenades(dt) {
       const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
       g.ring.material.opacity = 0.32 * fade;
     }
-    // blink faster as fuse burns
-    g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
-    if (g.fuse <= 0) {
-      explodeGrenade(g.m.position);
-      if (g.ring) {
-        releaseBlastRing(g.ring);
-        g.ring = null;
-      }
-      scene.remove(g.m);
-      liveGrenades.splice(i, 1);
+    stepLiveGrenade(g, dt, i, def);
+  }
+}
+
+// The per-payload half of the projectile loop, split out so the physics above
+// stays one path for every type.
+function stepLiveGrenade(g, dt, i, def) {
+  // blink faster as fuse burns; an armed claymore holds a steady light instead
+  g.blink.visible = isFinite(g.fuse)
+    ? Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0
+    : (g.armT >= (def.arm || 0));
+
+  if (def.mode === 'proximity') {
+    if (!g.atRest && !g.stuck) return;
+    g.armT += dt;
+    if (g.armT < (def.arm || 0)) return;
+    // Directional: a claymore facing away from an enemy does nothing, which is
+    // the whole reason to place one deliberately rather than lob it.
+    const p = g.m.position;
+    for (let e = 0; e < enemies.length; e++) {
+      const en = enemies[e];
+      if (en.dead) continue;
+      if (!CORE.coneHit(p.x, p.z, en.pos.x, en.pos.z, g.faceX, g.faceZ, def.trigger, def.arc)) continue;
+      detonate(g, i, def);
+      return;
+    }
+    return;
+  }
+  if (g.fuse <= 0) detonate(g, i, def);
+}
+
+function detonate(g, i, def) {
+  const p = g.m.position;
+  if (def.mode === 'tactical') {
+    applyTactical(def, p);
+  } else if (def.mode === 'burn') {
+    // Thermite trades burst damage for area denial: a smaller bang, then ground
+    // that stays lethal for six seconds.
+    explodeGrenade(p, 0.45);
+    addBurnPatch(p.x, p.z, def);
+  } else {
+    explodeGrenade(p);
+  }
+  if (g.ring) { releaseBlastRing(g.ring); g.ring = null; }
+  scene.remove(g.m);
+  liveGrenades.splice(i, 1);
+}
+
+// ---- Tactical payloads -------------------------------------------------------
+function applyTactical(def, pos) {
+  if (def.effect === 'smoke') {
+    addSmokeCloud(pos.x, Math.max(1.2, pos.y), pos.z, def);
+    playSound('explosion');
+    return;
+  }
+  playSound(def.effect === 'blind' ? 'headshot' : 'pin');
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    const d = CORE.horizDist(en.pos.x, en.pos.z, pos.x, pos.z);
+    if (d >= def.radius) continue;
+    // Behind cover means behind cover: a flash through a wall is the thing that
+    // makes tacticals feel arbitrary.
+    if (CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        en.pos.x, en.pos.y + 1.2, en.pos.z, colliders, 0.25)) continue;
+    if (def.effect === 'blind') {
+      const fx = Math.sin(en.yaw), fz = Math.cos(en.yaw);
+      const tx = (pos.x - en.pos.x) / (d || 1), tz = (pos.z - en.pos.z) / (d || 1);
+      const s = CORE.flashStrength(d, def.radius, tx * fx + tz * fz);
+      const dur = CORE.flashDuration(s, def.dur);
+      if (dur > en.blindT) en.blindT = dur;
+    } else {
+      en.stunT = Math.max(en.stunT || 0, def.dur);
     }
   }
+  // A flashbang the player is looking at blinds the player too. Anything else
+  // would make it a free win rather than a tool with a cost.
+  if (def.effect === 'blind') {
+    const pd = CORE.horizDist(player.pos.x, player.pos.z, pos.x, pos.z);
+    if (pd < def.radius && !CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) {
+      const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
+      const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
+      const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
+      playerFlashT = Math.max(playerFlashT, CORE.flashDuration(s, def.dur * 0.6));
+    }
+  }
+}
+
+let playerFlashT = 0;
+
+function addBurnPatch(x, z, def) {
+  const ring = new THREE.Mesh(burnRingGeo, burnRingMat.clone());
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.04, z);
+  ring.scale.setScalar(def.burnRadius / 3.2);
+  scene.add(ring);
+  burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
+                     r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
+}
+
+function addSmokeCloud(x, y, z, def) {
+  const m = new THREE.Mesh(smokeGeo, smokeMat.clone());
+  m.position.set(x, y, z);
+  m.scale.setScalar(0.2);
+  scene.add(m);
+  smokeClouds.push({ x: x, y: y, z: z, r: def.radius, t: def.dur, life: def.dur, m: m });
+}
+
+// Shared with enemy line-of-sight, which is why it is kept as plain data rather
+// than read off the meshes.
+function smokeVolumes() { return smokeClouds; }
+
+function updateEquipmentEffects(dt) {
+  if (playerFlashT > 0) {
+    playerFlashT = Math.max(0, playerFlashT - dt);
+    const el = $id('flash-overlay');
+    if (el) el.style.opacity = Math.min(0.92, playerFlashT / 1.5);
+  }
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    const b = burnPatches[i];
+    b.t -= dt;
+    b.tick -= dt;
+    b.m.material.opacity = 0.5 * Math.max(0, b.t / b.life);
+    if (b.tick <= 0) {
+      b.tick = 0.25;
+      for (let e = 0; e < enemies.length; e++) {
+        const en = enemies[e];
+        if (en.dead) continue;
+        if (CORE.horizDist(en.pos.x, en.pos.z, b.x, b.z) < b.r) {
+          damageEnemy(en, b.dps * 0.25, en.pos.clone().setY(en.pos.y + 1), false);
+        }
+      }
+    }
+    if (b.t <= 0) { scene.remove(b.m); b.m.material.dispose(); burnPatches.splice(i, 1); }
+  }
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    const c = smokeClouds[i];
+    c.t -= dt;
+    // Bloom out over the first second, then hold, then fade.
+    const grow = Math.min(1, (c.life - c.t) / 1.0);
+    c.m.scale.setScalar(c.r * (0.25 + 0.75 * grow));
+    c.m.material.opacity = 0.62 * Math.min(1, Math.max(0, c.t / 1.5));
+    if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
+  }
+}
+
+function resetEquipment() {
+  equippedLethal = 'frag';
+  equippedTactical = null;
+  tacticalCount = 0;
+  playerFlashT = 0;
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    scene.remove(burnPatches[i].m); burnPatches[i].m.material.dispose();
+  }
+  burnPatches.length = 0;
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    scene.remove(smokeClouds[i].m); smokeClouds[i].m.material.dispose();
+  }
+  smokeClouds.length = 0;
 }
 
 const grenadeLosRay = new THREE.Raycaster();
@@ -314,7 +530,8 @@ function refreshGrenadeTargets() {
   }
 }
 
-function explodeGrenade(pos) {
+function explodeGrenade(pos, scale) {
+  const dmgScale = scale === undefined ? 1 : scale;
   playSound('explosion');
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
@@ -348,7 +565,7 @@ function explodeGrenade(pos) {
     const target = en.pos.clone().setY(1.1);
     if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
       const falloff = 1 - d / CFG.grenade.radius;
-      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff);
+      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff) * dmgScale;
       damageEnemy(en, dmg, target, false);
     }
   }
