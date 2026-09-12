@@ -235,10 +235,15 @@ function frame(now) {
     // Adapt deliberately, not every sample: frequent canvas reallocations cause
     // the camera to appear to hitch on slower GPUs.
     qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 1.5) {
+    if (qualityAdjustT >= 4.5) {
       const maxPR = Math.min(window.devicePixelRatio, 1.5);
-      if (fps < 48 && renderer.getPixelRatio() > 0.65) renderer.setPixelRatio(Math.max(0.65, renderer.getPixelRatio() - 0.1));
-      else if (fps > 62 && renderer.getPixelRatio() < maxPR) renderer.setPixelRatio(Math.min(maxPR, renderer.getPixelRatio() + 0.1));
+      const currentPR = renderer.getPixelRatio();
+      let desiredPR = currentPR;
+      if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
+      else if (fps > 62 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
+      if (Math.abs(desiredPR - currentPR) >= 0.05) {
+        renderer.setPixelRatio(desiredPR);
+      }
       qualityAdjustT = 0;
     }
     fpsAcc = 0; fpsN = 0;

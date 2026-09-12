@@ -1,7 +1,6 @@
 // ============ MOBILE TOUCH CONTROLS ============
 'use strict';
-// Detect touch device once
-const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
+// IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
 
