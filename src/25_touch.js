@@ -43,6 +43,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     const t = e.changedTouches[0];
     if (joyId !== null) return;
     joyId = t.identifier;
+    joyBase.classList.add('on');
     const r = joyBase.getBoundingClientRect();
     joyCX = r.left + r.width / 2; joyCY = r.top + r.height / 2;
     joyMove(t);
@@ -68,7 +69,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   }, { passive: false });
   function releaseTouches(e) {
     for (const t of e.changedTouches) {
-      if (t.identifier === joyId) { joyId = null; touchState.moveX = 0; touchState.moveZ = 0; joyStick.style.transform = 'translate(0,0)'; }
+      if (t.identifier === joyId) { joyId = null; joyBase.classList.remove('on'); touchState.moveX = 0; touchState.moveZ = 0; joyStick.style.transform = 'translate(0,0)'; }
       if (t.identifier === lookId) lookId = null;
     }
   }
@@ -77,7 +78,7 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
-  addEventListener('blur', function () { joyId = null; lookId = null; joyStick.style.transform = 'translate(0,0)'; });
+  addEventListener('blur', function () { joyId = null; lookId = null; joyBase.classList.remove('on'); joyStick.style.transform = 'translate(0,0)'; });
   lookZone.addEventListener('touchstart', function (e) {
     e.preventDefault();
     const t = e.changedTouches[0];
