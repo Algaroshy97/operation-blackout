@@ -306,6 +306,15 @@ def main() -> int:
         }""")
         checks.append(("plate-audio-cues", plate_audio))
         checks.append(("sniper-sound-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.sniper === 1")))
+        checks.append(("action-sounds-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && ['jump', 'land', 'melee', 'bounce', 'headshot'].every(k => SOUND_VARIED[k] === 1)")))
+        jitter_check = page.evaluate("""() => {
+            if (typeof CORE.soundPlaybackRate !== 'function') return false;
+            const mid = CORE.soundPlaybackRate(1, 0.5);
+            const low = CORE.soundPlaybackRate(1, 0);
+            const high = CORE.soundPlaybackRate(1, 1);
+            return Math.abs(mid - 1.0) < 1e-6 && Math.abs(low - 0.97) < 1e-6 && Math.abs(high - 1.03) < 1e-6;
+        }""")
+        checks.append(("sound-playback-rate-jitter", jitter_check))
 
         # 11) Visual feedback: low-health HUD warning state.
         health_hud = page.evaluate("""() => {

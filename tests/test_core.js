@@ -2557,3 +2557,18 @@ test('isHealthLow reports true at or below threshold and false above', () => {
   assert.strictEqual(CORE.isHealthLow(undefined, 100), false);
 });
 
+test('soundPlaybackRate applies ±3% jitter around base rate', () => {
+  assert.strictEqual(CORE.SOUND_VARIED_RANGE, 0.06);
+  assert.strictEqual(CORE.soundPlaybackRate(1, 0.5), 1.0);
+  assert.strictEqual(Math.round(CORE.soundPlaybackRate(1, 0) * 100) / 100, 0.97);
+  assert.strictEqual(Math.round(CORE.soundPlaybackRate(1, 1) * 100) / 100, 1.03);
+  // Custom base rate
+  assert.strictEqual(CORE.soundPlaybackRate(1.5, 0.5), 1.5);
+  // Default fallbacks for missing/invalid inputs
+  assert.strictEqual(CORE.soundPlaybackRate(undefined, 0.5), 1.0);
+  assert.strictEqual(CORE.soundPlaybackRate(NaN, 0.5), 1.0);
+  assert.strictEqual(CORE.soundPlaybackRate('1', 0.5), 1.0);
+  const randSample = CORE.soundPlaybackRate(1);
+  assert.ok(randSample >= 0.97 && randSample <= 1.03, 'random sample stays within ±3%');
+});
+

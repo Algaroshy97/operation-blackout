@@ -214,6 +214,16 @@ const CORE = (function () {
     return clamp01(enemyLoad * 0.55 + proximity * 0.3 + hurt * 0.35);
   }
 
+  // ---- Sound playback variation -----------------------------------------------
+  // ±3% playback rate jitter for percussive sounds that repeat constantly.
+  // Breaks up robotic bit-identical repetition across repeated triggers.
+  const SOUND_VARIED_RANGE = 0.06;
+  function soundPlaybackRate(baseRate, rand) {
+    const base = (typeof baseRate === 'number' && isFinite(baseRate)) ? baseRate : 1.0;
+    const r = (typeof rand === 'number' && isFinite(rand)) ? rand : Math.random();
+    return base + (r - 0.5) * SOUND_VARIED_RANGE;
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -2193,7 +2203,9 @@ const CORE = (function () {
     pickObjectiveSpot: pickObjectiveSpot,
     REACH_MAX_VERT: REACH_MAX_VERT,
     withinReach: withinReach,
-    UNREACHABLE: UNREACHABLE
+    UNREACHABLE: UNREACHABLE,
+    SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
+    soundPlaybackRate: soundPlaybackRate
   };
 })();
 

@@ -4809,6 +4809,16 @@ const CORE = (function () {
     return clamp01(enemyLoad * 0.55 + proximity * 0.3 + hurt * 0.35);
   }
 
+  // ---- Sound playback variation -----------------------------------------------
+  // ±3% playback rate jitter for percussive sounds that repeat constantly.
+  // Breaks up robotic bit-identical repetition across repeated triggers.
+  const SOUND_VARIED_RANGE = 0.06;
+  function soundPlaybackRate(baseRate, rand) {
+    const base = (typeof baseRate === 'number' && isFinite(baseRate)) ? baseRate : 1.0;
+    const r = (typeof rand === 'number' && isFinite(rand)) ? rand : Math.random();
+    return base + (r - 0.5) * SOUND_VARIED_RANGE;
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -6788,7 +6798,9 @@ const CORE = (function () {
     pickObjectiveSpot: pickObjectiveSpot,
     REACH_MAX_VERT: REACH_MAX_VERT,
     withinReach: withinReach,
-    UNREACHABLE: UNREACHABLE
+    UNREACHABLE: UNREACHABLE,
+    SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
+    soundPlaybackRate: soundPlaybackRate
   };
 })();
 
@@ -10571,7 +10583,7 @@ const SOUND_RECIPES = {
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
 // every time, so these get a few percent of pitch jitter — which is more variation
 // than the old live synthesis had, since its parameters were fixed too.
-const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1 };
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1, jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1 };
 
 function recipeDuration(recipe) {
   let d = 0;
@@ -10652,7 +10664,7 @@ function playSound(name, dest) {
   if (buf) {
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    if (SOUND_VARIED[name]) src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.06;
+    if (SOUND_VARIED[name]) src.playbackRate.value = CORE.soundPlaybackRate(1, Math.random());
     src.connect(out);
     src.start(ctx.currentTime);
     return;
