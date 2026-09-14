@@ -355,7 +355,43 @@ def main() -> int:
         }""")
         checks.append(("shadow-budget-no-flap", shadow_stability))
 
-        # 13) Clean console throughout gameplay.
+        # 13) Mobile touch input rules & active feedback styling.
+        auto_sprint_check = page.evaluate("""() => {
+            if (typeof CORE.isAutoSprint !== 'function') return false;
+            return CORE.isAutoSprint(0, 1.0, false) === true &&
+                   CORE.isAutoSprint(0, 1.0, true) === false &&
+                   CORE.isAutoSprint(0.85, 0.5, false) === false &&
+                   CORE.isAutoSprint(0, 0.75, false) === false;
+        }""")
+        checks.append(("touch-auto-sprint-rule", auto_sprint_check))
+
+        touch_style_check = page.evaluate("""() => {
+            document.body.classList.add('touch');
+            const fire = document.createElement('div');
+            fire.id = 'tbtn-fire';
+            fire.className = 'tbtn on';
+            document.body.appendChild(fire);
+            const fireBorder = getComputedStyle(fire).borderColor;
+            document.body.removeChild(fire);
+
+            const joyBase = document.createElement('div');
+            joyBase.id = 'joy-base';
+            joyBase.className = 'on';
+            const stick = document.createElement('div');
+            stick.id = 'joy-stick';
+            joyBase.appendChild(stick);
+            document.body.appendChild(joyBase);
+            const stickBorder = getComputedStyle(stick).borderColor;
+            document.body.removeChild(joyBase);
+
+            document.body.classList.remove('touch');
+            const fireOk = fireBorder.includes('255, 95, 74') || fireBorder.includes('rgb(255, 95, 74)');
+            const stickOk = stickBorder.includes('255, 210, 74') || stickBorder.includes('rgb(255, 210, 74)');
+            return fireOk && stickOk;
+        }""")
+        checks.append(("touch-active-feedback-styles", touch_style_check))
+
+        # 14) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

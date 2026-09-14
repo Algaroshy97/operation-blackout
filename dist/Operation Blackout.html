@@ -210,10 +210,12 @@
   body.touch #touch-ui{display:block;position:absolute;inset:0;z-index:20;pointer-events:none}
   body.touch #joy-base{position:absolute;left:calc(26px + var(--sa-l));bottom:calc(90px + var(--sa-b));width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none;transition:border-color .12s,box-shadow .12s}
      body.touch #joy-base.on{border-color:rgba(255,210,74,.8);box-shadow:0 0 0 3px rgba(255,210,74,.14),inset 0 0 16px rgba(255,210,74,.12)}
-     body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.35);border:2px solid rgba(255,255,255,.5);pointer-events:none}
+     body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.35);border:2px solid rgba(255,255,255,.5);pointer-events:none;transition:border-color .12s,background .12s,box-shadow .12s}
+     body.touch #joy-base.on #joy-stick{background:rgba(255,210,74,.45);border-color:#ffd24a;box-shadow:0 0 10px rgba(255,210,74,.35)}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.3);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   body.touch .tbtn.on{background:rgba(255,210,74,.45);border-color:#ffd24a;color:#fff;box-shadow:0 0 0 3px rgba(255,210,74,.18),inset 0 0 12px rgba(255,255,255,.16)}
+  body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
   /* Right-hand cluster. The old layout stacked five controls in one column reaching
      346px up from the bottom; a landscape phone is 360px tall, so RELOAD arrived at
      the top edge and overlapped PAUSE by its full height — a tap in that zone could
@@ -265,7 +267,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #joy-base,body.reduced-motion #joy-stick{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
@@ -4655,6 +4657,17 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
+  // sprints when moving fast enough; ease the stick back to walk.
+  const JOYSTICK_SPRINT_FORWARD = 0.72;
+  const JOYSTICK_SPRINT_MAGNITUDE = 0.82;
+  function isAutoSprint(moveX, moveZ, ads) {
+    if (ads) return false;
+    if (typeof moveX !== 'number' || !isFinite(moveX)) return false;
+    if (typeof moveZ !== 'number' || !isFinite(moveZ)) return false;
+    return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -6800,7 +6813,10 @@ const CORE = (function () {
     withinReach: withinReach,
     UNREACHABLE: UNREACHABLE,
     SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
-    soundPlaybackRate: soundPlaybackRate
+    soundPlaybackRate: soundPlaybackRate,
+    JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
+    JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
+    isAutoSprint: isAutoSprint
   };
 })();
 
@@ -8463,7 +8479,7 @@ function applyTouchInput() {
     keys['KeyA'] = touchState.moveX < -0.15;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
-    keys['ShiftLeft'] = touchState.moveZ > 0.72 && Math.hypot(touchState.moveX, touchState.moveZ) > 0.82 && !touchState.ads;
+    keys['ShiftLeft'] = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;

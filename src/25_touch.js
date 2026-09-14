@@ -170,7 +170,7 @@ function applyTouchInput() {
     keys['KeyA'] = touchState.moveX < -0.15;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
-    keys['ShiftLeft'] = touchState.moveZ > 0.72 && Math.hypot(touchState.moveX, touchState.moveZ) > 0.82 && !touchState.ads;
+    keys['ShiftLeft'] = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;

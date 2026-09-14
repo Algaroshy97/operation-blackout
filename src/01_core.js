@@ -60,6 +60,17 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
+  // sprints when moving fast enough; ease the stick back to walk.
+  const JOYSTICK_SPRINT_FORWARD = 0.72;
+  const JOYSTICK_SPRINT_MAGNITUDE = 0.82;
+  function isAutoSprint(moveX, moveZ, ads) {
+    if (ads) return false;
+    if (typeof moveX !== 'number' || !isFinite(moveX)) return false;
+    if (typeof moveZ !== 'number' || !isFinite(moveZ)) return false;
+    return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -2205,7 +2216,10 @@ const CORE = (function () {
     withinReach: withinReach,
     UNREACHABLE: UNREACHABLE,
     SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
-    soundPlaybackRate: soundPlaybackRate
+    soundPlaybackRate: soundPlaybackRate,
+    JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
+    JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
+    isAutoSprint: isAutoSprint
   };
 })();
 

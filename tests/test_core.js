@@ -2572,3 +2572,28 @@ test('soundPlaybackRate applies ±3% jitter around base rate', () => {
   assert.ok(randSample >= 0.97 && randSample <= 1.03, 'random sample stays within ±3%');
 });
 
+test('isAutoSprint triggers on forward joystick tilt above threshold without ADS', () => {
+  assert.strictEqual(CORE.JOYSTICK_SPRINT_FORWARD, 0.72);
+  assert.strictEqual(CORE.JOYSTICK_SPRINT_MAGNITUDE, 0.82);
+  // Full forward push (moveX: 0, moveZ: 1.0, ads: false) -> sprints
+  assert.strictEqual(CORE.isAutoSprint(0, 1.0, false), true);
+  // Forward-right diagonal (moveX: 0.45, moveZ: 0.75, magnitude = 0.875) -> sprints
+  assert.strictEqual(CORE.isAutoSprint(0.45, 0.75, false), true);
+  // ADS blocks sprint regardless of joystick deflection
+  assert.strictEqual(CORE.isAutoSprint(0, 1.0, true), false);
+  assert.strictEqual(CORE.isAutoSprint(0.45, 0.75, true), false);
+  // Deflection below forward threshold fails even if magnitude is large (e.g. side-strafe)
+  assert.strictEqual(CORE.isAutoSprint(0.85, 0.5, false), false);
+  // Deflection below magnitude threshold fails even with forward tilt
+  assert.strictEqual(CORE.isAutoSprint(0, 0.75, false), false);
+  // Neutral/center stick fails
+  assert.strictEqual(CORE.isAutoSprint(0, 0, false), false);
+  // Backward tilt fails
+  assert.strictEqual(CORE.isAutoSprint(0, -1.0, false), false);
+  // Rejects invalid/non-numeric/NaN/Infinity inputs safely
+  assert.strictEqual(CORE.isAutoSprint(NaN, 1.0, false), false);
+  assert.strictEqual(CORE.isAutoSprint(0, Infinity, false), false);
+  assert.strictEqual(CORE.isAutoSprint('0', 1.0, false), false);
+  assert.strictEqual(CORE.isAutoSprint(undefined, 1.0, false), false);
+});
+
