@@ -288,7 +288,26 @@ def main() -> int:
         }""")
         checks.append(("no-geometry-growth", leak <= 0))
 
-        # 10) Clean console throughout gameplay.
+        # 10) Audio cues: plate insertion completion & sniper acoustic jitter.
+        plate_audio = page.evaluate("""() => {
+            const played = [];
+            const realPlay = playSound;
+            playSound = function (name) { played.push(name); realPlay(name); };
+            try {
+                player.armor = 0;
+                plates = 1;
+                plateT = 0;
+                usePlate();
+                updateStations(CORE.PLATE_TIME);
+                return played.includes('reload_out') && played.includes('reload_in');
+            } finally {
+                playSound = realPlay;
+            }
+        }""")
+        checks.append(("plate-audio-cues", plate_audio))
+        checks.append(("sniper-sound-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.sniper === 1")))
+
+        # 11) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

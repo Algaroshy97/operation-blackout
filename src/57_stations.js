@@ -338,7 +338,10 @@ function updateStations(dt) {
     plateT = Math.max(0, plateT - dt);
     if (plateT === 0) {
       const r = CORE.plateApply(player.armor, CFG.player.armor, plates);
-      if (r) { player.armor = r.armor; plates = r.plates; updateHudHealth(); updateHudPlates(); }
+      if (r) {
+        player.armor = r.armor; plates = r.plates; updateHudHealth(); updateHudPlates();
+        playSound('reload_in');
+      }
     }
     setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
     return;

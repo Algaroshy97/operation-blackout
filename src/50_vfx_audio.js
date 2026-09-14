@@ -398,7 +398,7 @@ const SOUND_RECIPES = {
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
 // every time, so these get a few percent of pitch jitter — which is more variation
 // than the old live synthesis had, since its parameters were fixed too.
-const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1 };
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1 };
 
 function recipeDuration(recipe) {
   let d = 0;
