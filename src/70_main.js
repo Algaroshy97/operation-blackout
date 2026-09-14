@@ -152,7 +152,6 @@ function resetGame() {
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  weaponsOwned[1] = -1;
   curWeapon = 0;
   initWeapons();
   gunSwitchT = 1;
@@ -335,6 +334,10 @@ function buildGunSelect(slot) {
     if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
+  if (pickingSlot === 1) {
+    const first = wrap.querySelector('.gun-card:not(.locked)');
+    if (first) first.focus({ preventScroll: true });
+  }
 }
 function buildDifficultyRow() {
   const row = $id('diff-row');
@@ -362,6 +365,7 @@ function pickGun(i) {
     return;
   }
   pendingSecondary = i;
+  weaponsOwned[1] = i;
   endlessMode = false;
   clearCheckpoint();          // starting fresh invalidates any saved run
   $id('gun-select').style.display = 'none';
