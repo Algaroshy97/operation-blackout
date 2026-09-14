@@ -602,10 +602,9 @@ function dropPickup(pos) {
     if (i === curWeapon) magSize = CFG.weapons[weaponsOwned[i]].mag;
   }
   const ammoChance = CORE.ammoDropChance(roundsLeft, magSize);
+  const medChance = CORE.medDropChance(player.health, playerMaxHealth(), CORE.perkPickupMul(perks));
   const roll = Math.random();
-  let kind = null;
-  if (roll < ammoChance) kind = 'ammo';
-  else if (player.health < playerMaxHealth() * 0.5 || roll < ammoChance + 0.15 * CORE.perkPickupMul(perks)) kind = 'med';
+  const kind = CORE.pickupDropKind(roll, ammoChance, medChance);
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {

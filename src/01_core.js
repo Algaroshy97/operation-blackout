@@ -485,6 +485,37 @@ const CORE = (function () {
     return Math.min(1, base + (1 - base) * t * t);
   }
 
+  // Medkit drops balance combat recovery. Rather than an abrupt binary cliff
+  // where dropping below 50% HP suddenly forced 100% of non-ammo kills to spawn
+  // medkits (bypassing Scavenger and flooding the arena), the medkit drop chance
+  // smoothly scales as player health declines, rewarding tactical play while
+  // giving wounded players reliable recovery opportunities.
+  const MED_DROP_BASE = 0.15;
+  const MED_DROP_CRITICAL = 0.50;
+  function medDropChance(health, maxHealth, perkMul) {
+    const mul = (typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0) ? perkMul : 1;
+    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    const hp = (typeof health === 'number' && isFinite(health)) ? health : max;
+    const frac = Math.max(0, Math.min(1, hp / max));
+    const base = MED_DROP_BASE * mul;
+    const peak = Math.min(1, MED_DROP_CRITICAL * mul);
+    if (frac >= 0.75) return Math.min(1, base);
+    // Smooth quadratic ramp between 75% health and 0% health
+    const t = (0.75 - frac) / 0.75;
+    return Math.min(1, base + (peak - base) * t * t);
+  }
+
+  // Resolves whether an ammo box, medkit, or nothing drops from a defeated enemy.
+  // Prioritizes ammunition when critically dry, followed by medical supplies when injured.
+  function pickupDropKind(roll, ammoChance, medChance) {
+    if (typeof roll !== 'number' || !isFinite(roll) || roll < 0) return null;
+    const a = (typeof ammoChance === 'number' && isFinite(ammoChance)) ? Math.max(0, ammoChance) : 0;
+    const m = (typeof medChance === 'number' && isFinite(medChance)) ? Math.max(0, medChance) : 0;
+    if (roll < a) return 'ammo';
+    if (roll < a + m) return 'med';
+    return null;
+  }
+
   // ---- Checkpoint save --------------------------------------------------------
   // A full run is ~341 enemies across 15 waves — 25-40 minutes. Losing that to a
   // closed tab was the single worst quality-of-life problem left. Saved between
@@ -2049,6 +2080,10 @@ const CORE = (function () {
     endlessEnemyCount: endlessEnemyCount,
     SAVE_VERSION: SAVE_VERSION,
     ammoDropChance: ammoDropChance,
+    MED_DROP_BASE: MED_DROP_BASE,
+    MED_DROP_CRITICAL: MED_DROP_CRITICAL,
+    medDropChance: medDropChance,
+    pickupDropKind: pickupDropKind,
     makeCheckpoint: makeCheckpoint,
     validateCheckpoint: validateCheckpoint,
     regionKey: regionKey,

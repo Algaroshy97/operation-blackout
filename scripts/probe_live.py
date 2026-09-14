@@ -391,7 +391,22 @@ def main() -> int:
         }""")
         checks.append(("touch-active-feedback-styles", touch_style_check))
 
-        # 14) Clean console throughout gameplay.
+        # 14) Balance: medkit drop scaling and pickup drop kind resolution.
+        pickup_balance_check = page.evaluate("""() => {
+            if (typeof CORE.medDropChance !== 'function' || typeof CORE.pickupDropKind !== 'function') return false;
+            const fullHp = CORE.medDropChance(100, 100);
+            const midHp = CORE.medDropChance(50, 100);
+            const critHp = CORE.medDropChance(0, 100);
+            const scavCrit = CORE.medDropChance(0, 100, 1.6);
+            const smooth = fullHp === 0.15 && midHp > 0.15 && midHp < 0.25 && critHp === 0.50 && Math.abs(scavCrit - 0.80) < 1e-6;
+            const kindsOk = CORE.pickupDropKind(0.1, 0.3, 0.2) === 'ammo' &&
+                            CORE.pickupDropKind(0.35, 0.3, 0.2) === 'med' &&
+                            CORE.pickupDropKind(0.55, 0.3, 0.2) === null;
+            return smooth && kindsOk;
+        }""")
+        checks.append(("pickup-drop-balance-rules", pickup_balance_check))
+
+        # 15) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

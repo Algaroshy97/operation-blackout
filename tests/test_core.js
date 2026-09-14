@@ -2597,3 +2597,53 @@ test('isAutoSprint triggers on forward joystick tilt above threshold without ADS
   assert.strictEqual(CORE.isAutoSprint(undefined, 1.0, false), false);
 });
 
+test('medDropChance scales smoothly with health deficit without binary cliffing', () => {
+  assert.strictEqual(CORE.MED_DROP_BASE, 0.15);
+  assert.strictEqual(CORE.MED_DROP_CRITICAL, 0.50);
+  // Comfortable health (>= 75% max HP) produces base chance
+  assert.strictEqual(CORE.medDropChance(100, 100), 0.15);
+  assert.strictEqual(CORE.medDropChance(75, 100), 0.15);
+  // Critical health (0 HP) yields peak emergency chance
+  assert.strictEqual(CORE.medDropChance(0, 100), 0.50);
+  // Mid health (50 HP) ramps smoothly (~0.189) rather than jumping to 0.70+
+  const mid = CORE.medDropChance(50, 100);
+  assert.ok(mid > 0.15 && mid < 0.25, `mid chance ${mid} should be smoothly elevated above base`);
+  // Low health (25 HP) ramps higher (~0.305)
+  const low = CORE.medDropChance(25, 100);
+  assert.ok(low > mid && low < 0.40, `low chance ${low} should exceed mid chance`);
+  // Monotonically non-decreasing as health decreases from 100 to 0
+  let prev = 0;
+  for (let hp = 100; hp >= 0; hp -= 2) {
+    const c = CORE.medDropChance(hp, 100);
+    assert.ok(c >= prev - 1e-12, `chance dipped at ${hp} HP (${c} < ${prev})`);
+    assert.ok(c >= 0 && c <= 1, `chance ${c} out of [0, 1] range`);
+    prev = c;
+  }
+  // Scavenger perk multiplier scales both base and critical chances
+  assert.strictEqual(Math.round(CORE.medDropChance(100, 100, 1.6) * 100) / 100, 0.24);
+  assert.strictEqual(Math.round(CORE.medDropChance(0, 100, 1.6) * 100) / 100, 0.80);
+  // Tolerates invalid/NaN/omitted inputs safely
+  assert.strictEqual(CORE.medDropChance(undefined), 0.15);
+  assert.strictEqual(CORE.medDropChance(NaN, 100), 0.15);
+  assert.strictEqual(CORE.medDropChance('50', 100), 0.15);
+});
+
+test('pickupDropKind resolves ammo, medkit, and empty drops deterministically', () => {
+  // ammoChance priority: roll < ammoChance gives ammo
+  assert.strictEqual(CORE.pickupDropKind(0.10, 0.30, 0.20), 'ammo');
+  assert.strictEqual(CORE.pickupDropKind(0.29, 0.30, 0.20), 'ammo');
+  // medChance: roll between ammoChance and ammoChance + medChance gives med
+  assert.strictEqual(CORE.pickupDropKind(0.30, 0.30, 0.20), 'med');
+  assert.strictEqual(CORE.pickupDropKind(0.45, 0.30, 0.20), 'med');
+  // roll above total chance drops nothing
+  assert.strictEqual(CORE.pickupDropKind(0.50, 0.30, 0.20), null);
+  assert.strictEqual(CORE.pickupDropKind(0.95, 0.30, 0.20), null);
+  // Complete ammo exhaustion (ammoChance = 1.0) guarantees ammo drop
+  assert.strictEqual(CORE.pickupDropKind(0.99, 1.0, 0.50), 'ammo');
+  // Degenerate/invalid input handling
+  assert.strictEqual(CORE.pickupDropKind(-0.1, 0.30, 0.20), null);
+  assert.strictEqual(CORE.pickupDropKind(NaN, 0.30, 0.20), null);
+  assert.strictEqual(CORE.pickupDropKind(0.50, NaN, 0.20), null);
+  assert.strictEqual(CORE.pickupDropKind(undefined, 0.30, 0.20), null);
+});
+
