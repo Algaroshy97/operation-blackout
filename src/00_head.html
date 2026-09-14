@@ -24,8 +24,10 @@
   #crosshair .hitmark .h1{top:0;left:2px;width:2px;height:6px}#crosshair .hitmark .h2{top:2px;left:0;width:6px;height:2px}
   #health-container{bottom:28px;left:28px;display:flex;align-items:center;gap:12px}
   .health-bar-bg{width:min(220px,38vw);height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
-  #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s}
-  #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px}
+  #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s,background .2s}
+  #health-bar.low{background:linear-gradient(90deg,#b32014,#ff5f4a)}
+  #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px;transition:color .2s}
+  #health-num.low{color:#ff5f4a}
   #armor-container{bottom:52px;left:28px;display:flex;align-items:center;gap:12px;opacity:.9}
   .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
@@ -263,6 +265,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}

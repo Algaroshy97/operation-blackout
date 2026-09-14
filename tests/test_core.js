@@ -2536,3 +2536,24 @@ test('a box floating above the ground can still push downward', () => {
     'it must take the shallower downward exit, not be forced up: y=' + p.y.toFixed(3));
   assert.ok(p.y > 0, 'and it must still be above the ground');
 });
+
+test('isHealthLow reports true at or below threshold and false above', () => {
+  assert.strictEqual(CORE.HEALTH_LOW_THRESHOLD, 0.30);
+  assert.strictEqual(CORE.isHealthLow(30, 100), true);
+  assert.strictEqual(CORE.isHealthLow(29, 100), true);
+  assert.strictEqual(CORE.isHealthLow(0, 100), true);
+  assert.strictEqual(CORE.isHealthLow(31, 100), false);
+  assert.strictEqual(CORE.isHealthLow(100, 100), false);
+  // Scales with Juggernaut max HP (150)
+  assert.strictEqual(CORE.isHealthLow(45, 150), true);
+  assert.strictEqual(CORE.isHealthLow(46, 150), false);
+  // Default max HP fallback when omitted
+  assert.strictEqual(CORE.isHealthLow(30), true);
+  assert.strictEqual(CORE.isHealthLow(31), false);
+  // Rejects invalid/non-numeric/NaN/Infinity inputs safely
+  assert.strictEqual(CORE.isHealthLow(NaN, 100), false);
+  assert.strictEqual(CORE.isHealthLow(Infinity, 100), false);
+  assert.strictEqual(CORE.isHealthLow('30', 100), false);
+  assert.strictEqual(CORE.isHealthLow(undefined, 100), false);
+});
+

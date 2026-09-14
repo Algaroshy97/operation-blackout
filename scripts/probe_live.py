@@ -307,7 +307,21 @@ def main() -> int:
         checks.append(("plate-audio-cues", plate_audio))
         checks.append(("sniper-sound-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.sniper === 1")))
 
-        # 11) Clean console throughout gameplay.
+        # 11) Visual feedback: low-health HUD warning state.
+        health_hud = page.evaluate("""() => {
+            const bar = document.getElementById('health-bar');
+            const num = document.getElementById('health-num');
+            player.health = 25;
+            updateHudHealth();
+            const lowApplied = bar.classList.contains('low') && num.classList.contains('low');
+            player.health = 100;
+            updateHudHealth();
+            const lowCleared = !bar.classList.contains('low') && !num.classList.contains('low');
+            return lowApplied && lowCleared;
+        }""")
+        checks.append(("low-health-hud-warning", health_hud))
+
+        # 12) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -1247,6 +1247,11 @@ const CORE = (function () {
   }
   function hasPerk(owned, key) { return !!owned && owned.indexOf(key) >= 0; }
   function perkMaxHealth(base, owned) { return hasPerk(owned, 'jugg') ? base + 50 : base; }
+  const HEALTH_LOW_THRESHOLD = 0.30;
+  function isHealthLow(health, maxHealth) {
+    const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
+    return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -2098,6 +2103,8 @@ const CORE = (function () {
     perkBuyBlocker: perkBuyBlocker,
     hasPerk: hasPerk,
     perkMaxHealth: perkMaxHealth,
+    HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
+    isHealthLow: isHealthLow,
     perkReloadMul: perkReloadMul,
     perkBloomMul: perkBloomMul,
     perkAdsMul: perkAdsMul,

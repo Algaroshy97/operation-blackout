@@ -39,15 +39,20 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 
 // Change-driven: this is called every frame, and each style write on an element
 // the compositor is already tracking costs more than the comparison that skips it.
-let _hudHp = -1, _hudArmor = -1;
+let _hudHp = -1, _hudArmor = -1, _hudMaxHp = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
-  const pct = Math.round(Math.max(0, player.health / playerMaxHealth() * 100));
+  const maxHp = typeof playerMaxHealth === 'function' ? playerMaxHealth() : CFG.player.health;
+  const pct = Math.round(Math.max(0, player.health / maxHp * 100));
   const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
-  if (hp !== _hudHp) {
+  if (hp !== _hudHp || maxHp !== _hudMaxHp) {
     _hudHp = hp;
+    _hudMaxHp = maxHp;
     hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
+    const isLow = CORE.isHealthLow(hp, maxHp);
+    hud.healthBar.classList.toggle('low', isLow);
+    hud.healthNum.classList.toggle('low', isLow);
   }
   if (armor !== _hudArmor) {
     _hudArmor = armor;

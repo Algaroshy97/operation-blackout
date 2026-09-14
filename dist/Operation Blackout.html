@@ -24,8 +24,10 @@
   #crosshair .hitmark .h1{top:0;left:2px;width:2px;height:6px}#crosshair .hitmark .h2{top:2px;left:0;width:6px;height:2px}
   #health-container{bottom:28px;left:28px;display:flex;align-items:center;gap:12px}
   .health-bar-bg{width:min(220px,38vw);height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
-  #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s}
-  #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px}
+  #health-bar{height:100%;width:100%;background:linear-gradient(90deg,#3fae49,#7ee08a);border-radius:1px;transition:width .15s,background .2s}
+  #health-bar.low{background:linear-gradient(90deg,#b32014,#ff5f4a)}
+  #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px;transition:color .2s}
+  #health-num.low{color:#ff5f4a}
   #armor-container{bottom:52px;left:28px;display:flex;align-items:center;gap:12px;opacity:.9}
   .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
   #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
@@ -263,6 +265,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
@@ -5839,6 +5842,11 @@ const CORE = (function () {
   }
   function hasPerk(owned, key) { return !!owned && owned.indexOf(key) >= 0; }
   function perkMaxHealth(base, owned) { return hasPerk(owned, 'jugg') ? base + 50 : base; }
+  const HEALTH_LOW_THRESHOLD = 0.30;
+  function isHealthLow(health, maxHealth) {
+    const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
+    return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -6690,6 +6698,8 @@ const CORE = (function () {
     perkBuyBlocker: perkBuyBlocker,
     hasPerk: hasPerk,
     perkMaxHealth: perkMaxHealth,
+    HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
+    isHealthLow: isHealthLow,
     perkReloadMul: perkReloadMul,
     perkBloomMul: perkBloomMul,
     perkAdsMul: perkAdsMul,
@@ -12273,15 +12283,20 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 
 // Change-driven: this is called every frame, and each style write on an element
 // the compositor is already tracking costs more than the comparison that skips it.
-let _hudHp = -1, _hudArmor = -1;
+let _hudHp = -1, _hudArmor = -1, _hudMaxHp = -1;
 function updateHudHealth() {
   const hp = Math.max(0, Math.round(player.health));
-  const pct = Math.round(Math.max(0, player.health / playerMaxHealth() * 100));
+  const maxHp = typeof playerMaxHealth === 'function' ? playerMaxHealth() : CFG.player.health;
+  const pct = Math.round(Math.max(0, player.health / maxHp * 100));
   const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
-  if (hp !== _hudHp) {
+  if (hp !== _hudHp || maxHp !== _hudMaxHp) {
     _hudHp = hp;
+    _hudMaxHp = maxHp;
     hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
+    const isLow = CORE.isHealthLow(hp, maxHp);
+    hud.healthBar.classList.toggle('low', isLow);
+    hud.healthNum.classList.toggle('low', isLow);
   }
   if (armor !== _hudArmor) {
     _hudArmor = armor;
