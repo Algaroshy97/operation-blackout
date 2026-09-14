@@ -321,7 +321,32 @@ def main() -> int:
         }""")
         checks.append(("low-health-hud-warning", health_hud))
 
-        # 12) Clean console throughout gameplay.
+        # 12) Perf: shadow budget stability (no redundant mesh mutations when positions stay stable).
+        shadow_stability = page.evaluate("""() => {
+            if (typeof updateEnemyShadowBudget !== 'function') return false;
+            for (let i = 0; i < 6; i++) spawnEnemy(0, -6 + i * 2, 10);
+            updateEnemyShadowBudget(1.0);
+            const before = enemies.map(e => !!e._castsShadow);
+            let meshUpdates = 0;
+            const origSet = setEnemyCastShadow;
+            setEnemyCastShadow = function (en, on) {
+                if (en._castsShadow !== on) meshUpdates++;
+                origSet(en, on);
+            };
+            try {
+                updateEnemyShadowBudget(1.0);
+                const after = enemies.map(e => !!e._castsShadow);
+                const identical = before.length > 0 && before.every((val, idx) => val === after[idx]);
+                return identical && meshUpdates === 0;
+            } finally {
+                setEnemyCastShadow = origSet;
+                for (const e of enemies) { scene.remove(e.parts.group); disposeEnemyGeometry(e); }
+                enemies.length = 0;
+            }
+        }""")
+        checks.append(("shadow-budget-no-flap", shadow_stability))
+
+        # 13) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

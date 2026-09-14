@@ -9596,8 +9596,9 @@ function updateEnemyShadowBudget(dt) {
   _shadowPos.length = 0;
   for (let i = 0; i < enemies.length; i++) _shadowPos.push(enemies[i].pos);
   const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET);
-  for (let i = 0; i < enemies.length; i++) setEnemyCastShadow(enemies[i], false);
-  for (let k = 0; k < keep.length; k++) setEnemyCastShadow(enemies[keep[k]], true);
+  for (let i = 0; i < enemies.length; i++) {
+    setEnemyCastShadow(enemies[i], keep.indexOf(i) >= 0);
+  }
 }
 
 // A stun slows; a flash stops the agent shooting and scrambles its facing. Both
