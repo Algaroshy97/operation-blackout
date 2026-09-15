@@ -870,6 +870,39 @@ const CORE = (function () {
       const minX = b.min.x - r, maxX = b.max.x + r;
       const minY = b.min.y - r, maxY = b.max.y + r;
       const minZ = b.min.z - r, maxZ = b.max.z + r;
+      // Resolve a spawn already inside the expanded collider with the face it is
+      // moving toward. This avoids axis=-1 and the old fallback Z normal.
+      const inside = start.x >= minX && start.x <= maxX &&
+        start.y >= minY && start.y <= maxY && start.z >= minZ && start.z <= maxZ;
+      if (inside) {
+        const qs = [[start.x, dx, minX, maxX], [start.y, dy, minY, maxY], [start.z, dz, minZ, maxZ]];
+        let overlapAxis = -1, travelToFace = Infinity, pushOut = 0, outward = 1;
+        for (let a = 0; a < qs.length; a++) {
+          const q = qs[a];
+          if (Math.abs(q[1]) <= 1e-12) continue;
+          const distance = q[1] > 0 ? q[3] - q[0] : q[0] - q[2];
+          const travel = distance / Math.abs(q[1]);
+          if (travel < travelToFace) {
+            travelToFace = travel; pushOut = distance; overlapAxis = a; outward = q[1] > 0 ? 1 : -1;
+          }
+        }
+        if (overlapAxis < 0) {
+          pushOut = Infinity;
+          for (let a = 0; a < qs.length; a++) {
+            const q = qs[a], lo = q[0] - q[2], hi = q[3] - q[0];
+            if (Math.min(lo, hi) < pushOut) {
+              pushOut = Math.min(lo, hi); overlapAxis = a; outward = lo <= hi ? -1 : 1;
+            }
+          }
+        }
+        if (overlapAxis >= 0 && (!best || best.t > 0)) {
+          const normal = { x: 0, y: 0, z: 0 };
+          normal[overlapAxis === 0 ? 'x' : overlapAxis === 1 ? 'y' : 'z'] = outward;
+          best = { t: 0, normal: normal, box: b, initialOverlap: true,
+            pushOut: Math.max(0, pushOut) };
+        }
+        continue;
+      }
       let enter = 0, exit = 1, axis = -1;
       const axes = [
         [start.x, dx, minX, maxX],
@@ -1421,7 +1454,7 @@ const CORE = (function () {
     const reach = o.reach === undefined ? 0.85 : o.reach;
     const minRise = o.minRise === undefined ? 0.45 : o.minRise;
     const maxRise = o.maxRise === undefined ? 1.7 : o.maxRise;
-    const headroom = o.headroom === undefined ? 1.3 : o.headroom;
+    const headroom = o.headroom === undefined ? 1.7 : o.headroom;
     const radius = o.radius === undefined ? 0.35 : o.radius;
     const tx = px + dirX * reach, tz = pz + dirZ * reach;
     let ledge = -Infinity;
@@ -1441,6 +1474,28 @@ const CORE = (function () {
       if (tx < b.min.x - radius || tx > b.max.x + radius) continue;
       if (tz < b.min.z - radius || tz > b.max.z + radius) continue;
       if (b.max.y > ledge + 0.02 && b.min.y < ledge + headroom) return null;
+    }
+    // The animation travels from the current feet position to the ledge. Check
+    // standing headroom over that whole horizontal segment, not just at the end.
+    const pathDX = tx - px, pathDZ = tz - pz;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.max.y <= ledge + 0.02 || b.min.y >= ledge + headroom) continue;
+      let enter = 0, exit = 1;
+      const pathAxes = [[px, pathDX, b.min.x - radius, b.max.x + radius],
+        [pz, pathDZ, b.min.z - radius, b.max.z + radius]];
+      for (let a = 0; a < pathAxes.length; a++) {
+        const q = pathAxes[a];
+        if (Math.abs(q[1]) < 1e-12) {
+          if (q[0] < q[2] || q[0] > q[3]) { enter = 1; exit = 0; break; }
+          continue;
+        }
+        let t0 = (q[2] - q[0]) / q[1], t1 = (q[3] - q[0]) / q[1];
+        if (t0 > t1) { const swap = t0; t0 = t1; t1 = swap; }
+        if (t0 > enter) enter = t0;
+        if (t1 < exit) exit = t1;
+      }
+      if (enter <= exit && exit >= 0 && enter <= 1) return null;
     }
     return { x: tx, z: tz, y: ledge };
   }

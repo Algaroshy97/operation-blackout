@@ -452,13 +452,13 @@ function tryMantle() {
     reach: MANTLE_REACH,
     minRise: STEP_H,
     maxRise: MANTLE_MAX_RISE,
-    headroom: CFG.player.crouchHeight,
+    headroom: CFG.player.height,
     radius: CFG.player.radius
   });
   if (!t) return false;
   player.mantleT = MANTLE_TIME;
   player.mantleFrom.set(player.pos.x, player.pos.y, player.pos.z);
-  player.mantleTo.set(t.x, t.y + eyeHeight(), t.z);
+  player.mantleTo.set(t.x, t.y + CFG.player.height, t.z);
   player.sliding = false;
   player.onGround = false;
   playSound('jump');

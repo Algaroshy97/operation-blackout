@@ -184,6 +184,17 @@ test('grenade sweep ignores obstacles outside the segment', () => {
   assert.strictEqual(CORE.sweepGrenade({ x: -1, y: 1, z: 5 }, { x: 1, y: 1, z: 5 }, 0.11, [wall]), null);
 });
 
+test('grenade sweep resolves an initial overlap with the outward face normal', () => {
+  const collider = grenadeBox(0, 1, 0, 2, 2, 2);
+  const hit = CORE.sweepGrenade({ x: 0, y: 1, z: 0 }, { x: 1, y: 1, z: 0 }, 0.11, [collider]);
+  assert.ok(hit, 'an overlapped grenade must still produce a collision');
+  assert.strictEqual(hit.t, 0, 'initial overlap is resolved immediately');
+  assert.deepStrictEqual(hit.normal, { x: 1, y: 0, z: 0 },
+    'outward movement must use the exit face, not a fallback Z normal');
+  assert.ok(hit.initialOverlap);
+  assert.ok(hit.pushOut > 0);
+});
+
 // ---------------------------------------------------------------- BUG-07
 test('BUG-07: damage falloff ramps smoothly instead of cliffing', () => {
   const range = 120;
@@ -1264,6 +1275,20 @@ test('mantle refuses a ledge with no headroom above it', () => {
   const boxes = [box(0, 0.5, 1, 2, 1, 2, 'wood'), box(0, 1.6, 1, 2, 0.4, 2, 'concrete')];
   assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, boxes), null,
     'mantling into the underside of a slab is worse than not mantling');
+});
+
+test('mantle clearance uses standing headroom at the ledge and along the transition', () => {
+  const ledge = box(0, 0.5, 1, 2, 1, 2, 'wood');
+  const lowCeiling = box(0, 2.575, 1, 2, 0.35, 2, 'concrete');
+  assert.ok(CORE.mantleTarget(0, 0, 0, 0, 1, [ledge, lowCeiling], { headroom: 1.3 }),
+    'the synthetic opening is large enough only for crouch clearance');
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, [ledge, lowCeiling]), null,
+    'a standing player cannot mantle beneath the low ceiling');
+
+  const transitionLedge = box(0, 0.5, 1, 2, 1, 2, 'wood');
+  const transitionBeam = box(0, 2.575, 0.3, 2, 0.35, 0.2, 'concrete');
+  assert.strictEqual(CORE.mantleTarget(0, 0, 0, 0, 1, [transitionLedge, transitionBeam]), null,
+    'standing clearance must hold across the whole mantle transition, not only at its endpoint');
 });
 
 test('mantle ignores anything step-up already handles or nothing can reach', () => {

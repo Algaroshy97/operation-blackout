@@ -305,10 +305,11 @@ function updateGrenades(dt) {
     const swept = CORE.sweepGrenade(previous, next, 0.11, colliders);
     if (swept) {
       const t = Math.max(0, swept.t - 1e-4);
+      const push = swept.initialOverlap ? swept.pushOut + 0.001 : 0.001;
       g.m.position.set(
-        previous.x + (next.x - previous.x) * t + swept.normal.x * 0.001,
-        previous.y + (next.y - previous.y) * t + swept.normal.y * 0.001,
-        previous.z + (next.z - previous.z) * t + swept.normal.z * 0.001
+        previous.x + (next.x - previous.x) * t + swept.normal.x * push,
+        previous.y + (next.y - previous.y) * t + swept.normal.y * push,
+        previous.z + (next.z - previous.z) * t + swept.normal.z * push
       );
       const vn = g.vel.x * swept.normal.x + g.vel.y * swept.normal.y + g.vel.z * swept.normal.z;
       if (vn < 0) {
