@@ -149,6 +149,20 @@ test('automatic-fire schedule catches up every missed shot deadline', () => {
   assert.ok(Math.abs(schedule.nextShot - 0.45) < 1e-12);
 });
 
+test('automatic-fire catch-up caps shots after a long render stall', () => {
+  const interval = 60 / 600;
+  const schedule = CORE.advanceShotSchedule(5.05, 0.05, interval, 4);
+  assert.strictEqual(schedule.shots, 4, 'one stalled frame must not fire an unbounded burst');
+  assert.ok(Math.abs(schedule.nextShot - 0.45) < 1e-12,
+    'capping work must preserve the next missed deadline for a later frame');
+});
+
+test('fire clock bounds a render stall without bounding gameplay physics policy', () => {
+  assert.strictEqual(CORE.fireClockStep(5, 0.5), 0.5);
+  assert.strictEqual(CORE.fireClockStep(0.2, 0.5), 0.2);
+  assert.strictEqual(CORE.fireClockStep(-1, 0.5), 0);
+});
+
 test('armory upgrade keeps every base weapon runtime field while changing upgrade stats', () => {
   const base = {
     name: 'Test Rifle', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150,

@@ -182,6 +182,7 @@ function resetGame() {
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
   curWeapon = 0;
+  fireClockT = 0;
   initWeapons();
   gunSwitchT = 1;
   buildViewmodel();
@@ -623,6 +624,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
   lastT = now;
+  const wallDt = Math.max(0, dt);
   if (dt > 0.1) dt = 0.1;
   // Nothing can be drawn until the driver hands the context back; rendering into a
   // lost context throws every frame and buries the console.
@@ -662,6 +664,7 @@ function frame(now) {
 
   if (started && !paused) {
     gameT += dt;
+    fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
     updatePlayer(dt);

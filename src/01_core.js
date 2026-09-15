@@ -62,13 +62,22 @@ const CORE = (function () {
 
   // Return how many automatic-fire deadlines are due and the next deadline after
   // them. Keeping this pure makes the schedule testable without a browser frame.
-  function advanceShotSchedule(now, nextShot, interval) {
+  function advanceShotSchedule(now, nextShot, interval, maxShots) {
     if (!(isFinite(now) && isFinite(nextShot) && isFinite(interval) && interval > 0)) {
       return { shots: 0, nextShot: nextShot };
     }
     if (now < nextShot) return { shots: 0, nextShot: nextShot };
-    const shots = Math.floor((now - nextShot) / interval + 1e-9) + 1;
+    const due = Math.floor((now - nextShot) / interval + 1e-9) + 1;
+    const limit = isFinite(maxShots) ? Math.max(0, Math.floor(maxShots)) : due;
+    const shots = Math.min(due, limit);
     return { shots: shots, nextShot: nextShot + shots * interval };
+  }
+
+  // Render time may jump by seconds when a tab is backgrounded or the GPU stalls.
+  // Keep the fire clock responsive without feeding the physics loop that wall time.
+  function fireClockStep(dt, maxStep) {
+    if (!(isFinite(dt) && isFinite(maxStep) && maxStep > 0)) return 0;
+    return Math.min(Math.max(0, dt), maxStep);
   }
 
   // A released trigger, reload, or weapon switch is inactive time, not a render
@@ -2405,6 +2414,7 @@ const CORE = (function () {
     shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
     advanceShotSchedule: advanceShotSchedule,
+    fireClockStep: fireClockStep,
     shotScheduleAfterInactive: shotScheduleAfterInactive,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
