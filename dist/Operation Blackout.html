@@ -4730,6 +4730,27 @@ const CORE = (function () {
   function aabbOverlapsXZ(c, x, z, r) {
     return x > c.min.x - r && x < c.max.x + r && z > c.min.z - r && z < c.max.z + r;
   }
+  // Fast horizontal AABB resolve: tests if position (x, z) with radius r overlaps
+  // collider c, and resolves the minimum pushout along the x or z axis.
+  // When out is provided, mutates and returns out without allocating memory;
+  // otherwise returns a new { axis, val } descriptor, or null if no overlap.
+  function resolveAabbXZ(x, z, r, c, out) {
+    if (!c || !c.min || !c.max) return null;
+    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    if (x <= c.min.x - rad || x >= c.max.x + rad || z <= c.min.z - rad || z >= c.max.z + rad) return null;
+    const cx = (c.min.x + c.max.x) * 0.5;
+    const cz = (c.min.z + c.max.z) * 0.5;
+    const px = x >= cx ? (c.max.x + rad - x) : (x - (c.min.x - rad));
+    const pz = z >= cz ? (c.max.z + rad - z) : (z - (c.min.z - rad));
+    const axis = px < pz ? 'x' : 'z';
+    const val = px < pz ? (x >= cx ? c.max.x + rad : c.min.x - rad) : (z >= cz ? c.max.z + rad : c.min.z - rad);
+    if (out && typeof out === 'object') {
+      out.axis = axis;
+      out.val = val;
+      return out;
+    }
+    return { axis: axis, val: val };
+  }
   // True when an AABB blocks a ground-bound walker of the given height: it must
   // rise above what the walker can step onto, and start below the walker's head.
   function blocksWalker(c, stepH, walkerHeight) {
@@ -6875,7 +6896,8 @@ const CORE = (function () {
     soundPlaybackRate: soundPlaybackRate,
     JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
     JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
-    isAutoSprint: isAutoSprint
+    isAutoSprint: isAutoSprint,
+    resolveAabbXZ: resolveAabbXZ
   };
 })();
 
@@ -7993,6 +8015,7 @@ const HEAD_CLEARANCE = 0.20;
 const MAX_MOVE_STEP = 0.30;
 
 // Horizontal AABB resolve with step-up allowance
+const _resolveOut = { axis: 'x', val: 0 };
 function resolveXZ(pos, r) {
   const feet = pos.y - eyeHeight();
   for (let i = 0; i < colliders.length; i++) {
@@ -8000,13 +8023,10 @@ function resolveXZ(pos, r) {
     if (c.min.y >= pos.y + 0.2) continue;            // collider is entirely above the player's head
     if (c.max.y <= feet + STEP_H) continue;         // low obstacle can be stepped onto; vertical resolver lifts us
     if (feet >= c.max.y - 0.001) continue;         // standing above it
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-    const dx = pos.x - cx, dz = pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
-    const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
-    if (px < pz) { pos.x = cx + (dx >= 0 ? ex : -ex); player.vel.x = 0; }
-    else { pos.z = cz + (dz >= 0 ? ez : -ez); player.vel.z = 0; }
+    if (CORE.resolveAabbXZ(pos.x, pos.z, r, c, _resolveOut)) {
+      if (_resolveOut.axis === 'x') { pos.x = _resolveOut.val; player.vel.x = 0; }
+      else { pos.z = _resolveOut.val; player.vel.z = 0; }
+    }
   }
   // arena bounds
   pos.x = Math.max(-mapBounds, Math.min(mapBounds, pos.x));
@@ -8020,10 +8040,8 @@ function resolveVertical(pos, r) {
   let ceilY = Infinity;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-    const dx = pos.x - cx, dz = pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;   // not above/below this collider footprint
+    if (pos.x <= c.min.x - r || pos.x >= c.max.x + r ||
+        pos.z <= c.min.z - r || pos.z >= c.max.z + r) continue;   // not above/below this collider footprint
     if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
     // Lowest slab overhead. Tracked unconditionally rather than only when already
     // intersecting it: the old test could only react once the head was inside, and
@@ -8163,9 +8181,9 @@ function updatePlayer(dt) {
       for (let i = 0; i < colliders.length; i++) {
         const c = colliders[i];
         if (c.min.y < player.pos.y + 0.15 && c.max.y > feet + 0.2) {
-          const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-          const ex = (c.max.x - c.min.x) * 0.5 + CFG.player.radius, ez = (c.max.z - c.min.z) * 0.5 + CFG.player.radius;
-          if (Math.abs(player.pos.x - cx) <= ex && Math.abs(player.pos.z - cz) <= ez) { blocked = true; break; }
+          const r = CFG.player.radius;
+          if (player.pos.x > c.min.x - r && player.pos.x < c.max.x + r &&
+              player.pos.z > c.min.z - r && player.pos.z < c.max.z + r) { blocked = true; break; }
         }
       }
       if (!blocked) player.crouching = false;
@@ -9523,6 +9541,9 @@ function updateFlowField(dt) {
   CORE.computeFlowField(navGrid, player.pos.x, player.pos.z);
 }
 
+// Reusable output object for CORE.resolveAabbXZ to eliminate per-step GC allocations
+const _enResolveOut = { axis: 'x', val: 0 };
+
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
 // the walkable set by the separation pass).
@@ -9590,13 +9611,10 @@ function moveEnemy(en, dt) {
       if (c.min.y >= head + 0.2) continue;
       if (c.max.y <= feet + stepH) continue;
       if (feet >= c.max.y - 0.001) continue;
-      const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-      const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-      const dx = en.pos.x - cx, dz = en.pos.z - cz;
-      if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
-      const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
-      if (px < pz) en.pos.x = cx + (dx >= 0 ? ex : -ex);
-      else en.pos.z = cz + (dz >= 0 ? ez : -ez);
+      if (CORE.resolveAabbXZ(en.pos.x, en.pos.z, r, c, _enResolveOut)) {
+        if (_enResolveOut.axis === 'x') en.pos.x = _enResolveOut.val;
+        else en.pos.z = _enResolveOut.val;
+      }
     }
   }
   en.pos.x = Math.max(-mapBounds, Math.min(mapBounds, en.pos.x));
@@ -9607,10 +9625,7 @@ function moveEnemy(en, dt) {
   let floorY = GROUND;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;
-    const dx = en.pos.x - cx, dz = en.pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
+    if (en.pos.x <= c.min.x || en.pos.x >= c.max.x || en.pos.z <= c.min.z || en.pos.z >= c.max.z) continue;
     if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
   }
   const fallSpeed = 6;
@@ -9894,6 +9909,7 @@ function updateEnemies(dt) {
       if (b.dead) continue;
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
       const rr = (a.kind === 2 ? 1.1 : 0.85) + (b.kind === 2 ? 1.1 : 0.85);
+      if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
       const d2 = dx * dx + dz * dz;
       if (d2 < rr * rr && d2 > 0.0001) {
         const d = Math.sqrt(d2), push = (rr - d) * 0.5;
@@ -13653,12 +13669,14 @@ function frame(now) {
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
     let nearest;
+    let aliveCount = 0;
     for (let i = 0; i < enemies.length; i++) {
       if (enemies[i].dead) continue;
+      aliveCount++;
       const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
       if (nearest === undefined || d < nearest) nearest = d;
     }
-    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveEnemies(),
+    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveCount,
                       nearestEnemy: nearest, health: player.health });
     updateHitArcs();
     updateHudHealth();

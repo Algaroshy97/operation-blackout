@@ -106,6 +106,7 @@ const HEAD_CLEARANCE = 0.20;
 const MAX_MOVE_STEP = 0.30;
 
 // Horizontal AABB resolve with step-up allowance
+const _resolveOut = { axis: 'x', val: 0 };
 function resolveXZ(pos, r) {
   const feet = pos.y - eyeHeight();
   for (let i = 0; i < colliders.length; i++) {
@@ -113,13 +114,10 @@ function resolveXZ(pos, r) {
     if (c.min.y >= pos.y + 0.2) continue;            // collider is entirely above the player's head
     if (c.max.y <= feet + STEP_H) continue;         // low obstacle can be stepped onto; vertical resolver lifts us
     if (feet >= c.max.y - 0.001) continue;         // standing above it
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-    const dx = pos.x - cx, dz = pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
-    const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
-    if (px < pz) { pos.x = cx + (dx >= 0 ? ex : -ex); player.vel.x = 0; }
-    else { pos.z = cz + (dz >= 0 ? ez : -ez); player.vel.z = 0; }
+    if (CORE.resolveAabbXZ(pos.x, pos.z, r, c, _resolveOut)) {
+      if (_resolveOut.axis === 'x') { pos.x = _resolveOut.val; player.vel.x = 0; }
+      else { pos.z = _resolveOut.val; player.vel.z = 0; }
+    }
   }
   // arena bounds
   pos.x = Math.max(-mapBounds, Math.min(mapBounds, pos.x));
@@ -133,10 +131,8 @@ function resolveVertical(pos, r) {
   let ceilY = Infinity;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-    const dx = pos.x - cx, dz = pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;   // not above/below this collider footprint
+    if (pos.x <= c.min.x - r || pos.x >= c.max.x + r ||
+        pos.z <= c.min.z - r || pos.z >= c.max.z + r) continue;   // not above/below this collider footprint
     if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
     // Lowest slab overhead. Tracked unconditionally rather than only when already
     // intersecting it: the old test could only react once the head was inside, and
@@ -276,9 +272,9 @@ function updatePlayer(dt) {
       for (let i = 0; i < colliders.length; i++) {
         const c = colliders[i];
         if (c.min.y < player.pos.y + 0.15 && c.max.y > feet + 0.2) {
-          const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-          const ex = (c.max.x - c.min.x) * 0.5 + CFG.player.radius, ez = (c.max.z - c.min.z) * 0.5 + CFG.player.radius;
-          if (Math.abs(player.pos.x - cx) <= ex && Math.abs(player.pos.z - cz) <= ez) { blocked = true; break; }
+          const r = CFG.player.radius;
+          if (player.pos.x > c.min.x - r && player.pos.x < c.max.x + r &&
+              player.pos.z > c.min.z - r && player.pos.z < c.max.z + r) { blocked = true; break; }
         }
       }
       if (!blocked) player.crouching = false;

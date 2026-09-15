@@ -2700,3 +2700,57 @@ test('reloadPrompt generates contextual prompts for desktop, mobile touch, and d
   assert.strictEqual(CORE.reloadPrompt(false, '0', 60, false), '');
 });
 
+test('resolveAabbXZ detects overlap, calculates minimum pushout axis and coordinate, and mutates out without allocations', () => {
+  const box = { min: { x: -5, y: 0, z: -10 }, max: { x: 5, y: 2, z: 10 } };
+  const r = 0.5;
+
+  // Fully outside bounds on each axis
+  assert.strictEqual(CORE.resolveAabbXZ(6.0, 0, r, box), null, 'outside +x');
+  assert.strictEqual(CORE.resolveAabbXZ(-6.0, 0, r, box), null, 'outside -x');
+  assert.strictEqual(CORE.resolveAabbXZ(0, 11.0, r, box), null, 'outside +z');
+  assert.strictEqual(CORE.resolveAabbXZ(0, -11.0, r, box), null, 'outside -z');
+
+  // Exact boundary edge is outside / non-colliding
+  assert.strictEqual(CORE.resolveAabbXZ(5.5, 0, r, box), null, 'on +x boundary');
+  assert.strictEqual(CORE.resolveAabbXZ(-5.5, 0, r, box), null, 'on -x boundary');
+
+  // Penetrating near +x face: center is at x=0, z=0. Point at x=5.2, z=0.
+  // x overlap px = 5 + 0.5 - 5.2 = 0.3. z overlap pz = 10 + 0.5 - 0 = 10.5.
+  // px < pz, so push along x to +5.5.
+  const hitXPlus = CORE.resolveAabbXZ(5.2, 0, r, box);
+  assert.ok(hitXPlus !== null);
+  assert.strictEqual(hitXPlus.axis, 'x');
+  assert.strictEqual(hitXPlus.val, 5.5);
+
+  // Penetrating near -x face: point at x=-5.2, z=0 -> push to -5.5
+  const hitXMinus = CORE.resolveAabbXZ(-5.2, 0, r, box);
+  assert.ok(hitXMinus !== null);
+  assert.strictEqual(hitXMinus.axis, 'x');
+  assert.strictEqual(hitXMinus.val, -5.5);
+
+  // Penetrating near +z face: point at x=0, z=10.2 -> push to +10.5
+  const hitZPlus = CORE.resolveAabbXZ(0, 10.2, r, box);
+  assert.ok(hitZPlus !== null);
+  assert.strictEqual(hitZPlus.axis, 'z');
+  assert.strictEqual(hitZPlus.val, 10.5);
+
+  // Penetrating near -z face: point at x=0, z=-10.2 -> push to -10.5
+  const hitZMinus = CORE.resolveAabbXZ(0, -10.2, r, box);
+  assert.ok(hitZMinus !== null);
+  assert.strictEqual(hitZMinus.axis, 'z');
+  assert.strictEqual(hitZMinus.val, -10.5);
+
+  // Reusing output descriptor object
+  const reusable = { axis: '', val: 0 };
+  const res = CORE.resolveAabbXZ(5.1, 0, r, box, reusable);
+  assert.strictEqual(res, reusable, 'must return the same object reference');
+  assert.strictEqual(reusable.axis, 'x');
+  assert.strictEqual(reusable.val, 5.5);
+
+  // Tolerates invalid/missing inputs
+  assert.strictEqual(CORE.resolveAabbXZ(0, 0, r, null), null);
+  assert.strictEqual(CORE.resolveAabbXZ(0, 0, r, {}), null);
+  assert.strictEqual(CORE.resolveAabbXZ(0, 0, -1, box).axis, 'x');
+});
+
+

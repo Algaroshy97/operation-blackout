@@ -131,6 +131,27 @@ const CORE = (function () {
   function aabbOverlapsXZ(c, x, z, r) {
     return x > c.min.x - r && x < c.max.x + r && z > c.min.z - r && z < c.max.z + r;
   }
+  // Fast horizontal AABB resolve: tests if position (x, z) with radius r overlaps
+  // collider c, and resolves the minimum pushout along the x or z axis.
+  // When out is provided, mutates and returns out without allocating memory;
+  // otherwise returns a new { axis, val } descriptor, or null if no overlap.
+  function resolveAabbXZ(x, z, r, c, out) {
+    if (!c || !c.min || !c.max) return null;
+    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    if (x <= c.min.x - rad || x >= c.max.x + rad || z <= c.min.z - rad || z >= c.max.z + rad) return null;
+    const cx = (c.min.x + c.max.x) * 0.5;
+    const cz = (c.min.z + c.max.z) * 0.5;
+    const px = x >= cx ? (c.max.x + rad - x) : (x - (c.min.x - rad));
+    const pz = z >= cz ? (c.max.z + rad - z) : (z - (c.min.z - rad));
+    const axis = px < pz ? 'x' : 'z';
+    const val = px < pz ? (x >= cx ? c.max.x + rad : c.min.x - rad) : (z >= cz ? c.max.z + rad : c.min.z - rad);
+    if (out && typeof out === 'object') {
+      out.axis = axis;
+      out.val = val;
+      return out;
+    }
+    return { axis: axis, val: val };
+  }
   // True when an AABB blocks a ground-bound walker of the given height: it must
   // rise above what the walker can step onto, and start below the walker's head.
   function blocksWalker(c, stepH, walkerHeight) {
@@ -2276,7 +2297,8 @@ const CORE = (function () {
     soundPlaybackRate: soundPlaybackRate,
     JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
     JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
-    isAutoSprint: isAutoSprint
+    isAutoSprint: isAutoSprint,
+    resolveAabbXZ: resolveAabbXZ
   };
 })();
 

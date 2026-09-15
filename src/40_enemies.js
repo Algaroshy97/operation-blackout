@@ -447,6 +447,9 @@ function updateFlowField(dt) {
   CORE.computeFlowField(navGrid, player.pos.x, player.pos.z);
 }
 
+// Reusable output object for CORE.resolveAabbXZ to eliminate per-step GC allocations
+const _enResolveOut = { axis: 'x', val: 0 };
+
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
 // the walkable set by the separation pass).
@@ -514,13 +517,10 @@ function moveEnemy(en, dt) {
       if (c.min.y >= head + 0.2) continue;
       if (c.max.y <= feet + stepH) continue;
       if (feet >= c.max.y - 0.001) continue;
-      const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-      const ex = (c.max.x - c.min.x) * 0.5 + r, ez = (c.max.z - c.min.z) * 0.5 + r;
-      const dx = en.pos.x - cx, dz = en.pos.z - cz;
-      if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
-      const px = ex - Math.abs(dx), pz = ez - Math.abs(dz);
-      if (px < pz) en.pos.x = cx + (dx >= 0 ? ex : -ex);
-      else en.pos.z = cz + (dz >= 0 ? ez : -ez);
+      if (CORE.resolveAabbXZ(en.pos.x, en.pos.z, r, c, _enResolveOut)) {
+        if (_enResolveOut.axis === 'x') en.pos.x = _enResolveOut.val;
+        else en.pos.z = _enResolveOut.val;
+      }
     }
   }
   en.pos.x = Math.max(-mapBounds, Math.min(mapBounds, en.pos.x));
@@ -531,10 +531,7 @@ function moveEnemy(en, dt) {
   let floorY = GROUND;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    const cx = (c.min.x + c.max.x) * 0.5, cz = (c.min.z + c.max.z) * 0.5;
-    const ex = (c.max.x - c.min.x) * 0.5, ez = (c.max.z - c.min.z) * 0.5;
-    const dx = en.pos.x - cx, dz = en.pos.z - cz;
-    if (Math.abs(dx) > ex || Math.abs(dz) > ez) continue;
+    if (en.pos.x <= c.min.x || en.pos.x >= c.max.x || en.pos.z <= c.min.z || en.pos.z >= c.max.z) continue;
     if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
   }
   const fallSpeed = 6;
@@ -818,6 +815,7 @@ function updateEnemies(dt) {
       if (b.dead) continue;
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
       const rr = (a.kind === 2 ? 1.1 : 0.85) + (b.kind === 2 ? 1.1 : 0.85);
+      if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
       const d2 = dx * dx + dz * dz;
       if (d2 < rr * rr && d2 > 0.0001) {
         const d = Math.sqrt(d2), push = (rr - d) * 0.5;

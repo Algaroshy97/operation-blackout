@@ -453,7 +453,22 @@ def main() -> int:
         }""")
         checks.append(("ammo-hud-visual-feedback", ammo_hud_check))
 
-        # 16) Clean console throughout gameplay.
+        # 16) Perf: fast AABB boundary pushout rule & mutation correctness.
+        aabb_check = page.evaluate("""() => {
+            if (typeof CORE.resolveAabbXZ !== 'function') return false;
+            const box = { min: { x: -5, y: 0, z: -10 }, max: { x: 5, y: 2, z: 10 } };
+            const outside = CORE.resolveAabbXZ(6.0, 0, 0.5, box) === null &&
+                            CORE.resolveAabbXZ(0, 11.0, 0.5, box) === null;
+            const out = { axis: '', val: 0 };
+            const hit = CORE.resolveAabbXZ(5.2, 0, 0.5, box, out);
+            const refIdentical = hit === out && out.axis === 'x' && out.val === 5.5;
+            const hitZ = CORE.resolveAabbXZ(0, 10.2, 0.5, box, out);
+            const zOk = hitZ === out && out.axis === 'z' && out.val === 10.5;
+            return outside && refIdentical && zOk;
+        }""")
+        checks.append(("aabb-resolve-rule", aabb_check))
+
+        # 17) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

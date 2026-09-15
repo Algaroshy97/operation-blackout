@@ -619,12 +619,14 @@ function frame(now) {
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
     let nearest;
+    let aliveCount = 0;
     for (let i = 0; i < enemies.length; i++) {
       if (enemies[i].dead) continue;
+      aliveCount++;
       const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
       if (nearest === undefined || d < nearest) nearest = d;
     }
-    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveEnemies(),
+    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveCount,
                       nearestEnemy: nearest, health: player.health });
     updateHitArcs();
     updateHudHealth();
