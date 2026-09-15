@@ -70,6 +70,18 @@ python scripts/probe_live.py
 
 Neither suite measures real-GPU frame rate or replaces playtesting on Android hardware.
 
+### Optional frame-time benchmark capture
+
+`CORE.createFrameTimeTelemetry()` is a pure, disabled-by-default helper for repeatable
+manual benchmarks. It records only when created with `{ enabled: true }`, keeps a
+bounded recent window (300 samples by default), and reports milliseconds as
+`min`, `max`, `p50`, and `p95` through `summary()`. It is not connected to the live
+frame loop, so normal gameplay has no capture allocation or sorting cost. A benchmark
+harness can create an enabled instance, call `record(frameTimeMs)` once per rendered
+frame, and export `samples()` plus `summary()` after a fixed scenario. This telemetry
+still does not make hardware-performance claims; compare results only from repeatable
+runs on explicitly identified devices and settings.
+
 ## Project status
 
 See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the

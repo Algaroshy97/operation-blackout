@@ -4840,6 +4840,47 @@ const CORE = (function () {
     return { pixelRatio: Math.min(dpr, 1.5), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
   }
 
+  // Pure, opt-in frame-time capture for repeatable benchmarks. It is intentionally
+  // not wired into frame(): normal gameplay allocates no samples and does no sort.
+  // Samples are milliseconds and the window retains only the most recent values.
+  function createFrameTimeTelemetry(options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const requestedCapacity = Number.isFinite(opts.maxSamples) ? Math.floor(opts.maxSamples) : 300;
+    const capacity = Math.max(1, Math.min(10000, requestedCapacity));
+    const enabled = opts.enabled === true;
+    const values = [];
+
+    function record(frameTimeMs) {
+      if (!enabled || typeof frameTimeMs !== 'number' || !Number.isFinite(frameTimeMs)
+          || frameTimeMs < 0) return false;
+      if (values.length === capacity) values.shift();
+      values.push(frameTimeMs);
+      return true;
+    }
+    function samples() { return values.slice(); }
+    function percentile(sorted, fraction) {
+      if (!sorted.length) return null;
+      const index = (sorted.length - 1) * fraction;
+      const lower = Math.floor(index);
+      const upper = Math.ceil(index);
+      if (lower === upper) return sorted[lower];
+      return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+    }
+    function summary() {
+      if (!values.length) return { count: 0, capacity: capacity, min: null, max: null, p50: null, p95: null };
+      const sorted = values.slice().sort(function (a, b) { return a - b; });
+      return {
+        count: sorted.length,
+        capacity: capacity,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        p50: percentile(sorted, 0.5),
+        p95: percentile(sorted, 0.95)
+      };
+    }
+    return { enabled: enabled, capacity: capacity, record: record, samples: samples, summary: summary };
+  }
+
   // Effective look sensitivity in radians per pixel of mouse movement.
   const BASE_SENSITIVITY = 0.0022;
   function lookSensitivity(settingsSensitivity, adsAmount) {
@@ -6827,6 +6868,7 @@ const CORE = (function () {
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
     qualityRenderSettings: qualityRenderSettings,
+    createFrameTimeTelemetry: createFrameTimeTelemetry,
     lookSensitivity: lookSensitivity,
     combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,

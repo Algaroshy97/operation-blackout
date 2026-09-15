@@ -95,6 +95,38 @@ test('BUG-03: substep count is capped so a pathological dt cannot stall the fram
   assert.ok(CORE.subStepCount(1e6, 1, 0.3) <= CORE.MAX_SUBSTEPS);
 });
 
+// ---------------------------------------------------------------- PERFORMANCE TELEMETRY
+// Capture is opt-in and bounded so benchmark instrumentation cannot change normal
+// gameplay memory use or frame work unless a caller explicitly enables it.
+test('performance telemetry is disabled by default and ignores samples until enabled', () => {
+  const telemetry = CORE.createFrameTimeTelemetry();
+  assert.strictEqual(telemetry.enabled, false);
+  assert.strictEqual(telemetry.record(16.7), false);
+  assert.deepStrictEqual(telemetry.summary(), {
+    count: 0, capacity: 300, min: null, max: null, p50: null, p95: null
+  });
+});
+
+test('performance telemetry keeps a bounded recent window and computes percentiles', () => {
+  const telemetry = CORE.createFrameTimeTelemetry({ enabled: true, maxSamples: 4 });
+  [1, 2, 3, 4, 5].forEach(sample => assert.strictEqual(telemetry.record(sample), true));
+  assert.deepStrictEqual(telemetry.samples(), [2, 3, 4, 5]);
+  assert.deepStrictEqual(telemetry.summary(), {
+    count: 4, capacity: 4, min: 2, max: 5, p50: 3.5, p95: 4.85
+  });
+});
+
+test('performance telemetry rejects invalid frame times and protects sample storage', () => {
+  const telemetry = CORE.createFrameTimeTelemetry({ enabled: true, maxSamples: 2 });
+  assert.strictEqual(telemetry.record(-1), false);
+  assert.strictEqual(telemetry.record(Infinity), false);
+  assert.strictEqual(telemetry.record('16'), false);
+  assert.strictEqual(telemetry.record(16), true);
+  const copy = telemetry.samples();
+  copy[0] = 99;
+  assert.deepStrictEqual(telemetry.samples(), [16]);
+});
+
 // ---------------------------------------------------------------- FRAME-RATE / PHYSICS
 // A render stall must catch up scheduled automatic shots instead of silently
 // lowering the weapon's effective RPM.
