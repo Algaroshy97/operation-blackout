@@ -60,6 +60,17 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Return how many automatic-fire deadlines are due and the next deadline after
+  // them. Keeping this pure makes the schedule testable without a browser frame.
+  function advanceShotSchedule(now, nextShot, interval) {
+    if (!(isFinite(now) && isFinite(nextShot) && isFinite(interval) && interval > 0)) {
+      return { shots: 0, nextShot: nextShot };
+    }
+    if (now < nextShot) return { shots: 0, nextShot: nextShot };
+    const shots = Math.floor((now - nextShot) / interval + 1e-9) + 1;
+    return { shots: shots, nextShot: nextShot + shots * interval };
+  }
+
   // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
   // sprints when moving fast enough; ease the stick back to walk.
   const JOYSTICK_SPRINT_FORWARD = 0.72;
@@ -1905,6 +1916,13 @@ const CORE = (function () {
     const t = (impactSpeed - FALL_SAFE_SPEED) / (FALL_LETHAL_SPEED - FALL_SAFE_SPEED);
     return Math.min(100, Math.round(100 * t * t));
   }
+  // The resolver zeroes vertical velocity on contact. Sample both the peak fall
+  // speed and the velocity from the landing substep before that happens.
+  function landingImpactSpeed(peakSpeed, verticalVelocity) {
+    const peak = isFinite(peakSpeed) && peakSpeed > 0 ? peakSpeed : 0;
+    const instant = isFinite(verticalVelocity) && verticalVelocity < 0 ? -verticalVelocity : 0;
+    return Math.max(peak, instant);
+  }
   // A hard landing costs momentum and a moment of control, which is what makes a
   // drop a decision rather than a shortcut.
   function landingSpeedMul(impactSpeed) {
@@ -2126,6 +2144,7 @@ const CORE = (function () {
     ceilingClamp: ceilingClamp,
     shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
+    advanceShotSchedule: advanceShotSchedule,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
     waveHpMultiplier: waveHpMultiplier,
@@ -2303,6 +2322,7 @@ const CORE = (function () {
     FALL_SAFE_SPEED: FALL_SAFE_SPEED,
     FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
     fallDamage: fallDamage,
+    landingImpactSpeed: landingImpactSpeed,
     landingSpeedMul: landingSpeedMul,
     MAX_RANK: MAX_RANK,
     xpForRank: xpForRank,

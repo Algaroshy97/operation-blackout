@@ -371,6 +371,9 @@ function updatePlayer(dt) {
   const sdt = dt / steps;
   for (let s = 0; s < steps; s++) {
     player.vel.y -= CFG.player.gravity * sdt;
+    // Capture the landing substep's downward velocity before resolveVertical()
+    // zeroes it, rather than waiting for the next render frame.
+    if (!player.onGround) player.airSpeedY = CORE.landingImpactSpeed(player.airSpeedY, player.vel.y);
     player.pos.x += player.vel.x * sdt;
     player.pos.z += player.vel.z * sdt;
     player.pos.y += player.vel.y * sdt;

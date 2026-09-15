@@ -82,6 +82,21 @@ test('BUG-03: substep count is capped so a pathological dt cannot stall the fram
   assert.ok(CORE.subStepCount(1e6, 1, 0.3) <= CORE.MAX_SUBSTEPS);
 });
 
+// ---------------------------------------------------------------- FRAME-RATE / PHYSICS
+// A render stall must catch up scheduled automatic shots instead of silently
+// lowering the weapon's effective RPM.
+test('automatic-fire schedule catches up every missed shot deadline', () => {
+  const interval = 60 / 600;
+  const schedule = CORE.advanceShotSchedule(0.35, 0.05, interval);
+  assert.strictEqual(schedule.shots, 4);
+  assert.ok(Math.abs(schedule.nextShot - 0.45) < 1e-12);
+});
+
+test('landing impact sampling includes velocity on the landing substep', () => {
+  assert.strictEqual(CORE.landingImpactSpeed(0, -12), 12);
+  assert.strictEqual(CORE.landingImpactSpeed(8, -6), 8);
+});
+
 // ---------------------------------------------------------------- BUG-07
 test('BUG-07: damage falloff ramps smoothly instead of cliffing', () => {
   const range = 120;

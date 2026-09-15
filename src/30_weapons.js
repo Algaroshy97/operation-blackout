@@ -95,11 +95,15 @@ function updateWeapons(dt) {
       updateHudAmmo();
     }
   }
-  // fire
+  // fire: consume every automatic-fire deadline that elapsed since the last
+  // render. The first shot keeps the existing immediate-fire behaviour.
   if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
-      if (!w.auto) mouse1Down = false;
-      fireShot();
+      let due = s.nextShot === 0 ? 1
+        : CORE.advanceShotSchedule(gameT, s.nextShot, 60 / w.rpm).shots;
+      if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
+      while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
+      if (s.ammo === 0 && s.reserve > 0) tryReload();
     } else if (gameT >= s.nextShot && s.ammo === 0) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
@@ -204,11 +208,12 @@ function magnetizeBullet(dir, from) {
   return found ? _magBest : dir;
 }
 
-function fireShot() {
+function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
   s.ammo--;
-  s.nextShot = gameT + 60 / w.rpm;
+  const interval = 60 / w.rpm;
+  s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : gameT + interval;
   // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.

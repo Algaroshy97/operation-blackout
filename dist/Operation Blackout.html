@@ -4659,6 +4659,17 @@ const CORE = (function () {
   }
   const MAX_SUBSTEPS = 8;
 
+  // Return how many automatic-fire deadlines are due and the next deadline after
+  // them. Keeping this pure makes the schedule testable without a browser frame.
+  function advanceShotSchedule(now, nextShot, interval) {
+    if (!(isFinite(now) && isFinite(nextShot) && isFinite(interval) && interval > 0)) {
+      return { shots: 0, nextShot: nextShot };
+    }
+    if (now < nextShot) return { shots: 0, nextShot: nextShot };
+    const shots = Math.floor((now - nextShot) / interval + 1e-9) + 1;
+    return { shots: shots, nextShot: nextShot + shots * interval };
+  }
+
   // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
   // sprints when moving fast enough; ease the stick back to walk.
   const JOYSTICK_SPRINT_FORWARD = 0.72;
@@ -6504,6 +6515,13 @@ const CORE = (function () {
     const t = (impactSpeed - FALL_SAFE_SPEED) / (FALL_LETHAL_SPEED - FALL_SAFE_SPEED);
     return Math.min(100, Math.round(100 * t * t));
   }
+  // The resolver zeroes vertical velocity on contact. Sample both the peak fall
+  // speed and the velocity from the landing substep before that happens.
+  function landingImpactSpeed(peakSpeed, verticalVelocity) {
+    const peak = isFinite(peakSpeed) && peakSpeed > 0 ? peakSpeed : 0;
+    const instant = isFinite(verticalVelocity) && verticalVelocity < 0 ? -verticalVelocity : 0;
+    return Math.max(peak, instant);
+  }
   // A hard landing costs momentum and a moment of control, which is what makes a
   // drop a decision rather than a shortcut.
   function landingSpeedMul(impactSpeed) {
@@ -6725,6 +6743,7 @@ const CORE = (function () {
     ceilingClamp: ceilingClamp,
     shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
+    advanceShotSchedule: advanceShotSchedule,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
     waveHpMultiplier: waveHpMultiplier,
@@ -6902,6 +6921,7 @@ const CORE = (function () {
     FALL_SAFE_SPEED: FALL_SAFE_SPEED,
     FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
     fallDamage: fallDamage,
+    landingImpactSpeed: landingImpactSpeed,
     landingSpeedMul: landingSpeedMul,
     MAX_RANK: MAX_RANK,
     xpForRank: xpForRank,
@@ -8323,6 +8343,9 @@ function updatePlayer(dt) {
   const sdt = dt / steps;
   for (let s = 0; s < steps; s++) {
     player.vel.y -= CFG.player.gravity * sdt;
+    // Capture the landing substep's downward velocity before resolveVertical()
+    // zeroes it, rather than waiting for the next render frame.
+    if (!player.onGround) player.airSpeedY = CORE.landingImpactSpeed(player.airSpeedY, player.vel.y);
     player.pos.x += player.vel.x * sdt;
     player.pos.z += player.vel.z * sdt;
     player.pos.y += player.vel.y * sdt;
@@ -8712,11 +8735,15 @@ function updateWeapons(dt) {
       updateHudAmmo();
     }
   }
-  // fire
+  // fire: consume every automatic-fire deadline that elapsed since the last
+  // render. The first shot keeps the existing immediate-fire behaviour.
   if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
-      if (!w.auto) mouse1Down = false;
-      fireShot();
+      let due = s.nextShot === 0 ? 1
+        : CORE.advanceShotSchedule(gameT, s.nextShot, 60 / w.rpm).shots;
+      if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
+      while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
+      if (s.ammo === 0 && s.reserve > 0) tryReload();
     } else if (gameT >= s.nextShot && s.ammo === 0) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
@@ -8821,11 +8848,12 @@ function magnetizeBullet(dir, from) {
   return found ? _magBest : dir;
 }
 
-function fireShot() {
+function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
   s.ammo--;
-  s.nextShot = gameT + 60 / w.rpm;
+  const interval = 60 / w.rpm;
+  s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : gameT + interval;
   // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.

@@ -2,6 +2,12 @@
 
 > ## Status — Phases 0-13 complete, plus two physics passes (2026-09-12)
 >
+> **Focused frame-rate/physics slice (2026-09-15):** automatic fire now consumes every elapsed
+> shot deadline after a render stall, and landing impact speed is sampled before vertical collision
+> resolution clears velocity. Remaining physics work is intentionally deferred: a full fixed-step
+> simulation, grenade endpoint collision, mantle clearance parity, and enemy speed/multiplier
+> ordering need separate design and regression coverage.
+>
 > **Phase 0 — regressions are now detectable.** `src/01_core.js` holds the gameplay rules as
 > engine-free pure functions; `tests/test_core.js` executes them under `node --test` (58 tests).
 > `tests/test_release_build.py` was rewritten from ~40 source-text greps into 7 artifact-integrity
