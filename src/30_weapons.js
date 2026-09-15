@@ -58,8 +58,10 @@ function switchWeapon(slot) {
     prev.reloading = false;
     prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
   }
+  if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
   const next = curS();
+  if (next) next.nextShot = CORE.shotScheduleAfterInactive();
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
     next.reloading = true;           // resume where it left off
@@ -84,6 +86,7 @@ function tryReload() {
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
+  const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
     if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
@@ -94,10 +97,11 @@ function updateWeapons(dt) {
       playSound('reload_in');
       updateHudAmmo();
     }
+    s.nextShot = CORE.shotScheduleAfterInactive();
   }
   // fire: consume every automatic-fire deadline that elapsed since the last
   // render. The first shot keeps the existing immediate-fire behaviour.
-  if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
+  if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
         : CORE.advanceShotSchedule(gameT, s.nextShot, 60 / w.rpm).shots;
@@ -108,7 +112,10 @@ function updateWeapons(dt) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
-  } else { dryPlayed = false; }
+  } else {
+    dryPlayed = false;
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
   const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());

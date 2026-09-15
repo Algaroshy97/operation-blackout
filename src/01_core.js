@@ -71,6 +71,10 @@ const CORE = (function () {
     return { shots: shots, nextShot: nextShot + shots * interval };
   }
 
+  // A released trigger, reload, or weapon switch is inactive time, not a render
+  // stall. The next held-fire burst must begin with its normal immediate shot.
+  function shotScheduleAfterInactive() { return 0; }
+
   // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
   // sprints when moving fast enough; ease the stick back to walk.
   const JOYSTICK_SPRINT_FORWARD = 0.72;
@@ -1467,13 +1471,13 @@ const CORE = (function () {
   // Returns the upgraded stat block for a weapon. Never mutates the input: CFG is
   // shared, and upgrading in place would leak across runs.
   function armoryUpgrade(w) {
-    return {
+    return Object.assign({}, w, {
       dmg: w.dmg * ARMORY_DMG,
       mag: Math.round(w.mag * ARMORY_MAG),
       reserveMax: Math.round(w.reserveMax * ARMORY_MAG),
       name: 'MK2 ' + w.name,
       upgraded: true
-    };
+    });
   }
 
   // ---- Perks -------------------------------------------------------------------
@@ -2275,6 +2279,7 @@ const CORE = (function () {
     shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
     advanceShotSchedule: advanceShotSchedule,
+    shotScheduleAfterInactive: shotScheduleAfterInactive,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
     waveHpMultiplier: waveHpMultiplier,

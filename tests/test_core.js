@@ -137,6 +137,27 @@ test('automatic-fire schedule catches up every missed shot deadline', () => {
   assert.ok(Math.abs(schedule.nextShot - 0.45) < 1e-12);
 });
 
+test('armory upgrade keeps every base weapon runtime field while changing upgrade stats', () => {
+  const base = {
+    name: 'Test Rifle', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150,
+    reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006,
+    range: 120, auto: true, penetration: 1.25, sway: 0.8
+  };
+  const upgraded = CORE.armoryUpgrade(base);
+  const effective = CORE.applyAttachments(upgraded, {});
+  for (const key of ['rpm', 'reload', 'spread', 'adsSpread', 'recoilV', 'recoilH', 'range', 'auto', 'type', 'penetration', 'sway']) {
+    assert.strictEqual(effective[key], base[key], key + ' must survive armory construction');
+  }
+  assert.strictEqual(effective.dmg, base.dmg * 1.8);
+  assert.strictEqual(upgraded.mag, 45);
+  assert.strictEqual(upgraded.reserveMax, 225);
+  assert.strictEqual(upgraded.upgraded, true);
+});
+
+test('inactive automatic-fire time resets the schedule instead of banking deadlines', () => {
+  assert.strictEqual(CORE.shotScheduleAfterInactive(12.5), 0);
+});
+
 test('landing impact sampling includes velocity on the landing substep', () => {
   assert.strictEqual(CORE.landingImpactSpeed(0, -12), 12);
   assert.strictEqual(CORE.landingImpactSpeed(8, -6), 8);

@@ -4670,6 +4670,10 @@ const CORE = (function () {
     return { shots: shots, nextShot: nextShot + shots * interval };
   }
 
+  // A released trigger, reload, or weapon switch is inactive time, not a render
+  // stall. The next held-fire burst must begin with its normal immediate shot.
+  function shotScheduleAfterInactive() { return 0; }
+
   // Mobile virtual joystick auto-sprint threshold. Full forward tilt automatically
   // sprints when moving fast enough; ease the stick back to walk.
   const JOYSTICK_SPRINT_FORWARD = 0.72;
@@ -6066,13 +6070,13 @@ const CORE = (function () {
   // Returns the upgraded stat block for a weapon. Never mutates the input: CFG is
   // shared, and upgrading in place would leak across runs.
   function armoryUpgrade(w) {
-    return {
+    return Object.assign({}, w, {
       dmg: w.dmg * ARMORY_DMG,
       mag: Math.round(w.mag * ARMORY_MAG),
       reserveMax: Math.round(w.reserveMax * ARMORY_MAG),
       name: 'MK2 ' + w.name,
       upgraded: true
-    };
+    });
   }
 
   // ---- Perks -------------------------------------------------------------------
@@ -6874,6 +6878,7 @@ const CORE = (function () {
     shadowCasters: shadowCasters,
     MAX_SUBSTEPS: MAX_SUBSTEPS,
     advanceShotSchedule: advanceShotSchedule,
+    shotScheduleAfterInactive: shotScheduleAfterInactive,
     distanceFalloff: distanceFalloff,
     waveEnemyCount: waveEnemyCount,
     waveHpMultiplier: waveHpMultiplier,
@@ -8862,8 +8867,10 @@ function switchWeapon(slot) {
     prev.reloading = false;
     prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
   }
+  if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
   const next = curS();
+  if (next) next.nextShot = CORE.shotScheduleAfterInactive();
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
     next.reloading = true;           // resume where it left off
@@ -8888,6 +8895,7 @@ function tryReload() {
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
+  const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
     if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
@@ -8898,10 +8906,11 @@ function updateWeapons(dt) {
       playSound('reload_in');
       updateHudAmmo();
     }
+    s.nextShot = CORE.shotScheduleAfterInactive();
   }
   // fire: consume every automatic-fire deadline that elapsed since the last
   // render. The first shot keeps the existing immediate-fire behaviour.
-  if (mouse1Down && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
+  if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (gameT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
         : CORE.advanceShotSchedule(gameT, s.nextShot, 60 / w.rpm).shots;
@@ -8912,7 +8921,10 @@ function updateWeapons(dt) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
-  } else { dryPlayed = false; }
+  } else {
+    dryPlayed = false;
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
   const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
