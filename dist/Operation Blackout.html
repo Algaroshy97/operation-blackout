@@ -5153,6 +5153,14 @@ const CORE = (function () {
       perks: (state.perks || []).slice(),
       plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
+      runPhase: state.runPhase || (state.endless ? 'endless' : 'active'),
+      settlementSnapshot: state.settlementSnapshot ? {
+        kills: state.settlementSnapshot.kills,
+        headshots: state.settlementSnapshot.headshots,
+        streaks: state.settlementSnapshot.streaks
+      } : null,
+      streakKills: state.streakKills || 0,
+      runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
       equipment: {
@@ -5191,6 +5199,12 @@ const CORE = (function () {
       weapons.push({ gi: gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up: up });
     }
     if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
+    const phase = raw.runPhase === 'victory' || raw.runPhase === 'endless' ? raw.runPhase : 'active';
+    const snap = raw.settlementSnapshot && typeof raw.settlementSnapshot === 'object' ? {
+      kills: Math.round(num(raw.settlementSnapshot.kills, 0, 1e6, 0)),
+      headshots: Math.round(num(raw.settlementSnapshot.headshots, 0, 1e6, 0)),
+      streaks: Math.round(num(raw.settlementSnapshot.streaks, 0, 1e6, 0))
+    } : null;
     return {
       v: SAVE_VERSION, wave: wave,
       score: Math.round(num(raw.score, 0, 1e9, 0)),
@@ -5209,6 +5223,10 @@ const CORE = (function () {
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
+      runPhase: phase,
+      settlementSnapshot: snap,
+      streakKills: Math.round(num(raw.streakKills, 0, 1e6, 0)),
+      runStreaksEarned: Math.round(num(raw.runStreaksEarned, 0, 1e6, 0)),
       weapons: weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
@@ -12654,6 +12672,10 @@ function captureRunState() {
     health: player.health, armor: player.armor, grenades: grenades.count,
     credits: credits, perks: perks.slice(), plates: plates,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons,
+    runPhase: typeof runPhase !== 'undefined' ? runPhase : (endlessMode ? 'endless' : 'active'),
+    settlementSnapshot: typeof settlementSnapshot !== 'undefined' ? settlementSnapshot : null,
+    streakKills: streakKills,
+    runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
@@ -13082,6 +13104,7 @@ function drawCompass() {
 // A victory screen can transition into endless mode. Career stats are settled once
 // for the finite run, then only the incremental endless kills are settled on death.
 let settlementSnapshot = null;
+let runPhase = 'active';
 function markSettlement() {
   settlementSnapshot = { kills: kills, headshots: headshots, streaks: runStreaksEarned };
 }
@@ -13145,6 +13168,7 @@ function killPlayer() {
 function victory() {
   if (gameEnded) return;
   gameEnded = true;
+  runPhase = 'victory';
   stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
@@ -13165,6 +13189,7 @@ function victory() {
 
 function resetGame() {
   settlementSnapshot = null;
+  runPhase = 'active';
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   // remove all enemies + pickups + grenades
@@ -13502,6 +13527,8 @@ function resumeRun() {
   resetGame();
   runDifficulty = cp.difficulty;
   endlessMode = cp.endless;
+  settlementSnapshot = cp.settlementSnapshot || null;
+  runPhase = cp.runPhase || (cp.endless ? 'endless' : 'active');
   weaponsOwned[0] = cp.weapons[0].gi;
   weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
   initWeapons();
@@ -13511,15 +13538,17 @@ function resumeRun() {
     refreshWeaponStats(i);
     const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
     wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
-    wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
+    wState[i].reserve = Math.min(eff.reserveMax, cp.weapons[i].reserve);
   }
-  openDistricts = (cp.openDistricts || []).slice();
-  for (let i = 0; i < openDistricts.length; i++) openDistrict(openDistricts[i]);
+  openDistricts = [];
+  for (let i = 0; i < (cp.openDistricts || []).length; i++) openDistrict(cp.openDistricts[i]);
   equippedLethal = cp.equipment.lethal;
   equippedTactical = cp.equipment.tactical;
   tacticalCount = cp.equipment.tacticalCount;
   fieldCharge = cp.equipment.fieldCharge;
   streakBank.length = 0; cp.equipment.streakBank.forEach(function (k) { streakBank.push(k); });
+  streakKills = cp.streakKills || 0;
+  runStreaksEarned = cp.runStreaksEarned || 0;
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
@@ -13599,6 +13628,7 @@ $id('btn-endless').addEventListener('click', function () {
   // Victory is no longer a dead end: keep the run going with escalating waves.
   $id('victory-screen').style.display = 'none';
   endlessMode = true;
+  runPhase = 'endless';
   gameEnded = false;
   saveCheckpoint(captureRunState());
   waveActive = false;

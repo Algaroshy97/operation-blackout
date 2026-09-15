@@ -554,6 +554,14 @@ const CORE = (function () {
       perks: (state.perks || []).slice(),
       plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
+      runPhase: state.runPhase || (state.endless ? 'endless' : 'active'),
+      settlementSnapshot: state.settlementSnapshot ? {
+        kills: state.settlementSnapshot.kills,
+        headshots: state.settlementSnapshot.headshots,
+        streaks: state.settlementSnapshot.streaks
+      } : null,
+      streakKills: state.streakKills || 0,
+      runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
       equipment: {
@@ -592,6 +600,12 @@ const CORE = (function () {
       weapons.push({ gi: gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up: up });
     }
     if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
+    const phase = raw.runPhase === 'victory' || raw.runPhase === 'endless' ? raw.runPhase : 'active';
+    const snap = raw.settlementSnapshot && typeof raw.settlementSnapshot === 'object' ? {
+      kills: Math.round(num(raw.settlementSnapshot.kills, 0, 1e6, 0)),
+      headshots: Math.round(num(raw.settlementSnapshot.headshots, 0, 1e6, 0)),
+      streaks: Math.round(num(raw.settlementSnapshot.streaks, 0, 1e6, 0))
+    } : null;
     return {
       v: SAVE_VERSION, wave: wave,
       score: Math.round(num(raw.score, 0, 1e9, 0)),
@@ -610,6 +624,10 @@ const CORE = (function () {
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
+      runPhase: phase,
+      settlementSnapshot: snap,
+      streakKills: Math.round(num(raw.streakKills, 0, 1e6, 0)),
+      runStreaksEarned: Math.round(num(raw.runStreaksEarned, 0, 1e6, 0)),
       weapons: weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),

@@ -3,6 +3,7 @@
 // A victory screen can transition into endless mode. Career stats are settled once
 // for the finite run, then only the incremental endless kills are settled on death.
 let settlementSnapshot = null;
+let runPhase = 'active';
 function markSettlement() {
   settlementSnapshot = { kills: kills, headshots: headshots, streaks: runStreaksEarned };
 }
@@ -66,6 +67,7 @@ function killPlayer() {
 function victory() {
   if (gameEnded) return;
   gameEnded = true;
+  runPhase = 'victory';
   stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
@@ -86,6 +88,7 @@ function victory() {
 
 function resetGame() {
   settlementSnapshot = null;
+  runPhase = 'active';
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   // remove all enemies + pickups + grenades
@@ -423,6 +426,8 @@ function resumeRun() {
   resetGame();
   runDifficulty = cp.difficulty;
   endlessMode = cp.endless;
+  settlementSnapshot = cp.settlementSnapshot || null;
+  runPhase = cp.runPhase || (cp.endless ? 'endless' : 'active');
   weaponsOwned[0] = cp.weapons[0].gi;
   weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
   initWeapons();
@@ -432,15 +437,17 @@ function resumeRun() {
     refreshWeaponStats(i);
     const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
     wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
-    wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
+    wState[i].reserve = Math.min(eff.reserveMax, cp.weapons[i].reserve);
   }
-  openDistricts = (cp.openDistricts || []).slice();
-  for (let i = 0; i < openDistricts.length; i++) openDistrict(openDistricts[i]);
+  openDistricts = [];
+  for (let i = 0; i < (cp.openDistricts || []).length; i++) openDistrict(cp.openDistricts[i]);
   equippedLethal = cp.equipment.lethal;
   equippedTactical = cp.equipment.tactical;
   tacticalCount = cp.equipment.tacticalCount;
   fieldCharge = cp.equipment.fieldCharge;
   streakBank.length = 0; cp.equipment.streakBank.forEach(function (k) { streakBank.push(k); });
+  streakKills = cp.streakKills || 0;
+  runStreaksEarned = cp.runStreaksEarned || 0;
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
@@ -520,6 +527,7 @@ $id('btn-endless').addEventListener('click', function () {
   // Victory is no longer a dead end: keep the run going with escalating waves.
   $id('victory-screen').style.display = 'none';
   endlessMode = true;
+  runPhase = 'endless';
   gameEnded = false;
   saveCheckpoint(captureRunState());
   waveActive = false;

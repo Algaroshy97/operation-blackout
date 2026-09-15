@@ -546,6 +546,21 @@ test('endless settlement can add progress without counting a second run', () => 
 });
 
 // ---------------------------------------------------------------- GAP-02 (save)
+test('checkpoint persists settlement phase, baseline, and streak progress', () => {
+  const cp = CORE.makeCheckpoint({
+    wave: 15, score: 12000, kills: 90, headshots: 20, shotsFired: 400, shotsHit: 180,
+    health: 64, armor: 30, grenades: 2, difficulty: 'veteran', endless: true,
+    runPhase: 'endless', settlementSnapshot: { kills: 90, headshots: 20, streaks: 4 },
+    streakKills: 7, runStreaksEarned: 4,
+    weapons: [{ gi: 0, ammo: 12, reserve: 90 }]
+  });
+  const back = CORE.validateCheckpoint(JSON.parse(JSON.stringify(cp)), 4);
+  assert.strictEqual(back.runPhase, 'endless');
+  assert.deepStrictEqual(back.settlementSnapshot, { kills: 90, headshots: 20, streaks: 4 });
+  assert.strictEqual(back.streakKills, 7);
+  assert.strictEqual(back.runStreaksEarned, 4);
+});
+
 test('a checkpoint round-trips through JSON', () => {
   const cp = CORE.makeCheckpoint({
     wave: 7, score: 12000, kills: 90, headshots: 20, shotsFired: 400, shotsHit: 180,

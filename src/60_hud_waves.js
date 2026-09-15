@@ -282,6 +282,10 @@ function captureRunState() {
     health: player.health, armor: player.armor, grenades: grenades.count,
     credits: credits, perks: perks.slice(), plates: plates,
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons,
+    runPhase: typeof runPhase !== 'undefined' ? runPhase : (endlessMode ? 'endless' : 'active'),
+    settlementSnapshot: typeof settlementSnapshot !== 'undefined' ? settlementSnapshot : null,
+    streakKills: streakKills,
+    runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
