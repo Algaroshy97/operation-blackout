@@ -669,6 +669,32 @@ test('a checkpoint round-trips through JSON', () => {
   assert.strictEqual(back.health, 64);
 });
 
+test('restored purchased weapons rebuild every authoritative runtime field from config', () => {
+  const weaponConfig = [
+    { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150,
+      reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006,
+      range: 120, auto: true },
+    { name: 'MK18 Mod1', type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160,
+      reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005,
+      range: 80, auto: true }
+  ];
+  const raw = {
+    v: CORE.SAVE_VERSION, wave: 4,
+    weapons: [{ gi: 1, ammo: 7, reserve: 41,
+      up: { dmg: 32.4, mag: 48, reserveMax: 240, name: 'MK18 MODDED', upgraded: true } }]
+  };
+  const back = CORE.validateCheckpoint(JSON.parse(JSON.stringify(raw)), weaponConfig);
+  const restored = back.weapons[0].up;
+  assert.strictEqual(restored.type, 'SMG');
+  assert.strictEqual(restored.rpm, 900);
+  assert.strictEqual(restored.reload, 1.9);
+  assert.strictEqual(restored.spread, 0.020);
+  assert.strictEqual(restored.auto, true);
+  assert.strictEqual(restored.dmg, 32.4);
+  assert.strictEqual(restored.mag, 48);
+  assert.strictEqual(restored.reserveMax, 240);
+});
+
 test('a corrupt, hostile or stale checkpoint is rejected rather than loaded', () => {
   assert.strictEqual(CORE.validateCheckpoint(null, 4), null);
   assert.strictEqual(CORE.validateCheckpoint('nope', 4), null);
@@ -677,6 +703,14 @@ test('a corrupt, hostile or stale checkpoint is rejected rather than loaded', ()
   assert.strictEqual(CORE.validateCheckpoint({ v: CORE.SAVE_VERSION, wave: 3 }, 4), null, 'no weapons');
   assert.strictEqual(CORE.validateCheckpoint({ v: CORE.SAVE_VERSION, wave: 3, weapons: [] }, 4), null, 'empty weapons');
   assert.strictEqual(CORE.validateCheckpoint({ v: CORE.SAVE_VERSION, wave: 3, weapons: [null] }, 4), null, 'no primary');
+});
+
+test('checkpoint preserves health above base max when Juggernaut is persisted', () => {
+  const cp = CORE.makeCheckpoint({
+    wave: 4, health: 150, perks: ['jugg'], weapons: [{ gi: 0, ammo: 12, reserve: 90 }]
+  });
+  const back = CORE.validateCheckpoint(JSON.parse(JSON.stringify(cp)), 4, 100);
+  assert.strictEqual(back.health, CORE.perkMaxHealth(100, ['jugg']));
 });
 
 test('checkpoint values are clamped, so an edited save cannot break a run', () => {

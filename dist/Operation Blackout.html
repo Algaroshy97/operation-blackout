@@ -5257,9 +5257,15 @@ const CORE = (function () {
     };
   }
   // Returns a usable checkpoint or null. Never throws on malformed input.
-  function validateCheckpoint(raw, weaponCount) {
+  function validateCheckpoint(raw, weaponCount, baseHealth) {
     if (!raw || typeof raw !== 'object') return null;
     if (raw.v !== SAVE_VERSION) return null;          // old saves are dropped, not guessed at
+    // The browser passes CFG.weapons here. Keep accepting a numeric count for
+    // headless callers and older tests, but when definitions are available the
+    // saved upgrade is only a delta: every runtime field comes from the current
+    // authoritative config rather than from a partial/legacy save object.
+    const weaponDefs = Array.isArray(weaponCount) ? weaponCount : null;
+    const maxWeaponCount = weaponDefs ? weaponDefs.length : (weaponCount || 4);
     const num = function (v, lo, hi, def) {
       const n = typeof v === 'number' ? v : parseFloat(v);
       if (!isFinite(n)) return def;
@@ -5272,13 +5278,20 @@ const CORE = (function () {
     for (let i = 0; i < raw.weapons.length && i < 2; i++) {
       const w = raw.weapons[i];
       if (!w || typeof w !== 'object') continue;
-      const gi = Math.round(num(w.gi, -1, (weaponCount || 4) - 1, -1));
+      const gi = Math.round(num(w.gi, -1, maxWeaponCount - 1, -1));
       if (gi < 0) { weapons.push(null); continue; }
-      const up = w.up && typeof w.up === 'object' ? {
-        dmg: num(w.up.dmg, 0, 1e5, 0), mag: Math.round(num(w.up.mag, 1, 999, 1)),
-        reserveMax: Math.round(num(w.up.reserveMax, 0, 9999, 0)),
-        name: typeof w.up.name === 'string' ? w.up.name.slice(0, 80) : '', upgraded: true
-      } : null;
+      let up = null;
+      if (w.up && typeof w.up === 'object') {
+        const base = weaponDefs && weaponDefs[gi] && typeof weaponDefs[gi] === 'object'
+          ? weaponDefs[gi] : null;
+        up = base ? Object.assign({}, base) : {};
+        up.dmg = num(w.up.dmg, 0, 1e5, base ? base.dmg : 0);
+        up.mag = Math.round(num(w.up.mag, 1, 999, base ? base.mag : 1));
+        up.reserveMax = Math.round(num(w.up.reserveMax, 0, 9999, base ? base.reserveMax : 0));
+        up.name = typeof w.up.name === 'string'
+          ? w.up.name.slice(0, 80) : (base && typeof base.name === 'string' ? base.name : '');
+        up.upgraded = true;
+      }
       weapons.push({ gi: gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up: up });
     }
     if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
@@ -5288,6 +5301,12 @@ const CORE = (function () {
       headshots: Math.round(num(raw.settlementSnapshot.headshots, 0, 1e6, 0)),
       streaks: Math.round(num(raw.settlementSnapshot.streaks, 0, 1e6, 0))
     } : null;
+    const perks = (Array.isArray(raw.perks) ? raw.perks : [])
+      .filter(function (k) { return !!perkByKey(k); }).slice(0, PERK_SLOTS);
+    const maxHealth = perkMaxHealth(
+      typeof baseHealth === 'number' && isFinite(baseHealth) && baseHealth > 0 ? baseHealth : 100,
+      perks
+    );
     return {
       v: SAVE_VERSION, wave: wave,
       score: Math.round(num(raw.score, 0, 1e9, 0)),
@@ -5295,13 +5314,12 @@ const CORE = (function () {
       headshots: Math.round(num(raw.headshots, 0, 1e6, 0)),
       shotsFired: Math.round(num(raw.shotsFired, 0, 1e7, 0)),
       shotsHit: Math.round(num(raw.shotsHit, 0, 1e7, 0)),
-      health: num(raw.health, 1, 100, 100),
+      health: num(raw.health, 1, maxHealth, maxHealth),
       armor: num(raw.armor, 0, 200, 0),
       credits: num(raw.credits, 0, 1e9, 0),
       // Only keys that still exist survive a reload: a perk renamed or removed
       // between versions must not resurrect as an unknown string.
-      perks: (Array.isArray(raw.perks) ? raw.perks : [])
-        .filter(function (k) { return !!perkByKey(k); }).slice(0, PERK_SLOTS),
+      perks: perks,
       plates: num(raw.plates, 0, PLATE_MAX, 0),
       grenades: Math.round(num(raw.grenades, 0, 9, 0)),
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
@@ -7231,7 +7249,7 @@ function saveCheckpoint(state) {
   return storageSet(STORE_KEY_SAVE, CORE.makeCheckpoint(state));
 }
 function loadCheckpoint() {
-  return CORE.validateCheckpoint(storageGet(STORE_KEY_SAVE), CFG.weapons.length);
+  return CORE.validateCheckpoint(storageGet(STORE_KEY_SAVE), CFG.weapons, CFG.player.health);
 }
 function clearCheckpoint() {
   try { localStorage.removeItem(STORE_KEY_SAVE); } catch (e) { /* ignore */ }

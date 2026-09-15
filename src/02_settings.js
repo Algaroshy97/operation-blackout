@@ -146,7 +146,7 @@ function saveCheckpoint(state) {
   return storageSet(STORE_KEY_SAVE, CORE.makeCheckpoint(state));
 }
 function loadCheckpoint() {
-  return CORE.validateCheckpoint(storageGet(STORE_KEY_SAVE), CFG.weapons.length);
+  return CORE.validateCheckpoint(storageGet(STORE_KEY_SAVE), CFG.weapons, CFG.player.health);
 }
 function clearCheckpoint() {
   try { localStorage.removeItem(STORE_KEY_SAVE); } catch (e) { /* ignore */ }
