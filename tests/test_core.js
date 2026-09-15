@@ -110,6 +110,27 @@ test('landing impact sampling includes velocity on the landing substep', () => {
   assert.strictEqual(CORE.landingImpactSpeed(8, -6), 8);
 });
 
+// ---------------------------------------------------------------- GRENADE COLLISION
+function grenadeBox(x, y, z, w, h, d) {
+  return {
+    min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 },
+    max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 }
+  };
+}
+
+test('fast grenade sweep catches a thin vertical obstacle between frames', () => {
+  const wall = grenadeBox(0, 1, 0, 0.08, 2, 4);
+  const hit = CORE.sweepGrenade({ x: -1, y: 1, z: 0 }, { x: 1, y: 1, z: 0 }, 0.11, [wall]);
+  assert.ok(hit, 'the grenade must collide even when its endpoint is past the wall');
+  assert.ok(hit.t > 0 && hit.t < 1, `expected an in-flight hit, got t=${hit && hit.t}`);
+  assert.deepStrictEqual(hit.normal, { x: -1, y: 0, z: 0 });
+});
+
+test('grenade sweep ignores obstacles outside the segment', () => {
+  const wall = grenadeBox(0, 1, 0, 0.08, 2, 4);
+  assert.strictEqual(CORE.sweepGrenade({ x: -1, y: 1, z: 5 }, { x: 1, y: 1, z: 5 }, 0.11, [wall]), null);
+});
+
 // ---------------------------------------------------------------- BUG-07
 test('BUG-07: damage falloff ramps smoothly instead of cliffing', () => {
   const range = 120;

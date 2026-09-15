@@ -767,6 +767,46 @@ const CORE = (function () {
     return false;
   }
 
+  // Swept sphere versus AABBs. Expanding each box by the grenade radius turns
+  // projectile collision into a segment/slab test, so a fast grenade cannot jump
+  // from one side of a thin wall to the other between rendered frames.
+  function sweepGrenade(start, end, radius, boxes) {
+    const r = Math.max(0, Number(radius) || 0);
+    const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+    let best = null;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      const minX = b.min.x - r, maxX = b.max.x + r;
+      const minY = b.min.y - r, maxY = b.max.y + r;
+      const minZ = b.min.z - r, maxZ = b.max.z + r;
+      let enter = 0, exit = 1, axis = -1;
+      const axes = [
+        [start.x, dx, minX, maxX],
+        [start.y, dy, minY, maxY],
+        [start.z, dz, minZ, maxZ]
+      ];
+      let miss = false;
+      for (let a = 0; a < axes.length; a++) {
+        const q = axes[a];
+        if (Math.abs(q[1]) < 1e-12) {
+          if (q[0] < q[2] || q[0] > q[3]) { miss = true; break; }
+          continue;
+        }
+        let t0 = (q[2] - q[0]) / q[1], t1 = (q[3] - q[0]) / q[1];
+        if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+        if (t0 > enter) { enter = t0; axis = a; }
+        if (t1 < exit) exit = t1;
+        if (enter > exit) { miss = true; break; }
+      }
+      if (miss || enter < 0 || enter > 1 || (best && enter >= best.t)) continue;
+      const dir = axis === 0 ? dx : axis === 1 ? dy : dz;
+      const normal = { x: 0, y: 0, z: 0 };
+      normal[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z'] = dir > 0 ? -1 : 1;
+      best = { t: enter, normal: normal, box: b };
+    }
+    return best;
+  }
+
   // ---- Ray broad-phase grid --------------------------------------------------
   // r128 has no BVH, so intersectObjects() walks every root's triangles once its
   // bounding sphere passes. Bullets and AI line-of-sight both fire rays through a
@@ -2274,6 +2314,7 @@ const CORE = (function () {
     powerUpDropped: powerUpDropped,
     pickPowerUp: pickPowerUp,
     rayBoxEntry: rayBoxEntry,
+    sweepGrenade: sweepGrenade,
     penetrationWalk: penetrationWalk,
     penetrationMulAt: penetrationMulAt,
     BUY_RADIUS: BUY_RADIUS,

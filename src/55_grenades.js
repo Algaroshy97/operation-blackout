@@ -296,7 +296,31 @@ function updateGrenades(dt) {
     // Semtex and thermite stick where they land; nothing moves them afterwards.
     if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
-    g.m.position.addScaledVector(g.vel, dt);
+    const previous = { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z };
+    const next = {
+      x: previous.x + g.vel.x * dt,
+      y: previous.y + g.vel.y * dt,
+      z: previous.z + g.vel.z * dt
+    };
+    const swept = CORE.sweepGrenade(previous, next, 0.11, colliders);
+    if (swept) {
+      const t = Math.max(0, swept.t - 1e-4);
+      g.m.position.set(
+        previous.x + (next.x - previous.x) * t + swept.normal.x * 0.001,
+        previous.y + (next.y - previous.y) * t + swept.normal.y * 0.001,
+        previous.z + (next.z - previous.z) * t + swept.normal.z * 0.001
+      );
+      const vn = g.vel.x * swept.normal.x + g.vel.y * swept.normal.y + g.vel.z * swept.normal.z;
+      if (vn < 0) {
+        g.vel.x -= 1.5 * vn * swept.normal.x;
+        g.vel.y -= 1.5 * vn * swept.normal.y;
+        g.vel.z -= 1.5 * vn * swept.normal.z;
+      }
+      g.vel.y *= 0.8;
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
+    } else {
+      g.m.position.set(next.x, next.y, next.z);
+    }
     // ground bounce
     if (g.m.position.y < 0.11) {
       g.m.position.y = 0.11;
@@ -307,21 +331,6 @@ function updateGrenades(dt) {
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
       if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
-    }
-    // wall bounce (AABBs)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      const p = g.m.position;
-      if (p.x > col.min.x - 0.1 && p.x < col.max.x + 0.1 && p.y > col.min.y && p.y < col.max.y && p.z > col.min.z - 0.1 && p.z < col.max.z + 0.1) {
-        // push out along smallest axis and reflect
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const px = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(p.x - cx);
-        const pz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(p.z - cz);
-        if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
-        else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
-        g.vel.y *= 0.8;
-        if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
-      }
     }
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;

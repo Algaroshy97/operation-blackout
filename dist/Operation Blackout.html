@@ -4828,6 +4828,18 @@ const CORE = (function () {
     return out;
   }
 
+  // Resolve the renderer state for a quality preset without touching browser or
+  // THREE globals. `auto` deliberately has a concrete baseline: switching from
+  // low must restore shadows before the adaptive frame loop starts sampling FPS.
+  function qualityRenderSettings(quality, devicePixelRatio, isTouch) {
+    const dpr = isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+    const q = SETTINGS_SCHEMA.quality.values.indexOf(quality) >= 0 ? quality : 'auto';
+    if (q === 'low') return { pixelRatio: Math.min(dpr, 0.7), shadowEnabled: false, shadowType: null };
+    if (q === 'medium') return { pixelRatio: Math.min(dpr, 1.0), shadowEnabled: true, shadowType: 'PCFShadowMap' };
+    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+    return { pixelRatio: Math.min(dpr, 1.5), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+  }
+
   // Effective look sensitivity in radians per pixel of mouse movement.
   const BASE_SENSITIVITY = 0.0022;
   function lookSensitivity(settingsSensitivity, adsAmount) {
@@ -5046,6 +5058,25 @@ const CORE = (function () {
   }
   // Grenadiers are useless in your face — they back off to a throwing distance.
   function enemyPreferredRange(kind) { return kind === 5 ? 16 : 0; }
+
+  // Compose movement speed in one place. Riflemen still use their ranged speed
+  // inside the firing band, but retain wave, elite and status multipliers.
+  function enemyMoveSpeed(kind, state, dist, rangedRange, speedMul, cfg) {
+    cfg = cfg || { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8 };
+    const mul = Number.isFinite(speedMul) ? speedMul : 1;
+    let speed;
+    if (state === 'fallback') speed = cfg.rangedSpeed * 1.25;
+    else if (state === 'chase') speed = (kind === 0 ? cfg.chaseSpeed
+      : kind === 2 ? 2.2
+      : kind === 3 ? 2.0
+      : kind === 4 ? cfg.chaseSpeed * 1.35
+      : kind === 5 ? 2.6
+      : cfg.speed);
+    else if (state === 'strafe') speed = cfg.rangedSpeed;
+    else speed = cfg.speed * 0.5;
+    if (kind === 1 && dist < rangedRange && state !== 'idle') speed = cfg.rangedSpeed;
+    return speed * mul;
+  }
 
   // How much a flanker steers sideways instead of straight at the player.
   // Must taper to zero on approach: a hard cutoff leaves a ring at the cutoff
@@ -5333,6 +5364,46 @@ const CORE = (function () {
       if (segmentHitsBox(ax, ay, az, dx, dy, dz, maxDist, boxes[i])) return true;
     }
     return false;
+  }
+
+  // Swept sphere versus AABBs. Expanding each box by the grenade radius turns
+  // projectile collision into a segment/slab test, so a fast grenade cannot jump
+  // from one side of a thin wall to the other between rendered frames.
+  function sweepGrenade(start, end, radius, boxes) {
+    const r = Math.max(0, Number(radius) || 0);
+    const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+    let best = null;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      const minX = b.min.x - r, maxX = b.max.x + r;
+      const minY = b.min.y - r, maxY = b.max.y + r;
+      const minZ = b.min.z - r, maxZ = b.max.z + r;
+      let enter = 0, exit = 1, axis = -1;
+      const axes = [
+        [start.x, dx, minX, maxX],
+        [start.y, dy, minY, maxY],
+        [start.z, dz, minZ, maxZ]
+      ];
+      let miss = false;
+      for (let a = 0; a < axes.length; a++) {
+        const q = axes[a];
+        if (Math.abs(q[1]) < 1e-12) {
+          if (q[0] < q[2] || q[0] > q[3]) { miss = true; break; }
+          continue;
+        }
+        let t0 = (q[2] - q[0]) / q[1], t1 = (q[3] - q[0]) / q[1];
+        if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
+        if (t0 > enter) { enter = t0; axis = a; }
+        if (t1 < exit) exit = t1;
+        if (enter > exit) { miss = true; break; }
+      }
+      if (miss || enter < 0 || enter > 1 || (best && enter >= best.t)) continue;
+      const dir = axis === 0 ? dx : axis === 1 ? dy : dz;
+      const normal = { x: 0, y: 0, z: 0 };
+      normal[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z'] = dir > 0 ? -1 : 1;
+      best = { t: enter, normal: normal, box: b };
+    }
+    return best;
   }
 
   // ---- Ray broad-phase grid --------------------------------------------------
@@ -6755,6 +6826,7 @@ const CORE = (function () {
     defaultSettings: defaultSettings,
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
+    qualityRenderSettings: qualityRenderSettings,
     lookSensitivity: lookSensitivity,
     combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,
@@ -6768,6 +6840,7 @@ const CORE = (function () {
     newBehavioursAtWave: newBehavioursAtWave,
     pickEnemyKind: pickEnemyKind,
     enemyStopDistance: enemyStopDistance,
+    enemyMoveSpeed: enemyMoveSpeed,
     flankBias: flankBias,
     flankWindow: flankWindow,
     flankBiasNow: flankBiasNow,
@@ -6840,6 +6913,7 @@ const CORE = (function () {
     powerUpDropped: powerUpDropped,
     pickPowerUp: pickPowerUp,
     rayBoxEntry: rayBoxEntry,
+    sweepGrenade: sweepGrenade,
     penetrationWalk: penetrationWalk,
     penetrationMulAt: penetrationMulAt,
     BUY_RADIUS: BUY_RADIUS,
@@ -7052,25 +7126,13 @@ function applyAllSettings() {
   for (const k in CORE.SETTINGS_SCHEMA) applySetting(k);
 }
 
-// 'auto' keeps the existing adaptive pixel-ratio behaviour; the explicit presets
-// pin it so a player who knows their hardware is not second-guessed every 4.5 s.
+// 'auto' restores a stable baseline, then frame() adapts its pixel ratio from there.
 function qualityIsAuto() { return SETTINGS.quality === 'auto'; }
 function applyQuality() {
-  const q = SETTINGS.quality;
-  if (q === 'auto') return;   // frame() keeps adapting
-  const cap = Math.min(window.devicePixelRatio, 1.75);
-  if (q === 'low') {
-    renderer.setPixelRatio(Math.min(cap, 0.7));
-    renderer.shadowMap.enabled = false;
-  } else if (q === 'medium') {
-    renderer.setPixelRatio(Math.min(cap, 1.0));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
-  } else {
-    renderer.setPixelRatio(cap);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-  }
+  const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
+  renderer.setPixelRatio(plan.pixelRatio);
+  renderer.shadowMap.enabled = plan.shadowEnabled;
+  if (plan.shadowType) renderer.shadowMap.type = THREE[plan.shadowType];
   renderer.shadowMap.needsUpdate = true;
 }
 
@@ -9622,17 +9684,7 @@ function moveEnemy(en, dt) {
   const cfg = CFG.ai;
   const toPlayer = tmpV2.set(player.pos.x - en.pos.x, 0, player.pos.z - en.pos.z);
   const dist = toPlayer.length();
-  let speed = 0;
-  if (en.state === 'fallback') speed = cfg.rangedSpeed * 1.25 * en.speedMul;
-  else if (en.state === 'chase') speed = (en.kind === 0 ? cfg.chaseSpeed
-    : en.kind === 2 ? 2.2
-    : en.kind === 3 ? 2.0
-    : en.kind === 4 ? cfg.chaseSpeed * 1.35    // scout
-    : en.kind === 5 ? 2.6                      // grenadier repositions slowly
-    : cfg.speed) * en.speedMul;
-  else if (en.state === 'strafe') speed = cfg.rangedSpeed * en.speedMul;
-  else speed = cfg.speed * 0.5 * en.speedMul;
-  if (en.kind === 1 && dist < cfg.rangedRange && en.state !== 'idle') speed = cfg.rangedSpeed;
+  const speed = CORE.enemyMoveSpeed(en.kind, en.state, dist, cfg.rangedRange, en.speedMul, cfg);
   // desired velocity
   if (dist > 0.01) toPlayer.normalize();
   let mvx = toPlayer.x, mvz = toPlayer.z;
@@ -9913,7 +9965,8 @@ function updateEnemies(dt) {
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
     const canMelee = en.kind === 0 || en.kind === 2 || en.kind === 3 || en.kind === 4;
     const reach = en.kind === 2 ? CFG.ai.attackRange + 0.9 : CFG.ai.attackRange + 0.4;
-    if (canMelee && dist < reach && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
+    if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
+        && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       const stagger = 0.25 + Math.random() * 0.45;
       en.swinging = stagger;                   // windup (telegraphed)
@@ -11285,7 +11338,31 @@ function updateGrenades(dt) {
     // Semtex and thermite stick where they land; nothing moves them afterwards.
     if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
-    g.m.position.addScaledVector(g.vel, dt);
+    const previous = { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z };
+    const next = {
+      x: previous.x + g.vel.x * dt,
+      y: previous.y + g.vel.y * dt,
+      z: previous.z + g.vel.z * dt
+    };
+    const swept = CORE.sweepGrenade(previous, next, 0.11, colliders);
+    if (swept) {
+      const t = Math.max(0, swept.t - 1e-4);
+      g.m.position.set(
+        previous.x + (next.x - previous.x) * t + swept.normal.x * 0.001,
+        previous.y + (next.y - previous.y) * t + swept.normal.y * 0.001,
+        previous.z + (next.z - previous.z) * t + swept.normal.z * 0.001
+      );
+      const vn = g.vel.x * swept.normal.x + g.vel.y * swept.normal.y + g.vel.z * swept.normal.z;
+      if (vn < 0) {
+        g.vel.x -= 1.5 * vn * swept.normal.x;
+        g.vel.y -= 1.5 * vn * swept.normal.y;
+        g.vel.z -= 1.5 * vn * swept.normal.z;
+      }
+      g.vel.y *= 0.8;
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
+    } else {
+      g.m.position.set(next.x, next.y, next.z);
+    }
     // ground bounce
     if (g.m.position.y < 0.11) {
       g.m.position.y = 0.11;
@@ -11296,21 +11373,6 @@ function updateGrenades(dt) {
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
       if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
-    }
-    // wall bounce (AABBs)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      const p = g.m.position;
-      if (p.x > col.min.x - 0.1 && p.x < col.max.x + 0.1 && p.y > col.min.y && p.y < col.max.y && p.z > col.min.z - 0.1 && p.z < col.max.z + 0.1) {
-        // push out along smallest axis and reflect
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const px = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(p.x - cx);
-        const pz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(p.z - cz);
-        if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
-        else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
-        g.vel.y *= 0.8;
-        if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
-      }
     }
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
