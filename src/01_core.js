@@ -339,12 +339,40 @@ const CORE = (function () {
     return out;
   }
   // Returns the updated stats plus which records were beaten, so the UI can say so.
+  function resumeCheckpointState(runPhase) {
+    const phase = runPhase === 'victory' || runPhase === 'endless' ? runPhase : 'active';
+    return { phase: phase, gameEnded: phase === 'victory', showVictory: phase === 'victory' };
+  }
+  // Separate one-time rewards from the current run's absolute record candidates.
+  // Endless continuation must not re-award the settled finite victory, but its later
+  // wave and accuracy still need to compete for career records.
+  function settlementAccounting(snapshot, current) {
+    const run = current || {};
+    const records = {
+      score: run.score || 0, wave: run.wave || 0, accuracy: run.accuracy || 0
+    };
+    if (!snapshot || typeof snapshot !== 'object') {
+      return { rewards: {
+        score: records.score, wave: records.wave, accuracy: records.accuracy,
+        kills: run.kills || 0, headshots: run.headshots || 0, streaks: run.streaks || 0
+      }, records: records };
+    }
+    return { rewards: {
+      score: Math.max(0, records.score - (snapshot.score || 0)), wave: 0, accuracy: 0,
+      kills: Math.max(0, (run.kills || 0) - (snapshot.kills || 0)),
+      headshots: Math.max(0, (run.headshots || 0) - (snapshot.headshots || 0)),
+      streaks: Math.max(0, (run.streaks || 0) - (snapshot.streaks || 0))
+    }, records: records };
+  }
   function mergeRunIntoStats(stats, run) {
     const next = sanitizeStats(stats);
     const beat = { score: false, wave: false, accuracy: false };
-    if (run.score > next.bestScore) { next.bestScore = run.score; beat.score = true; }
-    if (run.wave > next.bestWave) { next.bestWave = run.wave; beat.wave = true; }
-    if (run.accuracy > next.bestAccuracy) { next.bestAccuracy = run.accuracy; beat.accuracy = true; }
+    const recordScore = typeof run.recordScore === 'number' ? run.recordScore : run.score;
+    const recordWave = typeof run.recordWave === 'number' ? run.recordWave : run.wave;
+    const recordAccuracy = typeof run.recordAccuracy === 'number' ? run.recordAccuracy : run.accuracy;
+    if (recordScore > next.bestScore) { next.bestScore = recordScore; beat.score = true; }
+    if (recordWave > next.bestWave) { next.bestWave = recordWave; beat.wave = true; }
+    if (recordAccuracy > next.bestAccuracy) { next.bestAccuracy = recordAccuracy; beat.accuracy = true; }
     // Endless continuation is still the same career run; callers mark its
     // incremental settlement with countRun:false to avoid double-counting it.
     if (run.countRun !== false) next.runs = next.runs + 1;
@@ -2298,6 +2326,8 @@ const CORE = (function () {
     BASE_SENSITIVITY: BASE_SENSITIVITY,
     defaultStats: defaultStats,
     sanitizeStats: sanitizeStats,
+    resumeCheckpointState: resumeCheckpointState,
+    settlementAccounting: settlementAccounting,
     mergeRunIntoStats: mergeRunIntoStats,
     DIFFICULTIES: DIFFICULTIES,
     difficulty: difficulty,

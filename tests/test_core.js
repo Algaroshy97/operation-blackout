@@ -644,16 +644,48 @@ test('endless enemy count is capped so a wave cannot become unplayable', () => {
   assert.ok(CORE.endlessEnemyCount(5, 5, 2.5, 15, 60) < 60);
 });
 
-test('endless settlement can add progress without counting a second run', () => {
+test('victory checkpoint resume remains a settled victory until endless is chosen', () => {
+  assert.deepStrictEqual(CORE.resumeCheckpointState('victory'), {
+    phase: 'victory', gameEnded: true, showVictory: true
+  });
+  assert.deepStrictEqual(CORE.resumeCheckpointState('endless'), {
+    phase: 'endless', gameEnded: false, showVictory: false
+  });
+});
+
+test('endless settlement separates incremental rewards from absolute records', () => {
+  const snapshot = { score: 1000, kills: 10, headshots: 2, streaks: 1 };
+  const settled = CORE.settlementAccounting(snapshot, {
+    score: 3400, wave: 19, accuracy: 73, kills: 15, headshots: 3, streaks: 2
+  });
+  assert.deepStrictEqual(settled.rewards, {
+    score: 2400, wave: 0, accuracy: 0, kills: 5, headshots: 1, streaks: 1
+  });
+  assert.deepStrictEqual(settled.records, { score: 3400, wave: 19, accuracy: 73 });
+
   const first = CORE.mergeRunIntoStats(CORE.defaultStats(), {
     score: 1000, wave: 15, accuracy: 50, kills: 10, headshots: 2, victory: true
   });
-  const second = CORE.mergeRunIntoStats(first.stats, {
-    score: 1000, wave: 0, accuracy: 0, kills: 0, headshots: 0, countRun: false, victory: false
-  });
+  const second = CORE.mergeRunIntoStats(first.stats, Object.assign({}, settled.rewards, {
+    recordScore: settled.records.score, recordWave: settled.records.wave,
+    recordAccuracy: settled.records.accuracy,
+    countRun: false, victory: false
+  }));
   assert.strictEqual(second.stats.runs, 1);
-  assert.strictEqual(second.stats.totalKills, 10);
-  assert.strictEqual(second.stats.xp, first.stats.xp);
+  assert.strictEqual(second.stats.totalKills, 15);
+  assert.ok(second.stats.bestWave >= 19, 'endless progress updates best wave');
+  assert.ok(second.stats.bestAccuracy >= 73, 'endless progress updates best accuracy');
+  assert.ok(second.stats.xp > first.stats.xp, 'new endless kills/rewards can earn XP');
+});
+
+test('re-settling an unchanged endless checkpoint is idempotent', () => {
+  const accounting = CORE.settlementAccounting(
+    { score: 1000, kills: 10, headshots: 2, streaks: 1 },
+    { score: 1000, wave: 15, accuracy: 50, kills: 10, headshots: 2, streaks: 1 }
+  );
+  assert.deepStrictEqual(accounting.rewards, {
+    score: 0, wave: 0, accuracy: 0, kills: 0, headshots: 0, streaks: 0
+  });
 });
 
 // ---------------------------------------------------------------- GAP-02 (save)

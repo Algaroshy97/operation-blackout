@@ -5,14 +5,18 @@
 let settlementSnapshot = null;
 let runPhase = 'active';
 function markSettlement() {
-  settlementSnapshot = { kills: kills, headshots: headshots, streaks: runStreaksEarned };
+  settlementSnapshot = { score: score, kills: kills, headshots: headshots, streaks: runStreaksEarned };
 }
 function settlementDelta() {
-  if (!settlementSnapshot) return { score: score, wave: waveNum, kills: kills, headshots: headshots, streaks: runStreaksEarned };
-  return { score: score, wave: 0,
-    kills: Math.max(0, kills - settlementSnapshot.kills),
-    headshots: Math.max(0, headshots - settlementSnapshot.headshots),
-    streaks: Math.max(0, runStreaksEarned - settlementSnapshot.streaks) };
+  const accounting = CORE.settlementAccounting(settlementSnapshot, {
+    score: score, wave: waveNum, accuracy: shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0,
+    kills: kills, headshots: headshots, streaks: runStreaksEarned
+  });
+  return Object.assign({}, accounting.rewards, {
+    recordScore: accounting.records.score,
+    recordWave: accounting.records.wave,
+    recordAccuracy: accounting.records.accuracy
+  });
 }
 // ---- Flow ----
 function pauseGame() {
@@ -53,7 +57,9 @@ function killPlayer() {
   clearCheckpoint();   // a lost run is not resumable
   const delta = settlementDelta();
   const beat = recordRun({ score: delta.score, wave: delta.wave,
-    accuracy: settlementSnapshot ? 0 : accuracy, kills: delta.kills,
+    accuracy: delta.accuracy, recordScore: delta.recordScore,
+    recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
+    kills: delta.kills,
     headshots: delta.headshots, streaks: delta.streaks,
     countRun: !settlementSnapshot, victory: false });
   $id('ds-stats').innerHTML =
@@ -428,6 +434,7 @@ function resumeRun() {
   endlessMode = cp.endless;
   settlementSnapshot = cp.settlementSnapshot || null;
   runPhase = cp.runPhase || (cp.endless ? 'endless' : 'active');
+  const resumeState = CORE.resumeCheckpointState(runPhase);
   weaponsOwned[0] = cp.weapons[0].gi;
   weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
   initWeapons();
@@ -463,9 +470,17 @@ function resumeRun() {
   hud.waveNum.textContent = waveNum;
   hud.scoreVal.textContent = score;
   updateHudHealth(); updateHudAmmo();
-  showWaveBanner(0);
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  if (resumeState.showVictory) {
+    // A victory checkpoint is already settled. Do not enter the next wave or call
+    // victory() again; let the player explicitly choose endless continuation.
+    gameEnded = resumeState.gameEnded;
+    stopMusic();
+    $id('victory-screen').style.display = 'flex';
+    return;
+  }
+  showWaveBanner(0);
   startMusic();
   canvas.requestPointerLock();
 }
