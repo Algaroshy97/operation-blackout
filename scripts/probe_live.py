@@ -406,7 +406,54 @@ def main() -> int:
         }""")
         checks.append(("pickup-drop-balance-rules", pickup_balance_check))
 
-        # 15) Clean console throughout gameplay.
+        # 15) Visual feedback: ammo HUD empty glow, low warning, and contextual reload hint.
+        ammo_hud_check = page.evaluate("""() => {
+            if (typeof CORE.isAmmoLow !== 'function' || typeof CORE.isAmmoEmpty !== 'function' || typeof CORE.reloadPrompt !== 'function') return false;
+            const coreOk = CORE.isAmmoLow(7, 30) === true &&
+                           CORE.isAmmoLow(8, 30) === false &&
+                           CORE.isAmmoEmpty(0) === true &&
+                           CORE.isAmmoEmpty(1) === false &&
+                           CORE.reloadPrompt(false, 0, 60, false) === 'RELOAD [R]' &&
+                           CORE.reloadPrompt(false, 0, 60, true) === 'RELOAD' &&
+                           CORE.reloadPrompt(true, 0, 60, false) === 'RELOADING' &&
+                           CORE.reloadPrompt(false, 0, 0, false) === 'OUT OF AMMO — FIND PICKUPS';
+            if (!coreOk) return false;
+
+            const s = curS();
+            if (!s) return false;
+            const origAmmo = s.ammo, origRes = s.reserve, origRel = s.reloading;
+            try {
+                // Empty mag with reserve available
+                s.ammo = 0; s.reserve = 60; s.reloading = false;
+                updateHudAmmo();
+                const emptyOk = hud.ammoMag.classList.contains('empty') &&
+                                hud.ammoMag.classList.contains('low') &&
+                                hud.reloadHint.classList.contains('urgent') &&
+                                hud.reloadHint.textContent === 'RELOAD [R]' &&
+                                hud.reloadHint.style.opacity === '1';
+
+                // Actively reloading
+                s.reloading = true;
+                updateHudAmmo();
+                const reloadOk = hud.reloadHint.textContent === 'RELOADING' &&
+                                 !hud.reloadHint.classList.contains('urgent');
+
+                // Fully replenished
+                s.ammo = 30; s.reloading = false;
+                updateHudAmmo();
+                const fullOk = !hud.ammoMag.classList.contains('empty') &&
+                               !hud.ammoMag.classList.contains('low') &&
+                               hud.reloadHint.style.opacity === '0';
+
+                return emptyOk && reloadOk && fullOk;
+            } finally {
+                s.ammo = origAmmo; s.reserve = origRes; s.reloading = origRel;
+                updateHudAmmo();
+            }
+        }""")
+        checks.append(("ammo-hud-visual-feedback", ammo_hud_check))
+
+        # 16) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

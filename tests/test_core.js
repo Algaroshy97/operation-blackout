@@ -2647,3 +2647,56 @@ test('pickupDropKind resolves ammo, medkit, and empty drops deterministically', 
   assert.strictEqual(CORE.pickupDropKind(undefined, 0.30, 0.20), null);
 });
 
+test('isAmmoLow and isAmmoEmpty detect low and exhausted ammunition states', () => {
+  assert.strictEqual(CORE.AMMO_LOW_RATIO, 0.25);
+  // 30 round mag: low at <= 7.5 (i.e. <= 7 rounds)
+  assert.strictEqual(CORE.isAmmoLow(7, 30), true);
+  assert.strictEqual(CORE.isAmmoLow(8, 30), false);
+  assert.strictEqual(CORE.isAmmoLow(0, 30), true);
+  assert.strictEqual(CORE.isAmmoLow(30, 30), false);
+  // 20 round mag (e.g. SCAR-H): low at <= 5 rounds
+  assert.strictEqual(CORE.isAmmoLow(5, 20), true);
+  assert.strictEqual(CORE.isAmmoLow(6, 20), false);
+  // isAmmoEmpty
+  assert.strictEqual(CORE.isAmmoEmpty(0), true);
+  assert.strictEqual(CORE.isAmmoEmpty(-1), true);
+  assert.strictEqual(CORE.isAmmoEmpty(1), false);
+  // Tolerates invalid/NaN/omitted inputs safely
+  assert.strictEqual(CORE.isAmmoLow(NaN, 30), false);
+  assert.strictEqual(CORE.isAmmoLow(5, NaN), false);
+  assert.strictEqual(CORE.isAmmoLow(5, 0), false);
+  assert.strictEqual(CORE.isAmmoLow(5, -10), false);
+  assert.strictEqual(CORE.isAmmoLow('5', 30), false);
+  assert.strictEqual(CORE.isAmmoLow(undefined, 30), false);
+  assert.strictEqual(CORE.isAmmoEmpty(NaN), false);
+  assert.strictEqual(CORE.isAmmoEmpty('0'), false);
+  assert.strictEqual(CORE.isAmmoEmpty(undefined), false);
+});
+
+test('reloadPrompt generates contextual prompts for desktop, mobile touch, and dry states', () => {
+  // Active reloading takes precedence over ammo counts
+  assert.strictEqual(CORE.reloadPrompt(true, 0, 60, false), 'RELOADING');
+  assert.strictEqual(CORE.reloadPrompt(true, 15, 60, false), 'RELOADING');
+  assert.strictEqual(CORE.reloadPrompt(true, 0, 0, false), 'RELOADING');
+  assert.strictEqual(CORE.reloadPrompt(true, 0, 60, true), 'RELOADING');
+
+  // Sufficient ammo in magazine requires no prompt
+  assert.strictEqual(CORE.reloadPrompt(false, 30, 60, false), '');
+  assert.strictEqual(CORE.reloadPrompt(false, 1, 60, false), '');
+  assert.strictEqual(CORE.reloadPrompt(false, 5, 0, false), '');
+
+  // Magazine empty with reserve available: desktop gets key hint, touch gets tap prompt
+  assert.strictEqual(CORE.reloadPrompt(false, 0, 60, false), 'RELOAD [R]');
+  assert.strictEqual(CORE.reloadPrompt(false, 0, 60, true), 'RELOAD');
+
+  // Both magazine and reserve exhausted: pickup prompt
+  assert.strictEqual(CORE.reloadPrompt(false, 0, 0, false), 'OUT OF AMMO — FIND PICKUPS');
+  assert.strictEqual(CORE.reloadPrompt(false, 0, 0, true), 'OUT OF AMMO — FIND PICKUPS');
+  assert.strictEqual(CORE.reloadPrompt(false, 0, -5, false), 'OUT OF AMMO — FIND PICKUPS');
+
+  // Handles invalid/missing inputs gracefully
+  assert.strictEqual(CORE.reloadPrompt(false, NaN, 60, false), '');
+  assert.strictEqual(CORE.reloadPrompt(false, undefined, 60, false), '');
+  assert.strictEqual(CORE.reloadPrompt(false, '0', 60, false), '');
+});
+

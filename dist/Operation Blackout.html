@@ -116,9 +116,11 @@
   body.reduced-motion #power-banner{transition:none}
   #ammo-mag{color:#fff;font-size:38px;font-weight:800;text-shadow:0 1px 6px #000;letter-spacing:1px}
   #ammo-mag.low{color:#ff5f4a}
+  #ammo-mag.empty{color:#ff2a1a;text-shadow:0 0 10px rgba(255,42,26,.85),0 1px 6px #000}
   #ammo-res{color:rgba(255,255,255,.75);font-size:16px;font-weight:600;text-shadow:0 1px 4px #000}
   #weapon-name{color:rgba(255,255,255,.85);font-size:12px;letter-spacing:3px;font-weight:600;text-transform:uppercase;text-shadow:0 1px 3px #000;margin-top:2px}
   #reload-hint{color:#ffb020;font-size:13px;font-weight:700;letter-spacing:2px;text-shadow:0 1px 3px #000;margin-top:4px;opacity:0}
+  #reload-hint.urgent{color:#ff4a3d;text-shadow:0 0 8px rgba(255,74,61,.7),0 1px 3px #000}
   #score-hud{top:20px;right:26px;text-align:right;color:#fff;text-shadow:0 1px 4px #000}
   #score-hud .lbl{font-size:10px;letter-spacing:3px;color:rgba(255,255,255,.6);font-weight:600}
   #score-hud .val{font-size:26px;font-weight:800}
@@ -5901,6 +5903,24 @@ const CORE = (function () {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
     return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
+  const AMMO_LOW_RATIO = 0.25;
+  function isAmmoLow(ammo, mag) {
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
+    if (typeof mag !== 'number' || !isFinite(mag) || mag <= 0) return false;
+    return ammo <= mag * AMMO_LOW_RATIO;
+  }
+  function isAmmoEmpty(ammo) {
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
+    return ammo <= 0;
+  }
+  function reloadPrompt(reloading, ammo, reserve, isTouch) {
+    if (reloading) return 'RELOADING';
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return '';
+    if (ammo > 0) return '';
+    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (res <= 0) return 'OUT OF AMMO — FIND PICKUPS';
+    return isTouch ? 'RELOAD' : 'RELOAD [R]';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -6758,6 +6778,10 @@ const CORE = (function () {
     perkMaxHealth: perkMaxHealth,
     HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
     isHealthLow: isHealthLow,
+    AMMO_LOW_RATIO: AMMO_LOW_RATIO,
+    isAmmoLow: isAmmoLow,
+    isAmmoEmpty: isAmmoEmpty,
+    reloadPrompt: reloadPrompt,
     perkReloadMul: perkReloadMul,
     perkBloomMul: perkBloomMul,
     perkAdsMul: perkAdsMul,
@@ -12376,12 +12400,17 @@ function updateHudAmmo() {
     eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
   }
   hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
-  hud.ammoMag.classList.toggle('low', s.ammo <= curW().mag * 0.25);
-  hud.weaponName.textContent = curW().name;
-  // Distinguish an empty reserve from an ordinary reload on both input paths.
-  const empty = s.ammo === 0 && s.reserve === 0;
-  hud.reloadHint.textContent = s.reloading ? 'RELOADING' : empty ? 'OUT OF AMMO — FIND PICKUPS' : '';
-  hud.reloadHint.style.opacity = s.reloading || empty ? 1 : 0;
+  const w = curW();
+  const isLow = CORE.isAmmoLow(s.ammo, w ? w.mag : 30);
+  const isEmpty = CORE.isAmmoEmpty(s.ammo);
+  hud.ammoMag.classList.toggle('low', isLow);
+  hud.ammoMag.classList.toggle('empty', isEmpty);
+  hud.weaponName.textContent = w ? w.name : '';
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  const prompt = CORE.reloadPrompt(s.reloading, s.ammo, s.reserve, isTouch);
+  hud.reloadHint.textContent = prompt;
+  hud.reloadHint.style.opacity = prompt ? 1 : 0;
+  hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
 }
 
 // Feedback tiers. The marker had two states, so a shot absorbed by a shielded

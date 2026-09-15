@@ -1304,6 +1304,24 @@ const CORE = (function () {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
     return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
+  const AMMO_LOW_RATIO = 0.25;
+  function isAmmoLow(ammo, mag) {
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
+    if (typeof mag !== 'number' || !isFinite(mag) || mag <= 0) return false;
+    return ammo <= mag * AMMO_LOW_RATIO;
+  }
+  function isAmmoEmpty(ammo) {
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
+    return ammo <= 0;
+  }
+  function reloadPrompt(reloading, ammo, reserve, isTouch) {
+    if (reloading) return 'RELOADING';
+    if (typeof ammo !== 'number' || !isFinite(ammo)) return '';
+    if (ammo > 0) return '';
+    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (res <= 0) return 'OUT OF AMMO — FIND PICKUPS';
+    return isTouch ? 'RELOAD' : 'RELOAD [R]';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -2161,6 +2179,10 @@ const CORE = (function () {
     perkMaxHealth: perkMaxHealth,
     HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
     isHealthLow: isHealthLow,
+    AMMO_LOW_RATIO: AMMO_LOW_RATIO,
+    isAmmoLow: isAmmoLow,
+    isAmmoEmpty: isAmmoEmpty,
+    reloadPrompt: reloadPrompt,
     perkReloadMul: perkReloadMul,
     perkBloomMul: perkBloomMul,
     perkAdsMul: perkAdsMul,

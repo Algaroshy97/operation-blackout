@@ -69,12 +69,17 @@ function updateHudAmmo() {
     eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
   }
   hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
-  hud.ammoMag.classList.toggle('low', s.ammo <= curW().mag * 0.25);
-  hud.weaponName.textContent = curW().name;
-  // Distinguish an empty reserve from an ordinary reload on both input paths.
-  const empty = s.ammo === 0 && s.reserve === 0;
-  hud.reloadHint.textContent = s.reloading ? 'RELOADING' : empty ? 'OUT OF AMMO — FIND PICKUPS' : '';
-  hud.reloadHint.style.opacity = s.reloading || empty ? 1 : 0;
+  const w = curW();
+  const isLow = CORE.isAmmoLow(s.ammo, w ? w.mag : 30);
+  const isEmpty = CORE.isAmmoEmpty(s.ammo);
+  hud.ammoMag.classList.toggle('low', isLow);
+  hud.ammoMag.classList.toggle('empty', isEmpty);
+  hud.weaponName.textContent = w ? w.name : '';
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  const prompt = CORE.reloadPrompt(s.reloading, s.ammo, s.reserve, isTouch);
+  hud.reloadHint.textContent = prompt;
+  hud.reloadHint.style.opacity = prompt ? 1 : 0;
+  hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
 }
 
 // Feedback tiers. The marker had two states, so a shot absorbed by a shielded
