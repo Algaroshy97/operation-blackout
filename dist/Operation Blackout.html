@@ -7686,6 +7686,44 @@ const MAT = {
   accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
   red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
 };
+
+// One deliberately small district cue: reuse the existing canvas-texture and
+// static-geometry paths to make the NE entry legible at a glance. The backing is
+// non-colliding because this is a visual marker, not a new piece of cover.
+const DISTRICT_READABILITY = {
+  ne: { label: 'NORTH-EAST DISTRICT', panelColor: 0x1b2029, accentColor: 0xffd34d, emissiveIntensity: 0.85 }
+};
+window.__districtReadability = DISTRICT_READABILITY;
+const districtSignMat = new THREE.MeshStandardMaterial({
+  color: DISTRICT_READABILITY.ne.panelColor,
+  roughness: 0.72,
+  metalness: 0.15
+});
+const districtSignAccentMat = new THREE.MeshStandardMaterial({
+  color: DISTRICT_READABILITY.ne.accentColor,
+  emissive: DISTRICT_READABILITY.ne.accentColor,
+  emissiveIntensity: DISTRICT_READABILITY.ne.emissiveIntensity,
+  roughness: 0.4,
+  metalness: 0.2
+});
+(function makeNorthEastDistrictSign() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1b2029'; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#ffd34d'; g.fillRect(0, 0, c.width, 8); g.fillRect(0, c.height - 8, c.width, 8);
+  g.fillStyle = '#fff7d1';
+  g.font = 'bold 36px Segoe UI, Arial, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(DISTRICT_READABILITY.ne.label, c.width / 2, c.height / 2 + 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  districtSignMat.map = tex; districtSignMat.needsUpdate = true;
+  const sign = new THREE.PlaneGeometry(12, 3);
+  sign.rotateY(Math.PI);
+  sign.translate(28, 3.7, -14.30);
+  queueStatic(sign, 28, -14.30, districtSignMat, true);
+})();
 // Anything not listed is concrete, which is the conservative default: an untagged
 // surface stops a round exactly as it did before this feature existed.
 PEN_MATERIAL.set(MAT.wood, 'wood');
@@ -7733,6 +7771,10 @@ function buildArena() {
   addBox(34, 3.3, -20.5, 2.2, 2.2, 2.2, MAT.wood, {noShadow:false});
   addBox(31.5, 1.1, -18, 2.2, 2.2, 2.2, MAT.wood);
   addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);   // container
+  // High-contrast entrance marker for the warehouse district. These slim bars
+  // frame the text panel and remain visual-only (no new collision surface).
+  addBox(28, 5.18, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
+  addBox(28, 2.22, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
 
   // NW district: ruins
   addBox(-28, 1.5, -28, 14, 3, 1, MAT.brick);

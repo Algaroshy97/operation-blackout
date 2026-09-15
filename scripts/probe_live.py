@@ -330,7 +330,20 @@ def main() -> int:
         }""")
         checks.append(("low-health-hud-warning", health_hud))
 
-        # 12) Perf: shadow budget stability (no redundant mesh mutations when positions stay stable).
+        # 12) The NE district entrance carries a high-contrast, emissive sign cue.
+        # This is intentionally a structural/readability guard: it checks the live
+        # config and material values without claiming anything about frame rate.
+        district_visual = page.evaluate("""() => {
+            const v = window.__districtReadability;
+            if (!v || !v.ne) return false;
+            return v.ne.label === 'NORTH-EAST DISTRICT' &&
+                v.ne.panelColor === 0x1b2029 &&
+                v.ne.accentColor === 0xffd34d &&
+                v.ne.emissiveIntensity >= 0.7;
+        }""")
+        checks.append(("ne-district-sign-readable", district_visual))
+
+        # 13) Perf: shadow budget stability (no redundant mesh mutations when positions stay stable).
         shadow_stability = page.evaluate("""() => {
             if (typeof updateEnemyShadowBudget !== 'function') return false;
             for (let i = 0; i < 6; i++) spawnEnemy(0, -6 + i * 2, 10);
