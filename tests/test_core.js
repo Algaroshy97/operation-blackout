@@ -127,6 +127,18 @@ test('performance telemetry rejects invalid frame times and protects sample stor
   assert.deepStrictEqual(telemetry.samples(), [16]);
 });
 
+test('runtime telemetry is opt-in, bounded, and exposes an exportable snapshot', () => {
+  assert.strictEqual(typeof CORE.createRuntimeTelemetry, 'function');
+  const telemetry = CORE.createRuntimeTelemetry();
+  assert.strictEqual(telemetry.enabled, false);
+  assert.strictEqual(telemetry.record(16.7), false);
+  assert.deepStrictEqual(telemetry.snapshot(), {
+    enabled: false,
+    summary: { count: 0, capacity: 300, min: null, max: null, p50: null, p95: null },
+    samples: []
+  });
+});
+
 // ---------------------------------------------------------------- FRAME-RATE / PHYSICS
 // A render stall must catch up scheduled automatic shots instead of silently
 // lowering the weapon's effective RPM.
@@ -193,6 +205,25 @@ test('grenade sweep resolves an initial overlap with the outward face normal', (
     'outward movement must use the exit face, not a fallback Z normal');
   assert.ok(hit.initialOverlap);
   assert.ok(hit.pushOut > 0);
+});
+
+test('grenade bounce continues through the remaining frame after a wall impact', () => {
+  const wall = grenadeBox(0, 1, 0, 0.1, 2, 4);
+  const state = { position: { x: -1, y: 1, z: 0 }, velocity: { x: 10, y: 0, z: 0 } };
+  CORE.stepGrenadeMotion(state, 0.2, [wall], { bounce: 0.5 });
+  assert.ok(state.position.x < -0.1, 'the grenade should be on the reflected side of the wall');
+  assert.ok(state.position.x > -1, 'the reflected grenade must travel during the leftover time');
+  assert.ok(state.velocity.x < 0, 'wall impact must reflect horizontal velocity');
+});
+
+test('grenade motion handles multiple contacts in one frame without looping', () => {
+  const left = grenadeBox(-1, 1, 0, 0.1, 2, 4);
+  const right = grenadeBox(1, 1, 0, 0.1, 2, 4);
+  const state = { position: { x: 0, y: 1, z: 0 }, velocity: { x: 20, y: 0, z: 0 } };
+  const result = CORE.stepGrenadeMotion(state, 0.25, [left, right], { bounce: 0.5, maxContacts: 4 });
+  assert.ok(result.contacts >= 2, 'one frame should be able to resolve both walls');
+  assert.ok(result.contacts <= 4, 'contact handling must be bounded');
+  assert.ok(Number.isFinite(state.position.x) && Number.isFinite(state.velocity.x));
 });
 
 // ---------------------------------------------------------------- BUG-07

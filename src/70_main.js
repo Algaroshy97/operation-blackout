@@ -599,6 +599,16 @@ $id('btn-v-quit').addEventListener('click', function () {
   resetGame(); started = false;
 });
 
+// Runtime telemetry is disabled unless a local probe explicitly enables it.
+const runtimeTelemetry = CORE.createRuntimeTelemetry();
+if (typeof window !== 'undefined') {
+  window.fpsGameTelemetry = Object.freeze({
+    enable: function () { runtimeTelemetry.setEnabled(true); return runtimeTelemetry.snapshot(); },
+    disable: function () { runtimeTelemetry.setEnabled(false); return runtimeTelemetry.snapshot(); },
+    snapshot: function () { return runtimeTelemetry.snapshot(); }
+  });
+}
+
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
@@ -618,6 +628,7 @@ function frame(now) {
   // lost context throws every frame and buries the console.
   if (contextLost) return;
   // Measure real frame time, not the clamped simulation timestep.
+  if (runtimeTelemetry.enabled) runtimeTelemetry.record(Math.max(0, now - (frame.previousNow || now)));
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;

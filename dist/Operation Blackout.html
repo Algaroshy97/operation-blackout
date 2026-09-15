@@ -4885,6 +4885,49 @@ const CORE = (function () {
     return { enabled: enabled, capacity: capacity, record: record, samples: samples, summary: summary };
   }
 
+  // Runtime wrapper keeps the capture opt-in while allowing the main loop to
+  // expose a safe, read-only snapshot for probes and local performance checks.
+  function createRuntimeTelemetry(options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    let active = opts.enabled === true;
+    const capture = createFrameTimeTelemetry({ enabled: true, maxSamples: opts.maxSamples });
+    function record(frameTimeMs) { return active && capture.record(frameTimeMs); }
+    function setEnabled(value) { active = value === true; return active; }
+    function snapshot() {
+      return { enabled: active, summary: capture.summary(), samples: capture.samples() };
+    }
+    return { get enabled() { return active; }, capacity: capture.capacity,
+      record: record, setEnabled: setEnabled, snapshot: snapshot };
+  }
+
+  // Pure continuous swept-sphere motion for grenade regressions and runtime use.
+  // A bounded contact loop consumes the unspent fraction after every impact.
+  function stepGrenadeMotion(state, dt, boxes, options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const bounce = Number.isFinite(opts.bounce) ? Math.max(0, Math.min(1, opts.bounce)) : 0.35;
+    const maxContacts = Number.isFinite(opts.maxContacts) ? Math.max(1, Math.floor(opts.maxContacts)) : 4;
+    let remaining = Math.max(0, Number(dt) || 0), contacts = 0;
+    const p = state.position, v = state.velocity;
+    while (remaining > 1e-7 && contacts < maxContacts) {
+      const end = { x: p.x + v.x * remaining, y: p.y + v.y * remaining, z: p.z + v.z * remaining };
+      const hit = sweepGrenade(p, end, opts.radius === undefined ? 0.11 : opts.radius, boxes || []);
+      if (!hit) { p.x = end.x; p.y = end.y; p.z = end.z; break; }
+      const t = Math.max(0, Math.min(1, hit.t));
+      p.x += (end.x - p.x) * t; p.y += (end.y - p.y) * t; p.z += (end.z - p.z) * t;
+      const push = (hit.initialOverlap ? hit.pushOut : 0) + 0.001;
+      p.x += hit.normal.x * push; p.y += hit.normal.y * push; p.z += hit.normal.z * push;
+      const vn = v.x * hit.normal.x + v.y * hit.normal.y + v.z * hit.normal.z;
+      if (vn < 0) {
+        const impulse = (1 + bounce) * vn;
+        v.x -= impulse * hit.normal.x; v.y -= impulse * hit.normal.y; v.z -= impulse * hit.normal.z;
+      }
+      remaining *= (1 - t);
+      contacts++;
+      if (t < 1e-7) remaining = Math.max(0, remaining - 1e-6);
+    }
+    return { contacts: contacts, remaining: remaining };
+  }
+
   // Effective look sensitivity in radians per pixel of mouse movement.
   const BASE_SENSITIVITY = 0.0022;
   function lookSensitivity(settingsSensitivity, adsAmount) {
@@ -6975,6 +7018,8 @@ const CORE = (function () {
     sanitizeSettings: sanitizeSettings,
     qualityRenderSettings: qualityRenderSettings,
     createFrameTimeTelemetry: createFrameTimeTelemetry,
+    createRuntimeTelemetry: createRuntimeTelemetry,
+    stepGrenadeMotion: stepGrenadeMotion,
     lookSensitivity: lookSensitivity,
     combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,
@@ -11537,31 +11582,17 @@ function updateGrenades(dt) {
     // Semtex and thermite stick where they land; nothing moves them afterwards.
     if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
-    const previous = { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z };
-    const next = {
-      x: previous.x + g.vel.x * dt,
-      y: previous.y + g.vel.y * dt,
-      z: previous.z + g.vel.z * dt
-    };
-    const swept = CORE.sweepGrenade(previous, next, 0.11, colliders);
-    if (swept) {
-      const t = Math.max(0, swept.t - 1e-4);
-      const push = swept.initialOverlap ? swept.pushOut + 0.001 : 0.001;
-      g.m.position.set(
-        previous.x + (next.x - previous.x) * t + swept.normal.x * push,
-        previous.y + (next.y - previous.y) * t + swept.normal.y * push,
-        previous.z + (next.z - previous.z) * t + swept.normal.z * push
-      );
-      const vn = g.vel.x * swept.normal.x + g.vel.y * swept.normal.y + g.vel.z * swept.normal.z;
-      if (vn < 0) {
-        g.vel.x -= 1.5 * vn * swept.normal.x;
-        g.vel.y -= 1.5 * vn * swept.normal.y;
-        g.vel.z -= 1.5 * vn * swept.normal.z;
-      }
-      g.vel.y *= 0.8;
-      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
-    } else {
-      g.m.position.set(next.x, next.y, next.z);
+    const motion = { position: { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z }, velocity: g.vel };
+    const motionResult = CORE.stepGrenadeMotion(motion, dt, colliders, {
+      bounce: def.bounce === undefined ? CFG.grenade.bounce : def.bounce,
+      maxContacts: 4,
+      radius: 0.11
+    });
+    g.m.position.set(motion.position.x, motion.position.y, motion.position.z);
+    // Sticky payloads stop at their first contact; bouncing payloads consume
+    // every leftover fraction of the frame, including chained contacts.
+    if (def.sticky && motionResult.contacts > 0) {
+      g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin');
     }
     // ground bounce
     if (g.m.position.y < 0.11) {
@@ -13990,6 +14021,16 @@ $id('btn-v-quit').addEventListener('click', function () {
   resetGame(); started = false;
 });
 
+// Runtime telemetry is disabled unless a local probe explicitly enables it.
+const runtimeTelemetry = CORE.createRuntimeTelemetry();
+if (typeof window !== 'undefined') {
+  window.fpsGameTelemetry = Object.freeze({
+    enable: function () { runtimeTelemetry.setEnabled(true); return runtimeTelemetry.snapshot(); },
+    disable: function () { runtimeTelemetry.setEnabled(false); return runtimeTelemetry.snapshot(); },
+    snapshot: function () { return runtimeTelemetry.snapshot(); }
+  });
+}
+
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
@@ -14009,6 +14050,7 @@ function frame(now) {
   // lost context throws every frame and buries the console.
   if (contextLost) return;
   // Measure real frame time, not the clamped simulation timestep.
+  if (runtimeTelemetry.enabled) runtimeTelemetry.record(Math.max(0, now - (frame.previousNow || now)));
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;

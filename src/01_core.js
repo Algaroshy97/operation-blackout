@@ -286,6 +286,49 @@ const CORE = (function () {
     return { enabled: enabled, capacity: capacity, record: record, samples: samples, summary: summary };
   }
 
+  // Runtime wrapper keeps the capture opt-in while allowing the main loop to
+  // expose a safe, read-only snapshot for probes and local performance checks.
+  function createRuntimeTelemetry(options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    let active = opts.enabled === true;
+    const capture = createFrameTimeTelemetry({ enabled: true, maxSamples: opts.maxSamples });
+    function record(frameTimeMs) { return active && capture.record(frameTimeMs); }
+    function setEnabled(value) { active = value === true; return active; }
+    function snapshot() {
+      return { enabled: active, summary: capture.summary(), samples: capture.samples() };
+    }
+    return { get enabled() { return active; }, capacity: capture.capacity,
+      record: record, setEnabled: setEnabled, snapshot: snapshot };
+  }
+
+  // Pure continuous swept-sphere motion for grenade regressions and runtime use.
+  // A bounded contact loop consumes the unspent fraction after every impact.
+  function stepGrenadeMotion(state, dt, boxes, options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const bounce = Number.isFinite(opts.bounce) ? Math.max(0, Math.min(1, opts.bounce)) : 0.35;
+    const maxContacts = Number.isFinite(opts.maxContacts) ? Math.max(1, Math.floor(opts.maxContacts)) : 4;
+    let remaining = Math.max(0, Number(dt) || 0), contacts = 0;
+    const p = state.position, v = state.velocity;
+    while (remaining > 1e-7 && contacts < maxContacts) {
+      const end = { x: p.x + v.x * remaining, y: p.y + v.y * remaining, z: p.z + v.z * remaining };
+      const hit = sweepGrenade(p, end, opts.radius === undefined ? 0.11 : opts.radius, boxes || []);
+      if (!hit) { p.x = end.x; p.y = end.y; p.z = end.z; break; }
+      const t = Math.max(0, Math.min(1, hit.t));
+      p.x += (end.x - p.x) * t; p.y += (end.y - p.y) * t; p.z += (end.z - p.z) * t;
+      const push = (hit.initialOverlap ? hit.pushOut : 0) + 0.001;
+      p.x += hit.normal.x * push; p.y += hit.normal.y * push; p.z += hit.normal.z * push;
+      const vn = v.x * hit.normal.x + v.y * hit.normal.y + v.z * hit.normal.z;
+      if (vn < 0) {
+        const impulse = (1 + bounce) * vn;
+        v.x -= impulse * hit.normal.x; v.y -= impulse * hit.normal.y; v.z -= impulse * hit.normal.z;
+      }
+      remaining *= (1 - t);
+      contacts++;
+      if (t < 1e-7) remaining = Math.max(0, remaining - 1e-6);
+    }
+    return { contacts: contacts, remaining: remaining };
+  }
+
   // Effective look sensitivity in radians per pixel of mouse movement.
   const BASE_SENSITIVITY = 0.0022;
   function lookSensitivity(settingsSensitivity, adsAmount) {
@@ -2376,6 +2419,8 @@ const CORE = (function () {
     sanitizeSettings: sanitizeSettings,
     qualityRenderSettings: qualityRenderSettings,
     createFrameTimeTelemetry: createFrameTimeTelemetry,
+    createRuntimeTelemetry: createRuntimeTelemetry,
+    stepGrenadeMotion: stepGrenadeMotion,
     lookSensitivity: lookSensitivity,
     combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,

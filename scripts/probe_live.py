@@ -49,6 +49,7 @@ def main() -> int:
         checks.append(("boot-three-loaded", page.evaluate("() => typeof THREE !== 'undefined'")))
         checks.append(("assets-preloaded", wait_until(page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)))
         checks.append(("deploy-button-enabled", page.evaluate("() => !document.getElementById('btn-start').classList.contains('disabled')")))
+        checks.append(("telemetry-disabled-by-default", page.evaluate("() => window.fpsGameTelemetry && window.fpsGameTelemetry.snapshot().enabled === false")))
 
         # 2) Real UI flow: DEPLOY -> gun-select -> PRIMARY card -> SECONDARY card.
         #    Picking a primary re-opens the same screen for the secondary, and only
@@ -99,6 +100,16 @@ def main() -> int:
         #    in-game time runs several times slower than wall clock when frames are
         #    slow (headless/swiftshader), so 25 s was not enough headroom.
         checks.append(("start-screen-hidden", page.evaluate("() => document.getElementById('start-screen').style.display === 'none'")))
+        telemetry_snapshot = page.evaluate("""() => {
+            const before = window.fpsGameTelemetry.snapshot();
+            window.fpsGameTelemetry.enable();
+            return { before, after: window.fpsGameTelemetry.snapshot() };
+        }""")
+        telemetry_after = wait_until(page, "() => window.fpsGameTelemetry.snapshot().summary.count > 0", 5)
+        telemetry_final = page.evaluate("() => window.fpsGameTelemetry.snapshot()")
+        checks.append(("telemetry-runtime-snapshot", telemetry_snapshot["before"]["enabled"] is False and
+                       telemetry_final["enabled"] is True and telemetry_after))
+        page.evaluate("() => window.fpsGameTelemetry.disable()")
         checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 60)))
 
         # 4) Enemies move and are grounded near y=0.

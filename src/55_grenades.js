@@ -296,31 +296,17 @@ function updateGrenades(dt) {
     // Semtex and thermite stick where they land; nothing moves them afterwards.
     if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
-    const previous = { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z };
-    const next = {
-      x: previous.x + g.vel.x * dt,
-      y: previous.y + g.vel.y * dt,
-      z: previous.z + g.vel.z * dt
-    };
-    const swept = CORE.sweepGrenade(previous, next, 0.11, colliders);
-    if (swept) {
-      const t = Math.max(0, swept.t - 1e-4);
-      const push = swept.initialOverlap ? swept.pushOut + 0.001 : 0.001;
-      g.m.position.set(
-        previous.x + (next.x - previous.x) * t + swept.normal.x * push,
-        previous.y + (next.y - previous.y) * t + swept.normal.y * push,
-        previous.z + (next.z - previous.z) * t + swept.normal.z * push
-      );
-      const vn = g.vel.x * swept.normal.x + g.vel.y * swept.normal.y + g.vel.z * swept.normal.z;
-      if (vn < 0) {
-        g.vel.x -= 1.5 * vn * swept.normal.x;
-        g.vel.y -= 1.5 * vn * swept.normal.y;
-        g.vel.z -= 1.5 * vn * swept.normal.z;
-      }
-      g.vel.y *= 0.8;
-      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
-    } else {
-      g.m.position.set(next.x, next.y, next.z);
+    const motion = { position: { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z }, velocity: g.vel };
+    const motionResult = CORE.stepGrenadeMotion(motion, dt, colliders, {
+      bounce: def.bounce === undefined ? CFG.grenade.bounce : def.bounce,
+      maxContacts: 4,
+      radius: 0.11
+    });
+    g.m.position.set(motion.position.x, motion.position.y, motion.position.z);
+    // Sticky payloads stop at their first contact; bouncing payloads consume
+    // every leftover fraction of the frame, including chained contacts.
+    if (def.sticky && motionResult.contacts > 0) {
+      g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin');
     }
     // ground bounce
     if (g.m.position.y < 0.11) {
