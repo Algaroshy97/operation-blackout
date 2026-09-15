@@ -53,6 +53,19 @@ test('BUG-02: horizontal distance ignores the 1.7 m eye-height offset', () => {
   assert.strictEqual(d, 0);
 });
 
+test('rifleman movement keeps elite, special-wave, and status multipliers in ranged orbit', () => {
+  const cfg = { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8 };
+  const speed = CORE.enemyMoveSpeed(1, 'strafe', 12, 44, 2.0, cfg);
+  assert.strictEqual(speed, 5.6, 'ranged speed must retain the full multiplier stack');
+  assert.strictEqual(CORE.enemyMoveSpeed(0, 'chase', 12, 44, 1.25, cfg), 6.125);
+});
+
+test('melee windup requires the same vertical reach as impact', () => {
+  assert.strictEqual(CORE.withinReach(1.5, 0, 2.5), true);
+  assert.strictEqual(CORE.withinReach(1.5, 3.65, 2.5), false,
+    'an enemy below the player must not begin a melee swing through a slab');
+});
+
 test('BUG-02: an enemy at melee reach is inside the stop radius, not outside it', () => {
   const STOP = 1.9;
   // Enemy 1.0 m away on the ground, player anchored at eye height 1.7.
@@ -376,6 +389,15 @@ test('settings survive a save/load round trip through JSON', () => {
   const chosen = CORE.sanitizeSettings({ sensitivity: 1.75, fov: 95, muted: true, quality: 'low' });
   const round = CORE.sanitizeSettings(JSON.parse(JSON.stringify(chosen)));
   assert.deepStrictEqual(round, chosen);
+});
+
+test('quality auto restores adaptive pixel ratio and shadow settings after low', () => {
+  const low = CORE.qualityRenderSettings('low', 2, false);
+  const auto = CORE.qualityRenderSettings('auto', 2, false);
+  assert.strictEqual(low.shadowEnabled, false);
+  assert.strictEqual(auto.shadowEnabled, true);
+  assert.strictEqual(auto.shadowType, 'PCFSoftShadowMap');
+  assert.strictEqual(auto.pixelRatio, 1.5);
 });
 
 test('NaN and Infinity never reach a setting', () => {

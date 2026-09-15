@@ -229,6 +229,18 @@ const CORE = (function () {
     return out;
   }
 
+  // Resolve the renderer state for a quality preset without touching browser or
+  // THREE globals. `auto` deliberately has a concrete baseline: switching from
+  // low must restore shadows before the adaptive frame loop starts sampling FPS.
+  function qualityRenderSettings(quality, devicePixelRatio, isTouch) {
+    const dpr = isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+    const q = SETTINGS_SCHEMA.quality.values.indexOf(quality) >= 0 ? quality : 'auto';
+    if (q === 'low') return { pixelRatio: Math.min(dpr, 0.7), shadowEnabled: false, shadowType: null };
+    if (q === 'medium') return { pixelRatio: Math.min(dpr, 1.0), shadowEnabled: true, shadowType: 'PCFShadowMap' };
+    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+    return { pixelRatio: Math.min(dpr, 1.5), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+  }
+
   // Effective look sensitivity in radians per pixel of mouse movement.
   const BASE_SENSITIVITY = 0.0022;
   function lookSensitivity(settingsSensitivity, adsAmount) {
@@ -447,6 +459,25 @@ const CORE = (function () {
   }
   // Grenadiers are useless in your face — they back off to a throwing distance.
   function enemyPreferredRange(kind) { return kind === 5 ? 16 : 0; }
+
+  // Compose movement speed in one place. Riflemen still use their ranged speed
+  // inside the firing band, but retain wave, elite and status multipliers.
+  function enemyMoveSpeed(kind, state, dist, rangedRange, speedMul, cfg) {
+    cfg = cfg || { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8 };
+    const mul = Number.isFinite(speedMul) ? speedMul : 1;
+    let speed;
+    if (state === 'fallback') speed = cfg.rangedSpeed * 1.25;
+    else if (state === 'chase') speed = (kind === 0 ? cfg.chaseSpeed
+      : kind === 2 ? 2.2
+      : kind === 3 ? 2.0
+      : kind === 4 ? cfg.chaseSpeed * 1.35
+      : kind === 5 ? 2.6
+      : cfg.speed);
+    else if (state === 'strafe') speed = cfg.rangedSpeed;
+    else speed = cfg.speed * 0.5;
+    if (kind === 1 && dist < rangedRange && state !== 'idle') speed = cfg.rangedSpeed;
+    return speed * mul;
+  }
 
   // How much a flanker steers sideways instead of straight at the player.
   // Must taper to zero on approach: a hard cutoff leaves a ring at the cutoff
@@ -2156,6 +2187,7 @@ const CORE = (function () {
     defaultSettings: defaultSettings,
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
+    qualityRenderSettings: qualityRenderSettings,
     lookSensitivity: lookSensitivity,
     combatIntensity: combatIntensity,
     BASE_SENSITIVITY: BASE_SENSITIVITY,
@@ -2169,6 +2201,7 @@ const CORE = (function () {
     newBehavioursAtWave: newBehavioursAtWave,
     pickEnemyKind: pickEnemyKind,
     enemyStopDistance: enemyStopDistance,
+    enemyMoveSpeed: enemyMoveSpeed,
     flankBias: flankBias,
     flankWindow: flankWindow,
     flankBiasNow: flankBiasNow,

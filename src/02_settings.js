@@ -83,25 +83,13 @@ function applyAllSettings() {
   for (const k in CORE.SETTINGS_SCHEMA) applySetting(k);
 }
 
-// 'auto' keeps the existing adaptive pixel-ratio behaviour; the explicit presets
-// pin it so a player who knows their hardware is not second-guessed every 4.5 s.
+// 'auto' restores a stable baseline, then frame() adapts its pixel ratio from there.
 function qualityIsAuto() { return SETTINGS.quality === 'auto'; }
 function applyQuality() {
-  const q = SETTINGS.quality;
-  if (q === 'auto') return;   // frame() keeps adapting
-  const cap = Math.min(window.devicePixelRatio, 1.75);
-  if (q === 'low') {
-    renderer.setPixelRatio(Math.min(cap, 0.7));
-    renderer.shadowMap.enabled = false;
-  } else if (q === 'medium') {
-    renderer.setPixelRatio(Math.min(cap, 1.0));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
-  } else {
-    renderer.setPixelRatio(cap);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-  }
+  const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
+  renderer.setPixelRatio(plan.pixelRatio);
+  renderer.shadowMap.enabled = plan.shadowEnabled;
+  if (plan.shadowType) renderer.shadowMap.type = THREE[plan.shadowType];
   renderer.shadowMap.needsUpdate = true;
 }
 

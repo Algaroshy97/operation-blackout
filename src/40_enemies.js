@@ -457,17 +457,7 @@ function moveEnemy(en, dt) {
   const cfg = CFG.ai;
   const toPlayer = tmpV2.set(player.pos.x - en.pos.x, 0, player.pos.z - en.pos.z);
   const dist = toPlayer.length();
-  let speed = 0;
-  if (en.state === 'fallback') speed = cfg.rangedSpeed * 1.25 * en.speedMul;
-  else if (en.state === 'chase') speed = (en.kind === 0 ? cfg.chaseSpeed
-    : en.kind === 2 ? 2.2
-    : en.kind === 3 ? 2.0
-    : en.kind === 4 ? cfg.chaseSpeed * 1.35    // scout
-    : en.kind === 5 ? 2.6                      // grenadier repositions slowly
-    : cfg.speed) * en.speedMul;
-  else if (en.state === 'strafe') speed = cfg.rangedSpeed * en.speedMul;
-  else speed = cfg.speed * 0.5 * en.speedMul;
-  if (en.kind === 1 && dist < cfg.rangedRange && en.state !== 'idle') speed = cfg.rangedSpeed;
+  const speed = CORE.enemyMoveSpeed(en.kind, en.state, dist, cfg.rangedRange, en.speedMul, cfg);
   // desired velocity
   if (dist > 0.01) toPlayer.normalize();
   let mvx = toPlayer.x, mvz = toPlayer.z;
@@ -748,7 +738,8 @@ function updateEnemies(dt) {
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
     const canMelee = en.kind === 0 || en.kind === 2 || en.kind === 3 || en.kind === 4;
     const reach = en.kind === 2 ? CFG.ai.attackRange + 0.9 : CFG.ai.attackRange + 0.4;
-    if (canMelee && dist < reach && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
+    if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
+        && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       const stagger = 0.25 + Math.random() * 0.45;
       en.swinging = stagger;                   // windup (telegraphed)
