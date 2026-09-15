@@ -533,17 +533,34 @@ test('endless enemy count is capped so a wave cannot become unplayable', () => {
   assert.ok(CORE.endlessEnemyCount(5, 5, 2.5, 15, 60) < 60);
 });
 
+test('endless settlement can add progress without counting a second run', () => {
+  const first = CORE.mergeRunIntoStats(CORE.defaultStats(), {
+    score: 1000, wave: 15, accuracy: 50, kills: 10, headshots: 2, victory: true
+  });
+  const second = CORE.mergeRunIntoStats(first.stats, {
+    score: 1000, wave: 0, accuracy: 0, kills: 0, headshots: 0, countRun: false, victory: false
+  });
+  assert.strictEqual(second.stats.runs, 1);
+  assert.strictEqual(second.stats.totalKills, 10);
+  assert.strictEqual(second.stats.xp, first.stats.xp);
+});
+
 // ---------------------------------------------------------------- GAP-02 (save)
 test('a checkpoint round-trips through JSON', () => {
   const cp = CORE.makeCheckpoint({
     wave: 7, score: 12000, kills: 90, headshots: 20, shotsFired: 400, shotsHit: 180,
     health: 64, armor: 30, grenades: 2, difficulty: 'veteran', endless: false,
-    weapons: [{ gi: 0, ammo: 12, reserve: 90 }, { gi: 1, ammo: 32, reserve: 160 }], savedAt: 123
+    weapons: [{ gi: 0, ammo: 12, reserve: 90, up: { dmg: 46.8, mag: 35, reserveMax: 240, name: 'M4 UPGRADED', upgraded: true } }, { gi: 1, ammo: 32, reserve: 160 }],
+    openDistricts: ['ne'], equipment: { lethal: 'semtex', tactical: 'flash', tacticalCount: 2, fieldCharge: 50, streakBank: ['uav'] }, savedAt: 123
   });
   const back = CORE.validateCheckpoint(JSON.parse(JSON.stringify(cp)), 4);
   assert.strictEqual(back.wave, 7);
   assert.strictEqual(back.difficulty, 'veteran');
   assert.strictEqual(back.weapons[1].reserve, 160);
+  assert.strictEqual(back.weapons[0].up.dmg, 46.8);
+  assert.deepStrictEqual(back.openDistricts, ['ne']);
+  assert.strictEqual(back.equipment.tacticalCount, 2);
+  assert.deepStrictEqual(back.equipment.streakBank, ['uav']);
   assert.strictEqual(back.health, 64);
 });
 

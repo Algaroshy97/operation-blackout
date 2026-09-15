@@ -277,7 +277,9 @@ const CORE = (function () {
     if (run.score > next.bestScore) { next.bestScore = run.score; beat.score = true; }
     if (run.wave > next.bestWave) { next.bestWave = run.wave; beat.wave = true; }
     if (run.accuracy > next.bestAccuracy) { next.bestAccuracy = run.accuracy; beat.accuracy = true; }
-    next.runs = next.runs + 1;
+    // Endless continuation is still the same career run; callers mark its
+    // incremental settlement with countRun:false to avoid double-counting it.
+    if (run.countRun !== false) next.runs = next.runs + 1;
     next.totalKills = next.totalKills + (run.kills || 0);
     next.totalHeadshots = next.totalHeadshots + (run.headshots || 0);
     next.totalStreaks = next.totalStreaks + (run.streaks || 0);
@@ -541,7 +543,7 @@ const CORE = (function () {
   // A full run is ~341 enemies across 15 waves — 25-40 minutes. Losing that to a
   // closed tab was the single worst quality-of-life problem left. Saved between
   // waves only, so it can never capture a half-resolved combat state.
-  const SAVE_VERSION = 2;
+  const SAVE_VERSION = 3;
   function makeCheckpoint(state) {
     return {
       v: SAVE_VERSION,
@@ -552,7 +554,15 @@ const CORE = (function () {
       perks: (state.perks || []).slice(),
       plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
-      weapons: state.weapons,            // [{gi, ammo, reserve}, ...]
+      weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
+      openDistricts: (state.openDistricts || []).slice(),
+      equipment: {
+        lethal: state.equipment && state.equipment.lethal || 'frag',
+        tactical: state.equipment && state.equipment.tactical || null,
+        tacticalCount: state.equipment && state.equipment.tacticalCount || 0,
+        fieldCharge: state.equipment && state.equipment.fieldCharge || 0,
+        streakBank: (state.equipment && state.equipment.streakBank || []).slice()
+      },
       savedAt: state.savedAt || 0
     };
   }
@@ -574,7 +584,12 @@ const CORE = (function () {
       if (!w || typeof w !== 'object') continue;
       const gi = Math.round(num(w.gi, -1, (weaponCount || 4) - 1, -1));
       if (gi < 0) { weapons.push(null); continue; }
-      weapons.push({ gi: gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)) });
+      const up = w.up && typeof w.up === 'object' ? {
+        dmg: num(w.up.dmg, 0, 1e5, 0), mag: Math.round(num(w.up.mag, 1, 999, 1)),
+        reserveMax: Math.round(num(w.up.reserveMax, 0, 9999, 0)),
+        name: typeof w.up.name === 'string' ? w.up.name.slice(0, 80) : '', upgraded: true
+      } : null;
+      weapons.push({ gi: gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up: up });
     }
     if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
     return {
@@ -596,6 +611,16 @@ const CORE = (function () {
       difficulty: DIFFICULTIES[raw.difficulty] ? raw.difficulty : 'regular',
       endless: !!raw.endless,
       weapons: weapons,
+      openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
+        .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      equipment: {
+        lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
+        tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,
+        tacticalCount: Math.round(num(raw.equipment?.tacticalCount, 0, 2, 0)),
+        fieldCharge: num(raw.equipment?.fieldCharge, 0, 100, 0),
+        streakBank: (Array.isArray(raw.equipment?.streakBank) ? raw.equipment.streakBank : [])
+          .filter(function (k) { return !!streakByKey(k); }).slice(0, 20)
+      },
       savedAt: num(raw.savedAt, 0, 8.64e15, 0)
     };
   }

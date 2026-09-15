@@ -1,5 +1,18 @@
 // ============ GAME FLOW & MAIN LOOP ============
 'use strict';
+// A victory screen can transition into endless mode. Career stats are settled once
+// for the finite run, then only the incremental endless kills are settled on death.
+let settlementSnapshot = null;
+function markSettlement() {
+  settlementSnapshot = { kills: kills, headshots: headshots, streaks: runStreaksEarned };
+}
+function settlementDelta() {
+  if (!settlementSnapshot) return { score: score, wave: waveNum, kills: kills, headshots: headshots, streaks: runStreaksEarned };
+  return { score: score, wave: 0,
+    kills: Math.max(0, kills - settlementSnapshot.kills),
+    headshots: Math.max(0, headshots - settlementSnapshot.headshots),
+    streaks: Math.max(0, runStreaksEarned - settlementSnapshot.streaks) };
+}
 // ---- Flow ----
 function pauseGame() {
   // A charged grenade is a committed action: throw it rather than silently
@@ -37,8 +50,11 @@ function killPlayer() {
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   clearCheckpoint();   // a lost run is not resumable
-  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
-    headshots: headshots, streaks: runStreaksEarned, victory: false });
+  const delta = settlementDelta();
+  const beat = recordRun({ score: delta.score, wave: delta.wave,
+    accuracy: settlementSnapshot ? 0 : accuracy, kills: delta.kills,
+    headshots: delta.headshots, streaks: delta.streaks,
+    countRun: !settlementSnapshot, victory: false });
   $id('ds-stats').innerHTML =
     'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
@@ -48,6 +64,7 @@ function killPlayer() {
   setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
 }
 function victory() {
+  if (gameEnded) return;
   gameEnded = true;
   stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
@@ -57,6 +74,8 @@ function victory() {
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
     headshots: headshots, streaks: runStreaksEarned, victory: true });
+  markSettlement();
+  saveCheckpoint(captureRunState());
   $id('vs-stats').innerHTML =
     'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
@@ -66,6 +85,7 @@ function victory() {
 }
 
 function resetGame() {
+  settlementSnapshot = null;
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   // remove all enemies + pickups + grenades
@@ -408,11 +428,19 @@ function resumeRun() {
   initWeapons();
   for (let i = 0; i < 2; i++) {
     if (!wState[i] || !cp.weapons[i]) continue;
+    wState[i].up = cp.weapons[i].up ? Object.assign({}, cp.weapons[i].up) : null;
     refreshWeaponStats(i);
     const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
     wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
     wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, cp.weapons[i].reserve);
   }
+  openDistricts = (cp.openDistricts || []).slice();
+  for (let i = 0; i < openDistricts.length; i++) openDistrict(openDistricts[i]);
+  equippedLethal = cp.equipment.lethal;
+  equippedTactical = cp.equipment.tactical;
+  tacticalCount = cp.equipment.tacticalCount;
+  fieldCharge = cp.equipment.fieldCharge;
+  streakBank.length = 0; cp.equipment.streakBank.forEach(function (k) { streakBank.push(k); });
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
@@ -493,6 +521,7 @@ $id('btn-endless').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
   endlessMode = true;
   gameEnded = false;
+  saveCheckpoint(captureRunState());
   waveActive = false;
   betweenWaveT = CFG.wave.startDelay;
   paused = false;

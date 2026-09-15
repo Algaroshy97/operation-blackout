@@ -273,14 +273,18 @@ function captureRunState() {
   for (let i = 0; i < 2; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0 || !wState[i]) { weapons.push(null); continue; }
-    weapons.push({ gi: gi, ammo: wState[i].ammo, reserve: wState[i].reserve });
+    weapons.push({ gi: gi, ammo: wState[i].ammo, reserve: wState[i].reserve,
+      up: wState[i].up ? Object.assign({}, wState[i].up) : null });
   }
   return {
     wave: waveNum, score: score, kills: kills, headshots: headshots,
     shotsFired: shotsFired, shotsHit: shotsHit,
     health: player.health, armor: player.armor, grenades: grenades.count,
     credits: credits, perks: perks.slice(), plates: plates,
-    difficulty: runDifficulty, endless: endlessMode, weapons: weapons
+    difficulty: runDifficulty, endless: endlessMode, weapons: weapons,
+    openDistricts: openDistricts,
+    equipment: { lethal: equippedLethal, tactical: equippedTactical,
+      tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
 }
 
