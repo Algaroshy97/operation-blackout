@@ -3,6 +3,7 @@
 // IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
+let joyBaseEl = null;
 
 (function initTouchUI() {
   if (!IS_TOUCH) return;
@@ -34,7 +35,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   const joyBase = document.getElementById('joy-base');
   const joyStick = document.getElementById('joy-stick');
   const lookZone = document.getElementById('look-zone');
-  const R = 56;
+  joyBaseEl = joyBase;
+  const R = CORE.JOYSTICK_RADIUS || 56;
 
   // ---- virtual joystick ----
   let joyId = null, joyCX = 0, joyCY = 0;
@@ -49,17 +51,10 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     joyMove(t);
   }, { passive: false });
   function joyMove(t) {
-    let dx = t.clientX - joyCX, dy = t.clientY - joyCY;
-    const d = Math.hypot(dx, dy);
-    if (d > R) { dx = dx / d * R; dy = dy / d * R; }
-    joyStick.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-    const nx = dx / R, ny = dy / R;
-    // screen: up = forward (iz+1), right = strafe right (ix+1)
-    touchState.moveZ = -ny;   // up on stick = forward
-    touchState.moveX = nx;
-    // deadzone
-    if (Math.abs(touchState.moveX) < 0.12) touchState.moveX = 0;
-    if (Math.abs(touchState.moveZ) < 0.12) touchState.moveZ = 0;
+    const res = CORE.joystickInput(t.clientX - joyCX, t.clientY - joyCY, R, CORE.JOYSTICK_DEADZONE);
+    joyStick.style.transform = 'translate(' + res.clampedX + 'px,' + res.clampedY + 'px)';
+    touchState.moveZ = res.moveZ;   // up on stick = forward
+    touchState.moveX = res.moveX;
   }
   addEventListener('touchmove', function (e) {
     for (const t of e.changedTouches) {
@@ -69,7 +64,13 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   }, { passive: false });
   function releaseTouches(e) {
     for (const t of e.changedTouches) {
-      if (t.identifier === joyId) { joyId = null; joyBase.classList.remove('on'); touchState.moveX = 0; touchState.moveZ = 0; joyStick.style.transform = 'translate(0,0)'; }
+      if (t.identifier === joyId) {
+        joyId = null;
+        joyBase.classList.remove('on');
+        joyBase.classList.remove('sprint');
+        touchState.moveX = 0; touchState.moveZ = 0;
+        joyStick.style.transform = 'translate(0,0)';
+      }
       if (t.identifier === lookId) lookId = null;
     }
   }
@@ -78,7 +79,12 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
-  addEventListener('blur', function () { joyId = null; lookId = null; joyBase.classList.remove('on'); joyStick.style.transform = 'translate(0,0)'; });
+  addEventListener('blur', function () {
+    joyId = null; lookId = null;
+    joyBase.classList.remove('on');
+    joyBase.classList.remove('sprint');
+    joyStick.style.transform = 'translate(0,0)';
+  });
   lookZone.addEventListener('touchstart', function (e) {
     e.preventDefault();
     const t = e.changedTouches[0];
@@ -170,11 +176,14 @@ function applyTouchInput() {
     keys['KeyA'] = touchState.moveX < -0.15;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
-    keys['ShiftLeft'] = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+    const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+    keys['ShiftLeft'] = isSprint;
+    if (joyBaseEl) joyBaseEl.classList.toggle('sprint', isSprint);
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
     keys['ShiftLeft'] = false;
+    if (joyBaseEl) joyBaseEl.classList.remove('sprint');
     window.__analogMove = null;
   }
   // firing: mirror the touch button every frame so release cannot latch automatic fire

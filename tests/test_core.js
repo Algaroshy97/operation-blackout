@@ -2876,6 +2876,58 @@ test('isAutoSprint triggers on forward joystick tilt above threshold without ADS
   assert.strictEqual(CORE.isAutoSprint(undefined, 1.0, false), false);
 });
 
+test('joystickInput clamps radius, maps screen delta to movement axes, and gates deadzone', () => {
+  assert.strictEqual(CORE.JOYSTICK_RADIUS, 56);
+  assert.strictEqual(CORE.JOYSTICK_DEADZONE, 0.12);
+
+  // Full forward push (up on screen is negative dy = -56) -> clamped (0, -56), moveX 0, moveZ +1.0
+  const fwd = CORE.joystickInput(0, -56, 56, 0.12);
+  assert.strictEqual(fwd.clampedX, 0);
+  assert.strictEqual(fwd.clampedY, -56);
+  assert.strictEqual(fwd.moveX, 0);
+  assert.strictEqual(fwd.moveZ, 1.0);
+
+  // Over-displacement (> radius): clamps stick displacement to radius (56)
+  const over = CORE.joystickInput(0, -112, 56, 0.12);
+  assert.strictEqual(over.clampedX, 0);
+  assert.strictEqual(over.clampedY, -56);
+  assert.strictEqual(over.moveX, 0);
+  assert.strictEqual(over.moveZ, 1.0);
+
+  // Strafe right (positive dx = +56, dy = 0) -> clamped (56, 0), moveX +1.0, moveZ 0
+  const right = CORE.joystickInput(56, 0, 56, 0.12);
+  assert.strictEqual(right.clampedX, 56);
+  assert.strictEqual(right.clampedY, 0);
+  assert.strictEqual(right.moveX, 1.0);
+  assert.strictEqual(right.moveZ, 0);
+
+  // Backward push (positive dy = +56) -> clamped (0, 56), moveX 0, moveZ -1.0
+  const back = CORE.joystickInput(0, 56, 56, 0.12);
+  assert.strictEqual(back.clampedX, 0);
+  assert.strictEqual(back.clampedY, 56);
+  assert.strictEqual(back.moveX, 0);
+  assert.strictEqual(back.moveZ, -1.0);
+
+  // Inside deadzone (< 0.12 * 56 = 6.72 px): visual stick tracks displacement, movement zeroed
+  const dead = CORE.joystickInput(4, -4, 56, 0.12);
+  assert.strictEqual(dead.clampedX, 4);
+  assert.strictEqual(dead.clampedY, -4);
+  assert.strictEqual(dead.moveX, 0);
+  assert.strictEqual(dead.moveZ, 0);
+
+  // Uses default constants when parameters are omitted
+  const def = CORE.joystickInput(0, -56);
+  assert.strictEqual(def.clampedY, -56);
+  assert.strictEqual(def.moveZ, 1.0);
+
+  // Rejects invalid/non-numeric inputs safely
+  const invalid = CORE.joystickInput(NaN, 0);
+  assert.strictEqual(invalid.clampedX, 0);
+  assert.strictEqual(invalid.clampedY, 0);
+  assert.strictEqual(invalid.moveX, 0);
+  assert.strictEqual(invalid.moveZ, 0);
+});
+
 test('medDropChance scales smoothly with health deficit without binary cliffing', () => {
   assert.strictEqual(CORE.MED_DROP_BASE, 0.15);
   assert.strictEqual(CORE.MED_DROP_CRITICAL, 0.50);

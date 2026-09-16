@@ -212,8 +212,10 @@
   body.touch #touch-ui{display:block;position:absolute;inset:0;z-index:20;pointer-events:none}
   body.touch #joy-base{position:absolute;left:calc(26px + var(--sa-l));bottom:calc(90px + var(--sa-b));width:112px;height:112px;border-radius:50%;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none;transition:border-color .12s,box-shadow .12s}
      body.touch #joy-base.on{border-color:rgba(255,210,74,.8);box-shadow:0 0 0 3px rgba(255,210,74,.14),inset 0 0 16px rgba(255,210,74,.12)}
+     body.touch #joy-base.sprint{border-color:rgba(80,180,255,.9);box-shadow:0 0 0 3px rgba(80,180,255,.24),inset 0 0 16px rgba(80,180,255,.18)}
      body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.35);border:2px solid rgba(255,255,255,.5);pointer-events:none;transition:border-color .12s,background .12s,box-shadow .12s}
      body.touch #joy-base.on #joy-stick{background:rgba(255,210,74,.45);border-color:#ffd24a;box-shadow:0 0 10px rgba(255,210,74,.35)}
+     body.touch #joy-base.sprint #joy-stick{background:rgba(80,180,255,.55);border-color:#50b4ff;box-shadow:0 0 12px rgba(80,180,255,.45)}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.3);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   body.touch .tbtn.on{background:rgba(255,210,74,.45);border-color:#ffd24a;color:#fff;box-shadow:0 0 0 3px rgba(255,210,74,.18),inset 0 0 12px rgba(255,255,255,.16)}
@@ -4694,6 +4696,33 @@ const CORE = (function () {
     return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
   }
 
+  // Mobile virtual joystick coordinate and deadzone resolution. Clamps touch
+  // displacement within the base radius and maps screen delta to yaw-relative
+  // movement axes (negative dy = forward = +z). Inputs within the deadzone are
+  // zeroed to prevent drift while keeping visual stick displacement responsive.
+  const JOYSTICK_RADIUS = 56;
+  const JOYSTICK_DEADZONE = 0.12;
+  function joystickInput(dx, dy, radius, deadzone) {
+    if (typeof dx !== 'number' || !isFinite(dx) || typeof dy !== 'number' || !isFinite(dy)) {
+      return { clampedX: 0, clampedY: 0, moveX: 0, moveZ: 0 };
+    }
+    const r = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : JOYSTICK_RADIUS;
+    const dz = typeof deadzone === 'number' && isFinite(deadzone) && deadzone >= 0 ? deadzone : JOYSTICK_DEADZONE;
+    const d = Math.hypot(dx, dy);
+    let cx = dx, cy = dy;
+    if (d > r && d > 0) {
+      cx = (dx / d) * r;
+      cy = (dy / d) * r;
+    }
+    const nx = cx / r;
+    const ny = cy / r;
+    let moveX = nx;
+    let moveZ = -ny;
+    if (Math.abs(moveX) < dz) moveX = 0;
+    if (Math.abs(moveZ) < dz) moveZ = 0;
+    return { clampedX: cx, clampedY: cy, moveX: moveX, moveZ: moveZ };
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -7280,6 +7309,9 @@ const CORE = (function () {
     JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
     JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
     isAutoSprint: isAutoSprint,
+    JOYSTICK_RADIUS: JOYSTICK_RADIUS,
+    JOYSTICK_DEADZONE: JOYSTICK_DEADZONE,
+    joystickInput: joystickInput,
     resolveAabbXZ: resolveAabbXZ
   };
 })();
@@ -8805,6 +8837,7 @@ function startSlide() {
 // IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
+let joyBaseEl = null;
 
 (function initTouchUI() {
   if (!IS_TOUCH) return;
@@ -8836,7 +8869,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   const joyBase = document.getElementById('joy-base');
   const joyStick = document.getElementById('joy-stick');
   const lookZone = document.getElementById('look-zone');
-  const R = 56;
+  joyBaseEl = joyBase;
+  const R = CORE.JOYSTICK_RADIUS || 56;
 
   // ---- virtual joystick ----
   let joyId = null, joyCX = 0, joyCY = 0;
@@ -8851,17 +8885,10 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     joyMove(t);
   }, { passive: false });
   function joyMove(t) {
-    let dx = t.clientX - joyCX, dy = t.clientY - joyCY;
-    const d = Math.hypot(dx, dy);
-    if (d > R) { dx = dx / d * R; dy = dy / d * R; }
-    joyStick.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-    const nx = dx / R, ny = dy / R;
-    // screen: up = forward (iz+1), right = strafe right (ix+1)
-    touchState.moveZ = -ny;   // up on stick = forward
-    touchState.moveX = nx;
-    // deadzone
-    if (Math.abs(touchState.moveX) < 0.12) touchState.moveX = 0;
-    if (Math.abs(touchState.moveZ) < 0.12) touchState.moveZ = 0;
+    const res = CORE.joystickInput(t.clientX - joyCX, t.clientY - joyCY, R, CORE.JOYSTICK_DEADZONE);
+    joyStick.style.transform = 'translate(' + res.clampedX + 'px,' + res.clampedY + 'px)';
+    touchState.moveZ = res.moveZ;   // up on stick = forward
+    touchState.moveX = res.moveX;
   }
   addEventListener('touchmove', function (e) {
     for (const t of e.changedTouches) {
@@ -8871,7 +8898,13 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
   }, { passive: false });
   function releaseTouches(e) {
     for (const t of e.changedTouches) {
-      if (t.identifier === joyId) { joyId = null; joyBase.classList.remove('on'); touchState.moveX = 0; touchState.moveZ = 0; joyStick.style.transform = 'translate(0,0)'; }
+      if (t.identifier === joyId) {
+        joyId = null;
+        joyBase.classList.remove('on');
+        joyBase.classList.remove('sprint');
+        touchState.moveX = 0; touchState.moveZ = 0;
+        joyStick.style.transform = 'translate(0,0)';
+      }
       if (t.identifier === lookId) lookId = null;
     }
   }
@@ -8880,7 +8913,12 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
-  addEventListener('blur', function () { joyId = null; lookId = null; joyBase.classList.remove('on'); joyStick.style.transform = 'translate(0,0)'; });
+  addEventListener('blur', function () {
+    joyId = null; lookId = null;
+    joyBase.classList.remove('on');
+    joyBase.classList.remove('sprint');
+    joyStick.style.transform = 'translate(0,0)';
+  });
   lookZone.addEventListener('touchstart', function (e) {
     e.preventDefault();
     const t = e.changedTouches[0];
@@ -8972,11 +9010,14 @@ function applyTouchInput() {
     keys['KeyA'] = touchState.moveX < -0.15;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
-    keys['ShiftLeft'] = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+    const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+    keys['ShiftLeft'] = isSprint;
+    if (joyBaseEl) joyBaseEl.classList.toggle('sprint', isSprint);
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
     keys['ShiftLeft'] = false;
+    if (joyBaseEl) joyBaseEl.classList.remove('sprint');
     window.__analogMove = null;
   }
   // firing: mirror the touch button every frame so release cannot latch automatic fire

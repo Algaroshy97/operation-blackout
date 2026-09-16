@@ -95,6 +95,33 @@ const CORE = (function () {
     return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
   }
 
+  // Mobile virtual joystick coordinate and deadzone resolution. Clamps touch
+  // displacement within the base radius and maps screen delta to yaw-relative
+  // movement axes (negative dy = forward = +z). Inputs within the deadzone are
+  // zeroed to prevent drift while keeping visual stick displacement responsive.
+  const JOYSTICK_RADIUS = 56;
+  const JOYSTICK_DEADZONE = 0.12;
+  function joystickInput(dx, dy, radius, deadzone) {
+    if (typeof dx !== 'number' || !isFinite(dx) || typeof dy !== 'number' || !isFinite(dy)) {
+      return { clampedX: 0, clampedY: 0, moveX: 0, moveZ: 0 };
+    }
+    const r = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : JOYSTICK_RADIUS;
+    const dz = typeof deadzone === 'number' && isFinite(deadzone) && deadzone >= 0 ? deadzone : JOYSTICK_DEADZONE;
+    const d = Math.hypot(dx, dy);
+    let cx = dx, cy = dy;
+    if (d > r && d > 0) {
+      cx = (dx / d) * r;
+      cy = (dy / d) * r;
+    }
+    const nx = cx / r;
+    const ny = cy / r;
+    let moveX = nx;
+    let moveZ = -ny;
+    if (Math.abs(moveX) < dz) moveX = 0;
+    if (Math.abs(moveZ) < dz) moveZ = 0;
+    return { clampedX: cx, clampedY: cy, moveX: moveX, moveZ: moveZ };
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -2681,6 +2708,9 @@ const CORE = (function () {
     JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
     JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
     isAutoSprint: isAutoSprint,
+    JOYSTICK_RADIUS: JOYSTICK_RADIUS,
+    JOYSTICK_DEADZONE: JOYSTICK_DEADZONE,
+    joystickInput: joystickInput,
     resolveAabbXZ: resolveAabbXZ
   };
 })();

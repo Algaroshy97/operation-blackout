@@ -426,6 +426,41 @@ def main() -> int:
         }""")
         checks.append(("touch-active-feedback-styles", touch_style_check))
 
+        joystick_input_check = page.evaluate("""() => {
+            if (typeof CORE.joystickInput !== 'function') return false;
+            const fullUp = CORE.joystickInput(0, -112, 56, 0.12);
+            const fullRight = CORE.joystickInput(112, 0, 56, 0.12);
+            const deadzone = CORE.joystickInput(4, -4, 56, 0.12);
+            const clamped = fullUp.clampedX === 0 && fullUp.clampedY === -56 &&
+                            fullUp.moveX === 0 && fullUp.moveZ === 1.0;
+            const rightOk = fullRight.clampedX === 56 && fullRight.clampedY === 0 &&
+                            fullRight.moveX === 1.0 && fullRight.moveZ === 0;
+            const deadOk = deadzone.moveX === 0 && deadzone.moveZ === 0 &&
+                           deadzone.clampedX === 4 && deadzone.clampedY === -4;
+            return clamped && rightOk && deadOk;
+        }""")
+        checks.append(("joystick-input-rule", joystick_input_check))
+
+        touch_sprint_style_check = page.evaluate("""() => {
+            document.body.classList.add('touch');
+            const joyBase = document.createElement('div');
+            joyBase.id = 'joy-base';
+            joyBase.className = 'on sprint';
+            const stick = document.createElement('div');
+            stick.id = 'joy-stick';
+            joyBase.appendChild(stick);
+            document.body.appendChild(joyBase);
+            const baseBorder = getComputedStyle(joyBase).borderColor;
+            const stickBorder = getComputedStyle(stick).borderColor;
+            document.body.removeChild(joyBase);
+            document.body.classList.remove('touch');
+
+            const baseOk = baseBorder.includes('80, 180, 255') || baseBorder.includes('rgb(80, 180, 255)');
+            const stickOk = stickBorder.includes('80, 180, 255') || stickBorder.includes('rgb(80, 180, 255)');
+            return baseOk && stickOk;
+        }""")
+        checks.append(("touch-sprint-feedback-styles", touch_sprint_style_check))
+
         # 14) Balance: medkit drop scaling and pickup drop kind resolution.
         pickup_balance_check = page.evaluate("""() => {
             if (typeof CORE.medDropChance !== 'function' || typeof CORE.pickupDropKind !== 'function') return false;
