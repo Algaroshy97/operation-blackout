@@ -3137,4 +3137,101 @@ test('spatialAudioParams composes distance, pan, volume and audibility flag', ()
   assert.strictEqual(distant.vol, 0);
 });
 
+test('resolveArmorDamage absorbs damage, protects health, and tracks armor depletion', () => {
+  assert.strictEqual(CORE.ARMOR_ABSORB_RATIO, 0.65);
+
+  // Normal absorption with comfortable armor (50 armor, 20 incoming damage)
+  // 65% of 20 = 13 absorbed by armor, 7 penetrates to health, 37 armor remaining
+  const r1 = CORE.resolveArmorDamage(20, 50);
+  assert.strictEqual(r1.absorbed, 13);
+  assert.strictEqual(r1.healthDamage, 7);
+  assert.strictEqual(r1.remainingArmor, 37);
+
+  // Partial armor depletion when damage exceeds available armor
+  // 20 damage at 0.65 wanted 13 armor, but only 8 armor is available
+  // absorbed = 8, health takes 20 - 8 = 12, armor is reduced to 0
+  const r2 = CORE.resolveArmorDamage(20, 8);
+  assert.strictEqual(r2.absorbed, 8);
+  assert.strictEqual(r2.healthDamage, 12);
+  assert.strictEqual(r2.remainingArmor, 0);
+
+  // Zero armor: full damage passes to health
+  const r3 = CORE.resolveArmorDamage(25, 0);
+  assert.strictEqual(r3.absorbed, 0);
+  assert.strictEqual(r3.healthDamage, 25);
+  assert.strictEqual(r3.remainingArmor, 0);
+
+  // Custom absorption ratio override
+  const r4 = CORE.resolveArmorDamage(30, 50, 0.80);
+  assert.strictEqual(r4.absorbed, 24);
+  assert.strictEqual(r4.healthDamage, 6);
+  assert.strictEqual(r4.remainingArmor, 26);
+
+  // Degenerate, zero, negative, and invalid inputs
+  const zeroDmg = CORE.resolveArmorDamage(0, 50);
+  assert.strictEqual(zeroDmg.absorbed, 0);
+  assert.strictEqual(zeroDmg.healthDamage, 0);
+  assert.strictEqual(zeroDmg.remainingArmor, 50);
+
+  const negDmg = CORE.resolveArmorDamage(-10, 50);
+  assert.strictEqual(negDmg.absorbed, 0);
+  assert.strictEqual(negDmg.healthDamage, 0);
+  assert.strictEqual(negDmg.remainingArmor, 50);
+
+  const nanDmg = CORE.resolveArmorDamage(NaN, 50);
+  assert.strictEqual(nanDmg.absorbed, 0);
+  assert.strictEqual(nanDmg.healthDamage, 0);
+  assert.strictEqual(nanDmg.remainingArmor, 50);
+
+  const nanArmor = CORE.resolveArmorDamage(20, NaN);
+  assert.strictEqual(nanArmor.absorbed, 0);
+  assert.strictEqual(nanArmor.healthDamage, 20);
+  assert.strictEqual(nanArmor.remainingArmor, 0);
+});
+
+test('enemyMeleeDamage scales with archetype, wave progression, difficulty, and elite status', () => {
+  // Wave 1 standard runner (base 18, diff 1.0, not elite): 18 + 0.4 = 18.4
+  const runnerW1 = CORE.enemyMeleeDamage(18, false, 1, 1.0, false);
+  assert.ok(Math.abs(runnerW1 - 18.4) < 1e-6);
+
+  // Wave 1 heavy tank (base 18 + 10 tank bonus, diff 1.0): 28 + 0.4 = 28.4
+  const tankW1 = CORE.enemyMeleeDamage(18, true, 1, 1.0, false);
+  assert.ok(Math.abs(tankW1 - 28.4) < 1e-6);
+
+  // Wave 10 runner with difficulty multiplier 1.25: (18 + 4.0) * 1.25 = 27.5
+  const runnerW10 = CORE.enemyMeleeDamage(18, false, 10, 1.25, false);
+  assert.ok(Math.abs(runnerW10 - 27.5) < 1e-6);
+
+  // Elite runner at wave 12: (18 + 4.8) * 1.0 * 1.35 = 30.78
+  const eliteRunner = CORE.enemyMeleeDamage(18, false, 12, 1.0, true);
+  assert.ok(Math.abs(eliteRunner - (22.8 * 1.35)) < 1e-6);
+
+  // Elite tank at wave 12: (18 + 10 + 4.8) * 1.0 * 1.35 = 44.28
+  const eliteTank = CORE.enemyMeleeDamage(18, true, 12, 1.0, true);
+  assert.ok(Math.abs(eliteTank - (32.8 * 1.35)) < 1e-6);
+
+  // Safe fallbacks for missing/invalid arguments
+  const fallback = CORE.enemyMeleeDamage();
+  assert.ok(fallback > 0);
+});
+
+test('enemyRangedDamage scales with wave progression, difficulty, and elite status', () => {
+  // Wave 1 rifleman (base 8, diff 1.0, not elite): 8 + 0.35 = 8.35
+  const rifleW1 = CORE.enemyRangedDamage(8, 1, 1.0, false);
+  assert.ok(Math.abs(rifleW1 - 8.35) < 1e-6);
+
+  // Wave 10 rifleman with difficulty multiplier 1.3: (8 + 3.5) * 1.3 = 14.95
+  const rifleW10 = CORE.enemyRangedDamage(8, 10, 1.3, false);
+  assert.ok(Math.abs(rifleW10 - 14.95) < 1e-6);
+
+  // Elite rifleman at wave 12: (8 + 4.2) * 1.0 * 1.35 = 16.47
+  const eliteRifle = CORE.enemyRangedDamage(8, 12, 1.0, true);
+  assert.ok(Math.abs(eliteRifle - (12.2 * 1.35)) < 1e-6);
+
+  // Safe fallbacks for missing/invalid arguments
+  const fallback = CORE.enemyRangedDamage();
+  assert.ok(fallback > 0);
+});
+
+
 

@@ -538,7 +538,32 @@ def main() -> int:
         }""")
         checks.append(("aabb-resolve-rule", aabb_check))
 
-        # 17) Clean console throughout gameplay.
+        # 17) Balance: combat damage resolution and armor absorption rules.
+        combat_balance_check = page.evaluate("""() => {
+            if (typeof CORE.resolveArmorDamage !== 'function' ||
+                typeof CORE.enemyMeleeDamage !== 'function' ||
+                typeof CORE.enemyRangedDamage !== 'function') return false;
+            const r1 = CORE.resolveArmorDamage(20, 50);
+            const r2 = CORE.resolveArmorDamage(20, 8);
+            const r3 = CORE.resolveArmorDamage(25, 0);
+            const armorOk = r1.absorbed === 13 && r1.healthDamage === 7 && r1.remainingArmor === 37 &&
+                            r2.absorbed === 8 && r2.healthDamage === 12 && r2.remainingArmor === 0 &&
+                            r3.absorbed === 0 && r3.healthDamage === 25 && r3.remainingArmor === 0;
+            const meleeRunner = CORE.enemyMeleeDamage(18, false, 1, 1.0, false);
+            const meleeTank = CORE.enemyMeleeDamage(18, true, 1, 1.0, false);
+            const meleeElite = CORE.enemyMeleeDamage(18, false, 12, 1.0, true);
+            const meleeOk = Math.abs(meleeRunner - 18.4) < 1e-4 &&
+                            Math.abs(meleeTank - 28.4) < 1e-4 &&
+                            Math.abs(meleeElite - (22.8 * 1.35)) < 1e-4;
+            const rangedRifle = CORE.enemyRangedDamage(8, 1, 1.0, false);
+            const rangedElite = CORE.enemyRangedDamage(8, 12, 1.0, true);
+            const rangedOk = Math.abs(rangedRifle - 8.35) < 1e-4 &&
+                             Math.abs(rangedElite - (12.2 * 1.35)) < 1e-4;
+            return armorOk && meleeOk && rangedOk;
+        }""")
+        checks.append(("combat-damage-balance-rules", combat_balance_check))
+
+        # 18) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

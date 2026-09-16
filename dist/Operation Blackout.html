@@ -5369,6 +5369,28 @@ const CORE = (function () {
     return null;
   }
 
+  // ---- Armor damage absorption & bleed-through -------------------------------
+  // In tactical combat, body armor absorbs the majority of incoming damage while
+  // letting a calculated bleed-through fraction pass to health. This rewards picking
+  // up armor and inserting plates without creating full invulnerability.
+  const ARMOR_ABSORB_RATIO = 0.65;
+  function resolveArmorDamage(amount, currentArmor, absorbRatio) {
+    const amt = typeof amount === 'number' && isFinite(amount) ? Math.max(0, amount) : 0;
+    const armor = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
+    if (amt <= 0 || armor <= 0) {
+      return { absorbed: 0, healthDamage: amt, remainingArmor: armor };
+    }
+    const ratio = typeof absorbRatio === 'number' && isFinite(absorbRatio) && absorbRatio >= 0 && absorbRatio <= 1
+      ? absorbRatio
+      : ARMOR_ABSORB_RATIO;
+    const absorbed = Math.min(armor, amt * ratio);
+    return {
+      absorbed: absorbed,
+      healthDamage: amt - absorbed,
+      remainingArmor: armor - absorbed
+    };
+  }
+
   // ---- Checkpoint save --------------------------------------------------------
   // A full run is ~341 enemies across 15 waves — 25-40 minutes. Losing that to a
   // closed tab was the single worst quality-of-life problem left. Saved between
@@ -6569,6 +6591,27 @@ const CORE = (function () {
   }
   function rollElite(waveNum, roll) { return roll < eliteChance(waveNum); }
 
+  // ---- Enemy combat damage scaling ------------------------------------------
+  // Pure calculations for enemy melee and ranged attack damage.
+  // Combines base weapon/attack damage, archetype bonuses (e.g. heavy tank melee),
+  // wave progression, difficulty multipliers, and elite status multipliers (ELITE.dmgMul).
+  function enemyMeleeDamage(baseDmg, isTank, wave, diffMul, isElite) {
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 18;
+    const tankBonus = isTank ? 10 : 0;
+    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const elite = isElite ? ELITE.dmgMul : 1;
+    return (base + tankBonus + w * 0.4) * diff * elite;
+  }
+
+  function enemyRangedDamage(baseDmg, wave, diffMul, isElite) {
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 8;
+    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const elite = isElite ? ELITE.dmgMul : 1;
+    return (base + w * 0.35) * diff * elite;
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -7312,7 +7355,11 @@ const CORE = (function () {
     JOYSTICK_RADIUS: JOYSTICK_RADIUS,
     JOYSTICK_DEADZONE: JOYSTICK_DEADZONE,
     joystickInput: joystickInput,
-    resolveAabbXZ: resolveAabbXZ
+    resolveAabbXZ: resolveAabbXZ,
+    ARMOR_ABSORB_RATIO: ARMOR_ABSORB_RATIO,
+    resolveArmorDamage: resolveArmorDamage,
+    enemyMeleeDamage: enemyMeleeDamage,
+    enemyRangedDamage: enemyRangedDamage
   };
 })();
 
@@ -8779,13 +8826,9 @@ function updatePlayer(dt) {
 // damage entry point (called by enemies/projectiles)
 function damagePlayer(amount, dirDeg) {
   if (player.dead || godMode) return;
-  let amt = amount;
-  if (player.armor > 0) {
-    const absorbed = Math.min(player.armor, amt * 0.6);
-    player.armor -= absorbed;
-    amt -= absorbed;
-  }
-  player.health -= amt;
+  const res = CORE.resolveArmorDamage(amount, player.armor);
+  player.armor = res.remainingArmor;
+  player.health -= res.healthDamage;
   player.lastDamageT = gameT;
   showDamageFx(dirDeg, amount);
   updateHudHealth();
@@ -10319,7 +10362,8 @@ function updateEnemies(dt) {
           const now = gameT;
           meleeHits = meleeHits.filter(t => now - t < 0.8);
           if (meleeHits.length < 2) {
-            damagePlayer((CFG.ai.meleeDamage + (en.kind === 2 ? 10 : 0) + waveNum * 0.4) * diff().dmg, dirToDeg(en));
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
+            damagePlayer(meleeDmg, dirToDeg(en));
             playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(now);
           }
@@ -10444,7 +10488,6 @@ const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
-  const eliteDmg = en.elite ? CORE.ELITE.dmgMul : 1;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -10456,7 +10499,7 @@ function enemyShoot(en, dist) {
   const acc = Math.min(CFG.ai.accMax + accBonus,
     CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
   if (Math.random() < acc) {
-    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg * eliteDmg;
+    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite);
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;

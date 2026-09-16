@@ -753,7 +753,8 @@ function updateEnemies(dt) {
           const now = gameT;
           meleeHits = meleeHits.filter(t => now - t < 0.8);
           if (meleeHits.length < 2) {
-            damagePlayer((CFG.ai.meleeDamage + (en.kind === 2 ? 10 : 0) + waveNum * 0.4) * diff().dmg, dirToDeg(en));
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
+            damagePlayer(meleeDmg, dirToDeg(en));
             playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(now);
           }
@@ -878,7 +879,6 @@ const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
-  const eliteDmg = en.elite ? CORE.ELITE.dmgMul : 1;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -890,7 +890,7 @@ function enemyShoot(en, dist) {
   const acc = Math.min(CFG.ai.accMax + accBonus,
     CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
   if (Math.random() < acc) {
-    const dmg = (CFG.ai.rangedDamage + waveNum * 0.35) * diff().dmg * eliteDmg;
+    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite);
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
     // bullet fired in the previous run could land in the first 300 ms of the next.
     const firedInRun = runId;

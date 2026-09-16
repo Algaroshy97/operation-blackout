@@ -425,13 +425,9 @@ function updatePlayer(dt) {
 // damage entry point (called by enemies/projectiles)
 function damagePlayer(amount, dirDeg) {
   if (player.dead || godMode) return;
-  let amt = amount;
-  if (player.armor > 0) {
-    const absorbed = Math.min(player.armor, amt * 0.6);
-    player.armor -= absorbed;
-    amt -= absorbed;
-  }
-  player.health -= amt;
+  const res = CORE.resolveArmorDamage(amount, player.armor);
+  player.armor = res.remainingArmor;
+  player.health -= res.healthDamage;
   player.lastDamageT = gameT;
   showDamageFx(dirDeg, amount);
   updateHudHealth();

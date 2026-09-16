@@ -768,6 +768,28 @@ const CORE = (function () {
     return null;
   }
 
+  // ---- Armor damage absorption & bleed-through -------------------------------
+  // In tactical combat, body armor absorbs the majority of incoming damage while
+  // letting a calculated bleed-through fraction pass to health. This rewards picking
+  // up armor and inserting plates without creating full invulnerability.
+  const ARMOR_ABSORB_RATIO = 0.65;
+  function resolveArmorDamage(amount, currentArmor, absorbRatio) {
+    const amt = typeof amount === 'number' && isFinite(amount) ? Math.max(0, amount) : 0;
+    const armor = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
+    if (amt <= 0 || armor <= 0) {
+      return { absorbed: 0, healthDamage: amt, remainingArmor: armor };
+    }
+    const ratio = typeof absorbRatio === 'number' && isFinite(absorbRatio) && absorbRatio >= 0 && absorbRatio <= 1
+      ? absorbRatio
+      : ARMOR_ABSORB_RATIO;
+    const absorbed = Math.min(armor, amt * ratio);
+    return {
+      absorbed: absorbed,
+      healthDamage: amt - absorbed,
+      remainingArmor: armor - absorbed
+    };
+  }
+
   // ---- Checkpoint save --------------------------------------------------------
   // A full run is ~341 enemies across 15 waves — 25-40 minutes. Losing that to a
   // closed tab was the single worst quality-of-life problem left. Saved between
@@ -1968,6 +1990,27 @@ const CORE = (function () {
   }
   function rollElite(waveNum, roll) { return roll < eliteChance(waveNum); }
 
+  // ---- Enemy combat damage scaling ------------------------------------------
+  // Pure calculations for enemy melee and ranged attack damage.
+  // Combines base weapon/attack damage, archetype bonuses (e.g. heavy tank melee),
+  // wave progression, difficulty multipliers, and elite status multipliers (ELITE.dmgMul).
+  function enemyMeleeDamage(baseDmg, isTank, wave, diffMul, isElite) {
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 18;
+    const tankBonus = isTank ? 10 : 0;
+    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const elite = isElite ? ELITE.dmgMul : 1;
+    return (base + tankBonus + w * 0.4) * diff * elite;
+  }
+
+  function enemyRangedDamage(baseDmg, wave, diffMul, isElite) {
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 8;
+    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const elite = isElite ? ELITE.dmgMul : 1;
+    return (base + w * 0.35) * diff * elite;
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -2711,7 +2754,11 @@ const CORE = (function () {
     JOYSTICK_RADIUS: JOYSTICK_RADIUS,
     JOYSTICK_DEADZONE: JOYSTICK_DEADZONE,
     joystickInput: joystickInput,
-    resolveAabbXZ: resolveAabbXZ
+    resolveAabbXZ: resolveAabbXZ,
+    ARMOR_ABSORB_RATIO: ARMOR_ABSORB_RATIO,
+    resolveArmorDamage: resolveArmorDamage,
+    enemyMeleeDamage: enemyMeleeDamage,
+    enemyRangedDamage: enemyRangedDamage
   };
 })();
 
