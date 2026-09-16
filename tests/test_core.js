@@ -3032,4 +3032,57 @@ test('resolveAabbXZ detects overlap, calculates minimum pushout axis and coordin
   assert.strictEqual(CORE.resolveAabbXZ(0, 0, -1, box).axis, 'x');
 });
 
+test('spatial audio stereo panning reflects angle relative to player orientation', () => {
+  assert.strictEqual(CORE.SPATIAL_AUDIO_MAX_DIST, 55);
+  assert.strictEqual(CORE.SPATIAL_AUDIO_PAN_BOOST, 1.4);
+  assert.strictEqual(CORE.SPATIAL_AUDIO_MIN_VOL, 0.15);
+
+  // Player facing forward (yaw = 0): right is +X, forward is -Z
+  // Directly right (dx: 10, dz: 0) -> +1.0 (clamped)
+  assert.strictEqual(CORE.spatialAudioPan(10, 0, 0), 1.0);
+  // Directly left (dx: -10, dz: 0) -> -1.0 (clamped)
+  assert.strictEqual(CORE.spatialAudioPan(-10, 0, 0), -1.0);
+  // Directly in front (dx: 0, dz: -10) -> 0.0
+  assert.strictEqual(CORE.spatialAudioPan(0, -10, 0), 0);
+  // Directly behind (dx: 0, dz: 10) -> 0.0
+  assert.strictEqual(CORE.spatialAudioPan(0, 10, 0), 0);
+
+  // Player turned 90 deg right (yaw = -Math.PI / 2): facing +X, right is +Z
+  const yawRight = -Math.PI / 2;
+  assert.ok(Math.abs(CORE.spatialAudioPan(0, 10, yawRight) - 1.0) < 1e-4);
+  assert.ok(Math.abs(CORE.spatialAudioPan(0, -10, yawRight) - (-1.0)) < 1e-4);
+
+  // Degenerate inputs
+  assert.strictEqual(CORE.spatialAudioPan(0, 0, 0), 0);
+  assert.strictEqual(CORE.spatialAudioPan(10, 0, 'invalid'), 1.0);
+});
+
+test('spatial audio distance attenuation scales quadratically to zero at max distance', () => {
+  // At zero distance: full volume (1.0)
+  assert.strictEqual(CORE.spatialAudioVolume(0, 55, 0.15), 1.0);
+  // At max distance: 0 (inaudible)
+  assert.strictEqual(CORE.spatialAudioVolume(55, 55, 0.15), 0);
+  // Beyond max distance: 0
+  assert.strictEqual(CORE.spatialAudioVolume(60, 55, 0.15), 0);
+  // Mid distance (27.5 m): 0.15 + 0.85 * 0.25 = 0.3625
+  assert.ok(Math.abs(CORE.spatialAudioVolume(27.5, 55, 0.15) - 0.3625) < 1e-4);
+  // Default values
+  assert.strictEqual(CORE.spatialAudioVolume(0), 1.0);
+  assert.strictEqual(CORE.spatialAudioVolume(55), 0);
+});
+
+test('spatialAudioParams composes distance, pan, volume and audibility flag', () => {
+  // Nearby sound to the right
+  const nearRight = CORE.spatialAudioParams(10, 0, 0);
+  assert.strictEqual(nearRight.dist, 10);
+  assert.strictEqual(nearRight.pan, 1.0);
+  assert.strictEqual(nearRight.audible, true);
+  assert.ok(nearRight.vol > 0.6 && nearRight.vol < 1.0);
+
+  // Distant sound beyond max distance (60 m > 55 m)
+  const distant = CORE.spatialAudioParams(60, 0, 0);
+  assert.strictEqual(distant.audible, false);
+  assert.strictEqual(distant.vol, 0);
+});
+
 

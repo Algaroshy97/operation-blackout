@@ -317,7 +317,7 @@ def main() -> int:
         }""")
         checks.append(("plate-audio-cues", plate_audio))
         checks.append(("sniper-sound-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.sniper === 1")))
-        checks.append(("action-sounds-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && ['jump', 'land', 'melee', 'bounce', 'headshot'].every(k => SOUND_VARIED[k] === 1)")))
+        checks.append(("action-sounds-varied", page.evaluate("() => typeof SOUND_VARIED !== 'undefined' && ['jump', 'land', 'melee', 'bounce', 'headshot', 'slide', 'hurt'].every(k => SOUND_VARIED[k] === 1)")))
         jitter_check = page.evaluate("""() => {
             if (typeof CORE.soundPlaybackRate !== 'function') return false;
             const mid = CORE.soundPlaybackRate(1, 0.5);
@@ -326,6 +326,17 @@ def main() -> int:
             return Math.abs(mid - 1.0) < 1e-6 && Math.abs(low - 0.97) < 1e-6 && Math.abs(high - 1.03) < 1e-6;
         }""")
         checks.append(("sound-playback-rate-jitter", jitter_check))
+        spatial_audio_check = page.evaluate("""() => {
+            if (typeof CORE.spatialAudioParams !== 'function' || typeof CORE.spatialAudioPan !== 'function') return false;
+            const right = CORE.spatialAudioParams(10, 0, 0);
+            const left = CORE.spatialAudioParams(-10, 0, 0);
+            const front = CORE.spatialAudioParams(0, -10, 0);
+            const distant = CORE.spatialAudioParams(60, 0, 0);
+            const panOk = right.pan === 1.0 && left.pan === -1.0 && front.pan === 0;
+            const distOk = right.audible === true && distant.audible === false && distant.vol === 0;
+            return panOk && distOk;
+        }""")
+        checks.append(("spatial-audio-parameters", spatial_audio_check))
 
         # 11) Visual feedback: low-health HUD warning state.
         health_hud = page.evaluate("""() => {

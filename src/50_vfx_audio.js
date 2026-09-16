@@ -398,7 +398,7 @@ const SOUND_RECIPES = {
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
 // every time, so these get a few percent of pitch jitter — which is more variation
 // than the old live synthesis had, since its parameters were fixed too.
-const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1, jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1 };
+const SOUND_VARIED = { shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1, jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1 };
 
 function recipeDuration(recipe) {
   let d = 0;
@@ -496,21 +496,15 @@ function playSound(name, dest) {
 function playSound3D(name, x, y, z) {
   const ctx = audioCtx();
   if (!ctx) return;
-  const maxDist = 55;
   const dx = x - player.pos.x, dz = z - player.pos.z;
-  const dist = Math.hypot(dx, dz);
-  if (dist > maxDist) return;
-  // stereo pan: project enemy offset onto player right vector (cos yaw, -sin yaw)
-  const rx = Math.cos(player.yaw), rz = -Math.sin(player.yaw);
-  const pan = Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (dist || 1) * 1.4)); // -1..1, boosted for audibility
-  // distance attenuation: full volume close, ~0 at maxDist
-  const vol = 0.15 + 0.85 * Math.pow(1 - dist / maxDist, 2);
+  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw);
+  if (!spatial.audible) return;
   const g = ctx.createGain();
-  g.gain.value = vol;
+  g.gain.value = spatial.vol;
   let p = null;
   if (ctx.createStereoPanner) {
     p = ctx.createStereoPanner();
-    p.pan.value = pan;
+    p.pan.value = spatial.pan;
     g.connect(p); p.connect(audioMaster() || ctx.destination);
   } else g.connect(audioMaster() || ctx.destination);
   playSound(name, g);

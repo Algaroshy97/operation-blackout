@@ -376,6 +376,41 @@ const CORE = (function () {
     return base + (r - 0.5) * SOUND_VARIED_RANGE;
   }
 
+  // ---- Positional spatial audio -----------------------------------------------
+  // Pure distance attenuation and stereo panning relative to player orientation.
+  // Panning projects sound vector onto player right vector: cos(yaw), -sin(yaw).
+  const SPATIAL_AUDIO_MAX_DIST = 55;
+  const SPATIAL_AUDIO_PAN_BOOST = 1.4;
+  const SPATIAL_AUDIO_MIN_VOL = 0.15;
+
+  function spatialAudioPan(dx, dz, playerYaw, dist, panBoost) {
+    const yaw = (typeof playerYaw === 'number' && isFinite(playerYaw)) ? playerYaw : 0;
+    const d = (typeof dist === 'number' && isFinite(dist) && dist > 0) ? dist : Math.hypot(dx, dz);
+    if (d < 1e-6) return 0;
+    const boost = (typeof panBoost === 'number' && isFinite(panBoost)) ? panBoost : SPATIAL_AUDIO_PAN_BOOST;
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const raw = ((dx * rx + dz * rz) / d) * boost;
+    return Math.max(-1, Math.min(1, raw));
+  }
+
+  function spatialAudioVolume(dist, maxDist, minVol) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const minV = (typeof minVol === 'number' && isFinite(minVol)) ? minVol : SPATIAL_AUDIO_MIN_VOL;
+    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    if (d >= maxD) return 0;
+    const norm = 1 - (d / maxD);
+    return minV + (1 - minV) * norm * norm;
+  }
+
+  function spatialAudioParams(dx, dz, playerYaw, maxDist) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const dist = Math.hypot(dx, dz);
+    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, audible: false };
+    const pan = spatialAudioPan(dx, dz, playerYaw, dist);
+    const vol = spatialAudioVolume(dist, maxD);
+    return { dist: dist, pan: pan, vol: vol, audible: true };
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -2637,6 +2672,12 @@ const CORE = (function () {
     UNREACHABLE: UNREACHABLE,
     SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
     soundPlaybackRate: soundPlaybackRate,
+    SPATIAL_AUDIO_MAX_DIST: SPATIAL_AUDIO_MAX_DIST,
+    SPATIAL_AUDIO_PAN_BOOST: SPATIAL_AUDIO_PAN_BOOST,
+    SPATIAL_AUDIO_MIN_VOL: SPATIAL_AUDIO_MIN_VOL,
+    spatialAudioPan: spatialAudioPan,
+    spatialAudioVolume: spatialAudioVolume,
+    spatialAudioParams: spatialAudioParams,
     JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
     JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
     isAutoSprint: isAutoSprint,

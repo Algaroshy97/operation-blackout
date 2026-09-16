@@ -754,7 +754,7 @@ function updateEnemies(dt) {
           meleeHits = meleeHits.filter(t => now - t < 0.8);
           if (meleeHits.length < 2) {
             damagePlayer((CFG.ai.meleeDamage + (en.kind === 2 ? 10 : 0) + waveNum * 0.4) * diff().dmg, dirToDeg(en));
-            playSound('melee');
+            playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(now);
           }
         }
