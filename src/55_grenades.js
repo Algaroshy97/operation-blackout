@@ -306,13 +306,16 @@ function updateGrenades(dt) {
     // Sticky payloads stop at their first contact; bouncing payloads consume
     // every leftover fraction of the frame, including chained contacts.
     if (def.sticky && motionResult.contacts > 0) {
-      g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin');
+      g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true;
+      const cs = CORE.grenadeContactSound(true, 0);
+      if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
     }
     // ground bounce
     if (g.m.position.y < 0.11) {
       g.m.position.y = 0.11;
-      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; playSound('pin'); }
-      else if (Math.abs(g.vel.y) > 1) playSound('bounce');
+      const cs = CORE.grenadeContactSound(def.sticky, g.vel.y);
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; }
+      if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
       g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
       g.vel.x *= 0.55; g.vel.z *= 0.55;
       if (g.grounded === undefined) g.grounded = 0;
@@ -384,12 +387,13 @@ function detonate(g, i, def) {
 
 // ---- Tactical payloads -------------------------------------------------------
 function applyTactical(def, pos) {
+  const snd = CORE.tacticalDetonationSound(def.effect);
   if (def.effect === 'smoke') {
     addSmokeCloud(pos.x, Math.max(1.2, pos.y), pos.z, def);
-    playSound('explosion');
+    playSound3D(snd, pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
     return;
   }
-  playSound(def.effect === 'blind' ? 'headshot' : 'pin');
+  playSound3D(snd, pos.x, pos.y, pos.z);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
@@ -528,7 +532,7 @@ function refreshGrenadeTargets() {
 
 function explodeGrenade(pos, scale) {
   const dmgScale = scale === undefined ? 1 : scale;
-  playSound('explosion');
+  playSound3D('explosion', pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
   // material per explosion; anything that outlived a resetGame() leaked both.

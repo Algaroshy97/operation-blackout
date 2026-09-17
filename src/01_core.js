@@ -495,6 +495,25 @@ const CORE = (function () {
     return { dist: dist, pan: pan, vol: vol, audible: true };
   }
 
+  const SPATIAL_EXPLOSION_MAX_DIST = 85;
+
+  function spatialExplosionParams(dx, dz, playerYaw) {
+    return spatialAudioParams(dx, dz, playerYaw, SPATIAL_EXPLOSION_MAX_DIST);
+  }
+
+  function tacticalDetonationSound(effect) {
+    if (effect === 'smoke') return 'explosion';
+    if (effect === 'blind') return 'headshot';
+    return 'pin';
+  }
+
+  function grenadeContactSound(sticky, velY) {
+    if (sticky) return 'pin';
+    const vy = (typeof velY === 'number' && isFinite(velY)) ? Math.abs(velY) : 0;
+    if (vy > 1) return 'bounce';
+    return null;
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -2831,7 +2850,11 @@ const CORE = (function () {
     enemyRangedDamage: enemyRangedDamage,
     resolveVerticalBounds: resolveVerticalBounds,
     findFloorY: findFloorY,
-    hasCrouchHeadroom: hasCrouchHeadroom
+    hasCrouchHeadroom: hasCrouchHeadroom,
+    SPATIAL_EXPLOSION_MAX_DIST: SPATIAL_EXPLOSION_MAX_DIST,
+    spatialExplosionParams: spatialExplosionParams,
+    tacticalDetonationSound: tacticalDetonationSound,
+    grenadeContactSound: grenadeContactSound
   };
 })();
 

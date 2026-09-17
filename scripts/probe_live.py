@@ -623,7 +623,28 @@ def main() -> int:
         }""")
         checks.append(("vertical-collision-rules", vert_check))
 
-        # 20) Clean console throughout gameplay.
+        # 20) Audio polish: ordnance 3D spatial audio & contact rules.
+        ordnance_audio_check = page.evaluate("""() => {
+            if (typeof CORE.spatialExplosionParams !== 'function' ||
+                typeof CORE.tacticalDetonationSound !== 'function' ||
+                typeof CORE.grenadeContactSound !== 'function') return false;
+            const distOk = CORE.SPATIAL_EXPLOSION_MAX_DIST === 85 &&
+                           CORE.spatialExplosionParams(70, 0, 0).audible === true &&
+                           CORE.spatialExplosionParams(90, 0, 0).audible === false &&
+                           CORE.spatialExplosionParams(20, 0, 0).pan === 1.0;
+            const tacticalOk = CORE.tacticalDetonationSound('smoke') === 'explosion' &&
+                               CORE.tacticalDetonationSound('blind') === 'headshot' &&
+                               CORE.tacticalDetonationSound('stun') === 'pin';
+            const contactOk = CORE.grenadeContactSound(true, 0) === 'pin' &&
+                              CORE.grenadeContactSound(false, -2) === 'bounce' &&
+                              CORE.grenadeContactSound(false, 0.2) === null;
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             ['block', 'kill', 'dry', 'pickup_ammo', 'pickup_med'].every(k => SOUND_VARIED[k] === 1);
+            return distOk && tacticalOk && contactOk && variedOk;
+        }""")
+        checks.append(("ordnance-spatial-audio-rules", ordnance_audio_check))
+
+        # 21) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

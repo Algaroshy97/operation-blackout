@@ -3320,6 +3320,49 @@ test('resolveVerticalBounds, findFloorY, and hasCrouchHeadroom resolve vertical 
   assert.strictEqual(CORE.hasCrouchHeadroom(0, 0, 0.4, 1.2, 1.7, highSlab), true);
 });
 
+test('spatialExplosionParams, tacticalDetonationSound, and grenadeContactSound resolve ordnance audio correctly', () => {
+  // Constant verification
+  assert.strictEqual(CORE.SPATIAL_EXPLOSION_MAX_DIST, 85);
+
+  // Distant explosion at 70m: within 85m range -> audible
+  const distant = CORE.spatialExplosionParams(70, 0, 0);
+  assert.strictEqual(distant.audible, true);
+  assert.ok(distant.vol > 0);
+  assert.strictEqual(distant.pan, 1.0, 'explosion to the right pans full right');
+
+  // Explosion beyond 85m range -> not audible
+  const outOfRange = CORE.spatialExplosionParams(90, 0, 0);
+  assert.strictEqual(outOfRange.audible, false);
+  assert.strictEqual(outOfRange.vol, 0);
+
+  // Centered close explosion at (0, 0) -> full volume, centered pan
+  const close = CORE.spatialExplosionParams(0, 0, 0);
+  assert.strictEqual(close.audible, true);
+  assert.strictEqual(close.pan, 0);
+  assert.strictEqual(close.vol, 1.0);
+
+  // Explosion to the left
+  const left = CORE.spatialExplosionParams(-30, 0, 0);
+  assert.strictEqual(left.audible, true);
+  assert.strictEqual(left.pan, -1.0);
+
+  // tacticalDetonationSound mappings
+  assert.strictEqual(CORE.tacticalDetonationSound('smoke'), 'explosion');
+  assert.strictEqual(CORE.tacticalDetonationSound('blind'), 'headshot');
+  assert.strictEqual(CORE.tacticalDetonationSound('stun'), 'pin');
+  assert.strictEqual(CORE.tacticalDetonationSound(), 'pin');
+  assert.strictEqual(CORE.tacticalDetonationSound('unknown'), 'pin');
+
+  // grenadeContactSound mappings
+  assert.strictEqual(CORE.grenadeContactSound(true, 0), 'pin', 'sticky grenade contact clicks pin');
+  assert.strictEqual(CORE.grenadeContactSound(true, -5), 'pin', 'sticky grenade ignores velocity');
+  assert.strictEqual(CORE.grenadeContactSound(false, -2.5), 'bounce', 'high downward velocity plays bounce');
+  assert.strictEqual(CORE.grenadeContactSound(false, 1.5), 'bounce', 'high upward bounce velocity plays bounce');
+  assert.strictEqual(CORE.grenadeContactSound(false, 0.5), null, 'low velocity rolling produces no bounce sound');
+  assert.strictEqual(CORE.grenadeContactSound(false, 0), null);
+  assert.strictEqual(CORE.grenadeContactSound(false, NaN), null);
+});
+
 
 
 
