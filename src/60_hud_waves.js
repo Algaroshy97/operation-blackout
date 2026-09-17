@@ -87,6 +87,14 @@ function updateHudAmmo() {
   hud.reloadHint.textContent = prompt;
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
+  if (isTouch) {
+    const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
+    if (tbtnReload) {
+      const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
+      tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
+      tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+    }
+  }
 }
 
 // Feedback tiers. The marker had two states, so a shot absorbed by a shielded

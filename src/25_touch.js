@@ -166,14 +166,16 @@ let joyBaseEl = null;
 
 // Feed touch state into the keyboard-driven player controller each frame.
 // Called from updatePlayer BEFORE movement intent is read.
+const _touchMoveKeys = { w: false, s: false, a: false, d: false };
 function applyTouchInput() {
   if (!touchState.active) return;
   // movement: joystick axes emulate WASD as analog
   if (touchState.moveX || touchState.moveZ) {
-    keys['KeyW'] = touchState.moveZ > 0.15;
-    keys['KeyS'] = touchState.moveZ < -0.15;
-    keys['KeyD'] = touchState.moveX > 0.15;
-    keys['KeyA'] = touchState.moveX < -0.15;
+    CORE.touchMovementKeys(touchState.moveX, touchState.moveZ, CORE.JOYSTICK_MOVE_THRESHOLD, _touchMoveKeys);
+    keys['KeyW'] = _touchMoveKeys.w;
+    keys['KeyS'] = _touchMoveKeys.s;
+    keys['KeyD'] = _touchMoveKeys.d;
+    keys['KeyA'] = _touchMoveKeys.a;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
     const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);

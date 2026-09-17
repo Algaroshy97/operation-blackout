@@ -233,7 +233,9 @@
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
+  body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
+  body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
@@ -273,7 +275,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
@@ -4725,6 +4727,22 @@ const CORE = (function () {
     return { clampedX: cx, clampedY: cy, moveX: moveX, moveZ: moveZ };
   }
 
+  // Mobile virtual joystick discrete movement key resolution. Maps analog movement axes
+  // to digital WASD keys based on directional threshold, avoiding allocation churn via
+  // an optional reusable output object.
+  const JOYSTICK_MOVE_THRESHOLD = 0.15;
+  function touchMovementKeys(moveX, moveZ, threshold, out) {
+    const th = typeof threshold === 'number' && isFinite(threshold) && threshold >= 0 ? threshold : JOYSTICK_MOVE_THRESHOLD;
+    const mx = typeof moveX === 'number' && isFinite(moveX) ? moveX : 0;
+    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0;
+    const res = out && typeof out === 'object' ? out : { w: false, s: false, a: false, d: false };
+    res.w = mz > th;
+    res.s = mz < -th;
+    res.d = mx > th;
+    res.a = mx < -th;
+    return res;
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -6439,6 +6457,16 @@ const CORE = (function () {
     if (res <= 0) return 'OUT OF AMMO — FIND PICKUPS';
     return isTouch ? 'RELOAD' : 'RELOAD [R]';
   }
+  // Mobile touch reload button feedback state. Returns 'urgent' when magazine is empty
+  // with reserves available and not already reloading; 'reloading' when reloading; and
+  // '' during normal combat or complete ammo exhaustion.
+  function touchReloadState(ammo, reserve, reloading) {
+    if (reloading) return 'reloading';
+    if (typeof ammo !== 'number' || !isFinite(ammo) || ammo > 0) return '';
+    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (res <= 0) return '';
+    return 'urgent';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -7457,7 +7485,10 @@ const CORE = (function () {
     SPATIAL_EXPLOSION_MAX_DIST: SPATIAL_EXPLOSION_MAX_DIST,
     spatialExplosionParams: spatialExplosionParams,
     tacticalDetonationSound: tacticalDetonationSound,
-    grenadeContactSound: grenadeContactSound
+    grenadeContactSound: grenadeContactSound,
+    JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
+    touchMovementKeys: touchMovementKeys,
+    touchReloadState: touchReloadState
   };
 })();
 
@@ -9124,14 +9155,16 @@ let joyBaseEl = null;
 
 // Feed touch state into the keyboard-driven player controller each frame.
 // Called from updatePlayer BEFORE movement intent is read.
+const _touchMoveKeys = { w: false, s: false, a: false, d: false };
 function applyTouchInput() {
   if (!touchState.active) return;
   // movement: joystick axes emulate WASD as analog
   if (touchState.moveX || touchState.moveZ) {
-    keys['KeyW'] = touchState.moveZ > 0.15;
-    keys['KeyS'] = touchState.moveZ < -0.15;
-    keys['KeyD'] = touchState.moveX > 0.15;
-    keys['KeyA'] = touchState.moveX < -0.15;
+    CORE.touchMovementKeys(touchState.moveX, touchState.moveZ, CORE.JOYSTICK_MOVE_THRESHOLD, _touchMoveKeys);
+    keys['KeyW'] = _touchMoveKeys.w;
+    keys['KeyS'] = _touchMoveKeys.s;
+    keys['KeyD'] = _touchMoveKeys.d;
+    keys['KeyA'] = _touchMoveKeys.a;
     window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
     // Full forward stick automatically sprints; ease the stick back to walk.
     const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
@@ -13014,6 +13047,14 @@ function updateHudAmmo() {
   hud.reloadHint.textContent = prompt;
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
+  if (isTouch) {
+    const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
+    if (tbtnReload) {
+      const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
+      tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
+      tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+    }
+  }
 }
 
 // Feedback tiers. The marker had two states, so a shot absorbed by a shielded

@@ -3363,6 +3363,63 @@ test('spatialExplosionParams, tacticalDetonationSound, and grenadeContactSound r
   assert.strictEqual(CORE.grenadeContactSound(false, NaN), null);
 });
 
+test('touchMovementKeys, JOYSTICK_MOVE_THRESHOLD, and touchReloadState resolve mobile touch input and reload feedback', () => {
+  // Constant verification
+  assert.strictEqual(CORE.JOYSTICK_MOVE_THRESHOLD, 0.15);
+
+  // Discrete movement key resolution
+  const forward = CORE.touchMovementKeys(0, 0.5);
+  assert.deepStrictEqual(forward, { w: true, s: false, a: false, d: false });
+
+  const backward = CORE.touchMovementKeys(0, -0.5);
+  assert.deepStrictEqual(backward, { w: false, s: true, a: false, d: false });
+
+  const right = CORE.touchMovementKeys(0.5, 0);
+  assert.deepStrictEqual(right, { w: false, s: false, a: false, d: true });
+
+  const left = CORE.touchMovementKeys(-0.5, 0);
+  assert.deepStrictEqual(left, { w: false, s: false, a: true, d: false });
+
+  // Diagonal movement
+  const diag = CORE.touchMovementKeys(0.4, -0.4);
+  assert.deepStrictEqual(diag, { w: false, s: true, a: false, d: true });
+
+  // Sub-threshold deadzone deflection
+  const dead = CORE.touchMovementKeys(0.1, -0.1);
+  assert.deepStrictEqual(dead, { w: false, s: false, a: false, d: false });
+
+  // Custom threshold parameter
+  const custom = CORE.touchMovementKeys(0.3, 0.3, 0.4);
+  assert.deepStrictEqual(custom, { w: false, s: false, a: false, d: false });
+
+  // Reusable output object avoids garbage collection allocation
+  const reusableOut = { w: false, s: false, a: false, d: false };
+  const res = CORE.touchMovementKeys(0.6, 0.7, 0.15, reusableOut);
+  assert.strictEqual(res, reusableOut);
+  assert.strictEqual(reusableOut.w, true);
+  assert.strictEqual(reusableOut.d, true);
+
+  // Corrupt / non-numeric input handling
+  const junk = CORE.touchMovementKeys('bad', NaN);
+  assert.deepStrictEqual(junk, { w: false, s: false, a: false, d: false });
+
+  // touchReloadState: urgent when magazine is empty with reserves and not reloading
+  assert.strictEqual(CORE.touchReloadState(0, 30, false), 'urgent');
+  assert.strictEqual(CORE.touchReloadState(-1, 5, false), 'urgent');
+
+  // Reloading state overrides empty status
+  assert.strictEqual(CORE.touchReloadState(0, 30, true), 'reloading');
+  assert.strictEqual(CORE.touchReloadState(15, 30, true), 'reloading');
+
+  // Normal / non-urgent states
+  assert.strictEqual(CORE.touchReloadState(15, 30, false), '', 'ammo in magazine is not urgent');
+  assert.strictEqual(CORE.touchReloadState(1, 30, false), '', 'last round in magazine is not yet urgent');
+  assert.strictEqual(CORE.touchReloadState(0, 0, false), '', 'depleted reserve has no ammo to reload');
+  assert.strictEqual(CORE.touchReloadState(0, -5, false), '', 'negative reserve has no ammo to reload');
+  assert.strictEqual(CORE.touchReloadState(NaN, 30, false), '', 'corrupt ammo returns non-urgent default');
+});
+
+
 
 
 

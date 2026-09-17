@@ -122,6 +122,22 @@ const CORE = (function () {
     return { clampedX: cx, clampedY: cy, moveX: moveX, moveZ: moveZ };
   }
 
+  // Mobile virtual joystick discrete movement key resolution. Maps analog movement axes
+  // to digital WASD keys based on directional threshold, avoiding allocation churn via
+  // an optional reusable output object.
+  const JOYSTICK_MOVE_THRESHOLD = 0.15;
+  function touchMovementKeys(moveX, moveZ, threshold, out) {
+    const th = typeof threshold === 'number' && isFinite(threshold) && threshold >= 0 ? threshold : JOYSTICK_MOVE_THRESHOLD;
+    const mx = typeof moveX === 'number' && isFinite(moveX) ? moveX : 0;
+    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0;
+    const res = out && typeof out === 'object' ? out : { w: false, s: false, a: false, d: false };
+    res.w = mz > th;
+    res.s = mz < -th;
+    res.d = mx > th;
+    res.a = mx < -th;
+    return res;
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -1836,6 +1852,16 @@ const CORE = (function () {
     if (res <= 0) return 'OUT OF AMMO — FIND PICKUPS';
     return isTouch ? 'RELOAD' : 'RELOAD [R]';
   }
+  // Mobile touch reload button feedback state. Returns 'urgent' when magazine is empty
+  // with reserves available and not already reloading; 'reloading' when reloading; and
+  // '' during normal combat or complete ammo exhaustion.
+  function touchReloadState(ammo, reserve, reloading) {
+    if (reloading) return 'reloading';
+    if (typeof ammo !== 'number' || !isFinite(ammo) || ammo > 0) return '';
+    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (res <= 0) return '';
+    return 'urgent';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -2854,7 +2880,10 @@ const CORE = (function () {
     SPATIAL_EXPLOSION_MAX_DIST: SPATIAL_EXPLOSION_MAX_DIST,
     spatialExplosionParams: spatialExplosionParams,
     tacticalDetonationSound: tacticalDetonationSound,
-    grenadeContactSound: grenadeContactSound
+    grenadeContactSound: grenadeContactSound,
+    JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
+    touchMovementKeys: touchMovementKeys,
+    touchReloadState: touchReloadState
   };
 })();
 

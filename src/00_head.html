@@ -233,7 +233,9 @@
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
+  body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
+  body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
@@ -273,7 +275,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}

@@ -644,7 +644,45 @@ def main() -> int:
         }""")
         checks.append(("ordnance-spatial-audio-rules", ordnance_audio_check))
 
-        # 21) Clean console throughout gameplay.
+        # 21) Mobile UI polish: touch movement resolution & reload feedback rules.
+        touch_reload_check = page.evaluate("""() => {
+            if (typeof CORE.touchMovementKeys !== 'function' ||
+                typeof CORE.touchReloadState !== 'function' ||
+                typeof CORE.JOYSTICK_MOVE_THRESHOLD !== 'number') return false;
+            const thresholdOk = CORE.JOYSTICK_MOVE_THRESHOLD === 0.15;
+            const out = { w: false, s: false, a: false, d: false };
+            const res = CORE.touchMovementKeys(0.5, -0.6, 0.15, out);
+            const moveOk = res === out && out.w === false && out.s === true && out.d === true && out.a === false;
+            const deadOk = CORE.touchMovementKeys(0.1, -0.1).s === false;
+            const urgentOk = CORE.touchReloadState(0, 30, false) === 'urgent';
+            const reloadingOk = CORE.touchReloadState(0, 30, true) === 'reloading';
+            const emptyResOk = CORE.touchReloadState(0, 0, false) === '';
+            const fullMagOk = CORE.touchReloadState(15, 30, false) === '';
+
+            document.body.classList.add('touch');
+            const uEl = document.createElement('div');
+            uEl.id = 'tbtn-reload';
+            uEl.className = 'tbtn urgent';
+            document.body.appendChild(uEl);
+            const urgentBorder = getComputedStyle(uEl).borderColor;
+            document.body.removeChild(uEl);
+
+            const rEl = document.createElement('div');
+            rEl.id = 'tbtn-reload';
+            rEl.className = 'tbtn reloading';
+            document.body.appendChild(rEl);
+            const reloadBorder = getComputedStyle(rEl).borderColor;
+            document.body.removeChild(rEl);
+            document.body.classList.remove('touch');
+
+            const styleOk = (urgentBorder.includes('255, 74, 61') || urgentBorder.includes('rgb(255, 74, 61)')) &&
+                            (reloadBorder.includes('255, 210, 74') || reloadBorder.includes('rgb(255, 210, 74)'));
+
+            return thresholdOk && moveOk && deadOk && urgentOk && reloadingOk && emptyResOk && fullMagOk && styleOk;
+        }""")
+        checks.append(("touch-movement-and-reload-rules", touch_reload_check))
+
+        # 22) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
