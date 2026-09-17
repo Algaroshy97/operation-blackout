@@ -563,7 +563,46 @@ def main() -> int:
         }""")
         checks.append(("combat-damage-balance-rules", combat_balance_check))
 
-        # 18) Clean console throughout gameplay.
+        # 18) Visual feedback: armor HUD warning and empty state.
+        armor_hud_check = page.evaluate("""() => {
+            if (typeof CORE.isArmorLow !== 'function' || typeof CORE.isArmorEmpty !== 'function') return false;
+            const coreOk = CORE.isArmorLow(10, 50) === true &&
+                           CORE.isArmorLow(15, 50) === false &&
+                           CORE.isArmorLow(0, 50) === false &&
+                           CORE.isArmorEmpty(0) === true &&
+                           CORE.isArmorEmpty(10) === false;
+            if (!coreOk) return false;
+
+            const bar = document.getElementById('armor-bar');
+            const bg = bar ? bar.parentElement : null;
+            if (!bar || !bg) return false;
+
+            const origArmor = player.armor;
+            try {
+                // Low armor state (e.g. 10/50 = 20%)
+                player.armor = 10;
+                updateHudHealth();
+                const lowOk = bar.classList.contains('low') && !bg.classList.contains('empty');
+
+                // Empty / broken armor state (0/50)
+                player.armor = 0;
+                updateHudHealth();
+                const emptyOk = !bar.classList.contains('low') && bg.classList.contains('empty');
+
+                // Fully replenished armor (50/50)
+                player.armor = 50;
+                updateHudHealth();
+                const fullOk = !bar.classList.contains('low') && !bg.classList.contains('empty');
+
+                return lowOk && emptyOk && fullOk;
+            } finally {
+                player.armor = origArmor;
+                updateHudHealth();
+            }
+        }""")
+        checks.append(("armor-hud-visual-feedback", armor_hud_check))
+
+        # 19) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

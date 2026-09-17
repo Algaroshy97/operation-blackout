@@ -1732,6 +1732,16 @@ const CORE = (function () {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
     return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
+  const ARMOR_LOW_RATIO = 0.25;
+  function isArmorLow(armor, maxArmor) {
+    if (typeof armor !== 'number' || !isFinite(armor)) return false;
+    const max = (typeof maxArmor === 'number' && isFinite(maxArmor) && maxArmor > 0) ? maxArmor : 50;
+    return armor > 0 && armor <= max * ARMOR_LOW_RATIO;
+  }
+  function isArmorEmpty(armor) {
+    if (typeof armor !== 'number' || !isFinite(armor)) return true;
+    return armor <= 0;
+  }
   const AMMO_LOW_RATIO = 0.25;
   function isAmmoLow(ammo, mag) {
     if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
@@ -2646,6 +2656,9 @@ const CORE = (function () {
     perkMaxHealth: perkMaxHealth,
     HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
     isHealthLow: isHealthLow,
+    ARMOR_LOW_RATIO: ARMOR_LOW_RATIO,
+    isArmorLow: isArmorLow,
+    isArmorEmpty: isArmorEmpty,
     AMMO_LOW_RATIO: AMMO_LOW_RATIO,
     isAmmoLow: isAmmoLow,
     isAmmoEmpty: isAmmoEmpty,

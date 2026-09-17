@@ -57,6 +57,13 @@ function updateHudHealth() {
   if (armor !== _hudArmor) {
     _hudArmor = armor;
     hud.armorBar.style.width = armor + '%';
+    const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
+    const isLow = CORE.isArmorLow(player.armor, maxArmor);
+    const isEmpty = CORE.isArmorEmpty(player.armor);
+    hud.armorBar.classList.toggle('low', isLow);
+    if (hud.armorBar.parentElement) {
+      hud.armorBar.parentElement.classList.toggle('empty', isEmpty);
+    }
   }
 }
 function updateHudAmmo() {

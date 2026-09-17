@@ -29,8 +29,10 @@
   #health-num{color:#e8ffe8;font-size:15px;font-weight:700;text-shadow:0 0 4px #000;min-width:34px;transition:color .2s}
   #health-num.low{color:#ff5f4a}
   #armor-container{bottom:52px;left:28px;display:flex;align-items:center;gap:12px;opacity:.9}
-  .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px}
-  #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s}
+  .armor-bar-bg{width:min(220px,38vw);height:6px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);border-radius:2px;transition:border-color .2s,box-shadow .2s}
+  .armor-bar-bg.empty{border-color:rgba(255,74,61,.55);box-shadow:0 0 6px rgba(255,74,61,.35)}
+  #armor-bar{height:100%;width:100%;background:#4fa3d8;border-radius:1px;transition:width .15s,background .2s}
+  #armor-bar.low{background:linear-gradient(90deg,#d97724,#ffaa3a)}
   #hud-bottom-right{bottom:22px;right:30px;text-align:right}
   /* Credits sit under the score because they are the same kind of number to the
      player: one is the run's record, the other is what they can spend on it. */
@@ -271,7 +273,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #joy-base,body.reduced-motion #joy-stick{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick{transition:none}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
@@ -6333,6 +6335,16 @@ const CORE = (function () {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
     return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
+  const ARMOR_LOW_RATIO = 0.25;
+  function isArmorLow(armor, maxArmor) {
+    if (typeof armor !== 'number' || !isFinite(armor)) return false;
+    const max = (typeof maxArmor === 'number' && isFinite(maxArmor) && maxArmor > 0) ? maxArmor : 50;
+    return armor > 0 && armor <= max * ARMOR_LOW_RATIO;
+  }
+  function isArmorEmpty(armor) {
+    if (typeof armor !== 'number' || !isFinite(armor)) return true;
+    return armor <= 0;
+  }
   const AMMO_LOW_RATIO = 0.25;
   function isAmmoLow(ammo, mag) {
     if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
@@ -7247,6 +7259,9 @@ const CORE = (function () {
     perkMaxHealth: perkMaxHealth,
     HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
     isHealthLow: isHealthLow,
+    ARMOR_LOW_RATIO: ARMOR_LOW_RATIO,
+    isArmorLow: isArmorLow,
+    isArmorEmpty: isArmorEmpty,
     AMMO_LOW_RATIO: AMMO_LOW_RATIO,
     isAmmoLow: isAmmoLow,
     isAmmoEmpty: isAmmoEmpty,
@@ -12900,6 +12915,13 @@ function updateHudHealth() {
   if (armor !== _hudArmor) {
     _hudArmor = armor;
     hud.armorBar.style.width = armor + '%';
+    const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
+    const isLow = CORE.isArmorLow(player.armor, maxArmor);
+    const isEmpty = CORE.isArmorEmpty(player.armor);
+    hud.armorBar.classList.toggle('low', isLow);
+    if (hud.armorBar.parentElement) {
+      hud.armorBar.parentElement.classList.toggle('empty', isEmpty);
+    }
   }
 }
 function updateHudAmmo() {

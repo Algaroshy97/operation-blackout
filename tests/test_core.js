@@ -3233,5 +3233,44 @@ test('enemyRangedDamage scales with wave progression, difficulty, and elite stat
   assert.ok(fallback > 0);
 });
 
+test('isArmorLow and isArmorEmpty detect low and depleted armor states', () => {
+  // Constants check
+  assert.strictEqual(CORE.ARMOR_LOW_RATIO, 0.25);
+
+  // Healthy armor (50 max)
+  assert.strictEqual(CORE.isArmorLow(50, 50), false);
+  assert.strictEqual(CORE.isArmorLow(25, 50), false);
+  assert.strictEqual(CORE.isArmorEmpty(50), false);
+
+  // Exactly at the 25% threshold (12.5 / 50)
+  assert.strictEqual(CORE.isArmorLow(12.5, 50), true);
+  assert.strictEqual(CORE.isArmorEmpty(12.5), false);
+
+  // Below the threshold
+  assert.strictEqual(CORE.isArmorLow(10, 50), true);
+  assert.strictEqual(CORE.isArmorLow(5, 50), true);
+  assert.strictEqual(CORE.isArmorLow(1, 50), true);
+
+  // Just above the threshold
+  assert.strictEqual(CORE.isArmorLow(12.6, 50), false);
+
+  // Depleted / zero armor
+  assert.strictEqual(CORE.isArmorLow(0, 50), false, 'zero armor is empty, not low');
+  assert.strictEqual(CORE.isArmorEmpty(0), true);
+  assert.strictEqual(CORE.isArmorEmpty(-5), true);
+
+  // Default max armor (50)
+  assert.strictEqual(CORE.isArmorLow(10), true);
+  assert.strictEqual(CORE.isArmorLow(30), false);
+
+  // Non-numeric / invalid inputs
+  assert.strictEqual(CORE.isArmorLow(NaN, 50), false);
+  assert.strictEqual(CORE.isArmorLow(undefined, 50), false);
+  assert.strictEqual(CORE.isArmorLow('20', 50), false);
+  assert.strictEqual(CORE.isArmorEmpty(NaN), true);
+  assert.strictEqual(CORE.isArmorEmpty(undefined), true);
+});
+
+
 
 
