@@ -517,13 +517,7 @@ function moveEnemy(en, dt) {
   en.pos.z = Math.max(-mapBounds, Math.min(mapBounds, en.pos.z));
 
   // Vertical resolve: find highest floor below feet + stepH
-  const feet = en.pos.y;
-  let floorY = GROUND;
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (en.pos.x <= c.min.x || en.pos.x >= c.max.x || en.pos.z <= c.min.z || en.pos.z >= c.max.z) continue;
-    if (c.max.y <= feet + stepH && c.max.y > floorY) floorY = c.max.y;
-  }
+  const floorY = CORE.findFloorY(en.pos.x, en.pos.z, 0, colliders, en.pos.y, stepH, GROUND);
   const fallSpeed = 6;
   if (floorY < en.pos.y) {
     const needed = en.pos.y - floorY;

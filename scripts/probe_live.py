@@ -602,7 +602,28 @@ def main() -> int:
         }""")
         checks.append(("armor-hud-visual-feedback", armor_hud_check))
 
-        # 19) Clean console throughout gameplay.
+        # 19) Perf: vertical collision bounds and headroom rules.
+        vert_check = page.evaluate("""() => {
+            if (typeof CORE.resolveVerticalBounds !== 'function' ||
+                typeof CORE.findFloorY !== 'function' ||
+                typeof CORE.hasCrouchHeadroom !== 'function') return false;
+            const colliders = [
+                { min: { x: -2, y: 0, z: -2 }, max: { x: 2, y: 1.0, z: 2 } },
+                { min: { x: -2, y: 3.0, z: -2 }, max: { x: 2, y: 4.0, z: 2 } }
+            ];
+            const out = { floorY: 0, ceilY: 0 };
+            const res = CORE.resolveVerticalBounds(0, 0, 0.4, colliders, 0.8, 0.6, 0, out);
+            const resOk = res === out && out.floorY === 1.0 && out.ceilY === 3.0;
+            const floorOnly = CORE.findFloorY(0, 0, 0.4, colliders, 0.8, 0.6, 0);
+            const floorOk = floorOnly === 1.0;
+            const lowSlab = [{ min: { x: -2, y: 1.0, z: -2 }, max: { x: 2, y: 2.0, z: 2 } }];
+            const blockedHeadroom = CORE.hasCrouchHeadroom(0, 0, 0.4, 1.2, 1.7, lowSlab);
+            const clearHeadroom = CORE.hasCrouchHeadroom(10, 10, 0.4, 1.2, 1.7, lowSlab);
+            return resOk && floorOk && (blockedHeadroom === false) && (clearHeadroom === true);
+        }""")
+        checks.append(("vertical-collision-rules", vert_check))
+
+        # 20) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -125,20 +125,12 @@ function resolveXZ(pos, r) {
 }
 
 // Vertical resolve: find highest floor below feet+step, lowest ceiling above head
+const _vertBoundsOut = { floorY: 0, ceilY: Infinity };
 function resolveVertical(pos, r) {
   const feet = pos.y - eyeHeight();
-  let floorY = GROUND;
-  let ceilY = Infinity;
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (pos.x <= c.min.x - r || pos.x >= c.max.x + r ||
-        pos.z <= c.min.z - r || pos.z >= c.max.z + r) continue;   // not above/below this collider footprint
-    if (c.max.y <= feet + STEP_H && c.max.y > floorY) floorY = c.max.y;   // stand-on candidate
-    // Lowest slab overhead. Tracked unconditionally rather than only when already
-    // intersecting it: the old test could only react once the head was inside, and
-    // then only zeroed velocity, so a large dt stepped straight past it (BUG-11).
-    if (c.min.y > feet && c.min.y < ceilY) ceilY = c.min.y;
-  }
+  const bounds = CORE.resolveVerticalBounds(pos.x, pos.z, r, colliders, feet, STEP_H, GROUND, _vertBoundsOut);
+  const floorY = bounds.floorY;
+  const ceilY = bounds.ceilY;
   const target = floorY + eyeHeight();
   if (pos.y <= target + 0.001 && player.vel.y <= 0) {
     pos.y = target; player.vel.y = 0; player.onGround = true;
@@ -266,18 +258,9 @@ function updatePlayer(dt) {
   const wantCrouch = player.sliding ? true : crouchKey;
   if (wantCrouch !== player.crouching) {
     if (!wantCrouch) {
-      // check headroom before standing
-      let blocked = false;
-      const feet = player.pos.y - CFG.player.height;
-      for (let i = 0; i < colliders.length; i++) {
-        const c = colliders[i];
-        if (c.min.y < player.pos.y + 0.15 && c.max.y > feet + 0.2) {
-          const r = CFG.player.radius;
-          if (player.pos.x > c.min.x - r && player.pos.x < c.max.x + r &&
-              player.pos.z > c.min.z - r && player.pos.z < c.max.z + r) { blocked = true; break; }
-        }
+      if (CORE.hasCrouchHeadroom(player.pos.x, player.pos.z, CFG.player.radius, player.pos.y, CFG.player.height, colliders)) {
+        player.crouching = false;
       }
-      if (!blocked) player.crouching = false;
     } else player.crouching = true;
   }
 

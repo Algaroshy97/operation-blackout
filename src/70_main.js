@@ -620,6 +620,7 @@ let slideFov = 0;   // extra FOV kick while sliding
 let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
 let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
+const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -692,8 +693,11 @@ function frame(now) {
       const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
       if (nearest === undefined || d < nearest) nearest = d;
     }
-    updateMusic(dt, { inCombat: waveActive && !player.dead, aliveEnemies: aliveCount,
-                      nearestEnemy: nearest, health: player.health });
+    _musicState.inCombat = waveActive && !player.dead;
+    _musicState.aliveEnemies = aliveCount;
+    _musicState.nearestEnemy = nearest;
+    _musicState.health = player.health;
+    updateMusic(dt, _musicState);
     updateHitArcs();
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every

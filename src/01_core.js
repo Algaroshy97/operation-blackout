@@ -203,6 +203,63 @@ const CORE = (function () {
     }
     return { axis: axis, val: val };
   }
+  // Vertical collider query: scans colliders overlapping (x, z) with radius r.
+  // Finds the highest floor surface below feet + stepH, and the lowest ceiling slab above feet.
+  // When out is provided, mutates and returns out without heap allocation;
+  // otherwise returns a new { floorY, ceilY } object.
+  function resolveVerticalBounds(x, z, r, colliders, feet, stepH, groundY, out) {
+    let floorY = (typeof groundY === 'number' && isFinite(groundY)) ? groundY : 0;
+    let ceilY = Infinity;
+    if (!colliders || !colliders.length) {
+      if (out && typeof out === 'object') { out.floorY = floorY; out.ceilY = ceilY; return out; }
+      return { floorY: floorY, ceilY: ceilY };
+    }
+    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (!c || !c.min || !c.max) continue;
+      if (x <= c.min.x - rad || x >= c.max.x + rad || z <= c.min.z - rad || z >= c.max.z + rad) continue;
+      if (c.max.y <= maxStepY && c.max.y > floorY) floorY = c.max.y;
+      if (c.min.y > feet && c.min.y < ceilY) ceilY = c.min.y;
+    }
+    if (out && typeof out === 'object') {
+      out.floorY = floorY;
+      out.ceilY = ceilY;
+      return out;
+    }
+    return { floorY: floorY, ceilY: ceilY };
+  }
+  // Fast floor-only resolver for grounding agents without tracking ceiling clearance.
+  function findFloorY(x, z, r, colliders, feet, stepH, groundY) {
+    let floorY = (typeof groundY === 'number' && isFinite(groundY)) ? groundY : 0;
+    if (!colliders || !colliders.length) return floorY;
+    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (!c || !c.min || !c.max) continue;
+      if (x <= c.min.x - rad || x >= c.max.x + rad || z <= c.min.z - rad || z >= c.max.z + rad) continue;
+      if (c.max.y <= maxStepY && c.max.y > floorY) floorY = c.max.y;
+    }
+    return floorY;
+  }
+  // Headroom check before standing up from a crouch: ensures no obstacle slab sits between
+  // the player's crouched eye level and standing height.
+  function hasCrouchHeadroom(x, z, r, eyeY, standHeight, colliders) {
+    if (!colliders || !colliders.length) return true;
+    const feet = eyeY - standHeight;
+    const top = eyeY + 0.15;
+    const bottom = feet + 0.2;
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (!c || !c.min || !c.max) continue;
+      if (c.min.y < top && c.max.y > bottom) {
+        if (aabbOverlapsXZ(c, x, z, r)) return false;
+      }
+    }
+    return true;
+  }
   // True when an AABB blocks a ground-bound walker of the given height: it must
   // rise above what the walker can step onto, and start below the walker's head.
   function blocksWalker(c, stepH, walkerHeight) {
@@ -2771,7 +2828,10 @@ const CORE = (function () {
     ARMOR_ABSORB_RATIO: ARMOR_ABSORB_RATIO,
     resolveArmorDamage: resolveArmorDamage,
     enemyMeleeDamage: enemyMeleeDamage,
-    enemyRangedDamage: enemyRangedDamage
+    enemyRangedDamage: enemyRangedDamage,
+    resolveVerticalBounds: resolveVerticalBounds,
+    findFloorY: findFloorY,
+    hasCrouchHeadroom: hasCrouchHeadroom
   };
 })();
 

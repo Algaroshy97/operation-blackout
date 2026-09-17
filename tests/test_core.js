@@ -3271,6 +3271,56 @@ test('isArmorLow and isArmorEmpty detect low and depleted armor states', () => {
   assert.strictEqual(CORE.isArmorEmpty(undefined), true);
 });
 
+test('resolveVerticalBounds, findFloorY, and hasCrouchHeadroom resolve vertical collision queries correctly', () => {
+  const colliders = [
+    { min: { x: -5, y: 0, z: -5 }, max: { x: 5, y: 1.5, z: 5 } },
+    { min: { x: -5, y: 4.0, z: -5 }, max: { x: 5, y: 5.0, z: 5 } },
+    { min: { x: 20, y: 0, z: 20 }, max: { x: 25, y: 2.0, z: 25 } }
+  ];
+
+  // Stand-on candidate within step height (feet = 1.0, stepH = 0.6 -> maxStep = 1.6, box top = 1.5)
+  // Ceiling overhead (feet = 1.0, ceiling slab bottom = 4.0)
+  const out = { floorY: 0, ceilY: 0 };
+  const bounds = CORE.resolveVerticalBounds(0, 0, 0.4, colliders, 1.0, 0.6, 0, out);
+  assert.strictEqual(bounds, out, 'mutates and returns provided out reference');
+  assert.strictEqual(out.floorY, 1.5, 'detects highest stand-on floor');
+  assert.strictEqual(out.ceilY, 4.0, 'detects lowest ceiling slab overhead');
+
+  // Obstacle too high to step onto (feet = 0.5, stepH = 0.6 -> maxStep = 1.1 < 1.5)
+  const boundsHigh = CORE.resolveVerticalBounds(0, 0, 0.4, colliders, 0.5, 0.6, 0);
+  assert.strictEqual(boundsHigh.floorY, 0, 'floor remains at ground when obstacle exceeds step height');
+  assert.strictEqual(boundsHigh.ceilY, 4.0, 'ceiling is still detected');
+
+  // Completely outside any collider
+  const boundsOut = CORE.resolveVerticalBounds(50, 50, 0.4, colliders, 0, 0.6, -1);
+  assert.strictEqual(boundsOut.floorY, -1, 'preserves custom groundY when no colliders overlap');
+  assert.strictEqual(boundsOut.ceilY, Infinity, 'ceiling is Infinity when nothing is overhead');
+
+  // Empty / null colliders fallback
+  const emptyBounds = CORE.resolveVerticalBounds(0, 0, 0.4, [], 0, 0.6, 0);
+  assert.strictEqual(emptyBounds.floorY, 0);
+  assert.strictEqual(emptyBounds.ceilY, Infinity);
+
+  // findFloorY fast-path
+  const f1 = CORE.findFloorY(0, 0, 0.4, colliders, 1.0, 0.6, 0);
+  assert.strictEqual(f1, 1.5);
+  const f2 = CORE.findFloorY(0, 0, 0.4, colliders, 0.5, 0.6, 0);
+  assert.strictEqual(f2, 0);
+  const fOutside = CORE.findFloorY(50, 50, 0.4, colliders, 0, 0.6, 0);
+  assert.strictEqual(fOutside, 0);
+
+  // hasCrouchHeadroom
+  const lowSlab = [{ min: { x: -2, y: 1.0, z: -2 }, max: { x: 2, y: 2.0, z: 2 } }];
+  // Slab overlaps top (1.35 > min 1.0) and bottom (-0.3 < max 2.0) -> blocked
+  assert.strictEqual(CORE.hasCrouchHeadroom(0, 0, 0.4, 1.2, 1.7, lowSlab), false);
+  // Clear position outside the slab
+  assert.strictEqual(CORE.hasCrouchHeadroom(10, 10, 0.4, 1.2, 1.7, lowSlab), true);
+  // High slab entirely above head (min 4.0 > top 1.35)
+  const highSlab = [{ min: { x: -2, y: 4.0, z: -2 }, max: { x: 2, y: 5.0, z: 2 } }];
+  assert.strictEqual(CORE.hasCrouchHeadroom(0, 0, 0.4, 1.2, 1.7, highSlab), true);
+});
+
+
 
 
 
