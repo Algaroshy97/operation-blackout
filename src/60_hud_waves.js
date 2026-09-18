@@ -97,21 +97,23 @@ function updateHudAmmo() {
   }
 }
 
-// Feedback tiers. The marker had two states, so a shot absorbed by a shielded
-// advancer's 85% frontal plate looked exactly like a clean body hit — the player
-// could only learn the mechanic by reading the patch notes. `tier` is 'block' for
-// an absorbed hit, 'cover' for one that punched through a surface first.
-const HITMARK_COLOR = { block: '#6fa8ff', cover: '#ffd24a' };
+// Feedback tiers: leverages CORE.hitmarkerParams to provide distinct visual feedback
+// for regular impacts, surface penetration, shield deflection, and fatal kill confirmation.
 function showHitmarker(isHead, tier) {
+  const p = CORE.hitmarkerParams(isHead, tier);
   hud.hitmark.style.opacity = 1;
-  const scale = isHead ? 1.6 : tier === 'block' ? 0.75 : 1;
-  hud.hitmark.style.transform = 'rotate(45deg) scale(' + scale + ')';
-  const col = HITMARK_COLOR[tier] || '#ff4a3d';
+  hud.hitmark.style.transform = 'rotate(45deg) scale(' + p.scale + ')';
+  hud.hitmark.classList.toggle('kill', p.tier === 'kill');
   const marks = hud.hitmark.children;
-  for (let i = 0; i < marks.length; i++) marks[i].style.background = col;
+  for (let i = 0; i < marks.length; i++) marks[i].style.background = p.color;
   clearTimeout(hud.hitmark._t);
-  hud.hitmark._t = setTimeout(function () { hud.hitmark.style.opacity = 0; }, 90);
-  playSound(tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
+  hud.hitmark._t = setTimeout(function () {
+    hud.hitmark.style.opacity = 0;
+    hud.hitmark.classList.remove('kill');
+  }, p.duration);
+  if (p.tier !== 'kill') {
+    playSound(p.tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
+  }
 }
 
 function showDamageFx(dirDeg, amount) {

@@ -21,6 +21,7 @@
   #crosshair .c-dot{position:absolute;top:20px;left:20px;width:4px;height:4px;border-radius:50%;background:#eaffea;box-shadow:0 0 3px rgba(0,0,0,.9)}
   #crosshair .hitmark{position:absolute;top:19px;left:19px;width:6px;height:6px;opacity:0;transform:rotate(45deg)}
   #crosshair .hitmark span{position:absolute;background:#ff4a3d;box-shadow:0 0 2px #000}
+  #crosshair .hitmark.kill span{box-shadow:0 0 4px #ff2a1a, 0 0 8px rgba(255,42,26,.6)}
   #crosshair .hitmark .h1{top:0;left:2px;width:2px;height:6px}#crosshair .hitmark .h2{top:2px;left:0;width:6px;height:2px}
   #health-container{bottom:28px;left:28px;display:flex;align-items:center;gap:12px}
   .health-bar-bg{width:min(220px,38vw);height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px}
@@ -276,6 +277,7 @@
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
   body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload{transition:none}
+  body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:flex-start;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;box-sizing:border-box;padding:28px 16px}
@@ -6790,6 +6792,44 @@ const CORE = (function () {
     return facing > SHIELD_ARC_COS ? (1 - SHIELD_ABSORB_RATIO) : 1.0;
   }
 
+  // ---- Hitmarker visual feedback tiers -------------------------------------------
+  // Standard tactical shooter feedback: differentiates regular hits from absorbed shield hits,
+  // wall penetration, and critical kill confirmations.
+  const HITMARK_COLOR = {
+    block: '#6fa8ff',
+    cover: '#ffd24a',
+    kill: '#ff2a1a',
+    hit: '#ff4a3d'
+  };
+
+  function hitmarkerTier(shieldMul, throughCover, isKill) {
+    if (isKill) return 'kill';
+    if (typeof shieldMul === 'number' && isFinite(shieldMul) && shieldMul < 1.0) return 'block';
+    if (throughCover) return 'cover';
+    return 'hit';
+  }
+
+  function hitmarkerParams(isHead, tier) {
+    const t = tier || 'hit';
+    let scale = 1.0;
+    let duration = 90;
+    if (t === 'block') {
+      scale = 0.75;
+      duration = 80;
+    } else if (t === 'kill') {
+      scale = isHead ? 1.9 : 1.45;
+      duration = 130;
+    } else if (isHead) {
+      scale = 1.6;
+      duration = 110;
+    } else {
+      scale = 1.0;
+      duration = 90;
+    }
+    const color = HITMARK_COLOR[t] || HITMARK_COLOR.hit;
+    return { scale: scale, color: color, duration: duration, tier: t };
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -7558,7 +7598,10 @@ const CORE = (function () {
     enemyMaxHealth: enemyMaxHealth,
     enemyAccuracy: enemyAccuracy,
     playerBulletDamage: playerBulletDamage,
-    shieldMultiplier: shieldMultiplier
+    shieldMultiplier: shieldMultiplier,
+    HITMARK_COLOR: HITMARK_COLOR,
+    hitmarkerTier: hitmarkerTier,
+    hitmarkerParams: hitmarkerParams
   };
 })();
 
@@ -10149,13 +10192,13 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   // would otherwise have absorbed.
   const lethal = typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
-  // Feedback tiers: a blocked shot used to give the identical ping to a clean body
-  // hit, so the shield mechanic was invisible unless you read the patch notes.
-  showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
-  addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
+  const isKill = en.health <= 0;
+  const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
+  showHitmarker(isHead, tier);
+  addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
-  if (en.health <= 0) killEnemy(en, isHead);
+  if (isKill) killEnemy(en, isHead);
   else {
     // flinch + alert
     en.stateT = 0;
@@ -12658,6 +12701,7 @@ function updateStations(dt) {
 }
 
 function usePlate() {
+  if (player.dead || player.downed) return;
   if (plateT > 0) return;
   if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
   if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
@@ -13111,21 +13155,23 @@ function updateHudAmmo() {
   }
 }
 
-// Feedback tiers. The marker had two states, so a shot absorbed by a shielded
-// advancer's 85% frontal plate looked exactly like a clean body hit — the player
-// could only learn the mechanic by reading the patch notes. `tier` is 'block' for
-// an absorbed hit, 'cover' for one that punched through a surface first.
-const HITMARK_COLOR = { block: '#6fa8ff', cover: '#ffd24a' };
+// Feedback tiers: leverages CORE.hitmarkerParams to provide distinct visual feedback
+// for regular impacts, surface penetration, shield deflection, and fatal kill confirmation.
 function showHitmarker(isHead, tier) {
+  const p = CORE.hitmarkerParams(isHead, tier);
   hud.hitmark.style.opacity = 1;
-  const scale = isHead ? 1.6 : tier === 'block' ? 0.75 : 1;
-  hud.hitmark.style.transform = 'rotate(45deg) scale(' + scale + ')';
-  const col = HITMARK_COLOR[tier] || '#ff4a3d';
+  hud.hitmark.style.transform = 'rotate(45deg) scale(' + p.scale + ')';
+  hud.hitmark.classList.toggle('kill', p.tier === 'kill');
   const marks = hud.hitmark.children;
-  for (let i = 0; i < marks.length; i++) marks[i].style.background = col;
+  for (let i = 0; i < marks.length; i++) marks[i].style.background = p.color;
   clearTimeout(hud.hitmark._t);
-  hud.hitmark._t = setTimeout(function () { hud.hitmark.style.opacity = 0; }, 90);
-  playSound(tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
+  hud.hitmark._t = setTimeout(function () {
+    hud.hitmark.style.opacity = 0;
+    hud.hitmark.classList.remove('kill');
+  }, p.duration);
+  if (p.tier !== 'kill') {
+    playSound(p.tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
+  }
 }
 
 function showDamageFx(dirDeg, amount) {

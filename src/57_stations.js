@@ -370,6 +370,7 @@ function updateStations(dt) {
 }
 
 function usePlate() {
+  if (player.dead || player.downed) return;
   if (plateT > 0) return;
   if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
   if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing

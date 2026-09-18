@@ -2185,6 +2185,44 @@ const CORE = (function () {
     return facing > SHIELD_ARC_COS ? (1 - SHIELD_ABSORB_RATIO) : 1.0;
   }
 
+  // ---- Hitmarker visual feedback tiers -------------------------------------------
+  // Standard tactical shooter feedback: differentiates regular hits from absorbed shield hits,
+  // wall penetration, and critical kill confirmations.
+  const HITMARK_COLOR = {
+    block: '#6fa8ff',
+    cover: '#ffd24a',
+    kill: '#ff2a1a',
+    hit: '#ff4a3d'
+  };
+
+  function hitmarkerTier(shieldMul, throughCover, isKill) {
+    if (isKill) return 'kill';
+    if (typeof shieldMul === 'number' && isFinite(shieldMul) && shieldMul < 1.0) return 'block';
+    if (throughCover) return 'cover';
+    return 'hit';
+  }
+
+  function hitmarkerParams(isHead, tier) {
+    const t = tier || 'hit';
+    let scale = 1.0;
+    let duration = 90;
+    if (t === 'block') {
+      scale = 0.75;
+      duration = 80;
+    } else if (t === 'kill') {
+      scale = isHead ? 1.9 : 1.45;
+      duration = 130;
+    } else if (isHead) {
+      scale = 1.6;
+      duration = 110;
+    } else {
+      scale = 1.0;
+      duration = 90;
+    }
+    const color = HITMARK_COLOR[t] || HITMARK_COLOR.hit;
+    return { scale: scale, color: color, duration: duration, tier: t };
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -2953,7 +2991,10 @@ const CORE = (function () {
     enemyMaxHealth: enemyMaxHealth,
     enemyAccuracy: enemyAccuracy,
     playerBulletDamage: playerBulletDamage,
-    shieldMultiplier: shieldMultiplier
+    shieldMultiplier: shieldMultiplier,
+    HITMARK_COLOR: HITMARK_COLOR,
+    hitmarkerTier: hitmarkerTier,
+    hitmarkerParams: hitmarkerParams
   };
 })();
 

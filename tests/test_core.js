@@ -3534,6 +3534,83 @@ test('shieldMultiplier calculates frontal damage absorption and permits rear or 
   assert.strictEqual(CORE.shieldMultiplier(3, NaN, 0, 0, 5, 0), 1.0);
 });
 
+test('hitmarkerTier resolves kill, shield block, cover penetration, and standard hit feedback tiers', () => {
+  // Lethal kill hits always resolve to 'kill' regardless of shield or cover
+  assert.strictEqual(CORE.hitmarkerTier(1.0, false, true), 'kill');
+  assert.strictEqual(CORE.hitmarkerTier(0.15, false, true), 'kill');
+  assert.strictEqual(CORE.hitmarkerTier(1.0, true, true), 'kill');
+  assert.strictEqual(CORE.hitmarkerTier(0.15, true, true), 'kill');
+
+  // Non-lethal hits prioritize shield deflection over cover penetration
+  assert.strictEqual(CORE.hitmarkerTier(0.15, false, false), 'block');
+  assert.strictEqual(CORE.hitmarkerTier(0.85, false, false), 'block');
+  assert.strictEqual(CORE.hitmarkerTier(0.15, true, false), 'block');
+
+  // Through-cover penetration without shield deflection
+  assert.strictEqual(CORE.hitmarkerTier(1.0, true, false), 'cover');
+
+  // Standard impact
+  assert.strictEqual(CORE.hitmarkerTier(1.0, false, false), 'hit');
+  assert.strictEqual(CORE.hitmarkerTier(), 'hit');
+});
+
+test('hitmarkerParams returns visual feedback scale, color, duration, and tier parameters', () => {
+  assert.strictEqual(CORE.HITMARK_COLOR.kill, '#ff2a1a');
+  assert.strictEqual(CORE.HITMARK_COLOR.block, '#6fa8ff');
+  assert.strictEqual(CORE.HITMARK_COLOR.cover, '#ffd24a');
+  assert.strictEqual(CORE.HITMARK_COLOR.hit, '#ff4a3d');
+
+  // Kill confirmation: high-impact crimson indicator with expanded scale and persistence
+  const bodyKill = CORE.hitmarkerParams(false, 'kill');
+  assert.strictEqual(bodyKill.tier, 'kill');
+  assert.strictEqual(bodyKill.scale, 1.45);
+  assert.strictEqual(bodyKill.color, '#ff2a1a');
+  assert.strictEqual(bodyKill.duration, 130);
+
+  const headKill = CORE.hitmarkerParams(true, 'kill');
+  assert.strictEqual(headKill.tier, 'kill');
+  assert.strictEqual(headKill.scale, 1.9);
+  assert.strictEqual(headKill.color, '#ff2a1a');
+  assert.strictEqual(headKill.duration, 130);
+
+  // Shield block: contracted scale and distinct tactical blue
+  const bodyBlock = CORE.hitmarkerParams(false, 'block');
+  assert.strictEqual(bodyBlock.tier, 'block');
+  assert.strictEqual(bodyBlock.scale, 0.75);
+  assert.strictEqual(bodyBlock.color, '#6fa8ff');
+  assert.strictEqual(bodyBlock.duration, 80);
+
+  // Surface penetration: amber caution indicator
+  const bodyCover = CORE.hitmarkerParams(false, 'cover');
+  assert.strictEqual(bodyCover.tier, 'cover');
+  assert.strictEqual(bodyCover.scale, 1.0);
+  assert.strictEqual(bodyCover.color, '#ffd24a');
+  assert.strictEqual(bodyCover.duration, 90);
+
+  const headCover = CORE.hitmarkerParams(true, 'cover');
+  assert.strictEqual(headCover.scale, 1.6);
+  assert.strictEqual(headCover.color, '#ffd24a');
+
+  // Standard body and headshot hits
+  const bodyHit = CORE.hitmarkerParams(false, 'hit');
+  assert.strictEqual(bodyHit.tier, 'hit');
+  assert.strictEqual(bodyHit.scale, 1.0);
+  assert.strictEqual(bodyHit.color, '#ff4a3d');
+  assert.strictEqual(bodyHit.duration, 90);
+
+  const headHit = CORE.hitmarkerParams(true, 'hit');
+  assert.strictEqual(headHit.tier, 'hit');
+  assert.strictEqual(headHit.scale, 1.6);
+  assert.strictEqual(headHit.color, '#ff4a3d');
+  assert.strictEqual(headHit.duration, 110);
+
+  // Safe defaults
+  const fallback = CORE.hitmarkerParams();
+  assert.strictEqual(fallback.tier, 'hit');
+  assert.strictEqual(fallback.scale, 1.0);
+  assert.strictEqual(fallback.color, '#ff4a3d');
+});
+
 
 
 

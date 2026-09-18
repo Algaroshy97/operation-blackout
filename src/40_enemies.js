@@ -357,13 +357,13 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   // would otherwise have absorbed.
   const lethal = typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
-  // Feedback tiers: a blocked shot used to give the identical ping to a clean body
-  // hit, so the shield mechanic was invisible unless you read the patch notes.
-  showHitmarker(isHead, shield < 1 ? 'block' : throughCover ? 'cover' : null);
-  addCredits(CORE.creditsForDamage(en.health <= 0, isHead));
+  const isKill = en.health <= 0;
+  const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
+  showHitmarker(isHead, tier);
+  addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
-  if (en.health <= 0) killEnemy(en, isHead);
+  if (isKill) killEnemy(en, isHead);
   else {
     // flinch + alert
     en.stateT = 0;

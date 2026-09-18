@@ -305,6 +305,7 @@ def main() -> int:
             const realPlay = playSound;
             playSound = function (name) { played.push(name); realPlay(name); };
             try {
+                player.dead = false; player.downed = false; player.health = 100;
                 player.armor = 0;
                 plates = 1;
                 plateT = 0;
@@ -708,7 +709,45 @@ def main() -> int:
         }""")
         checks.append(("combat-balance-and-scaling-rules", combat_balance_check))
 
-        # 23) Clean console throughout gameplay.
+        # 24) Kill hitmarker visual feedback: distinct tier, scale, color, duration, and class styling.
+        hitmarker_check = page.evaluate("""() => {
+            if (typeof CORE.hitmarkerTier !== 'function' ||
+                typeof CORE.hitmarkerParams !== 'function' ||
+                typeof CORE.HITMARK_COLOR !== 'object') return false;
+            const killTier = CORE.hitmarkerTier(1.0, false, true);
+            const blockTier = CORE.hitmarkerTier(0.15, false, false);
+            const coverTier = CORE.hitmarkerTier(1.0, true, false);
+            const hitTier = CORE.hitmarkerTier(1.0, false, false);
+            const tiersOk = killTier === 'kill' && blockTier === 'block' &&
+                            coverTier === 'cover' && hitTier === 'hit';
+
+            const pKill = CORE.hitmarkerParams(false, 'kill');
+            const pKillHs = CORE.hitmarkerParams(true, 'kill');
+            const pBlock = CORE.hitmarkerParams(false, 'block');
+            const pHit = CORE.hitmarkerParams(false, 'hit');
+            const pHitHs = CORE.hitmarkerParams(true, 'hit');
+
+            const paramsOk = pKill.tier === 'kill' && pKill.color === '#ff2a1a' && pKill.scale === 1.45 && pKill.duration === 130 &&
+                             pKillHs.scale === 1.9 && pBlock.scale === 0.75 && pHit.scale === 1.0 && pHitHs.scale === 1.6;
+
+            // DOM hitmarker styling
+            const testEl = document.createElement('div');
+            testEl.id = 'crosshair';
+            const hitmark = document.createElement('div');
+            hitmark.className = 'hitmark kill';
+            const s = document.createElement('span');
+            hitmark.appendChild(s);
+            testEl.appendChild(hitmark);
+            document.body.appendChild(testEl);
+            const spanStyle = getComputedStyle(s);
+            const shadowOk = spanStyle.boxShadow.includes('255, 42, 26') || spanStyle.boxShadow.includes('rgb(255, 42, 26)') || spanStyle.boxShadow.includes('#ff2a1a');
+            document.body.removeChild(testEl);
+
+            return tiersOk && paramsOk && shadowOk;
+        }""")
+        checks.append(("kill-hitmarker-visual-feedback", hitmarker_check))
+
+        # 25) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
