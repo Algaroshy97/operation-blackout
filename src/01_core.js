@@ -2223,6 +2223,84 @@ const CORE = (function () {
     return { scale: scale, color: color, duration: duration, tier: t };
   }
 
+  // ---- AI agent separation & physics performance rules -------------------------
+  // Pre-computed enemy collision radii for agent-vs-agent separation: runners, riflemen,
+  // scouts, shielded advancers, and grenadiers share 0.85 m; heavy tanks use 1.1 m.
+  const ENEMY_SEPARATION_RADIUS = Object.freeze({
+    0: 0.85,
+    1: 0.85,
+    2: 1.1,
+    3: 0.85,
+    4: 0.85,
+    5: 0.85
+  });
+
+  function enemySeparationRadius(kind) {
+    if (typeof kind !== 'number' || !isFinite(kind)) return 0.85;
+    return ENEMY_SEPARATION_RADIUS[kind] !== undefined ? ENEMY_SEPARATION_RADIUS[kind] : 0.85;
+  }
+
+  // Pure separation displacement resolution between two cylindrical agent footprints.
+  // Performs fast early-axis boundary rejection before evaluating quadratic distance.
+  // Writes push displacement vectors to reusable `out` without heap allocations.
+  function resolveSeparationPush(ax, az, ar, bx, bz, br, out) {
+    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
+    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const rr = radA + radB;
+    const dx = bx - ax, dz = bz - az;
+    if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) {
+      if (out) { out.pushX = 0; out.pushZ = 0; out.applied = false; }
+      return false;
+    }
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= rr * rr || d2 <= 1e-4) {
+      if (out) { out.pushX = 0; out.pushZ = 0; out.applied = false; }
+      return false;
+    }
+    const d = Math.sqrt(d2);
+    const push = (rr - d) * 0.5;
+    const nx = dx / d, nz = dz / d;
+    if (out) {
+      out.pushX = nx * push;
+      out.pushZ = nz * push;
+      out.applied = true;
+    }
+    return true;
+  }
+
+  // Sliding window hit cap: prevents instant simultaneous damage spikes from multiple
+  // melee attacks while avoiding heap allocation churn from repeated array filtering.
+  const MELEE_CAP_WINDOW = 0.8;
+  const MELEE_CAP_MAX_HITS = 2;
+
+  function pruneHitTimestamps(hits, now, windowSec) {
+    if (!Array.isArray(hits)) return 0;
+    const win = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
+    let write = 0;
+    for (let i = 0; i < hits.length; i++) {
+      if (typeof hits[i] === 'number' && isFinite(hits[i]) && (now - hits[i]) < win) {
+        if (write !== i) hits[write] = hits[i];
+        write++;
+      }
+    }
+    hits.length = write;
+    return write;
+  }
+
+  function canRegisterHit(hits, now, windowSec, maxHits) {
+    const active = pruneHitTimestamps(hits, now, windowSec);
+    const limit = (typeof maxHits === 'number' && isFinite(maxHits) && maxHits > 0) ? maxHits : MELEE_CAP_MAX_HITS;
+    return active < limit;
+  }
+
+  // Snaps world coordinates to shadow texel boundaries to prevent shadow shimmering
+  // and throttle redundant directional light matrix updates when standing still.
+  function snapToTexel(coord, texelSize) {
+    if (typeof coord !== 'number' || !isFinite(coord)) return 0;
+    if (typeof texelSize !== 'number' || !isFinite(texelSize) || texelSize <= 0) return coord;
+    return Math.round(coord / texelSize) * texelSize;
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -2994,7 +3072,15 @@ const CORE = (function () {
     shieldMultiplier: shieldMultiplier,
     HITMARK_COLOR: HITMARK_COLOR,
     hitmarkerTier: hitmarkerTier,
-    hitmarkerParams: hitmarkerParams
+    hitmarkerParams: hitmarkerParams,
+    ENEMY_SEPARATION_RADIUS: ENEMY_SEPARATION_RADIUS,
+    enemySeparationRadius: enemySeparationRadius,
+    resolveSeparationPush: resolveSeparationPush,
+    MELEE_CAP_WINDOW: MELEE_CAP_WINDOW,
+    MELEE_CAP_MAX_HITS: MELEE_CAP_MAX_HITS,
+    pruneHitTimestamps: pruneHitTimestamps,
+    canRegisterHit: canRegisterHit,
+    snapToTexel: snapToTexel
   };
 })();
 

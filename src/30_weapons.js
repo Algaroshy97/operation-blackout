@@ -218,6 +218,9 @@ function magnetizeBullet(dir, from) {
   return found ? _magBest : dir;
 }
 
+const _shotTargets = [];
+const _tracerMissEnd = new THREE.Vector3();
+
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
@@ -247,13 +250,13 @@ function fireShot(preserveSchedule) {
   raycaster.far = w.range;
 
   // test enemies first (hitboxes + visible meshes)
-  const targets = [];
+  _shotTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
-    if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
+    if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
   }
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
-  const enemyHits = raycaster.intersectObjects(targets, true);
+  const enemyHits = raycaster.intersectObjects(_shotTargets, true);
   // Penetration is resolved against the collider AABBs rather than the rendered
   // meshes, and deliberately: the static arena is merged into batched meshes, so a
   // mesh raycast reports the entry AND exit faces of every box in a batch and
@@ -282,7 +285,7 @@ function fireShot(preserveSchedule) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
   }
-  spawnTracer(_from, hit ? hit.point : _from.clone().add(_shootDir.clone().multiplyScalar(w.range)));
+  spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)

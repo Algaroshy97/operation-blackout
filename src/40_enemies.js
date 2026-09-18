@@ -435,6 +435,8 @@ function updateFlowField(dt) {
 
 // Reusable output object for CORE.resolveAabbXZ to eliminate per-step GC allocations
 const _enResolveOut = { axis: 'x', val: 0 };
+// Reusable output object for CORE.resolveSeparationPush to eliminate per-frame GC allocations
+const _sepOut = { pushX: 0, pushZ: 0, applied: false };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -730,13 +732,11 @@ function updateEnemies(dt) {
         // swing lands — only if still in reach and player alive
         if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
-          const now = gameT;
-          meleeHits = meleeHits.filter(t => now - t < 0.8);
-          if (meleeHits.length < 2) {
+          if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
             damagePlayer(meleeDmg, dirToDeg(en));
             playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
-            meleeHits.push(now);
+            meleeHits.push(gameT);
           }
         }
         en.swinging = -1;                        // cooldown marker
@@ -782,18 +782,14 @@ function updateEnemies(dt) {
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i];
     if (a.dead) continue;
+    const ar = CORE.enemySeparationRadius(a.kind);
     for (let j = i + 1; j < enemies.length; j++) {
       const b = enemies[j];
       if (b.dead) continue;
-      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
-      const rr = (a.kind === 2 ? 1.1 : 0.85) + (b.kind === 2 ? 1.1 : 0.85);
-      if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < rr * rr && d2 > 0.0001) {
-        const d = Math.sqrt(d2), push = (rr - d) * 0.5;
-        const nx = dx / d, nz = dz / d;
-        a.pos.x -= nx * push; a.pos.z -= nz * push;
-        b.pos.x += nx * push; b.pos.z += nz * push;
+      const br = CORE.enemySeparationRadius(b.kind);
+      if (CORE.resolveSeparationPush(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br, _sepOut)) {
+        a.pos.x -= _sepOut.pushX; a.pos.z -= _sepOut.pushZ;
+        b.pos.x += _sepOut.pushX; b.pos.z += _sepOut.pushZ;
       }
     }
   }

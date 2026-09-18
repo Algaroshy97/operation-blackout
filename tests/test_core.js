@@ -3611,6 +3611,111 @@ test('hitmarkerParams returns visual feedback scale, color, duration, and tier p
   assert.strictEqual(fallback.color, '#ff4a3d');
 });
 
+// ---------------------------------------------------------------- AGENT SEPARATION & PERFORMANCE RULES
+test('enemySeparationRadius returns pre-computed radii for agent archetypes', () => {
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[0], 0.85);
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[1], 0.85);
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[2], 1.1);
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[3], 0.85);
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[4], 0.85);
+  assert.strictEqual(CORE.ENEMY_SEPARATION_RADIUS[5], 0.85);
+
+  assert.strictEqual(CORE.enemySeparationRadius(0), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(1), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(2), 1.1);
+  assert.strictEqual(CORE.enemySeparationRadius(3), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(4), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(5), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(99), 0.85);
+  assert.strictEqual(CORE.enemySeparationRadius(), 0.85);
+});
+
+test('resolveSeparationPush computes zero-allocation push displacement with early rejection', () => {
+  const out = { pushX: 0, pushZ: 0, applied: false };
+
+  // 1) Fast axis rejection: separated along X
+  const rejectedX = CORE.resolveSeparationPush(0, 0, 0.85, 2.0, 0, 0.85, out);
+  assert.strictEqual(rejectedX, false);
+  assert.strictEqual(out.applied, false);
+  assert.strictEqual(out.pushX, 0);
+
+  // 2) Fast axis rejection: separated along Z
+  const rejectedZ = CORE.resolveSeparationPush(0, 0, 0.85, 0, 1.8, 0.85, out);
+  assert.strictEqual(rejectedZ, false);
+  assert.strictEqual(out.applied, false);
+
+  // 3) Diagonal corner rejection (within AABB box but outside circular radius)
+  // dx = 1.3, dz = 1.3 => rr = 1.7. dx < rr, dz < rr, but dx^2 + dz^2 = 3.38 > 2.89
+  const rejectedDiag = CORE.resolveSeparationPush(0, 0, 0.85, 1.3, 1.3, 0.85, out);
+  assert.strictEqual(rejectedDiag, false);
+  assert.strictEqual(out.applied, false);
+
+  // 4) Coincident/near-zero guard (distance <= 1e-4) to prevent NaN/Infinity normal
+  const coincident = CORE.resolveSeparationPush(5, 5, 0.85, 5, 5, 0.85, out);
+  assert.strictEqual(coincident, false);
+  assert.strictEqual(out.applied, false);
+
+  // 5) Pure 1D overlap along X: ax=0, bx=1.0, ar=0.85, br=0.85 => rr=1.7, d=1.0
+  // push = (1.7 - 1.0) * 0.5 = 0.35. normal = (1, 0)
+  const pushed1D = CORE.resolveSeparationPush(0, 0, 0.85, 1.0, 0, 0.85, out);
+  assert.strictEqual(pushed1D, true);
+  assert.strictEqual(out.applied, true);
+  assert.ok(Math.abs(out.pushX - 0.35) < 1e-6);
+  assert.strictEqual(out.pushZ, 0);
+
+  // 6) Diagonal 2D overlap: dx=0.6, dz=0.8 => d=1.0. ar=0.85, br=1.1 (tank) => rr=1.95
+  // push = (1.95 - 1.0) * 0.5 = 0.475. nx = 0.6, nz = 0.8
+  const pushed2D = CORE.resolveSeparationPush(0, 0, 0.85, 0.6, 0.8, 1.1, out);
+  assert.strictEqual(pushed2D, true);
+  assert.strictEqual(out.applied, true);
+  assert.ok(Math.abs(out.pushX - 0.6 * 0.475) < 1e-6);
+  assert.ok(Math.abs(out.pushZ - 0.8 * 0.475) < 1e-6);
+});
+
+test('pruneHitTimestamps and canRegisterHit enforce sliding window rate limit without allocations', () => {
+  assert.strictEqual(CORE.MELEE_CAP_WINDOW, 0.8);
+  assert.strictEqual(CORE.MELEE_CAP_MAX_HITS, 2);
+
+  // In-place pruning of expired timestamps
+  const hits = [10.0, 10.3, 10.8];
+  // At now = 11.0 with 0.8s window: hits >= 10.2 remain (10.3, 10.8)
+  const remaining = CORE.pruneHitTimestamps(hits, 11.0, 0.8);
+  assert.strictEqual(remaining, 2);
+  assert.strictEqual(hits.length, 2);
+  assert.strictEqual(hits[0], 10.3);
+  assert.strictEqual(hits[1], 10.8);
+
+  // Pruning when all are expired
+  const allExpired = [1.0, 2.0];
+  const countZero = CORE.pruneHitTimestamps(allExpired, 10.0, 0.8);
+  assert.strictEqual(countZero, 0);
+  assert.strictEqual(allExpired.length, 0);
+
+  // Non-array safety
+  assert.strictEqual(CORE.pruneHitTimestamps(null, 10.0), 0);
+
+  // canRegisterHit rate gating
+  const activeHits = [10.4, 10.7];
+  assert.strictEqual(CORE.canRegisterHit(activeHits, 11.0, 0.8, 2), false, '2 active hits reach cap');
+  assert.strictEqual(CORE.canRegisterHit([10.7], 11.0, 0.8, 2), true, '1 active hit allows hit');
+  assert.strictEqual(CORE.canRegisterHit([], 11.0, 0.8, 2), true, 'empty history allows hit');
+});
+
+test('snapToTexel rounds world coordinates to shadow texel increments', () => {
+  const texel = 0.037109375; // 76 / 2048
+  assert.strictEqual(CORE.snapToTexel(0, texel), 0);
+  assert.strictEqual(CORE.snapToTexel(0.037, texel), texel);
+  assert.strictEqual(CORE.snapToTexel(0.01, texel), 0);
+  assert.strictEqual(CORE.snapToTexel(1.234, 0.05), 1.25);
+  assert.strictEqual(CORE.snapToTexel(-1.234, 0.05), -1.25);
+
+  // Non-finite or invalid fallback
+  assert.strictEqual(CORE.snapToTexel(NaN, 0.05), 0);
+  assert.strictEqual(CORE.snapToTexel(5.5, 0), 5.5);
+  assert.strictEqual(CORE.snapToTexel(5.5, -1), 5.5);
+});
+
+
 
 
 

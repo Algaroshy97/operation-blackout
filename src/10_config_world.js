@@ -131,9 +131,12 @@ scene.add(sun); scene.add(sun.target);
 const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
 // Snap to whole texels so the shadow map does not shimmer as the player walks.
 const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+let _lastSunSx = null, _lastSunSz = null;
 function updateSunShadow(targetX, targetZ) {
-  const sx = Math.round(targetX / SHADOW_TEXEL) * SHADOW_TEXEL;
-  const sz = Math.round(targetZ / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const sx = CORE.snapToTexel(targetX, SHADOW_TEXEL);
+  const sz = CORE.snapToTexel(targetZ, SHADOW_TEXEL);
+  if (sx === _lastSunSx && sz === _lastSunSz) return;
+  _lastSunSx = sx; _lastSunSz = sz;
   sun.target.position.set(sx, 0, sz);
   sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
   sun.target.updateMatrixWorld();

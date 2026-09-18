@@ -6830,6 +6830,84 @@ const CORE = (function () {
     return { scale: scale, color: color, duration: duration, tier: t };
   }
 
+  // ---- AI agent separation & physics performance rules -------------------------
+  // Pre-computed enemy collision radii for agent-vs-agent separation: runners, riflemen,
+  // scouts, shielded advancers, and grenadiers share 0.85 m; heavy tanks use 1.1 m.
+  const ENEMY_SEPARATION_RADIUS = Object.freeze({
+    0: 0.85,
+    1: 0.85,
+    2: 1.1,
+    3: 0.85,
+    4: 0.85,
+    5: 0.85
+  });
+
+  function enemySeparationRadius(kind) {
+    if (typeof kind !== 'number' || !isFinite(kind)) return 0.85;
+    return ENEMY_SEPARATION_RADIUS[kind] !== undefined ? ENEMY_SEPARATION_RADIUS[kind] : 0.85;
+  }
+
+  // Pure separation displacement resolution between two cylindrical agent footprints.
+  // Performs fast early-axis boundary rejection before evaluating quadratic distance.
+  // Writes push displacement vectors to reusable `out` without heap allocations.
+  function resolveSeparationPush(ax, az, ar, bx, bz, br, out) {
+    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
+    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const rr = radA + radB;
+    const dx = bx - ax, dz = bz - az;
+    if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) {
+      if (out) { out.pushX = 0; out.pushZ = 0; out.applied = false; }
+      return false;
+    }
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= rr * rr || d2 <= 1e-4) {
+      if (out) { out.pushX = 0; out.pushZ = 0; out.applied = false; }
+      return false;
+    }
+    const d = Math.sqrt(d2);
+    const push = (rr - d) * 0.5;
+    const nx = dx / d, nz = dz / d;
+    if (out) {
+      out.pushX = nx * push;
+      out.pushZ = nz * push;
+      out.applied = true;
+    }
+    return true;
+  }
+
+  // Sliding window hit cap: prevents instant simultaneous damage spikes from multiple
+  // melee attacks while avoiding heap allocation churn from repeated array filtering.
+  const MELEE_CAP_WINDOW = 0.8;
+  const MELEE_CAP_MAX_HITS = 2;
+
+  function pruneHitTimestamps(hits, now, windowSec) {
+    if (!Array.isArray(hits)) return 0;
+    const win = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
+    let write = 0;
+    for (let i = 0; i < hits.length; i++) {
+      if (typeof hits[i] === 'number' && isFinite(hits[i]) && (now - hits[i]) < win) {
+        if (write !== i) hits[write] = hits[i];
+        write++;
+      }
+    }
+    hits.length = write;
+    return write;
+  }
+
+  function canRegisterHit(hits, now, windowSec, maxHits) {
+    const active = pruneHitTimestamps(hits, now, windowSec);
+    const limit = (typeof maxHits === 'number' && isFinite(maxHits) && maxHits > 0) ? maxHits : MELEE_CAP_MAX_HITS;
+    return active < limit;
+  }
+
+  // Snaps world coordinates to shadow texel boundaries to prevent shadow shimmering
+  // and throttle redundant directional light matrix updates when standing still.
+  function snapToTexel(coord, texelSize) {
+    if (typeof coord !== 'number' || !isFinite(coord)) return 0;
+    if (typeof texelSize !== 'number' || !isFinite(texelSize) || texelSize <= 0) return coord;
+    return Math.round(coord / texelSize) * texelSize;
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -7601,7 +7679,15 @@ const CORE = (function () {
     shieldMultiplier: shieldMultiplier,
     HITMARK_COLOR: HITMARK_COLOR,
     hitmarkerTier: hitmarkerTier,
-    hitmarkerParams: hitmarkerParams
+    hitmarkerParams: hitmarkerParams,
+    ENEMY_SEPARATION_RADIUS: ENEMY_SEPARATION_RADIUS,
+    enemySeparationRadius: enemySeparationRadius,
+    resolveSeparationPush: resolveSeparationPush,
+    MELEE_CAP_WINDOW: MELEE_CAP_WINDOW,
+    MELEE_CAP_MAX_HITS: MELEE_CAP_MAX_HITS,
+    pruneHitTimestamps: pruneHitTimestamps,
+    canRegisterHit: canRegisterHit,
+    snapToTexel: snapToTexel
   };
 })();
 
@@ -8020,9 +8106,12 @@ scene.add(sun); scene.add(sun.target);
 const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
 // Snap to whole texels so the shadow map does not shimmer as the player walks.
 const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+let _lastSunSx = null, _lastSunSz = null;
 function updateSunShadow(targetX, targetZ) {
-  const sx = Math.round(targetX / SHADOW_TEXEL) * SHADOW_TEXEL;
-  const sz = Math.round(targetZ / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const sx = CORE.snapToTexel(targetX, SHADOW_TEXEL);
+  const sz = CORE.snapToTexel(targetZ, SHADOW_TEXEL);
+  if (sx === _lastSunSx && sz === _lastSunSz) return;
+  _lastSunSx = sx; _lastSunSz = sz;
   sun.target.position.set(sx, 0, sz);
   sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
   sun.target.updateMatrixWorld();
@@ -9519,6 +9608,9 @@ function magnetizeBullet(dir, from) {
   return found ? _magBest : dir;
 }
 
+const _shotTargets = [];
+const _tracerMissEnd = new THREE.Vector3();
+
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
@@ -9548,13 +9640,13 @@ function fireShot(preserveSchedule) {
   raycaster.far = w.range;
 
   // test enemies first (hitboxes + visible meshes)
-  const targets = [];
+  _shotTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].dead) continue;
-    if (enemies[i].parts && enemies[i].parts.group) targets.push(enemies[i].parts.group);
+    if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
   }
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
-  const enemyHits = raycaster.intersectObjects(targets, true);
+  const enemyHits = raycaster.intersectObjects(_shotTargets, true);
   // Penetration is resolved against the collider AABBs rather than the rendered
   // meshes, and deliberately: the static arena is merged into batched meshes, so a
   // mesh raycast reports the entry AND exit faces of every box in a batch and
@@ -9583,7 +9675,7 @@ function fireShot(preserveSchedule) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
   }
-  spawnTracer(_from, hit ? hit.point : _from.clone().add(_shootDir.clone().multiplyScalar(w.range)));
+  spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)
@@ -10270,6 +10362,8 @@ function updateFlowField(dt) {
 
 // Reusable output object for CORE.resolveAabbXZ to eliminate per-step GC allocations
 const _enResolveOut = { axis: 'x', val: 0 };
+// Reusable output object for CORE.resolveSeparationPush to eliminate per-frame GC allocations
+const _sepOut = { pushX: 0, pushZ: 0, applied: false };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -10565,13 +10659,11 @@ function updateEnemies(dt) {
         // swing lands — only if still in reach and player alive
         if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
-          const now = gameT;
-          meleeHits = meleeHits.filter(t => now - t < 0.8);
-          if (meleeHits.length < 2) {
+          if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
             damagePlayer(meleeDmg, dirToDeg(en));
             playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
-            meleeHits.push(now);
+            meleeHits.push(gameT);
           }
         }
         en.swinging = -1;                        // cooldown marker
@@ -10617,18 +10709,14 @@ function updateEnemies(dt) {
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i];
     if (a.dead) continue;
+    const ar = CORE.enemySeparationRadius(a.kind);
     for (let j = i + 1; j < enemies.length; j++) {
       const b = enemies[j];
       if (b.dead) continue;
-      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
-      const rr = (a.kind === 2 ? 1.1 : 0.85) + (b.kind === 2 ? 1.1 : 0.85);
-      if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < rr * rr && d2 > 0.0001) {
-        const d = Math.sqrt(d2), push = (rr - d) * 0.5;
-        const nx = dx / d, nz = dz / d;
-        a.pos.x -= nx * push; a.pos.z -= nz * push;
-        b.pos.x += nx * push; b.pos.z += nz * push;
+      const br = CORE.enemySeparationRadius(b.kind);
+      if (CORE.resolveSeparationPush(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br, _sepOut)) {
+        a.pos.x -= _sepOut.pushX; a.pos.z -= _sepOut.pushZ;
+        b.pos.x += _sepOut.pushX; b.pos.z += _sepOut.pushZ;
       }
     }
   }

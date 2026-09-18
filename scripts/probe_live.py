@@ -747,7 +747,40 @@ def main() -> int:
         }""")
         checks.append(("kill-hitmarker-visual-feedback", hitmarker_check))
 
-        # 25) Clean console throughout gameplay.
+        # 25) Agent separation and performance rules: pre-computed radii, separation push, melee hit window pruning, texel snapping.
+        separation_perf_check = page.evaluate("""() => {
+            if (typeof CORE.enemySeparationRadius !== 'function' ||
+                typeof CORE.resolveSeparationPush !== 'function' ||
+                typeof CORE.pruneHitTimestamps !== 'function' ||
+                typeof CORE.canRegisterHit !== 'function' ||
+                typeof CORE.snapToTexel !== 'function') return false;
+            const r0 = CORE.enemySeparationRadius(0);
+            const r2 = CORE.enemySeparationRadius(2);
+            const radiiOk = r0 === 0.85 && r2 === 1.1;
+
+            const out = { pushX: 0, pushZ: 0, applied: false };
+            const pushed = CORE.resolveSeparationPush(0, 0, 0.85, 1.0, 0, 0.85, out);
+            const pushMathOk = pushed === true && out.applied === true &&
+                               Math.abs(out.pushX - 0.35) < 1e-6 && Math.abs(out.pushZ) < 1e-6;
+
+            const rejected = CORE.resolveSeparationPush(0, 0, 0.85, 2.0, 0, 0.85, out);
+            const rejectOk = rejected === false && out.applied === false;
+
+            const timestamps = [10.0, 10.4, 10.7];
+            const activeCount = CORE.pruneHitTimestamps(timestamps, 11.0, 0.8);
+            const pruneOk = activeCount === 2 && timestamps.length === 2 && timestamps[0] === 10.4 && timestamps[1] === 10.7;
+
+            const canHit1 = CORE.canRegisterHit([10.4, 10.7], 11.0, 0.8, 2);
+            const canHit2 = CORE.canRegisterHit([10.4], 11.0, 0.8, 2);
+            const hitCapOk = canHit1 === false && canHit2 === true;
+
+            const snapOk = Math.abs(CORE.snapToTexel(1.234, 0.05) - 1.25) < 1e-6;
+
+            return radiiOk && pushMathOk && rejectOk && pruneOk && hitCapOk && snapOk;
+        }""")
+        checks.append(("agent-separation-and-performance-rules", separation_perf_check))
+
+        # 26) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
