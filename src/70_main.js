@@ -516,6 +516,42 @@ document.addEventListener('click', function (e) {
   const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card') : null;
   if (t) playSound('click');
 });
+// Fullscreen is opt-in because browsers only allow it from a user gesture. The
+// menu button is especially useful on phones, where browser chrome consumes a
+// large part of the already-short landscape viewport. Keep WebKit fallbacks for
+// older iOS Safari builds and reflect exits triggered by the OS/browser controls.
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+function fullscreenSupported() {
+  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+}
+function updateFullscreenButtons() {
+  const label = fullscreenElement() ? 'EXIT FULL SCREEN' : 'FULL SCREEN';
+  ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+    const el = $id(id);
+    if (el) el.textContent = label;
+  });
+}
+function toggleFullscreen() {
+  if (!fullscreenSupported()) {
+    ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+      const el = $id(id);
+      if (el) { el.textContent = 'FULL SCREEN UNAVAILABLE'; setTimeout(updateFullscreenButtons, 1800); }
+    });
+    return;
+  }
+  const root = document.documentElement;
+  try {
+    const result = fullscreenElement()
+      ? (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen())
+      : (root.requestFullscreen ? root.requestFullscreen() : root.webkitRequestFullscreen());
+    if (result && typeof result.catch === 'function') result.catch(function () { updateFullscreenButtons(); });
+  } catch (e) { updateFullscreenButtons(); }
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtons);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
+updateFullscreenButtons();
 // buttons
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
@@ -532,6 +568,8 @@ $id('btn-start').addEventListener('click', function () {
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
 $id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-fullscreen-menu').addEventListener('click', toggleFullscreen);
+$id('btn-fullscreen-pause').addEventListener('click', toggleFullscreen);
 $id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';

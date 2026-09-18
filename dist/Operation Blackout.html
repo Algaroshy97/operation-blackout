@@ -183,6 +183,7 @@
   #asset-loading[data-state="warn"]{color:#ffd24a}
   .menu-btn{display:inline-block;margin:8px;padding:14px 54px;font-size:16px;font-weight:800;letter-spacing:4px;color:#fff;background:linear-gradient(180deg,rgba(60,60,60,.9),rgba(30,30,30,.9));border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;transition:all .15s;pointer-events:auto}
   .menu-btn.disabled{opacity:.45;cursor:wait;pointer-events:none;filter:grayscale(1)}
+  .fullscreen-btn{border-color:rgba(255,210,74,.55);color:#ffdf8a}
   .menu-btn:hover{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a;box-shadow:0 0 18px rgba(255,190,60,.25)}
   #start-screen .controls{margin-top:36px;display:grid;grid-template-columns:auto auto;gap:4px 18px;color:rgba(255,255,255,.75);font-size:13px;text-align:left}
   #start-screen .controls b{color:#ffdf8a;font-weight:700;text-align:right}
@@ -262,6 +263,7 @@
   body.touch #armor-container{bottom:calc(42px + var(--sa-b));left:calc(16px + var(--sa-l))}
   body.touch #fps-counter{bottom:calc(6px + var(--sa-b));left:calc(8px + var(--sa-l))}
   body.touch #start-screen .controls{display:none}
+  body.touch .fullscreen-btn{display:inline-block;margin-top:4px}
   body.touch #minimap{width:100px;height:100px}
   body.touch #ammo-mag{font-size:30px}
   #gun-select{overflow-y:auto;box-sizing:border-box;justify-content:flex-start;padding:24px 12px;max-height:100%;}
@@ -355,6 +357,7 @@
     <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
     <div class="menu-btn" id="btn-gunsmith">GUNSMITH</div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
+    <div class="menu-btn fullscreen-btn" id="btn-fullscreen-menu">FULL SCREEN</div>
     <p id="menu-stats"></p>
     <div id="challenge-list"></div>
     <p id="save-note"></p>
@@ -373,7 +376,7 @@
   </div>
 </div>
 <div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
-<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
+<div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn fullscreen-btn" id="btn-fullscreen-pause">FULL SCREEN</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
 <div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
@@ -14390,6 +14393,42 @@ document.addEventListener('click', function (e) {
   const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card') : null;
   if (t) playSound('click');
 });
+// Fullscreen is opt-in because browsers only allow it from a user gesture. The
+// menu button is especially useful on phones, where browser chrome consumes a
+// large part of the already-short landscape viewport. Keep WebKit fallbacks for
+// older iOS Safari builds and reflect exits triggered by the OS/browser controls.
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+function fullscreenSupported() {
+  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+}
+function updateFullscreenButtons() {
+  const label = fullscreenElement() ? 'EXIT FULL SCREEN' : 'FULL SCREEN';
+  ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+    const el = $id(id);
+    if (el) el.textContent = label;
+  });
+}
+function toggleFullscreen() {
+  if (!fullscreenSupported()) {
+    ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+      const el = $id(id);
+      if (el) { el.textContent = 'FULL SCREEN UNAVAILABLE'; setTimeout(updateFullscreenButtons, 1800); }
+    });
+    return;
+  }
+  const root = document.documentElement;
+  try {
+    const result = fullscreenElement()
+      ? (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen())
+      : (root.requestFullscreen ? root.requestFullscreen() : root.webkitRequestFullscreen());
+    if (result && typeof result.catch === 'function') result.catch(function () { updateFullscreenButtons(); });
+  } catch (e) { updateFullscreenButtons(); }
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtons);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
+updateFullscreenButtons();
 // buttons
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
@@ -14406,6 +14445,8 @@ $id('btn-start').addEventListener('click', function () {
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
 $id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-fullscreen-menu').addEventListener('click', toggleFullscreen);
+$id('btn-fullscreen-pause').addEventListener('click', toggleFullscreen);
 $id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';
