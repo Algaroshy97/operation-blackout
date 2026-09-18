@@ -3419,6 +3419,121 @@ test('touchMovementKeys, JOYSTICK_MOVE_THRESHOLD, and touchReloadState resolve m
   assert.strictEqual(CORE.touchReloadState(NaN, 30, false), '', 'corrupt ammo returns non-urgent default');
 });
 
+test('enemyBaseHealth and enemyMaxHealth scale archetype, wave progression, difficulty, and elite status', () => {
+  // Verify scale constants
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[0], 1.0, 'runner scale');
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[1], 1.35, 'rifleman scale');
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[2], 3.2, 'tank scale standardizes 320 HP');
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[3], 2.2, 'shielded advancer scale');
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[4], 0.55, 'scout scale');
+  assert.strictEqual(CORE.ENEMY_HEALTH_SCALE[5], 1.2, 'grenadier scale');
+
+  // Base health resolution
+  assert.strictEqual(CORE.enemyBaseHealth(0, 100), 100);
+  assert.strictEqual(CORE.enemyBaseHealth(1, 100), 135);
+  assert.strictEqual(CORE.enemyBaseHealth(2, 100), 320);
+  assert.strictEqual(CORE.enemyBaseHealth(3, 100), 220);
+  assert.strictEqual(CORE.enemyBaseHealth(4, 100), 55);
+  assert.strictEqual(CORE.enemyBaseHealth(5, 100), 120);
+  assert.strictEqual(CORE.enemyBaseHealth(99, 100), 100, 'unrecognized kind falls back to 1.0x');
+
+  // Wave 1 regular difficulty: waveHpMultiplier(1) = 1.0, diffHp = 1.0, not elite
+  assert.strictEqual(CORE.enemyMaxHealth(0, 100, 1, 15, 1.0, 1.0, false), 100);
+  assert.strictEqual(CORE.enemyMaxHealth(2, 100, 1, 15, 1.0, 1.0, false), 320);
+
+  // Wave 5 scaling: waveHpMultiplier(5) = 1 + 0.06 * 4 = 1.24 -> 100 * 1.24 = 124
+  const w5Runner = CORE.enemyMaxHealth(0, 100, 5, 15, 1.0, 1.0, false);
+  assert.strictEqual(w5Runner, 124);
+
+  // Veteran difficulty (1.25x HP multiplier)
+  const vetTank = CORE.enemyMaxHealth(2, 100, 1, 15, 1.25, 1.0, false);
+  assert.strictEqual(vetTank, 400); // 320 * 1.25 = 400
+
+  // Special wave modifier (e.g. Ironclad 1.5x)
+  const specialScout = CORE.enemyMaxHealth(4, 100, 1, 15, 1.0, 1.5, false);
+  assert.strictEqual(specialScout, Math.round(55 * 1.5)); // 83
+
+  // Elite multiplier (CORE.ELITE.hpMul = 2.2)
+  const eliteTank = CORE.enemyMaxHealth(2, 100, 1, 15, 1.0, 1.0, true);
+  assert.strictEqual(eliteTank, Math.round(320 * 2.2)); // 704
+
+  // Fallbacks for missing/corrupt values
+  assert.ok(CORE.enemyMaxHealth(0) > 0);
+  assert.ok(CORE.enemyMaxHealth() > 0);
+});
+
+test('enemyAccuracy computes wave-scaled rifleman accuracy and obeys caps and special bonuses', () => {
+  // Wave 1 base accuracy: 0.5 + 1 * 0.035 = 0.535
+  const w1Acc = CORE.enemyAccuracy(0.5, 0.035, 1, 0.75, 0);
+  assert.ok(Math.abs(w1Acc - 0.535) < 1e-6);
+
+  // Wave 5 accuracy: 0.5 + 5 * 0.035 = 0.675
+  const w5Acc = CORE.enemyAccuracy(0.5, 0.035, 5, 0.75, 0);
+  assert.ok(Math.abs(w5Acc - 0.675) < 1e-6);
+
+  // Wave 10 accuracy: 0.5 + 10 * 0.035 = 0.85 -> capped at 0.75
+  const w10Acc = CORE.enemyAccuracy(0.5, 0.035, 10, 0.75, 0);
+  assert.strictEqual(w10Acc, 0.75);
+
+  // Special wave accuracy bonus (e.g. Deadeye +0.10) raises cap and accuracy
+  const bonusAcc = CORE.enemyAccuracy(0.5, 0.035, 10, 0.75, 0.10);
+  assert.strictEqual(bonusAcc, 0.85);
+
+  // Safe defaults and corrupt input handling
+  const fallback = CORE.enemyAccuracy();
+  assert.ok(fallback >= 0 && fallback <= 1);
+});
+
+test('playerBulletDamage computes ballistic damage with headshots, distance falloff, and surface penetration', () => {
+  // Point-blank body shot (no falloff, no penetration loss)
+  const bodyClose = CORE.playerBulletDamage(26, false, 1.8, 10, 120, 1.0);
+  assert.strictEqual(bodyClose, 26);
+
+  // Point-blank headshot: 26 * 1.8 = 46.8
+  const headClose = CORE.playerBulletDamage(26, true, 1.8, 10, 120, 1.0);
+  assert.ok(Math.abs(headClose - 46.8) < 1e-6);
+
+  // Falloff at max range: minMul = 0.65 -> 26 * 0.65 = 16.9
+  const bodyFar = CORE.playerBulletDamage(26, false, 1.8, 120, 120, 1.0);
+  assert.ok(Math.abs(bodyFar - 16.9) < 1e-6);
+
+  // Through cover penetration (50% power remaining)
+  const bodyPen = CORE.playerBulletDamage(26, false, 1.8, 10, 120, 0.5);
+  assert.strictEqual(bodyPen, 13);
+
+  // Safe defaults
+  const fallback = CORE.playerBulletDamage();
+  assert.ok(fallback > 0);
+});
+
+test('shieldMultiplier calculates frontal damage absorption and permits rear or flank hits', () => {
+  assert.strictEqual(CORE.SHIELD_ARC_COS, 0.5);
+  assert.strictEqual(CORE.SHIELD_ABSORB_RATIO, 0.85);
+
+  // Non-shielded enemies take 100% damage regardless of hit angle
+  assert.strictEqual(CORE.shieldMultiplier(0, 0, 0, 0, 0, 5), 1.0);
+  assert.strictEqual(CORE.shieldMultiplier(1, 0, 0, 0, 0, 5), 1.0);
+  assert.strictEqual(CORE.shieldMultiplier(2, 0, 0, 0, 0, 5), 1.0);
+
+  // Shielded advancer (kind 3) facing +Z (yaw = 0):
+  // Facing vector: fx = sin(0) = 0, fz = cos(0) = 1
+  // Head-on hit from front (0, 5): dx = 0, dz = 5 -> facing dot = 1.0 > 0.5 -> 0.15
+  const frontHit = CORE.shieldMultiplier(3, 0, 0, 0, 0, 5);
+  assert.ok(Math.abs(frontHit - 0.15) < 1e-6, 'head-on shot absorbed to 15%');
+
+  // Rear hit from back (0, -5): dx = 0, dz = -5 -> facing dot = -1.0 <= 0.5 -> 1.0
+  const rearHit = CORE.shieldMultiplier(3, 0, 0, 0, 0, -5);
+  assert.strictEqual(rearHit, 1.0, 'rear shot fully connects');
+
+  // Flank hit from side (5, 0): dx = 5, dz = 0 -> facing dot = 0.0 <= 0.5 -> 1.0
+  const flankHit = CORE.shieldMultiplier(3, 0, 0, 0, 5, 0);
+  assert.strictEqual(flankHit, 1.0, 'flank shot fully connects');
+
+  // Missing or non-finite parameters safely return 1.0
+  assert.strictEqual(CORE.shieldMultiplier(3, 0, 0, 0, undefined, undefined), 1.0);
+  assert.strictEqual(CORE.shieldMultiplier(3, NaN, 0, 0, 5, 0), 1.0);
+});
+
 
 
 

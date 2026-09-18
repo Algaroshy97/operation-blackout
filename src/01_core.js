@@ -2123,6 +2123,68 @@ const CORE = (function () {
     return (base + w * 0.35) * diff * elite;
   }
 
+  // Archetype base health scaling multipliers relative to CFG.ai.maxHealth.
+  // Standardizes kind 2 (Tank) from a hardcoded 320 to 3.2x base health.
+  const ENEMY_HEALTH_SCALE = {
+    0: 1.0,   // runner
+    1: 1.35,  // rifleman
+    2: 3.2,   // tank
+    3: 2.2,   // shielded advancer
+    4: 0.55,  // scout
+    5: 1.2    // grenadier
+  };
+
+  const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
+  const SHIELD_ABSORB_RATIO = 0.85;    // 85% absorbed head-on (0.15 damage multiplier)
+
+  function enemyBaseHealth(kind, baseMaxHealth) {
+    const base = typeof baseMaxHealth === 'number' && isFinite(baseMaxHealth) && baseMaxHealth > 0 ? baseMaxHealth : 100;
+    const mul = ENEMY_HEALTH_SCALE[kind] !== undefined ? ENEMY_HEALTH_SCALE[kind] : 1.0;
+    return Math.round(base * mul);
+  }
+
+  function enemyMaxHealth(kind, baseMaxHealth, wave, victoryWave, diffHp, specialHp, isElite) {
+    const baseHp = enemyBaseHealth(kind, baseMaxHealth);
+    const curWave = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const vWave = typeof victoryWave === 'number' && isFinite(victoryWave) ? victoryWave : 15;
+    const waveMul = endlessHpMultiplier(curWave, vWave);
+    const dHp = typeof diffHp === 'number' && isFinite(diffHp) && diffHp > 0 ? diffHp : 1.0;
+    const sHp = typeof specialHp === 'number' && isFinite(specialHp) && specialHp > 0 ? specialHp : 1.0;
+    const eliteMul = isElite ? ELITE.hpMul : 1.0;
+    return Math.max(1, Math.round(baseHp * waveMul * dHp * sHp * eliteMul));
+  }
+
+  function enemyAccuracy(baseAcc, accPerWave, wave, maxAcc, accBonus) {
+    const base = typeof baseAcc === 'number' && isFinite(baseAcc) ? baseAcc : 0.5;
+    const perWave = typeof accPerWave === 'number' && isFinite(accPerWave) ? accPerWave : 0.035;
+    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
+    const cap = typeof maxAcc === 'number' && isFinite(maxAcc) ? maxAcc : 0.75;
+    const bonus = typeof accBonus === 'number' && isFinite(accBonus) ? accBonus : 0;
+    const raw = base + w * perWave + bonus;
+    return Math.max(0, Math.min(cap + bonus, raw));
+  }
+
+  function playerBulletDamage(baseDmg, isHead, headshotMul, dist, range, penMul) {
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 20;
+    const hs = isHead ? (typeof headshotMul === 'number' && isFinite(headshotMul) && headshotMul > 0 ? headshotMul : 1.8) : 1.0;
+    const d = typeof dist === 'number' && isFinite(dist) && dist >= 0 ? dist : 0;
+    const r = typeof range === 'number' && isFinite(range) && range > 0 ? range : 100;
+    const falloff = distanceFalloff(d, r);
+    const pen = typeof penMul === 'number' && isFinite(penMul) && penMul >= 0 ? penMul : 1.0;
+    return base * hs * falloff * pen;
+  }
+
+  function shieldMultiplier(kind, enX, enZ, enYaw, hitX, hitZ) {
+    if (kind !== 3 || hitX === undefined || hitZ === undefined ||
+        !isFinite(hitX) || !isFinite(hitZ) || !isFinite(enX) || !isFinite(enZ) || !isFinite(enYaw)) return 1.0;
+    const fx = Math.sin(enYaw), fz = Math.cos(enYaw);
+    const dx = hitX - enX, dz = hitZ - enZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) return 1.0;
+    const facing = (dx / len) * fx + (dz / len) * fz;
+    return facing > SHIELD_ARC_COS ? (1 - SHIELD_ABSORB_RATIO) : 1.0;
+  }
+
   // ---- Gated districts -----------------------------------------------------------
   // A second sink for credits that also paces the run: the 90x90 arena reveals
   // itself instead of arriving all at once.
@@ -2883,7 +2945,15 @@ const CORE = (function () {
     grenadeContactSound: grenadeContactSound,
     JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
     touchMovementKeys: touchMovementKeys,
-    touchReloadState: touchReloadState
+    touchReloadState: touchReloadState,
+    ENEMY_HEALTH_SCALE: ENEMY_HEALTH_SCALE,
+    SHIELD_ARC_COS: SHIELD_ARC_COS,
+    SHIELD_ABSORB_RATIO: SHIELD_ABSORB_RATIO,
+    enemyBaseHealth: enemyBaseHealth,
+    enemyMaxHealth: enemyMaxHealth,
+    enemyAccuracy: enemyAccuracy,
+    playerBulletDamage: playerBulletDamage,
+    shieldMultiplier: shieldMultiplier
   };
 })();
 

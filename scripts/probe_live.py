@@ -682,7 +682,33 @@ def main() -> int:
         }""")
         checks.append(("touch-movement-and-reload-rules", touch_reload_check))
 
-        # 22) Clean console throughout gameplay.
+        # 22) Combat balance: enemy health scaling, accuracy, player bullet damage, and shield absorption.
+        combat_balance_check = page.evaluate("""() => {
+            if (typeof CORE.enemyBaseHealth !== 'function' ||
+                typeof CORE.enemyMaxHealth !== 'function' ||
+                typeof CORE.enemyAccuracy !== 'function' ||
+                typeof CORE.playerBulletDamage !== 'function' ||
+                typeof CORE.shieldMultiplier !== 'function' ||
+                typeof CORE.ENEMY_HEALTH_SCALE !== 'object') return false;
+            const scaleOk = CORE.ENEMY_HEALTH_SCALE[0] === 1.0 &&
+                            CORE.ENEMY_HEALTH_SCALE[2] === 3.2 &&
+                            CORE.enemyBaseHealth(2, 100) === 320 &&
+                            CORE.enemyBaseHealth(1, 100) === 135;
+            const healthOk = CORE.enemyMaxHealth(0, 100, 1, 15, 1.0, 1.0, false) === 100 &&
+                             CORE.enemyMaxHealth(2, 100, 1, 15, 1.25, 1.0, false) === 400 &&
+                             CORE.enemyMaxHealth(2, 100, 1, 15, 1.0, 1.0, true) === 704;
+            const accOk = Math.abs(CORE.enemyAccuracy(0.5, 0.035, 1, 0.75, 0) - 0.535) < 1e-6 &&
+                          CORE.enemyAccuracy(0.5, 0.035, 10, 0.75, 0) === 0.75;
+            const bulletDmgOk = CORE.playerBulletDamage(26, false, 1.8, 10, 120, 1.0) === 26 &&
+                                Math.abs(CORE.playerBulletDamage(26, true, 1.8, 10, 120, 1.0) - 46.8) < 1e-6;
+            const shieldOk = Math.abs(CORE.shieldMultiplier(3, 0, 0, 0, 0, 5) - 0.15) < 1e-6 &&
+                             CORE.shieldMultiplier(3, 0, 0, 0, 0, -5) === 1.0 &&
+                             CORE.shieldMultiplier(0, 0, 0, 0, 0, 5) === 1.0;
+            return scaleOk && healthOk && accOk && bulletDmgOk && shieldOk;
+        }""")
+        checks.append(("combat-balance-and-scaling-rules", combat_balance_check))
+
+        # 23) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

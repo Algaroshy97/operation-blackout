@@ -237,20 +237,11 @@ function spawnEnemy(kind, x, z, opts) {
   }
   const scale = kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1;
   parts.group.scale.set(scale, scale, scale);
-  const baseHp = kind === 0 ? CFG.ai.maxHealth
-    : kind === 1 ? CFG.ai.maxHealth * 1.35
-    : kind === 3 ? CFG.ai.maxHealth * 2.2      // shielded advancer
-    : kind === 4 ? CFG.ai.maxHealth * 0.55     // scout: fast and fragile
-    : kind === 5 ? CFG.ai.maxHealth * 1.2      // grenadier
-    : 320;
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
-  const waveMul = CORE.endlessHpMultiplier(Math.max(1, curWave), CFG.wave.victoryWave);
-  // Special waves and elite rolls both scale the same base rather than adding a
-  // parallel stat path: an Ironclad elite tank is one multiply, not a special case.
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
-  const hp = Math.round(baseHp * waveMul * diff().hp * specialHp * (isElite ? CORE.ELITE.hpMul : 1));
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, CFG.wave.victoryWave, diff().hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
@@ -343,14 +334,9 @@ function disposeEnemyGeometry(en) {
 // Shielded advancers (kind 3) carry a frontal plate: shots into the front arc are
 // mostly absorbed, so they have to be flanked, headshot or grenaded. This is the
 // wave-9+ answer to "the back half is the same fight with more bodies".
-const SHIELD_ARC = Math.cos(Math.PI / 3);   // 60 degrees either side of facing
 function shieldMultiplier(en, point) {
   if (en.kind !== 3 || !point) return 1;
-  const fx = Math.sin(en.yaw), fz = Math.cos(en.yaw);      // facing the player
-  const dx = point.x - en.pos.x, dz = point.z - en.pos.z;
-  const len = Math.hypot(dx, dz) || 1;
-  const facing = (dx / len) * fx + (dz / len) * fz;
-  return facing > SHIELD_ARC ? 0.15 : 1;                   // 85% absorbed head-on
+  return CORE.shieldMultiplier(en.kind, en.pos.x, en.pos.z, en.yaw, point.x, point.z);
 }
 
 function damageEnemy(en, dmg, point, isHead, throughCover) {
@@ -881,8 +867,7 @@ function enemyShoot(en, dist) {
   spawnTracer(from, to, 0xff8844);
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
-  const acc = Math.min(CFG.ai.accMax + accBonus,
-    CFG.ai.rangedAccuracy + waveNum * CFG.ai.accPerWave + accBonus);
+  const acc = CORE.enemyAccuracy(CFG.ai.rangedAccuracy, CFG.ai.accPerWave, waveNum, CFG.ai.accMax, accBonus);
   if (Math.random() < acc) {
     const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite);
     // Tagged with the run id: REDEPLOY leaves `started` true, so without this a

@@ -276,8 +276,7 @@ function fireShot(preserveSchedule) {
   if (hit && isEnemy) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
-    const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1)
-      * distanceFalloff(hit.distance, w.range) * penMul;
+    const dmg = CORE.playerBulletDamage(w.dmg, isHead, CFG.ai.headshotMul, hit.distance, w.range, penMul);
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
