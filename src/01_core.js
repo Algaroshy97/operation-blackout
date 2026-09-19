@@ -300,6 +300,7 @@ const CORE = (function () {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
+    fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
     fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },

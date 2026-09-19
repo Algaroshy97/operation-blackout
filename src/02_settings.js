@@ -80,6 +80,11 @@ function applySetting(key) {
       document.body.classList.toggle('touch-layout-left', SETTINGS.touchLayout === 'left-handed');
       document.body.classList.toggle('touch-layout-large', SETTINGS.touchLayout === 'large buttons');
       break;
+    case 'fireMode': {
+      const fire = document.getElementById('tbtn-fire');
+      if (fire) fire.textContent = SETTINGS.fireMode === 'ads + fire' ? 'ADS+FIRE' : 'FIRE';
+      break;
+    }
     // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }

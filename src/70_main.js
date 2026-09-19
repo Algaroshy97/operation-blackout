@@ -316,6 +316,13 @@ function buildSettingsUI() {
     row.appendChild(wrap);
     list.appendChild(row);
   }
+  if (typeof openTouchLayoutEditor === 'function' && IS_TOUCH) {
+    const row = document.createElement('div');
+    row.className = 'set-row set-layout-action';
+    row.innerHTML = '<label>Button positions and sizes</label><button type="button" id="btn-edit-touch-layout">EDIT ON SCREEN</button>';
+    row.querySelector('button').addEventListener('click', openTouchLayoutEditor);
+    list.appendChild(row);
+  }
 }
 function openSettings(from) {
   settingsReturnTo = from || 'menu';
