@@ -815,7 +815,42 @@ def main() -> int:
         }""")
         checks.append(("weapon-fire-and-armor-audio-rules", audio_rules_check))
 
-        # 27) Clean console throughout gameplay.
+        # 27) Touch equipment, plate & streak feedback rules.
+        touch_feedback_check = page.evaluate("""() => {
+            if (typeof CORE.touchPlateState !== 'function' ||
+                typeof CORE.touchEquipmentState !== 'function' ||
+                typeof CORE.touchStreakState !== 'function') return false;
+
+            const plateEmpty = CORE.touchPlateState(0, 50, 50, false) === 'empty' &&
+                               CORE.touchPlateState(-1, 50, 50, false) === 'empty' &&
+                               CORE.touchPlateState(null, 50, 50, false) === 'empty';
+
+            const plateIns = CORE.touchPlateState(2, 50, 50, true) === 'inserting' &&
+                             CORE.touchPlateState(0, 0, 50, true) === 'inserting';
+
+            const plateUrgent = CORE.touchPlateState(2, 0, 50, false) === 'urgent' &&
+                                CORE.touchPlateState(2, 10, 50, false) === 'urgent';
+
+            const plateReady = CORE.touchPlateState(2, 35, 50, false) === 'ready';
+            const plateFull = CORE.touchPlateState(2, 50, 50, false) === '';
+
+            const equipEmpty = CORE.touchEquipmentState(0, false) === 'empty' &&
+                               CORE.touchEquipmentState(-1, false) === 'empty' &&
+                               CORE.touchEquipmentState(null, false) === 'empty';
+            const equipChg = CORE.touchEquipmentState(1, true) === 'charging';
+            const equipReady = CORE.touchEquipmentState(1, false) === 'ready';
+
+            const streakReady = CORE.touchStreakState(true, false) === 'streak' &&
+                                CORE.touchStreakState(true, true) === 'streak';
+            const fieldReady = CORE.touchStreakState(false, true) === 'field';
+            const streakEmpty = CORE.touchStreakState(false, false) === 'empty';
+
+            return plateEmpty && plateIns && plateUrgent && plateReady && plateFull &&
+                   equipEmpty && equipChg && equipReady && streakReady && fieldReady && streakEmpty;
+        }""")
+        checks.append(("touch-utility-and-equipment-feedback-rules", touch_feedback_check))
+
+        # 28) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -223,6 +223,7 @@
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.3);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   body.touch .tbtn.on{background:rgba(255,210,74,.45);border-color:#ffd24a;color:#fff;box-shadow:0 0 0 3px rgba(255,210,74,.18),inset 0 0 12px rgba(255,255,255,.16)}
+  body.touch .tbtn.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.4)}
   body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
   /* Right-hand cluster. The old layout stacked five controls in one column reaching
      346px up from the bottom; a landscape phone is 360px tall, so RELOAD arrived at
@@ -240,13 +241,18 @@
   body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
      reaches the minimap the way a single tall column did. */
-  body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 12px rgba(255,210,74,.2)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.3),inset 0 0 10px rgba(255,170,58,.2)}
+  body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-streak.streak{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 10px rgba(255,210,74,.2)}
+  body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 10px rgba(80,180,255,.2)}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
@@ -287,7 +293,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak{transition:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
@@ -6505,6 +6511,33 @@ const CORE = (function () {
     if (res <= 0) return '';
     return 'urgent';
   }
+  // Mobile touch plate button feedback state: returns 'inserting' during plate application,
+  // 'empty' when plate inventory is 0, 'urgent' when plates are held and armor is depleted
+  // or critically low (<= 25% max), 'ready' when armor is damaged and can accept a plate,
+  // or '' when armor is already at full capacity.
+  function touchPlateState(plates, armor, armorMax, inserting) {
+    if (inserting) return 'inserting';
+    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'empty';
+    const curA = typeof armor === 'number' && isFinite(armor) ? armor : 0;
+    const maxA = typeof armorMax === 'number' && isFinite(armorMax) ? armorMax : 50;
+    if (curA <= 0 || isArmorLow(curA, maxA)) return 'urgent';
+    if (curA < maxA) return 'ready';
+    return '';
+  }
+  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'charging'
+  // while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
+  function touchEquipmentState(count, isCharging) {
+    if (isCharging) return 'charging';
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'empty';
+    return 'ready';
+  }
+  // Mobile touch scorestreak/field upgrade button state: returns 'streak' when a banked
+  // streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
+  function touchStreakState(hasStreak, fieldReady) {
+    if (hasStreak) return 'streak';
+    if (fieldReady) return 'field';
+    return 'empty';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -7725,7 +7758,10 @@ const CORE = (function () {
     canRegisterHit: canRegisterHit,
     snapToTexel: snapToTexel,
     weaponFireSound: weaponFireSound,
-    armorDamageSound: armorDamageSound
+    armorDamageSound: armorDamageSound,
+    touchPlateState: touchPlateState,
+    touchEquipmentState: touchEquipmentState,
+    touchStreakState: touchStreakState
   };
 })();
 
@@ -13287,16 +13323,27 @@ function updateStreaks(dt) {
 // ---- HUD ---------------------------------------------------------------------
 function updateHudStreaks() {
   const el = $id('streak-hud');
-  if (!el) return;
-  let s = '';
-  for (let i = 0; i < streakBank.length; i++) {
-    const d = CORE.streakByKey(streakBank[i]);
-    if (d) s += '<span class="ready" title="' + d.name + '">' + d.short + '</span>';
+  if (el) {
+    let s = '';
+    for (let i = 0; i < streakBank.length; i++) {
+      const d = CORE.streakByKey(streakBank[i]);
+      if (d) s += '<span class="ready" title="' + d.name + '">' + d.short + '</span>';
+    }
+    if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
+    const next = CORE.nextStreak(streakKills);
+    if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
+    el.innerHTML = s;
   }
-  if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
-  const next = CORE.nextStreak(streakKills);
-  if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
-  el.innerHTML = s;
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (isTouch) {
+    const tbtnStreak = typeof $id === 'function' ? $id('tbtn-streak') : document.getElementById('tbtn-streak');
+    if (tbtnStreak) {
+      const sState = CORE.touchStreakState(streakBank.length > 0, CORE.fieldReady(fieldCharge));
+      tbtnStreak.classList.toggle('streak', sState === 'streak');
+      tbtnStreak.classList.toggle('field', sState === 'field');
+      tbtnStreak.classList.toggle('empty', sState === 'empty');
+    }
+  }
 }
 
 // ============ HUD & WAVES ============
@@ -13366,6 +13413,19 @@ function updateHudHealth() {
       hud.armorBar.parentElement.classList.toggle('empty', isEmpty);
     }
   }
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (isTouch) {
+    const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
+    if (tbtnPlate) {
+      const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
+      const curPlates = typeof plates !== 'undefined' ? plates : 0;
+      const isIns = typeof plateT !== 'undefined' && plateT > 0;
+      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
+      tbtnPlate.classList.toggle('empty', plateState === 'empty');
+      tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
+      tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+    }
+  }
 }
 function updateHudAmmo() {
   const s = curS();
@@ -13394,6 +13454,20 @@ function updateHudAmmo() {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
       tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
       tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+    }
+    const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
+    if (tbtnNade) {
+      const nadeCount = typeof grenades !== 'undefined' && grenades ? grenades.count : 0;
+      const isChg = typeof grenadeCharging !== 'undefined' && !!grenadeCharging;
+      const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
+      tbtnNade.classList.toggle('empty', nadeState === 'empty');
+      tbtnNade.classList.toggle('charging', nadeState === 'charging');
+    }
+    const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
+    if (tbtnTac) {
+      const tacCount = typeof tacticalCount !== 'undefined' ? tacticalCount : 0;
+      const tacState = CORE.touchEquipmentState(tacCount, false);
+      tbtnTac.classList.toggle('empty', tacState === 'empty');
     }
   }
 }

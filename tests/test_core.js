@@ -3745,6 +3745,61 @@ test('armorDamageSound resolves acoustic block and shatter feedback states', () 
   assert.strictEqual(CORE.armorDamageSound(undefined, undefined), null, 'undefined yields null');
 });
 
+// ---------------------------------------------------------------- TOUCH UTILITY & EQUIPMENT RULES
+test('touchPlateState resolves inserting, empty, urgent, and ready feedback states', () => {
+  // Inserting active animation / lockout takes precedence
+  assert.strictEqual(CORE.touchPlateState(3, 50, 50, true), 'inserting');
+  assert.strictEqual(CORE.touchPlateState(0, 0, 50, true), 'inserting');
+
+  // No plates held
+  assert.strictEqual(CORE.touchPlateState(0, 50, 50, false), 'empty');
+  assert.strictEqual(CORE.touchPlateState(-1, 50, 50, false), 'empty');
+  assert.strictEqual(CORE.touchPlateState(null, 50, 50, false), 'empty');
+  assert.strictEqual(CORE.touchPlateState(undefined, 50, 50, false), 'empty');
+  assert.strictEqual(CORE.touchPlateState(NaN, 50, 50, false), 'empty');
+
+  // Plates held and armor depleted or critically low (<= 25% max) -> urgent
+  assert.strictEqual(CORE.touchPlateState(2, 0, 50, false), 'urgent', 'depleted armor triggers urgent plating prompt');
+  assert.strictEqual(CORE.touchPlateState(1, 10, 50, false), 'urgent', 'critically low armor triggers urgent plating prompt');
+  assert.strictEqual(CORE.touchPlateState(3, 12.5, 50, false), 'urgent', 'exact 25% threshold triggers urgent plating prompt');
+
+  // Plates held and armor damaged (> 25% and < max) -> ready
+  assert.strictEqual(CORE.touchPlateState(2, 13, 50, false), 'ready', 'damaged armor allows plating');
+  assert.strictEqual(CORE.touchPlateState(1, 45, 50, false), 'ready', 'slightly damaged armor allows plating');
+
+  // Plates held and armor at 100% capacity -> '' (full)
+  assert.strictEqual(CORE.touchPlateState(3, 50, 50, false), '', 'full armor requires no plating');
+  assert.strictEqual(CORE.touchPlateState(1, 55, 50, false), '', 'over-capped armor requires no plating');
+});
+
+test('touchEquipmentState resolves charging, empty, and ready equipment feedback', () => {
+  // Charging state while holding throw
+  assert.strictEqual(CORE.touchEquipmentState(2, true), 'charging');
+  assert.strictEqual(CORE.touchEquipmentState(0, true), 'charging');
+
+  // Empty equipment inventory
+  assert.strictEqual(CORE.touchEquipmentState(0, false), 'empty');
+  assert.strictEqual(CORE.touchEquipmentState(-1, false), 'empty');
+  assert.strictEqual(CORE.touchEquipmentState(null, false), 'empty');
+  assert.strictEqual(CORE.touchEquipmentState(undefined, false), 'empty');
+
+  // Ready equipment available
+  assert.strictEqual(CORE.touchEquipmentState(1, false), 'ready');
+  assert.strictEqual(CORE.touchEquipmentState(2, false), 'ready');
+});
+
+test('touchStreakState resolves scorestreak, field upgrade, and empty feedback states', () => {
+  // Banked scorestreak takes precedence
+  assert.strictEqual(CORE.touchStreakState(true, false), 'streak');
+  assert.strictEqual(CORE.touchStreakState(true, true), 'streak');
+
+  // Field upgrade ready when no scorestreak is banked
+  assert.strictEqual(CORE.touchStreakState(false, true), 'field');
+
+  // Neither ready
+  assert.strictEqual(CORE.touchStreakState(false, false), 'empty');
+});
+
 
 
 

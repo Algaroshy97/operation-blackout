@@ -1881,6 +1881,33 @@ const CORE = (function () {
     if (res <= 0) return '';
     return 'urgent';
   }
+  // Mobile touch plate button feedback state: returns 'inserting' during plate application,
+  // 'empty' when plate inventory is 0, 'urgent' when plates are held and armor is depleted
+  // or critically low (<= 25% max), 'ready' when armor is damaged and can accept a plate,
+  // or '' when armor is already at full capacity.
+  function touchPlateState(plates, armor, armorMax, inserting) {
+    if (inserting) return 'inserting';
+    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'empty';
+    const curA = typeof armor === 'number' && isFinite(armor) ? armor : 0;
+    const maxA = typeof armorMax === 'number' && isFinite(armorMax) ? armorMax : 50;
+    if (curA <= 0 || isArmorLow(curA, maxA)) return 'urgent';
+    if (curA < maxA) return 'ready';
+    return '';
+  }
+  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'charging'
+  // while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
+  function touchEquipmentState(count, isCharging) {
+    if (isCharging) return 'charging';
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'empty';
+    return 'ready';
+  }
+  // Mobile touch scorestreak/field upgrade button state: returns 'streak' when a banked
+  // streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
+  function touchStreakState(hasStreak, fieldReady) {
+    if (hasStreak) return 'streak';
+    if (fieldReady) return 'field';
+    return 'empty';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -3101,7 +3128,10 @@ const CORE = (function () {
     canRegisterHit: canRegisterHit,
     snapToTexel: snapToTexel,
     weaponFireSound: weaponFireSound,
-    armorDamageSound: armorDamageSound
+    armorDamageSound: armorDamageSound,
+    touchPlateState: touchPlateState,
+    touchEquipmentState: touchEquipmentState,
+    touchStreakState: touchStreakState
   };
 })();
 

@@ -221,14 +221,25 @@ function updateStreaks(dt) {
 // ---- HUD ---------------------------------------------------------------------
 function updateHudStreaks() {
   const el = $id('streak-hud');
-  if (!el) return;
-  let s = '';
-  for (let i = 0; i < streakBank.length; i++) {
-    const d = CORE.streakByKey(streakBank[i]);
-    if (d) s += '<span class="ready" title="' + d.name + '">' + d.short + '</span>';
+  if (el) {
+    let s = '';
+    for (let i = 0; i < streakBank.length; i++) {
+      const d = CORE.streakByKey(streakBank[i]);
+      if (d) s += '<span class="ready" title="' + d.name + '">' + d.short + '</span>';
+    }
+    if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
+    const next = CORE.nextStreak(streakKills);
+    if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
+    el.innerHTML = s;
   }
-  if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
-  const next = CORE.nextStreak(streakKills);
-  if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
-  el.innerHTML = s;
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (isTouch) {
+    const tbtnStreak = typeof $id === 'function' ? $id('tbtn-streak') : document.getElementById('tbtn-streak');
+    if (tbtnStreak) {
+      const sState = CORE.touchStreakState(streakBank.length > 0, CORE.fieldReady(fieldCharge));
+      tbtnStreak.classList.toggle('streak', sState === 'streak');
+      tbtnStreak.classList.toggle('field', sState === 'field');
+      tbtnStreak.classList.toggle('empty', sState === 'empty');
+    }
+  }
 }

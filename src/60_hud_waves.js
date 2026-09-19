@@ -65,6 +65,19 @@ function updateHudHealth() {
       hud.armorBar.parentElement.classList.toggle('empty', isEmpty);
     }
   }
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (isTouch) {
+    const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
+    if (tbtnPlate) {
+      const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
+      const curPlates = typeof plates !== 'undefined' ? plates : 0;
+      const isIns = typeof plateT !== 'undefined' && plateT > 0;
+      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
+      tbtnPlate.classList.toggle('empty', plateState === 'empty');
+      tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
+      tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+    }
+  }
 }
 function updateHudAmmo() {
   const s = curS();
@@ -93,6 +106,20 @@ function updateHudAmmo() {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
       tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
       tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+    }
+    const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
+    if (tbtnNade) {
+      const nadeCount = typeof grenades !== 'undefined' && grenades ? grenades.count : 0;
+      const isChg = typeof grenadeCharging !== 'undefined' && !!grenadeCharging;
+      const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
+      tbtnNade.classList.toggle('empty', nadeState === 'empty');
+      tbtnNade.classList.toggle('charging', nadeState === 'charging');
+    }
+    const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
+    if (tbtnTac) {
+      const tacCount = typeof tacticalCount !== 'undefined' ? tacticalCount : 0;
+      const tacState = CORE.touchEquipmentState(tacCount, false);
+      tbtnTac.classList.toggle('empty', tacState === 'empty');
     }
   }
 }
