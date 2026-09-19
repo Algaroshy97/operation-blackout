@@ -317,11 +317,7 @@ function doMelee() {
   meleeSwing = 1;
   playSound('melee');
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  _meleeTargets.length = 0;
-  for (let i = 0; i < enemies.length; i++) {
-    _meleeTargets.push({ x: enemies[i].pos.x, z: enemies[i].pos.z, dead: enemies[i].dead });
-  }
-  const idx = CORE.meleeTarget(_meleeTargets, player.pos.x, player.pos.z,
+  const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
     dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
   if (idx < 0) return;
   const en = enemies[idx];

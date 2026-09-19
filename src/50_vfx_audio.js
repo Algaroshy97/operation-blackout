@@ -17,13 +17,17 @@ const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0
 const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
-// Mesh pools
+// Mesh & particle pools
 const tracerPool = [];
 const impactPool = [];
 const sparkPool = [];
 const bloodPool = [];
 const casingPool = [];
 const dustPool = [];
+// Particle record pool: reuse wrapper objects and Vector3 instances to eliminate GC churn
+const particlePool = [];
+const _tmpSparkV = new THREE.Vector3();
+const _particleOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
 
 function warmupVfx() {
   for (let i = 0; i < 30; i++) {
@@ -56,8 +60,38 @@ function warmupVfx() {
     m.userData.vfx = true; m.visible = false;
     dustPool.push(m);
   }
+  for (let i = 0; i < 80; i++) {
+    particlePool.push({
+      m: null, v: new THREE.Vector3(), life: 0, grav: 0,
+      isSpark: false, isBlood: false, isDust: false
+    });
+  }
 }
 warmupVfx();
+
+function getParticleRecord(m, vx, vy, vz, life, grav, isSpark, isBlood, isDust) {
+  const p = particlePool.length > 0 ? particlePool.pop() : {
+    m: null, v: new THREE.Vector3(), life: 0, grav: 0,
+    isSpark: false, isBlood: false, isDust: false
+  };
+  p.m = m;
+  p.v.set(vx, vy, vz);
+  p.life = life;
+  p.grav = grav;
+  p.isSpark = !!isSpark;
+  p.isBlood = !!isBlood;
+  p.isDust = !!isDust;
+  return p;
+}
+
+function releaseParticleRecord(p) {
+  if (!p) return;
+  p.m = null;
+  p.isSpark = false;
+  p.isBlood = false;
+  p.isDust = false;
+  particlePool.push(p);
+}
 
 function getTracerMesh(mat) {
   const m = tracerPool.length > 0 ? tracerPool.pop() : new THREE.Mesh(tracerGeo, mat || tracerMat);
@@ -111,14 +145,14 @@ function spawnImpact(point, normal, obj) {
   m.userData.isBulletImpact = true;
   scene.add(m);
   vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
-  // sparks
+  // sparks: reuse static vector and pooled particle records
   for (let i = 0; i < 4; i++) {
     const s = getSparkMesh();
     s.position.copy(point);
-    const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
-    if (normal) v.add(_tmpN.copy(normal).multiplyScalar(2));
+    _tmpSparkV.set((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
+    if (normal) _tmpSparkV.add(_tmpN.copy(normal).multiplyScalar(2));
     scene.add(s);
-    vfx.blood.push({ m: s, v: v, life: 0.35, grav: 9, isSpark: true });
+    vfx.blood.push(getParticleRecord(s, _tmpSparkV.x, _tmpSparkV.y, _tmpSparkV.z, 0.35, 9, true, false, false));
   }
   playSound('impact');
 }
@@ -166,9 +200,12 @@ function spawnBlood(point, isHead) {
   for (let i = 0; i < n; i++) {
     const b = getBloodMesh();
     b.position.copy(point);
-    const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.2, (Math.random() - 0.5) * 2).multiplyScalar(1.5 + Math.random() * 2.5);
+    const spd = 1.5 + Math.random() * 2.5;
+    const vx = (Math.random() - 0.5) * 2 * spd;
+    const vy = Math.random() * 1.2 * spd;
+    const vz = (Math.random() - 0.5) * 2 * spd;
     scene.add(b);
-    vfx.blood.push({ m: b, v: v, life: 0.5, grav: 12, isBlood: true });
+    vfx.blood.push(getParticleRecord(b, vx, vy, vz, 0.5, 12, false, true, false));
   }
 }
 
@@ -233,7 +270,7 @@ function spawnSlideDust(pos) {
     const m = getDustMesh();
     m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
     scene.add(m);
-    vfx.blood.push({ m: m, v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2), life: 0.55, grav: 2.5, isDust: true });
+    vfx.blood.push(getParticleRecord(m, (Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2, 0.55, 2.5, false, false, true));
   }
 }
 
@@ -286,15 +323,20 @@ function updateVfx(dt) {
   for (let i = vfx.blood.length - 1; i >= 0; i--) {
     const b = vfx.blood[i];
     b.life -= dt;
-    b.v.y -= b.grav * dt;
-    b.m.position.addScaledVector(b.v, dt);
-    if (b.m.position.y < 0.02) { b.m.position.y = 0.02; b.v.set(0, 0, 0); }
+    const stepped = CORE.stepParticlePhysics(
+      b.m.position.x, b.m.position.y, b.m.position.z,
+      b.v.x, b.v.y, b.v.z,
+      b.grav, dt, 0.02, _particleOut
+    );
+    b.m.position.set(stepped.x, stepped.y, stepped.z);
+    b.v.set(stepped.vx, stepped.vy, stepped.vz);
     if (b.life <= 0) {
       scene.remove(b.m);
       b.m.visible = false;
       if (b.isSpark) sparkPool.push(b.m);
       else if (b.isBlood) bloodPool.push(b.m);
       else if (b.isDust) dustPool.push(b.m);
+      releaseParticleRecord(b);
       vfx.blood.splice(i, 1);
     }
   }

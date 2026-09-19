@@ -936,7 +936,47 @@ def main() -> int:
         }""")
         checks.append(("directional-damage-and-vignette-feedback-rules", damage_feedback_check))
 
-        # 30) Clean console throughout gameplay.
+        # 30) Change-driven ammo HUD, particle physics integration, and zero-allocation melee target rules.
+        perf_rules_check = page.evaluate("""() => {
+            if (typeof CORE.stepParticlePhysics !== 'function' ||
+                typeof CORE.ammoHudChanged !== 'function' ||
+                typeof CORE.syncAmmoHudState !== 'function' ||
+                typeof CORE.meleeTarget !== 'function') return false;
+
+            // Particle flight & grounding
+            const out = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
+            const fly = CORE.stepParticlePhysics(0, 1.0, 0, 1.0, 2.0, 0, 9.8, 0.1, 0.02, out);
+            const flyOk = fly === out && Math.abs(out.y - 1.102) < 1e-5 && out.grounded === false;
+
+            CORE.stepParticlePhysics(out.x, 0.03, 0, 1.0, -2.0, 0, 9.8, 0.1, 0.02, out);
+            const landOk = out.y === 0.02 && out.vx === 0 && out.vy === 0 && out.grounded === true;
+
+            // Ammo HUD change gating & sync
+            const cache = { ammo: 30, reserve: 90, reloading: false, isLow: false, isEmpty: false,
+                            prompt: '', weaponName: 'M4A1', lethalCount: 2, tacCount: 1, isCharging: false };
+            const sameOk = CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 2, 1, false) === false;
+            const diffAmmo = CORE.ammoHudChanged(cache, 29, 90, false, false, false, '', 'M4A1', 2, 1, false) === true;
+            const diffRel = CORE.ammoHudChanged(cache, 30, 90, true, false, false, '', 'M4A1', 2, 1, false) === true;
+            const diffChg = CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 2, 1, true) === true;
+
+            CORE.syncAmmoHudState(cache, 25, 80, true, false, false, 'RELOADING', 'MP5', 1, 0, true);
+            const syncOk = cache.ammo === 25 && cache.reserve === 80 && cache.isCharging === true &&
+                           CORE.ammoHudChanged(cache, 25, 80, true, false, false, 'RELOADING', 'MP5', 1, 0, true) === false;
+
+            // Melee direct agent entity coordinates (.pos)
+            const agents = [
+                { pos: { x: 0, z: 1.5 }, dead: false },
+                { pos: { x: 0, z: 3.0 }, dead: false },
+                { pos: { x: 0, z: 1.0 }, dead: true }
+            ];
+            const meleeIdx = CORE.meleeTarget(agents, 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE);
+            const meleeOk = meleeIdx === 0;
+
+            return flyOk && landOk && sameOk && diffAmmo && diffRel && diffChg && syncOk && meleeOk;
+        }""")
+        checks.append(("ammo-hud-and-particle-performance-rules", perf_rules_check))
+
+        # 31) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

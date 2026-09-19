@@ -79,24 +79,47 @@ function updateHudHealth() {
     }
   }
 }
-function updateHudAmmo() {
+// Change-driven: updateHudAmmo is called every frame from updateWeapons, and DOM writes
+// cost significantly more than the primitive equality checks that skip them.
+const _hudAmmoState = {
+  ammo: -1, reserve: -1, reloading: null, isLow: null, isEmpty: null,
+  prompt: null, weaponName: null, lethalCount: -1, tacCount: -1, isCharging: false
+};
+function updateHudAmmo(force) {
   const s = curS();
-  if (!s) { hud.ammoMag.textContent = '—'; hud.ammoRes.textContent = ''; return; }
-  hud.ammoMag.textContent = s.ammo;
-  const lname = (CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]).name;
-  let eq = grenades.count + ' ' + lname;
-  if (equippedTactical) {
-    eq += '  ·  ' + tacticalCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
+  if (!s) {
+    if (_hudAmmoState.ammo !== null) {
+      hud.ammoMag.textContent = '—';
+      hud.ammoRes.textContent = '';
+      _hudAmmoState.ammo = null;
+    }
+    return;
   }
-  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
   const w = curW();
+  const wName = w ? w.name : '';
   const isLow = CORE.isAmmoLow(s.ammo, w ? w.mag : 30);
   const isEmpty = CORE.isAmmoEmpty(s.ammo);
-  hud.ammoMag.classList.toggle('low', isLow);
-  hud.ammoMag.classList.toggle('empty', isEmpty);
-  hud.weaponName.textContent = w ? w.name : '';
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
   const prompt = CORE.reloadPrompt(s.reloading, s.ammo, s.reserve, isTouch);
+  const nadeCount = typeof grenades !== 'undefined' && grenades ? grenades.count : 0;
+  const tacCount = typeof tacticalCount !== 'undefined' ? tacticalCount : 0;
+  const isChg = typeof grenadeCharging !== 'undefined' && !!grenadeCharging;
+
+  if (!force && !CORE.ammoHudChanged(_hudAmmoState, s.ammo, s.reserve, s.reloading, isLow, isEmpty, prompt, wName, nadeCount, tacCount, isChg)) {
+    return;
+  }
+  CORE.syncAmmoHudState(_hudAmmoState, s.ammo, s.reserve, s.reloading, isLow, isEmpty, prompt, wName, nadeCount, tacCount, isChg);
+
+  hud.ammoMag.textContent = s.ammo;
+  const lname = (CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]).name;
+  let eq = nadeCount + ' ' + lname;
+  if (equippedTactical) {
+    eq += '  ·  ' + tacCount + ' ' + (CORE.equipmentByKey(equippedTactical) || {}).name;
+  }
+  hud.ammoRes.textContent = '/ ' + s.reserve + '  ·  ' + eq;
+  hud.ammoMag.classList.toggle('low', isLow);
+  hud.ammoMag.classList.toggle('empty', isEmpty);
+  hud.weaponName.textContent = wName;
   hud.reloadHint.textContent = prompt;
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
@@ -109,15 +132,12 @@ function updateHudAmmo() {
     }
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
-      const nadeCount = typeof grenades !== 'undefined' && grenades ? grenades.count : 0;
-      const isChg = typeof grenadeCharging !== 'undefined' && !!grenadeCharging;
       const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
       tbtnNade.classList.toggle('empty', nadeState === 'empty');
       tbtnNade.classList.toggle('charging', nadeState === 'charging');
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
-      const tacCount = typeof tacticalCount !== 'undefined' ? tacticalCount : 0;
       const tacState = CORE.touchEquipmentState(tacCount, false);
       tbtnTac.classList.toggle('empty', tacState === 'empty');
     }

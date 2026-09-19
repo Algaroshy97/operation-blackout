@@ -139,6 +139,7 @@ function resetGame() {
     if (b.isSpark) sparkPool.push(b.m);
     else if (b.isBlood) bloodPool.push(b.m);
     else if (b.isDust) dustPool.push(b.m);
+    if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
   }
   vfx.blood.length = 0;
   for (let i = casings.length - 1; i >= 0; i--) {

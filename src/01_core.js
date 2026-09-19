@@ -1673,13 +1673,15 @@ const CORE = (function () {
   // A runner inside its 1.9 m stop distance had no counter but backpedalling.
   // Pick the nearest target inside a forward cone rather than the nearest target
   // outright, so the knife goes where the player is looking.
-  // `targets` is [{ x, z, dead }]; dirX/dirZ is the player's forward on XZ.
+  // `targets` is either [{ x, z, dead }] or agents with .pos ({ pos: {x,z}, dead }); dirX/dirZ is the player's forward on XZ.
   function meleeTarget(targets, px, pz, dirX, dirZ, reach, cosHalfAngle) {
     let best = -1, bestD = Infinity;
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i];
       if (!t || t.dead) continue;
-      const dx = t.x - px, dz = t.z - pz;
+      const tx = (t.pos && typeof t.pos.x === 'number') ? t.pos.x : t.x;
+      const tz = (t.pos && typeof t.pos.z === 'number') ? t.pos.z : t.z;
+      const dx = tx - px, dz = tz - pz;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > reach || d < 1e-6) continue;
       if ((dx * dirX + dz * dirZ) / d < cosHalfAngle) continue;
@@ -2963,6 +2965,72 @@ const CORE = (function () {
     return Math.max(0, maxOp * (1 - (age - fadeT) / dur));
   }
 
+  // ---- Particle physics integration and change-driven HUD performance rules ----
+  function stepParticlePhysics(x, y, z, vx, vy, vz, grav, dt, minY, out) {
+    const target = out || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
+    const stepDt = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const g = typeof grav === 'number' && isFinite(grav) ? grav : 9.8;
+    const floor = typeof minY === 'number' && isFinite(minY) ? minY : 0.02;
+    const curVx = typeof vx === 'number' && isFinite(vx) ? vx : 0;
+    const curVy = typeof vy === 'number' && isFinite(vy) ? vy : 0;
+    const curVz = typeof vz === 'number' && isFinite(vz) ? vz : 0;
+    const curX = typeof x === 'number' && isFinite(x) ? x : 0;
+    const curY = typeof y === 'number' && isFinite(y) ? y : 0;
+    const curZ = typeof z === 'number' && isFinite(z) ? z : 0;
+
+    let nvy = curVy - g * stepDt;
+    let ny = curY + nvy * stepDt;
+    let nvx = curVx;
+    let nvz = curVz;
+    let grounded = false;
+
+    if (ny <= floor) {
+      ny = floor;
+      nvx = 0;
+      nvy = 0;
+      nvz = 0;
+      grounded = true;
+    }
+
+    target.x = curX + nvx * stepDt;
+    target.y = ny;
+    target.z = curZ + nvz * stepDt;
+    target.vx = nvx;
+    target.vy = nvy;
+    target.vz = nvz;
+    target.grounded = grounded;
+    return target;
+  }
+
+  function ammoHudChanged(lastState, ammo, reserve, reloading, isLow, isEmpty, prompt, weaponName, lethalCount, tacCount, isCharging) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    return lastState.ammo !== ammo ||
+           lastState.reserve !== reserve ||
+           lastState.reloading !== reloading ||
+           lastState.isLow !== isLow ||
+           lastState.isEmpty !== isEmpty ||
+           lastState.prompt !== prompt ||
+           lastState.weaponName !== weaponName ||
+           lastState.lethalCount !== lethalCount ||
+           lastState.tacCount !== tacCount ||
+           (isCharging !== undefined && lastState.isCharging !== isCharging);
+  }
+
+  function syncAmmoHudState(lastState, ammo, reserve, reloading, isLow, isEmpty, prompt, weaponName, lethalCount, tacCount, isCharging) {
+    const target = lastState && typeof lastState === 'object' ? lastState : {};
+    target.ammo = ammo;
+    target.reserve = reserve;
+    target.reloading = reloading;
+    target.isLow = isLow;
+    target.isEmpty = isEmpty;
+    target.prompt = prompt;
+    target.weaponName = weaponName;
+    target.lethalCount = lethalCount;
+    target.tacCount = tacCount;
+    if (isCharging !== undefined) target.isCharging = isCharging;
+    return target;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3272,7 +3340,10 @@ const CORE = (function () {
     damageVignetteStyle: damageVignetteStyle,
     worldBearing: worldBearing,
     screenHitAngle: screenHitAngle,
-    hitArcOpacity: hitArcOpacity
+    hitArcOpacity: hitArcOpacity,
+    stepParticlePhysics: stepParticlePhysics,
+    ammoHudChanged: ammoHudChanged,
+    syncAmmoHudState: syncAmmoHudState
   };
 })();
 

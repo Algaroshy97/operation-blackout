@@ -3964,9 +3964,82 @@ test('hitArcOpacity computes linear fade curve for directional hit indicators', 
   assert.strictEqual(CORE.hitArcOpacity(NaN), 0);
 });
 
+test('stepParticlePhysics integrates ballistic motion and clamps to ground with zero allocations', () => {
+  const out = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
 
+  // Free flight step in mid-air: y = 1.0, vy = 2.0, grav = 9.8, dt = 0.1
+  // nvy = 2.0 - 0.98 = 1.02, ny = 1.0 + 1.02 * 0.1 = 1.102
+  const step1 = CORE.stepParticlePhysics(0, 1.0, 0, 1.0, 2.0, 0, 9.8, 0.1, 0.02, out);
+  assert.strictEqual(step1, out, 'must mutate and return the passed out object');
+  assert.ok(Math.abs(out.x - 0.1) < 1e-6);
+  assert.ok(Math.abs(out.y - 1.102) < 1e-6);
+  assert.ok(Math.abs(out.vy - 1.02) < 1e-6);
+  assert.strictEqual(out.grounded, false);
 
+  // Landing step: particle descending below floor (y = 0.03, vy = -2.0, dt = 0.1 -> ny < 0.02)
+  CORE.stepParticlePhysics(out.x, 0.03, 0, 1.0, -2.0, 0, 9.8, 0.1, 0.02, out);
+  assert.strictEqual(out.y, 0.02, 'must clamp to ground level 0.02');
+  assert.strictEqual(out.vx, 0, 'landing must zero horizontal velocity');
+  assert.strictEqual(out.vy, 0, 'landing must zero vertical velocity');
+  assert.strictEqual(out.vz, 0);
+  assert.strictEqual(out.grounded, true);
 
+  // Default parameters and allocation when out is omitted
+  const fresh = CORE.stepParticlePhysics(5, 2, 5, 0, 0, 0, 9.8, 0.05);
+  assert.ok(fresh.y < 2.0);
+  assert.strictEqual(fresh.grounded, false);
+});
 
+test('ammoHudChanged and syncAmmoHudState track HUD state and eliminate redundant DOM updates', () => {
+  const cache = {
+    ammo: 30, reserve: 90, reloading: false, isLow: false, isEmpty: false,
+    prompt: '', weaponName: 'M4A1', lethalCount: 2, tacCount: 1, isCharging: false
+  };
 
+  // Identical state reports no change
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 2, 1, false), false);
 
+  // Any state modification triggers change detection
+  assert.strictEqual(CORE.ammoHudChanged(cache, 29, 90, false, false, false, '', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 60, false, false, false, '', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, true, false, false, '', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, true, false, '', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, true, '', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, 'RELOAD [R]', 'M4A1', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'MP5', 2, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 1, 1, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 2, 0, false), true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 30, 90, false, false, false, '', 'M4A1', 2, 1, true), true);
+
+  // Missing cache always reports change
+  assert.strictEqual(CORE.ammoHudChanged(null, 30, 90, false, false, false, '', 'M4A1', 2, 1, false), true);
+
+  // syncAmmoHudState synchronizes the cache object
+  const synced = CORE.syncAmmoHudState(cache, 25, 80, true, false, false, 'RELOADING', 'MP5', 1, 0, true);
+  assert.strictEqual(synced, cache);
+  assert.strictEqual(cache.ammo, 25);
+  assert.strictEqual(cache.reserve, 80);
+  assert.strictEqual(cache.reloading, true);
+  assert.strictEqual(cache.prompt, 'RELOADING');
+  assert.strictEqual(cache.weaponName, 'MP5');
+  assert.strictEqual(cache.lethalCount, 1);
+  assert.strictEqual(cache.tacCount, 0);
+  assert.strictEqual(cache.isCharging, true);
+  assert.strictEqual(CORE.ammoHudChanged(cache, 25, 80, true, false, false, 'RELOADING', 'MP5', 1, 0, true), false);
+});
+
+test('meleeTarget directly supports game entity agents with .pos coordinates', () => {
+  const agents = [
+    { pos: { x: 0, z: 1.5 }, dead: false },
+    { pos: { x: 3.0, z: 0 }, dead: false },
+    { pos: { x: 0, z: 1.0 }, dead: true }
+  ];
+
+  // Facing forward (+z): agent 0 is within reach (1.5m <= 2.2m) and inside cone; agent 2 is dead
+  const idx = CORE.meleeTarget(agents, 0, 0, 0, 1, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  assert.strictEqual(idx, 0, 'should select alive agent directly via .pos without intermediate allocations');
+
+  // Facing right (+x): agent 1 is outside reach (3.0m > 2.2m)
+  const idxRight = CORE.meleeTarget(agents, 0, 0, 1, 0, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  assert.strictEqual(idxRight, -1);
+});
