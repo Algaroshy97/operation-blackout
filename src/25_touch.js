@@ -56,10 +56,12 @@ let joyBaseEl = null;
     touchState.moveZ = res.moveZ;   // up on stick = forward
     touchState.moveX = res.moveX;
   }
+  let fireId = null, lastFX = 0, lastFY = 0;
   addEventListener('touchmove', function (e) {
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) { joyMove(t); e.preventDefault(); }
       else if (t.identifier === lookId) { lookMove(t); e.preventDefault(); }
+      else if (t.identifier === fireId) { fireLookMove(t); e.preventDefault(); }
     }
   }, { passive: false });
   function releaseTouches(e) {
@@ -72,6 +74,10 @@ let joyBaseEl = null;
         joyStick.style.transform = 'translate(0,0)';
       }
       if (t.identifier === lookId) lookId = null;
+      if (t.identifier === fireId) {
+        fireId = null; touchState.firing = false; mouse1Down = false;
+        document.getElementById('tbtn-fire').classList.remove('on');
+      }
     }
   }
   addEventListener('touchend', releaseTouches);
@@ -80,7 +86,8 @@ let joyBaseEl = null;
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
   addEventListener('blur', function () {
-    joyId = null; lookId = null;
+    joyId = null; lookId = null; fireId = null;
+    touchState.firing = false; mouse1Down = false;
     joyBase.classList.remove('on');
     joyBase.classList.remove('sprint');
     joyStick.style.transform = 'translate(0,0)';
@@ -92,9 +99,17 @@ let joyBaseEl = null;
     lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY;
   }, { passive: false });
   function lookMove(t) {
-    touchState.lookX += (t.clientX - lastLX);
-    touchState.lookY += (t.clientY - lastLY);
+    const factor = getSetting('touchSensitivity') || 1;
+    touchState.lookX += (t.clientX - lastLX) * factor;
+    touchState.lookY += (t.clientY - lastLY) * factor;
     lastLX = t.clientX; lastLY = t.clientY;
+  }
+  function fireLookMove(t) {
+    if (!getSetting('fireLook')) { lastFX = t.clientX; lastFY = t.clientY; return; }
+    const factor = getSetting('touchSensitivity') || 1;
+    touchState.lookX += (t.clientX - lastFX) * factor;
+    touchState.lookY += (t.clientY - lastFY) * factor;
+    lastFX = t.clientX; lastFY = t.clientY;
   }
 
 
@@ -139,7 +154,17 @@ let joyBaseEl = null;
     el.addEventListener('touchend', release, { passive: false });
     el.addEventListener('touchcancel', release, { passive: false });
   }
-  holdBtn('tbtn-fire', function () { touchState.firing = true; }, function () { touchState.firing = false; mouse1Down = false; });
+  // COD-style right fire: the same finger can hold FIRE and rotate the camera.
+  const fireBtn = document.getElementById('tbtn-fire');
+  fireBtn.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    if (fireId !== null) return;
+    const t = e.changedTouches[0];
+    fireId = t.identifier; lastFX = t.clientX; lastFY = t.clientY;
+    touchState.firing = true; fireBtn.classList.add('on'); playSound('click');
+  }, { passive: false });
+  fireBtn.addEventListener('touchend', releaseTouches, { passive: false });
+  fireBtn.addEventListener('touchcancel', releaseTouches, { passive: false });
   holdBtn('tbtn-ads', function () { touchState.ads = true; }, function () { touchState.ads = false; });
   holdBtn('tbtn-jump', function () { pressed['Space'] = true; }, function () {});
   holdBtn('tbtn-slide', function () {

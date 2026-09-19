@@ -76,7 +76,11 @@ function applySetting(key) {
     case 'reducedMotion':
       document.body.classList.toggle('reduced-motion', SETTINGS.reducedMotion);
       break;
-    // sensitivity, invertY and fov are read live by the player/camera code
+    case 'touchLayout':
+      document.body.classList.toggle('touch-layout-left', SETTINGS.touchLayout === 'left-handed');
+      document.body.classList.toggle('touch-layout-large', SETTINGS.touchLayout === 'large buttons');
+      break;
+    // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }
 function applyAllSettings() {

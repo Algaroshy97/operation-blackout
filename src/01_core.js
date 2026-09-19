@@ -298,6 +298,9 @@ const CORE = (function () {
   // across versions, and a bad number here would silently break aiming or audio.
   const SETTINGS_SCHEMA = {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
+    touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
+    touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
+    fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },
     masterVolume: { type: 'number', def: 0.9, min: 0, max: 1, step: 0.05, label: 'Master volume' },

@@ -250,6 +250,15 @@
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
+  body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
+  body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
+  body.touch-layout-left #joy-base{left:auto;right:calc(26px + var(--sa-r))}
+  body.touch-layout-left #look-zone{left:0;right:auto}
+  body.touch-layout-left #tbtn-fire{left:calc(26px + var(--sa-l));right:auto;bottom:calc(56px + var(--sa-b))}
+  body.touch-layout-left #tbtn-ads{left:calc(118px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-slide{left:calc(118px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-jump{left:calc(26px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-reload{left:calc(92px + var(--sa-l));right:auto}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
@@ -378,7 +387,7 @@
 <div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn fullscreen-btn" id="btn-fullscreen-pause">FULL SCREEN</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
-<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser.</p></div>
+<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser. On mobile, ADS BUTTON FOR ROTATION lets the FIRE button aim while held and dragged; turn it off for a fixed right-fire perspective.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
 <div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-endless">CONTINUE — ENDLESS</div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>

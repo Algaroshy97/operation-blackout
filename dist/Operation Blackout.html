@@ -250,6 +250,15 @@
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
+  body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
+  body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
+  body.touch-layout-left #joy-base{left:auto;right:calc(26px + var(--sa-r))}
+  body.touch-layout-left #look-zone{left:0;right:auto}
+  body.touch-layout-left #tbtn-fire{left:calc(26px + var(--sa-l));right:auto;bottom:calc(56px + var(--sa-b))}
+  body.touch-layout-left #tbtn-ads{left:calc(118px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-slide{left:calc(118px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-jump{left:calc(26px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-reload{left:calc(92px + var(--sa-l));right:auto}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
@@ -4908,6 +4917,9 @@ const CORE = (function () {
   // across versions, and a bad number here would silently break aiming or audio.
   const SETTINGS_SCHEMA = {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
+    touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
+    touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
+    fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },
     masterVolume: { type: 'number', def: 0.9, min: 0, max: 1, step: 0.05, label: 'Master volume' },
@@ -7775,7 +7787,11 @@ function applySetting(key) {
     case 'reducedMotion':
       document.body.classList.toggle('reduced-motion', SETTINGS.reducedMotion);
       break;
-    // sensitivity, invertY and fov are read live by the player/camera code
+    case 'touchLayout':
+      document.body.classList.toggle('touch-layout-left', SETTINGS.touchLayout === 'left-handed');
+      document.body.classList.toggle('touch-layout-large', SETTINGS.touchLayout === 'large buttons');
+      break;
+    // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }
 function applyAllSettings() {
@@ -9250,10 +9266,12 @@ let joyBaseEl = null;
     touchState.moveZ = res.moveZ;   // up on stick = forward
     touchState.moveX = res.moveX;
   }
+  let fireId = null, lastFX = 0, lastFY = 0;
   addEventListener('touchmove', function (e) {
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) { joyMove(t); e.preventDefault(); }
       else if (t.identifier === lookId) { lookMove(t); e.preventDefault(); }
+      else if (t.identifier === fireId) { fireLookMove(t); e.preventDefault(); }
     }
   }, { passive: false });
   function releaseTouches(e) {
@@ -9266,6 +9284,10 @@ let joyBaseEl = null;
         joyStick.style.transform = 'translate(0,0)';
       }
       if (t.identifier === lookId) lookId = null;
+      if (t.identifier === fireId) {
+        fireId = null; touchState.firing = false; mouse1Down = false;
+        document.getElementById('tbtn-fire').classList.remove('on');
+      }
     }
   }
   addEventListener('touchend', releaseTouches);
@@ -9274,7 +9296,8 @@ let joyBaseEl = null;
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
   addEventListener('blur', function () {
-    joyId = null; lookId = null;
+    joyId = null; lookId = null; fireId = null;
+    touchState.firing = false; mouse1Down = false;
     joyBase.classList.remove('on');
     joyBase.classList.remove('sprint');
     joyStick.style.transform = 'translate(0,0)';
@@ -9286,9 +9309,17 @@ let joyBaseEl = null;
     lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY;
   }, { passive: false });
   function lookMove(t) {
-    touchState.lookX += (t.clientX - lastLX);
-    touchState.lookY += (t.clientY - lastLY);
+    const factor = getSetting('touchSensitivity') || 1;
+    touchState.lookX += (t.clientX - lastLX) * factor;
+    touchState.lookY += (t.clientY - lastLY) * factor;
     lastLX = t.clientX; lastLY = t.clientY;
+  }
+  function fireLookMove(t) {
+    if (!getSetting('fireLook')) { lastFX = t.clientX; lastFY = t.clientY; return; }
+    const factor = getSetting('touchSensitivity') || 1;
+    touchState.lookX += (t.clientX - lastFX) * factor;
+    touchState.lookY += (t.clientY - lastFY) * factor;
+    lastFX = t.clientX; lastFY = t.clientY;
   }
 
 
@@ -9333,7 +9364,17 @@ let joyBaseEl = null;
     el.addEventListener('touchend', release, { passive: false });
     el.addEventListener('touchcancel', release, { passive: false });
   }
-  holdBtn('tbtn-fire', function () { touchState.firing = true; }, function () { touchState.firing = false; mouse1Down = false; });
+  // COD-style right fire: the same finger can hold FIRE and rotate the camera.
+  const fireBtn = document.getElementById('tbtn-fire');
+  fireBtn.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    if (fireId !== null) return;
+    const t = e.changedTouches[0];
+    fireId = t.identifier; lastFX = t.clientX; lastFY = t.clientY;
+    touchState.firing = true; fireBtn.classList.add('on'); playSound('click');
+  }, { passive: false });
+  fireBtn.addEventListener('touchend', releaseTouches, { passive: false });
+  fireBtn.addEventListener('touchcancel', releaseTouches, { passive: false });
   holdBtn('tbtn-ads', function () { touchState.ads = true; }, function () { touchState.ads = false; });
   holdBtn('tbtn-jump', function () { pressed['Space'] = true; }, function () {});
   holdBtn('tbtn-slide', function () {
