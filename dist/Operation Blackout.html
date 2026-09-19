@@ -143,6 +143,7 @@
   #hit-dir-container{top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:240px}
   .hit-dir{position:absolute;opacity:0}
   .hit-dir .arc{position:absolute;top:-116px;left:-14px;width:28px;height:28px;border-top:4px solid #ff3020;border-radius:50%/100% 100% 0 0;transform:rotate(-45deg)}
+  .hit-dir.armor .arc{border-top-color:#4fa3d8}
   #damage-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 120px 40px rgba(180,0,0,0);transition:box-shadow .2s;z-index:5}
   #flash-overlay{top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;z-index:6}
   #sprint-ind{bottom:56px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.55);font-size:10px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000}
@@ -293,7 +294,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak{transition:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
@@ -7537,6 +7538,62 @@ const CORE = (function () {
     return kind === 2 ? 2.4 : 1.6;
   }
 
+  // ---- Directional damage indicators, damage vignette, and hit feedback rules ----
+  const VIGNETTE_MAX_ALPHA = 0.85;
+  const VIGNETTE_BASE_ALPHA = 0.25;
+  const VIGNETTE_SCALE_DIVISOR = 30;
+  const HIT_ARC_LIFE = 0.7;
+  const HIT_ARC_FADE_START = 0.6;
+  const HIT_ARC_MAX_OPACITY = 0.9;
+
+  function damageVignetteAlpha(amount, baseAlpha, maxAlpha, divisor) {
+    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) return 0;
+    const b = typeof baseAlpha === 'number' && isFinite(baseAlpha) ? baseAlpha : VIGNETTE_BASE_ALPHA;
+    const m = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : VIGNETTE_MAX_ALPHA;
+    const d = typeof divisor === 'number' && isFinite(divisor) && divisor > 0 ? divisor : VIGNETTE_SCALE_DIVISOR;
+    return Math.min(m, b + amount / d);
+  }
+
+  function damageVignetteStyle(alpha, isArmorOnly) {
+    if (typeof alpha !== 'number' || !isFinite(alpha) || alpha <= 0) {
+      return 'inset 0 0 120px 40px rgba(180,0,0,0)';
+    }
+    const color = isArmorOnly ? 'rgba(79,163,216,' : 'rgba(180,0,0,';
+    return 'inset 0 0 120px 40px ' + color + alpha.toFixed(3) + ')';
+  }
+
+  function worldBearing(fromX, fromZ, toX, toZ) {
+    if (typeof fromX !== 'number' || !isFinite(fromX) ||
+        typeof fromZ !== 'number' || !isFinite(fromZ) ||
+        typeof toX !== 'number' || !isFinite(toX) ||
+        typeof toZ !== 'number' || !isFinite(toZ)) return 0;
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    if (dx === 0 && dz === 0) return 0;
+    return (Math.atan2(dx, dz) * 180 / Math.PI + 360) % 360;
+  }
+
+  function screenHitAngle(worldBearingDeg, playerYawRad) {
+    if (typeof worldBearingDeg !== 'number' || !isFinite(worldBearingDeg) ||
+        typeof playerYawRad !== 'number' || !isFinite(playerYawRad)) return 0;
+    // Bearing where 0 = +z. Player forward = yaw.
+    // Screen angle: 0 = attacker straight ahead, 90 = right, 180 = behind, 270 = left.
+    const rel = ((worldBearingDeg - (playerYawRad * 180 / Math.PI)) % 360 + 360) % 360;
+    return ((180 - rel) % 360 + 360) % 360;
+  }
+
+  function hitArcOpacity(age, life, fadeStartRatio, maxOpacity) {
+    const l = typeof life === 'number' && isFinite(life) && life > 0 ? life : HIT_ARC_LIFE;
+    const f = typeof fadeStartRatio === 'number' && isFinite(fadeStartRatio) ? fadeStartRatio : HIT_ARC_FADE_START;
+    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : HIT_ARC_MAX_OPACITY;
+    if (typeof age !== 'number' || !isFinite(age) || age < 0 || age >= l) return 0;
+    const fadeT = l * f;
+    if (age <= fadeT) return maxOp;
+    const dur = l - fadeT;
+    if (dur <= 0) return 0;
+    return Math.max(0, maxOp * (1 - (age - fadeT) / dur));
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7835,7 +7892,18 @@ const CORE = (function () {
     grenadeThrowSpeed: grenadeThrowSpeed,
     canEnemyMelee: canEnemyMelee,
     enemyMeleeReach: enemyMeleeReach,
-    enemyAttackCooldown: enemyAttackCooldown
+    enemyAttackCooldown: enemyAttackCooldown,
+    VIGNETTE_MAX_ALPHA: VIGNETTE_MAX_ALPHA,
+    VIGNETTE_BASE_ALPHA: VIGNETTE_BASE_ALPHA,
+    VIGNETTE_SCALE_DIVISOR: VIGNETTE_SCALE_DIVISOR,
+    HIT_ARC_LIFE: HIT_ARC_LIFE,
+    HIT_ARC_FADE_START: HIT_ARC_FADE_START,
+    HIT_ARC_MAX_OPACITY: HIT_ARC_MAX_OPACITY,
+    damageVignetteAlpha: damageVignetteAlpha,
+    damageVignetteStyle: damageVignetteStyle,
+    worldBearing: worldBearing,
+    screenHitAngle: screenHitAngle,
+    hitArcOpacity: hitArcOpacity
   };
 })();
 
@@ -9303,7 +9371,7 @@ function damagePlayer(amount, dirDeg) {
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
   if (armorSnd) playSound(armorSnd);
-  showDamageFx(dirDeg, amount);
+  showDamageFx(dirDeg, amount, res.healthDamage, res.absorbedDamage);
   updateHudHealth();
   // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
   // mistake was the worst moment the game had. downPlayer() decides between a
@@ -11080,7 +11148,7 @@ function enemyShoot(en, dist) {
 
 function dirToDeg(en) {
   // Bearing from player to attacker; showDamageFx converts this to screen-relative rotation.
-  return (Math.atan2(en.pos.x - player.pos.x, en.pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
+  return CORE.worldBearing(player.pos.x, player.pos.z, en.pos.x, en.pos.z);
 }
 
 // pick + drive the right GLB clip; fall back to procedural limb swing for the box-man
@@ -12549,7 +12617,10 @@ function explodeGrenade(pos, scale) {
   const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
   if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
-    if (selfDmg > 0) damagePlayer(selfDmg, undefined);
+    if (selfDmg > 0) {
+      const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
+      damagePlayer(selfDmg, blastDeg);
+    }
   }
   // camera shake kick
   shotKick = Math.min(2, shotKick + 1.2);
@@ -13559,20 +13630,18 @@ function showHitmarker(isHead, tier) {
   }
 }
 
-function showDamageFx(dirDeg, amount) {
-  // vignette pulse
-  hud.dmgVig.style.boxShadow = 'inset 0 0 120px 40px rgba(180,0,0,' + Math.min(0.85, 0.25 + amount / 30) + ')';
+function showDamageFx(dirDeg, amount, healthDmg, absorbedDmg) {
+  const isArmorOnly = (healthDmg !== undefined && healthDmg <= 0 && absorbedDmg > 0);
+  const alpha = CORE.damageVignetteAlpha(amount);
+  hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(alpha, isArmorOnly);
   clearTimeout(hud.dmgVig._t);
-  hud.dmgVig._t = setTimeout(function () { hud.dmgVig.style.boxShadow = 'inset 0 0 120px 40px rgba(180,0,0,0)'; }, 220);
+  hud.dmgVig._t = setTimeout(function () {
+    hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(0, false);
+  }, 220);
   // directional indicator: dirDeg = world bearing of attacker relative to player facing
   if (dirDeg !== undefined) {
-    // dirToDeg gives bearing where 0 = +z. Player forward = yaw.
-    // Screen angle: 0 = attacker straight ahead, 90 = right.
-    const rel = (dirDeg - (player.yaw * 180 / Math.PI) + 360) % 360;
-    // yaw 0 faces -z (north). dirDeg 0 = attacker at +z (south) = behind.
-    // Convert: screenDeg = 180 - rel so that attacker ahead shows at top (0deg = up arc)
-    const screenDeg = (180 - rel + 360) % 360;
-    showHitArc(screenDeg);
+    const screenDeg = CORE.screenHitAngle(dirDeg, player.yaw);
+    showHitArc(screenDeg, isArmorOnly);
   }
   playSound('hurt');
 }
@@ -13581,7 +13650,7 @@ function showDamageFx(dirDeg, amount) {
 // Every hit taken used to create a <div> plus two setTimeouts. Under sustained
 // fire that took the document from ~150 to ~630 elements with hundreds of pending
 // timers. Fixed pool, recycled by age, no timers.
-const HIT_ARC_POOL = 8, HIT_ARC_LIFE = 0.7;
+const HIT_ARC_POOL = 8, HIT_ARC_LIFE = CORE.HIT_ARC_LIFE;
 const hitArcs = [];
 (function buildHitArcs() {
   for (let i = 0; i < HIT_ARC_POOL; i++) {
@@ -13594,10 +13663,11 @@ const hitArcs = [];
   }
 })();
 let hitArcNext = 0;
-function showHitArc(screenDeg) {
+function showHitArc(screenDeg, isArmor) {
   const a = hitArcs[hitArcNext];
   hitArcNext = (hitArcNext + 1) % HIT_ARC_POOL;
   a.el.style.transform = 'rotate(' + screenDeg + 'deg)';
+  a.el.classList.toggle('armor', !!isArmor);
   a.el.style.opacity = '0.9';
   a.t = gameT;
 }
@@ -13606,8 +13676,14 @@ function updateHitArcs() {
     const a = hitArcs[i];
     if (a.t < 0) continue;
     const age = gameT - a.t;
-    if (age >= HIT_ARC_LIFE) { a.el.style.opacity = '0'; a.t = -99; }
-    else if (age > HIT_ARC_LIFE * 0.6) a.el.style.opacity = String(0.9 * (1 - (age - HIT_ARC_LIFE * 0.6) / (HIT_ARC_LIFE * 0.4)));
+    const op = CORE.hitArcOpacity(age, HIT_ARC_LIFE, 0.6, 0.9);
+    if (op <= 0) {
+      a.el.style.opacity = '0';
+      a.el.classList.remove('armor');
+      a.t = -99;
+    } else {
+      a.el.style.opacity = op.toFixed(3);
+    }
   }
 }
 

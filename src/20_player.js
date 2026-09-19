@@ -414,7 +414,7 @@ function damagePlayer(amount, dirDeg) {
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
   if (armorSnd) playSound(armorSnd);
-  showDamageFx(dirDeg, amount);
+  showDamageFx(dirDeg, amount, res.healthDamage, res.absorbedDamage);
   updateHudHealth();
   // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
   // mistake was the worst moment the game had. downPlayer() decides between a

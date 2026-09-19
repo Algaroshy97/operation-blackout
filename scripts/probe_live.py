@@ -895,7 +895,48 @@ def main() -> int:
         }""")
         checks.append(("ordnance-and-melee-balance-rules", balance_rules_check))
 
-        # 29) Clean console throughout gameplay.
+        # 29) Directional damage indicator, vignette alpha/style, and hit arc opacity rules.
+        damage_feedback_check = page.evaluate("""() => {
+            if (typeof CORE.damageVignetteAlpha !== 'function' ||
+                typeof CORE.damageVignetteStyle !== 'function' ||
+                typeof CORE.worldBearing !== 'function' ||
+                typeof CORE.screenHitAngle !== 'function' ||
+                typeof CORE.hitArcOpacity !== 'function') return false;
+
+            const vigZero = CORE.damageVignetteAlpha(0) === 0 &&
+                            CORE.damageVignetteAlpha(-5) === 0 &&
+                            CORE.damageVignetteAlpha(null) === 0;
+            const vigMid = Math.abs(CORE.damageVignetteAlpha(15) - 0.75) < 1e-6;
+            const vigCap = CORE.damageVignetteAlpha(60) === 0.85;
+
+            const styleZero = CORE.damageVignetteStyle(0, false) === 'inset 0 0 120px 40px rgba(180,0,0,0)';
+            const styleFlesh = CORE.damageVignetteStyle(0.75, false) === 'inset 0 0 120px 40px rgba(180,0,0,0.750)';
+            const styleArmor = CORE.damageVignetteStyle(0.75, true) === 'inset 0 0 120px 40px rgba(79,163,216,0.750)';
+
+            const bearSouth = CORE.worldBearing(0, 0, 0, 10) === 0;
+            const bearEast = CORE.worldBearing(0, 0, 10, 0) === 90;
+            const bearNorth = CORE.worldBearing(0, 0, 0, -10) === 180;
+            const bearWest = CORE.worldBearing(0, 0, -10, 0) === 270;
+            const bearZero = CORE.worldBearing(5, 5, 5, 5) === 0;
+
+            const screenAhead = CORE.screenHitAngle(180, 0) === 0;
+            const screenRight = CORE.screenHitAngle(90, 0) === 90;
+            const screenBehind = CORE.screenHitAngle(0, 0) === 180;
+            const screenLeft = CORE.screenHitAngle(270, 0) === 270;
+
+            const opMax = CORE.hitArcOpacity(0) === 0.9;
+            const opMid = Math.abs(CORE.hitArcOpacity(0.56) - 0.45) < 1e-6;
+            const opEnd = CORE.hitArcOpacity(0.7) === 0;
+            const opPast = CORE.hitArcOpacity(0.8) === 0;
+
+            return vigZero && vigMid && vigCap && styleZero && styleFlesh && styleArmor &&
+                   bearSouth && bearEast && bearNorth && bearWest && bearZero &&
+                   screenAhead && screenRight && screenBehind && screenLeft &&
+                   opMax && opMid && opEnd && opPast;
+        }""")
+        checks.append(("directional-damage-and-vignette-feedback-rules", damage_feedback_check))
+
+        # 30) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -2907,6 +2907,62 @@ const CORE = (function () {
     return kind === 2 ? 2.4 : 1.6;
   }
 
+  // ---- Directional damage indicators, damage vignette, and hit feedback rules ----
+  const VIGNETTE_MAX_ALPHA = 0.85;
+  const VIGNETTE_BASE_ALPHA = 0.25;
+  const VIGNETTE_SCALE_DIVISOR = 30;
+  const HIT_ARC_LIFE = 0.7;
+  const HIT_ARC_FADE_START = 0.6;
+  const HIT_ARC_MAX_OPACITY = 0.9;
+
+  function damageVignetteAlpha(amount, baseAlpha, maxAlpha, divisor) {
+    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) return 0;
+    const b = typeof baseAlpha === 'number' && isFinite(baseAlpha) ? baseAlpha : VIGNETTE_BASE_ALPHA;
+    const m = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : VIGNETTE_MAX_ALPHA;
+    const d = typeof divisor === 'number' && isFinite(divisor) && divisor > 0 ? divisor : VIGNETTE_SCALE_DIVISOR;
+    return Math.min(m, b + amount / d);
+  }
+
+  function damageVignetteStyle(alpha, isArmorOnly) {
+    if (typeof alpha !== 'number' || !isFinite(alpha) || alpha <= 0) {
+      return 'inset 0 0 120px 40px rgba(180,0,0,0)';
+    }
+    const color = isArmorOnly ? 'rgba(79,163,216,' : 'rgba(180,0,0,';
+    return 'inset 0 0 120px 40px ' + color + alpha.toFixed(3) + ')';
+  }
+
+  function worldBearing(fromX, fromZ, toX, toZ) {
+    if (typeof fromX !== 'number' || !isFinite(fromX) ||
+        typeof fromZ !== 'number' || !isFinite(fromZ) ||
+        typeof toX !== 'number' || !isFinite(toX) ||
+        typeof toZ !== 'number' || !isFinite(toZ)) return 0;
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    if (dx === 0 && dz === 0) return 0;
+    return (Math.atan2(dx, dz) * 180 / Math.PI + 360) % 360;
+  }
+
+  function screenHitAngle(worldBearingDeg, playerYawRad) {
+    if (typeof worldBearingDeg !== 'number' || !isFinite(worldBearingDeg) ||
+        typeof playerYawRad !== 'number' || !isFinite(playerYawRad)) return 0;
+    // Bearing where 0 = +z. Player forward = yaw.
+    // Screen angle: 0 = attacker straight ahead, 90 = right, 180 = behind, 270 = left.
+    const rel = ((worldBearingDeg - (playerYawRad * 180 / Math.PI)) % 360 + 360) % 360;
+    return ((180 - rel) % 360 + 360) % 360;
+  }
+
+  function hitArcOpacity(age, life, fadeStartRatio, maxOpacity) {
+    const l = typeof life === 'number' && isFinite(life) && life > 0 ? life : HIT_ARC_LIFE;
+    const f = typeof fadeStartRatio === 'number' && isFinite(fadeStartRatio) ? fadeStartRatio : HIT_ARC_FADE_START;
+    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : HIT_ARC_MAX_OPACITY;
+    if (typeof age !== 'number' || !isFinite(age) || age < 0 || age >= l) return 0;
+    const fadeT = l * f;
+    if (age <= fadeT) return maxOp;
+    const dur = l - fadeT;
+    if (dur <= 0) return 0;
+    return Math.max(0, maxOp * (1 - (age - fadeT) / dur));
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3205,7 +3261,18 @@ const CORE = (function () {
     grenadeThrowSpeed: grenadeThrowSpeed,
     canEnemyMelee: canEnemyMelee,
     enemyMeleeReach: enemyMeleeReach,
-    enemyAttackCooldown: enemyAttackCooldown
+    enemyAttackCooldown: enemyAttackCooldown,
+    VIGNETTE_MAX_ALPHA: VIGNETTE_MAX_ALPHA,
+    VIGNETTE_BASE_ALPHA: VIGNETTE_BASE_ALPHA,
+    VIGNETTE_SCALE_DIVISOR: VIGNETTE_SCALE_DIVISOR,
+    HIT_ARC_LIFE: HIT_ARC_LIFE,
+    HIT_ARC_FADE_START: HIT_ARC_FADE_START,
+    HIT_ARC_MAX_OPACITY: HIT_ARC_MAX_OPACITY,
+    damageVignetteAlpha: damageVignetteAlpha,
+    damageVignetteStyle: damageVignetteStyle,
+    worldBearing: worldBearing,
+    screenHitAngle: screenHitAngle,
+    hitArcOpacity: hitArcOpacity
   };
 })();
 

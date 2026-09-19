@@ -568,7 +568,10 @@ function explodeGrenade(pos, scale) {
   const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
   if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
-    if (selfDmg > 0) damagePlayer(selfDmg, undefined);
+    if (selfDmg > 0) {
+      const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
+      damagePlayer(selfDmg, blastDeg);
+    }
   }
   // camera shake kick
   shotKick = Math.min(2, shotKick + 1.2);

@@ -3878,6 +3878,92 @@ test('canEnemyMelee, enemyMeleeReach, and enemyAttackCooldown configure archetyp
   assert.strictEqual(CORE.enemyAttackCooldown(4), 1.6);
 });
 
+// ---------------------------------------------------------------- DIRECTIONAL DAMAGE & VIGNETTE FEEDBACK RULES
+test('damageVignetteAlpha calculates clamped damage vignette pulse intensity', () => {
+  // Amount 0 or negative -> 0
+  assert.strictEqual(CORE.damageVignetteAlpha(0), 0);
+  assert.strictEqual(CORE.damageVignetteAlpha(-10), 0);
+  assert.strictEqual(CORE.damageVignetteAlpha(NaN), 0);
+  assert.strictEqual(CORE.damageVignetteAlpha(null), 0);
+
+  // Nominal scaling: 0.25 + amount / 30
+  // Amount = 15 -> 0.25 + 0.5 = 0.75
+  assert.ok(Math.abs(CORE.damageVignetteAlpha(15) - 0.75) < 1e-6);
+  // Amount = 7.5 -> 0.25 + 0.25 = 0.50
+  assert.ok(Math.abs(CORE.damageVignetteAlpha(7.5) - 0.50) < 1e-6);
+
+  // Large damage caps at maxAlpha (0.85)
+  assert.strictEqual(CORE.damageVignetteAlpha(60), 0.85);
+  assert.strictEqual(CORE.damageVignetteAlpha(120), 0.85);
+});
+
+test('damageVignetteStyle produces box-shadow styling with flesh and armor differentiation', () => {
+  // 0 or negative alpha produces invisible vignette
+  assert.strictEqual(CORE.damageVignetteStyle(0, false), 'inset 0 0 120px 40px rgba(180,0,0,0)');
+  assert.strictEqual(CORE.damageVignetteStyle(-1, true), 'inset 0 0 120px 40px rgba(180,0,0,0)');
+  assert.strictEqual(CORE.damageVignetteStyle(NaN, false), 'inset 0 0 120px 40px rgba(180,0,0,0)');
+
+  // Flesh hit produces crimson blood vignette
+  assert.strictEqual(CORE.damageVignetteStyle(0.75, false), 'inset 0 0 120px 40px rgba(180,0,0,0.750)');
+
+  // Armor absorption produces tactical blue/cyan vignette
+  assert.strictEqual(CORE.damageVignetteStyle(0.75, true), 'inset 0 0 120px 40px rgba(79,163,216,0.750)');
+});
+
+test('worldBearing computes compass bearing from source to target coordinates', () => {
+  // (0,0) to south (0, 10): 0 deg
+  assert.strictEqual(CORE.worldBearing(0, 0, 0, 10), 0);
+  // (0,0) to east (10, 0): 90 deg
+  assert.strictEqual(CORE.worldBearing(0, 0, 10, 0), 90);
+  // (0,0) to north (0, -10): 180 deg
+  assert.strictEqual(CORE.worldBearing(0, 0, 0, -10), 180);
+  // (0,0) to west (-10, 0): 270 deg
+  assert.strictEqual(CORE.worldBearing(0, 0, -10, 0), 270);
+
+  // Coincident points or non-finite inputs return 0
+  assert.strictEqual(CORE.worldBearing(5, 5, 5, 5), 0);
+  assert.strictEqual(CORE.worldBearing(NaN, 0, 10, 0), 0);
+});
+
+test('screenHitAngle maps world bearing and player yaw to on-screen indicator rotation', () => {
+  // Player yaw 0 (facing north, -Z)
+  // Attacker at north (world bearing 180) -> straight ahead (0 deg)
+  assert.strictEqual(CORE.screenHitAngle(180, 0), 0);
+  // Attacker at east (world bearing 90) -> right (90 deg)
+  assert.strictEqual(CORE.screenHitAngle(90, 0), 90);
+  // Attacker at south (world bearing 0) -> behind (180 deg)
+  assert.strictEqual(CORE.screenHitAngle(0, 0), 180);
+  // Attacker at west (world bearing 270) -> left (270 deg)
+  assert.strictEqual(CORE.screenHitAngle(270, 0), 270);
+
+  // Player yaw PI/2 (facing west, -X)
+  // Attacker at west (world bearing 270) -> straight ahead (0 deg)
+  assert.strictEqual(CORE.screenHitAngle(270, Math.PI / 2), 0);
+
+  // Non-finite fallbacks
+  assert.strictEqual(CORE.screenHitAngle(NaN, 0), 0);
+  assert.strictEqual(CORE.screenHitAngle(0, NaN), 0);
+});
+
+test('hitArcOpacity computes linear fade curve for directional hit indicators', () => {
+  // At creation (age 0), full opacity (0.9)
+  assert.strictEqual(CORE.hitArcOpacity(0), 0.9);
+  // Within fade start window (age <= 0.7 * 0.6 = 0.42), still full opacity
+  assert.strictEqual(CORE.hitArcOpacity(0.2), 0.9);
+  assert.strictEqual(CORE.hitArcOpacity(0.42), 0.9);
+
+  // Mid-fade (age 0.56): 0.9 * (1 - 0.14 / 0.28) = 0.45
+  assert.ok(Math.abs(CORE.hitArcOpacity(0.56) - 0.45) < 1e-6);
+
+  // Expired at or past lifetime (0.7s) -> 0
+  assert.strictEqual(CORE.hitArcOpacity(0.7), 0);
+  assert.strictEqual(CORE.hitArcOpacity(1.0), 0);
+
+  // Negative age or invalid -> 0
+  assert.strictEqual(CORE.hitArcOpacity(-0.1), 0);
+  assert.strictEqual(CORE.hitArcOpacity(NaN), 0);
+});
+
 
 
 

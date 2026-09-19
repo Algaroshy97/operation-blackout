@@ -143,20 +143,18 @@ function showHitmarker(isHead, tier) {
   }
 }
 
-function showDamageFx(dirDeg, amount) {
-  // vignette pulse
-  hud.dmgVig.style.boxShadow = 'inset 0 0 120px 40px rgba(180,0,0,' + Math.min(0.85, 0.25 + amount / 30) + ')';
+function showDamageFx(dirDeg, amount, healthDmg, absorbedDmg) {
+  const isArmorOnly = (healthDmg !== undefined && healthDmg <= 0 && absorbedDmg > 0);
+  const alpha = CORE.damageVignetteAlpha(amount);
+  hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(alpha, isArmorOnly);
   clearTimeout(hud.dmgVig._t);
-  hud.dmgVig._t = setTimeout(function () { hud.dmgVig.style.boxShadow = 'inset 0 0 120px 40px rgba(180,0,0,0)'; }, 220);
+  hud.dmgVig._t = setTimeout(function () {
+    hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(0, false);
+  }, 220);
   // directional indicator: dirDeg = world bearing of attacker relative to player facing
   if (dirDeg !== undefined) {
-    // dirToDeg gives bearing where 0 = +z. Player forward = yaw.
-    // Screen angle: 0 = attacker straight ahead, 90 = right.
-    const rel = (dirDeg - (player.yaw * 180 / Math.PI) + 360) % 360;
-    // yaw 0 faces -z (north). dirDeg 0 = attacker at +z (south) = behind.
-    // Convert: screenDeg = 180 - rel so that attacker ahead shows at top (0deg = up arc)
-    const screenDeg = (180 - rel + 360) % 360;
-    showHitArc(screenDeg);
+    const screenDeg = CORE.screenHitAngle(dirDeg, player.yaw);
+    showHitArc(screenDeg, isArmorOnly);
   }
   playSound('hurt');
 }
@@ -165,7 +163,7 @@ function showDamageFx(dirDeg, amount) {
 // Every hit taken used to create a <div> plus two setTimeouts. Under sustained
 // fire that took the document from ~150 to ~630 elements with hundreds of pending
 // timers. Fixed pool, recycled by age, no timers.
-const HIT_ARC_POOL = 8, HIT_ARC_LIFE = 0.7;
+const HIT_ARC_POOL = 8, HIT_ARC_LIFE = CORE.HIT_ARC_LIFE;
 const hitArcs = [];
 (function buildHitArcs() {
   for (let i = 0; i < HIT_ARC_POOL; i++) {
@@ -178,10 +176,11 @@ const hitArcs = [];
   }
 })();
 let hitArcNext = 0;
-function showHitArc(screenDeg) {
+function showHitArc(screenDeg, isArmor) {
   const a = hitArcs[hitArcNext];
   hitArcNext = (hitArcNext + 1) % HIT_ARC_POOL;
   a.el.style.transform = 'rotate(' + screenDeg + 'deg)';
+  a.el.classList.toggle('armor', !!isArmor);
   a.el.style.opacity = '0.9';
   a.t = gameT;
 }
@@ -190,8 +189,14 @@ function updateHitArcs() {
     const a = hitArcs[i];
     if (a.t < 0) continue;
     const age = gameT - a.t;
-    if (age >= HIT_ARC_LIFE) { a.el.style.opacity = '0'; a.t = -99; }
-    else if (age > HIT_ARC_LIFE * 0.6) a.el.style.opacity = String(0.9 * (1 - (age - HIT_ARC_LIFE * 0.6) / (HIT_ARC_LIFE * 0.4)));
+    const op = CORE.hitArcOpacity(age, HIT_ARC_LIFE, 0.6, 0.9);
+    if (op <= 0) {
+      a.el.style.opacity = '0';
+      a.el.classList.remove('armor');
+      a.t = -99;
+    } else {
+      a.el.style.opacity = op.toFixed(3);
+    }
   }
 }
 

@@ -892,7 +892,7 @@ function enemyShoot(en, dist) {
 
 function dirToDeg(en) {
   // Bearing from player to attacker; showDamageFx converts this to screen-relative rotation.
-  return (Math.atan2(en.pos.x - player.pos.x, en.pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
+  return CORE.worldBearing(player.pos.x, player.pos.z, en.pos.x, en.pos.z);
 }
 
 // pick + drive the right GLB clip; fall back to procedural limb swing for the box-man
