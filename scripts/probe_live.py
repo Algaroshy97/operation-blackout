@@ -850,7 +850,52 @@ def main() -> int:
         }""")
         checks.append(("touch-utility-and-equipment-feedback-rules", touch_feedback_check))
 
-        # 28) Clean console throughout gameplay.
+        # 28) Ordnance explosive blast damage, self-damage, throw velocity, and enemy melee balance rules.
+        balance_rules_check = page.evaluate("""() => {
+            if (typeof CORE.grenadeBlastDamage !== 'function' ||
+                typeof CORE.grenadeSelfDamage !== 'function' ||
+                typeof CORE.grenadeChargedSpeed !== 'function' ||
+                typeof CORE.grenadeThrowSpeed !== 'function' ||
+                typeof CORE.canEnemyMelee !== 'function' ||
+                typeof CORE.enemyMeleeReach !== 'function' ||
+                typeof CORE.enemyAttackCooldown !== 'function') return false;
+
+            const blastZero = CORE.grenadeBlastDamage(0, 7, 120, 1.0) === 120;
+            const blastMid = Math.abs(CORE.grenadeBlastDamage(3.5, 7, 120, 1.0) - 81) < 1e-6;
+            const blastEdge = CORE.grenadeBlastDamage(7, 7, 120, 1.0) === 0;
+            const blastScale = Math.abs(CORE.grenadeBlastDamage(0, 7, 120, 0.45) - 54) < 1e-6;
+
+            const selfZero = CORE.grenadeSelfDamage(0, 7, 55) === 55;
+            const selfMid = CORE.grenadeSelfDamage(2.8, 7, 55) === 28;
+            const selfEdge = CORE.grenadeSelfDamage(5.6, 7, 55) === 0;
+
+            const spdMin = CORE.grenadeChargedSpeed(0) === 6.0;
+            const spdMid = CORE.grenadeChargedSpeed(0.5) === 9.5;
+            const spdMax = CORE.grenadeChargedSpeed(1.0) === 13.0;
+
+            const throwTap = CORE.grenadeThrowSpeed(0.1, 9.5) === 9.5;
+            const throwHeld = CORE.grenadeThrowSpeed(1.0, 9.5) === 13.0;
+
+            const meleeCan = CORE.canEnemyMelee(0) === true &&
+                             CORE.canEnemyMelee(2) === true &&
+                             CORE.canEnemyMelee(1) === false &&
+                             CORE.canEnemyMelee(5) === false;
+
+            const meleeReach = CORE.enemyMeleeReach(2, 2.1) === 3.0 &&
+                              CORE.enemyMeleeReach(0, 2.1) === 2.5;
+
+            const meleeCd = CORE.enemyAttackCooldown(2) === 2.4 &&
+                            CORE.enemyAttackCooldown(0) === 1.6;
+
+            return blastZero && blastMid && blastEdge && blastScale &&
+                   selfZero && selfMid && selfEdge &&
+                   spdMin && spdMid && spdMax &&
+                   throwTap && throwHeld &&
+                   meleeCan && meleeReach && meleeCd;
+        }""")
+        checks.append(("ordnance-and-melee-balance-rules", balance_rules_check))
+
+        # 29) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

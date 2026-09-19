@@ -2847,6 +2847,66 @@ const CORE = (function () {
     return POWERUPS[0];
   }
 
+  // ---- Ordnance explosive damage, blast falloff, and throw velocity balance ----
+  const GRENADE_DAMAGE_FLOOR = 0.35;
+  const GRENADE_SELF_DAMAGE_MAX = 55;
+  const GRENADE_SELF_RADIUS_RATIO = 0.8;
+  const GRENADE_MIN_SPEED = 6.0;
+  const GRENADE_MAX_SPEED = 13.0;
+  const GRENADE_RAMP_DURATION = 1.0;
+  const GRENADE_TAP_THRESHOLD = 0.22;
+
+  function grenadeBlastDamage(dist, radius, baseDmg, scale) {
+    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
+    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    if (dist >= radius) return 0;
+    const base = typeof baseDmg === 'number' && isFinite(baseDmg) ? baseDmg : 120;
+    const sc = typeof scale === 'number' && isFinite(scale) ? scale : 1;
+    const falloff = 1 - dist / radius;
+    return base * (GRENADE_DAMAGE_FLOOR + (1 - GRENADE_DAMAGE_FLOOR) * falloff) * sc;
+  }
+
+  function grenadeSelfDamage(dist, radius, maxDmg) {
+    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
+    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    const dangerRadius = radius * GRENADE_SELF_RADIUS_RATIO;
+    if (dist >= dangerRadius) return 0;
+    const maxVal = typeof maxDmg === 'number' && isFinite(maxDmg) ? maxDmg : GRENADE_SELF_DAMAGE_MAX;
+    const falloff = 1 - dist / dangerRadius;
+    return Math.round(maxVal * falloff);
+  }
+
+  function grenadeChargedSpeed(chargeT, minSpeed, maxSpeed, rampDuration) {
+    const t = typeof chargeT === 'number' && isFinite(chargeT) ? Math.max(0, chargeT) : 0;
+    const minS = typeof minSpeed === 'number' && isFinite(minSpeed) ? minSpeed : GRENADE_MIN_SPEED;
+    const maxS = typeof maxSpeed === 'number' && isFinite(maxSpeed) ? maxSpeed : GRENADE_MAX_SPEED;
+    const ramp = typeof rampDuration === 'number' && isFinite(rampDuration) && rampDuration > 0 ? rampDuration : GRENADE_RAMP_DURATION;
+    const ratio = Math.min(1, t / ramp);
+    return minS + ratio * (maxS - minS);
+  }
+
+  function grenadeThrowSpeed(chargeT, tapDefaultSpeed, minSpeed, maxSpeed, rampDuration, tapThreshold) {
+    const t = typeof chargeT === 'number' && isFinite(chargeT) ? Math.max(0, chargeT) : 0;
+    const th = typeof tapThreshold === 'number' && isFinite(tapThreshold) ? tapThreshold : GRENADE_TAP_THRESHOLD;
+    const tapSpd = typeof tapDefaultSpeed === 'number' && isFinite(tapDefaultSpeed) ? tapDefaultSpeed : 9.5;
+    if (t <= th) return tapSpd;
+    return grenadeChargedSpeed(t, minSpeed, maxSpeed, rampDuration);
+  }
+
+  // ---- Enemy melee attack reach and cadence balance ----
+  function canEnemyMelee(kind) {
+    return kind === 0 || kind === 2 || kind === 3 || kind === 4;
+  }
+
+  function enemyMeleeReach(kind, baseAttackRange) {
+    const base = typeof baseAttackRange === 'number' && isFinite(baseAttackRange) ? baseAttackRange : 2.1;
+    return base + (kind === 2 ? 0.9 : 0.4);
+  }
+
+  function enemyAttackCooldown(kind) {
+    return kind === 2 ? 2.4 : 1.6;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3131,7 +3191,21 @@ const CORE = (function () {
     armorDamageSound: armorDamageSound,
     touchPlateState: touchPlateState,
     touchEquipmentState: touchEquipmentState,
-    touchStreakState: touchStreakState
+    touchStreakState: touchStreakState,
+    GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
+    GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
+    GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,
+    GRENADE_MIN_SPEED: GRENADE_MIN_SPEED,
+    GRENADE_MAX_SPEED: GRENADE_MAX_SPEED,
+    GRENADE_RAMP_DURATION: GRENADE_RAMP_DURATION,
+    GRENADE_TAP_THRESHOLD: GRENADE_TAP_THRESHOLD,
+    grenadeBlastDamage: grenadeBlastDamage,
+    grenadeSelfDamage: grenadeSelfDamage,
+    grenadeChargedSpeed: grenadeChargedSpeed,
+    grenadeThrowSpeed: grenadeThrowSpeed,
+    canEnemyMelee: canEnemyMelee,
+    enemyMeleeReach: enemyMeleeReach,
+    enemyAttackCooldown: enemyAttackCooldown
   };
 })();
 

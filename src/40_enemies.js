@@ -718,8 +718,8 @@ function updateEnemies(dt) {
       }
     }
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
-    const canMelee = en.kind === 0 || en.kind === 2 || en.kind === 3 || en.kind === 4;
-    const reach = en.kind === 2 ? CFG.ai.attackRange + 0.9 : CFG.ai.attackRange + 0.4;
+    const canMelee = CORE.canEnemyMelee(en.kind);
+    const reach = CORE.enemyMeleeReach(en.kind, CFG.ai.attackRange);
     if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
@@ -740,7 +740,7 @@ function updateEnemies(dt) {
           }
         }
         en.swinging = -1;                        // cooldown marker
-        en.attackReadyT = gameT + (en.kind === 2 ? 2.4 : 1.6) + Math.random() * 0.5;
+        en.attackReadyT = gameT + CORE.enemyAttackCooldown(en.kind) + Math.random() * 0.5;
       }
       if (en.swinging <= -1 - 0.01) en.swinging = undefined;
     }

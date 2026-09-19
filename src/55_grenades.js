@@ -86,14 +86,9 @@ const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: tru
 
 let grenadeCharging = false;
 let grenadeChargeT = 0;
-const GRENADE_MIN_SPEED = 6.0;
-const GRENADE_MAX_SPEED = 13.0;
-const GRENADE_RAMP_DURATION = 1.0;
-const GRENADE_TAP_THRESHOLD = 0.22;
 
 function getGrenadeSpeed() {
-  const ratio = Math.min(1, grenadeChargeT / GRENADE_RAMP_DURATION);
-  return GRENADE_MIN_SPEED + ratio * (GRENADE_MAX_SPEED - GRENADE_MIN_SPEED);
+  return CORE.grenadeChargedSpeed(grenadeChargeT);
 }
 
 const _prevDir = new THREE.Vector3();
@@ -268,7 +263,7 @@ function updateGrenades(dt) {
         grenadeChargeT += dt;
         const curSpeed = getGrenadeSpeed();
         updateGrenadePreview(curSpeed);
-        const chargePct = Math.min(100, Math.round((grenadeChargeT / GRENADE_RAMP_DURATION) * 100));
+        const chargePct = Math.min(100, Math.round((grenadeChargeT / CORE.GRENADE_RAMP_DURATION) * 100));
         if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(true, chargePct, curSpeed);
       }
     } else {
@@ -279,7 +274,7 @@ function updateGrenades(dt) {
       if (player.dead || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
-        const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+        const throwSpeed = CORE.grenadeThrowSpeed(grenadeChargeT, CFG.grenade.speed);
         cancelGrenadeCharge();
         throwGrenade(throwSpeed);
       }
@@ -564,17 +559,16 @@ function explodeGrenade(pos, scale) {
     const d = en.pos.distanceTo(pos);
     const target = en.pos.clone().setY(1.1);
     if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
-      const falloff = 1 - d / CFG.grenade.radius;
-      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff) * dmgScale;
+      const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
       damageEnemy(en, dmg, target, false);
     }
   }
   // player self-damage (half, encourages careful use; solid cover blocks it)
   const pd = player.pos.distanceTo(pos);
   const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
-  if (pd < CFG.grenade.radius * 0.8 && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
-    const falloff = 1 - pd / (CFG.grenade.radius * 0.8);
-    damagePlayer(Math.round(55 * falloff), undefined);
+  if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
+    const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
+    if (selfDmg > 0) damagePlayer(selfDmg, undefined);
   }
   // camera shake kick
   shotKick = Math.min(2, shotKick + 1.2);

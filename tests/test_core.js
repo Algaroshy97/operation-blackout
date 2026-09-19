@@ -3800,6 +3800,84 @@ test('touchStreakState resolves scorestreak, field upgrade, and empty feedback s
   assert.strictEqual(CORE.touchStreakState(false, false), 'empty');
 });
 
+// ---------------------------------------------------------------- ORDNANCE & MELEE BALANCE RULES
+test('grenadeBlastDamage computes explosive damage with floor and linear distance falloff', () => {
+  // Ground zero (dist = 0): 100% damage (120)
+  assert.strictEqual(CORE.grenadeBlastDamage(0, 7, 120, 1.0), 120);
+
+  // Half-distance (dist = 3.5): 0.35 + 0.65 * 0.5 = 0.675 -> 120 * 0.675 = 81
+  assert.ok(Math.abs(CORE.grenadeBlastDamage(3.5, 7, 120, 1.0) - 81) < 1e-6);
+
+  // Scaled damage (e.g. thermite scale 0.45): 120 * 1.0 * 0.45 = 54
+  assert.ok(Math.abs(CORE.grenadeBlastDamage(0, 7, 120, 0.45) - 54) < 1e-6);
+
+  // Exactly at boundary or beyond -> 0
+  assert.strictEqual(CORE.grenadeBlastDamage(7, 7, 120, 1.0), 0);
+  assert.strictEqual(CORE.grenadeBlastDamage(10, 7, 120, 1.0), 0);
+
+  // Edge cases and fallbacks
+  assert.strictEqual(CORE.grenadeBlastDamage(-1, 7, 120), 0);
+  assert.strictEqual(CORE.grenadeBlastDamage(2, 0, 120), 0);
+  assert.strictEqual(CORE.grenadeBlastDamage(NaN, 7, 120), 0);
+  assert.strictEqual(CORE.grenadeBlastDamage(0, NaN, 120), 0);
+});
+
+test('grenadeSelfDamage computes player explosive self-damage within danger radius', () => {
+  // Danger radius = 7 * 0.8 = 5.6 m
+  // Ground zero (dist = 0): 55 HP self damage
+  assert.strictEqual(CORE.grenadeSelfDamage(0, 7, 55), 55);
+
+  // Half danger radius (dist = 2.8): 55 * (1 - 2.8 / 5.6) = 27.5 -> rounded 28
+  assert.strictEqual(CORE.grenadeSelfDamage(2.8, 7, 55), 28);
+
+  // Quarter danger radius (dist = 1.4): 55 * (1 - 1.4 / 5.6) = 55 * 0.75 = 41.25 -> rounded 41
+  assert.strictEqual(CORE.grenadeSelfDamage(1.4, 7, 55), 41);
+
+  // At or beyond danger radius -> 0
+  assert.strictEqual(CORE.grenadeSelfDamage(5.6, 7, 55), 0);
+  assert.strictEqual(CORE.grenadeSelfDamage(6.0, 7, 55), 0);
+
+  // Edge cases
+  assert.strictEqual(CORE.grenadeSelfDamage(-1, 7, 55), 0);
+  assert.strictEqual(CORE.grenadeSelfDamage(1, 0, 55), 0);
+  assert.strictEqual(CORE.grenadeSelfDamage(NaN, 7, 55), 0);
+});
+
+test('grenadeChargedSpeed and grenadeThrowSpeed resolve lob velocities and tap thresholds', () => {
+  // Ramp duration 1.0s, min speed 6.0 m/s, max speed 13.0 m/s
+  assert.strictEqual(CORE.grenadeChargedSpeed(0), 6.0);
+  assert.strictEqual(CORE.grenadeChargedSpeed(0.5), 9.5);
+  assert.strictEqual(CORE.grenadeChargedSpeed(1.0), 13.0);
+  assert.strictEqual(CORE.grenadeChargedSpeed(2.5), 13.0, 'overshooting ramp clamps to max speed');
+  assert.strictEqual(CORE.grenadeChargedSpeed(-0.5), 6.0, 'negative charge clamps to min speed');
+
+  // Tap vs hold throw speed (tap threshold 0.22s)
+  assert.strictEqual(CORE.grenadeThrowSpeed(0.1, 9.5), 9.5, 'tap throw uses configured default speed');
+  assert.strictEqual(CORE.grenadeThrowSpeed(0.22, 9.5), 9.5, 'tap threshold boundary uses default speed');
+  assert.strictEqual(CORE.grenadeThrowSpeed(0.5, 9.5), 9.5, 'charged throw at 0.5s resolves charged speed');
+  assert.strictEqual(CORE.grenadeThrowSpeed(1.0, 9.5), 13.0, 'charged throw at 1.0s reaches max speed');
+});
+
+test('canEnemyMelee, enemyMeleeReach, and enemyAttackCooldown configure archetype melee attributes', () => {
+  // Archetypes that can melee: 0 (runner), 2 (tank), 3 (shielded), 4 (scout)
+  assert.strictEqual(CORE.canEnemyMelee(0), true, 'runner can melee');
+  assert.strictEqual(CORE.canEnemyMelee(2), true, 'tank can melee');
+  assert.strictEqual(CORE.canEnemyMelee(3), true, 'shielded can melee');
+  assert.strictEqual(CORE.canEnemyMelee(4), true, 'scout can melee');
+  assert.strictEqual(CORE.canEnemyMelee(1), false, 'rifleman does not melee');
+  assert.strictEqual(CORE.canEnemyMelee(5), false, 'grenadier does not melee');
+
+  // Melee reach: Tank has +0.9m reach, others have +0.4m
+  assert.strictEqual(CORE.enemyMeleeReach(2, 2.1), 3.0, 'tank melee reach is extended');
+  assert.strictEqual(CORE.enemyMeleeReach(0, 2.1), 2.5, 'standard melee reach');
+  assert.strictEqual(CORE.enemyMeleeReach(3, 2.1), 2.5);
+
+  // Melee attack cooldown: Tank has 2.4s recovery, others have 1.6s
+  assert.strictEqual(CORE.enemyAttackCooldown(2), 2.4, 'tank has longer melee recovery');
+  assert.strictEqual(CORE.enemyAttackCooldown(0), 1.6, 'standard melee recovery');
+  assert.strictEqual(CORE.enemyAttackCooldown(4), 1.6);
+});
+
 
 
 
