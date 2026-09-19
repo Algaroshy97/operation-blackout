@@ -1,0 +1,9 @@
+{
+  "publishes": {
+    "emerald-lemon-ma9z": {
+      "siteUrl": "https://emerald-lemon-ma9z.here.now/",
+      "versionId": "01M2VG38HHWCMPAMN9RDQ7WER7",
+      "path": "/home/server/projects/fps-game-repo/dist"
+    }
+  }
+}
