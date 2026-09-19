@@ -780,7 +780,42 @@ def main() -> int:
         }""")
         checks.append(("agent-separation-and-performance-rules", separation_perf_check))
 
-        # 26) Clean console throughout gameplay.
+        # 26) Weapon fire acoustic differentiation & armor damage audio feedback rules.
+        audio_rules_check = page.evaluate("""() => {
+            if (typeof CORE.weaponFireSound !== 'function' ||
+                typeof CORE.armorDamageSound !== 'function' ||
+                typeof SOUND_RECIPES !== 'object' ||
+                typeof SOUND_VARIED !== 'object') return false;
+
+            const weaponOk = CORE.weaponFireSound('SR') === 'sniper' &&
+                             CORE.weaponFireSound('SMG') === 'smg' &&
+                             CORE.weaponFireSound('BR') === 'br' &&
+                             CORE.weaponFireSound('AR') === 'shot' &&
+                             CORE.weaponFireSound('') === 'shot';
+
+            const armorOk = CORE.armorDamageSound(50, 20) === 'block' &&
+                            CORE.armorDamageSound(50, 0) === 'armor_break' &&
+                            CORE.armorDamageSound(10, -5) === 'armor_break' &&
+                            CORE.armorDamageSound(0, 0) === null &&
+                            CORE.armorDamageSound(-5, 0) === null;
+
+            const recipesOk = Array.isArray(SOUND_RECIPES.smg) &&
+                              Array.isArray(SOUND_RECIPES.br) &&
+                              Array.isArray(SOUND_RECIPES.armor_break);
+
+            const variedOk = SOUND_VARIED.smg === 1 &&
+                             SOUND_VARIED.br === 1 &&
+                             SOUND_VARIED.armor_break === 1 &&
+                             SOUND_VARIED.draw === 1 &&
+                             SOUND_VARIED.pin === 1 &&
+                             SOUND_VARIED.reload_out === 1 &&
+                             SOUND_VARIED.reload_in === 1;
+
+            return weaponOk && armorOk && recipesOk && variedOk;
+        }""")
+        checks.append(("weapon-fire-and-armor-audio-rules", audio_rules_check))
+
+        # 27) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -534,6 +534,21 @@ const CORE = (function () {
     return null;
   }
 
+  function weaponFireSound(weaponType) {
+    if (weaponType === 'SR') return 'sniper';
+    if (weaponType === 'SMG') return 'smg';
+    if (weaponType === 'BR') return 'br';
+    return 'shot';
+  }
+
+  function armorDamageSound(initialArmor, remainingArmor) {
+    const init = (typeof initialArmor === 'number' && isFinite(initialArmor)) ? initialArmor : 0;
+    const rem = (typeof remainingArmor === 'number' && isFinite(remainingArmor)) ? remainingArmor : 0;
+    if (init <= 0) return null;
+    if (rem <= 0) return 'armor_break';
+    return 'block';
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -3084,7 +3099,9 @@ const CORE = (function () {
     MELEE_CAP_MAX_HITS: MELEE_CAP_MAX_HITS,
     pruneHitTimestamps: pruneHitTimestamps,
     canRegisterHit: canRegisterHit,
-    snapToTexel: snapToTexel
+    snapToTexel: snapToTexel,
+    weaponFireSound: weaponFireSound,
+    armorDamageSound: armorDamageSound
   };
 })();
 

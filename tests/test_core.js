@@ -3715,6 +3715,36 @@ test('snapToTexel rounds world coordinates to shadow texel increments', () => {
   assert.strictEqual(CORE.snapToTexel(5.5, -1), 5.5);
 });
 
+// ---------------------------------------------------------------- WEAPON FIRE & ARMOR AUDIO RULES
+test('weaponFireSound resolves distinct acoustic sound identifiers for weapon classes', () => {
+  assert.strictEqual(CORE.weaponFireSound('SR'), 'sniper', 'sniper rifle maps to sniper sound');
+  assert.strictEqual(CORE.weaponFireSound('SMG'), 'smg', 'submachine gun maps to smg sound');
+  assert.strictEqual(CORE.weaponFireSound('BR'), 'br', 'battle rifle maps to br sound');
+  assert.strictEqual(CORE.weaponFireSound('AR'), 'shot', 'assault rifle maps to standard shot sound');
+
+  // Fallbacks and safe defaults
+  assert.strictEqual(CORE.weaponFireSound(''), 'shot');
+  assert.strictEqual(CORE.weaponFireSound(null), 'shot');
+  assert.strictEqual(CORE.weaponFireSound(undefined), 'shot');
+  assert.strictEqual(CORE.weaponFireSound('UNKNOWN'), 'shot');
+});
+
+test('armorDamageSound resolves acoustic block and shatter feedback states', () => {
+  // Armor absorbs damage and persists -> block
+  assert.strictEqual(CORE.armorDamageSound(50, 30), 'block', 'active armor absorbs damage');
+  assert.strictEqual(CORE.armorDamageSound(10, 0.5), 'block', 'partial armor absorbs damage');
+
+  // Armor completely broken down to 0 -> armor_break
+  assert.strictEqual(CORE.armorDamageSound(50, 0), 'armor_break', 'depleted armor triggers break sound');
+  assert.strictEqual(CORE.armorDamageSound(15, -5), 'armor_break', 'overkilled armor triggers break sound');
+
+  // No initial armor -> null (flesh hit only)
+  assert.strictEqual(CORE.armorDamageSound(0, 0), null, 'unarmored player has no armor sound');
+  assert.strictEqual(CORE.armorDamageSound(-10, 0), null, 'negative initial armor yields null');
+  assert.strictEqual(CORE.armorDamageSound(null, 0), null, 'non-numeric initial armor yields null');
+  assert.strictEqual(CORE.armorDamageSound(undefined, undefined), null, 'undefined yields null');
+});
+
 
 
 

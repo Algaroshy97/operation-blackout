@@ -360,6 +360,8 @@ let noiseBuf = null;
 // is what makes the pre-render below possible.
 const SOUND_RECIPES = {
   shot:        [['noise', 0.09, 0.5, 900, 0.7], ['osc', 'square', 190, 70, 0.07, 0.28]],
+  smg:         [['noise', 0.065, 0.42, 1250, 0.85], ['osc', 'square', 260, 110, 0.05, 0.22]],
+  br:          [['noise', 0.12, 0.58, 650, 0.6], ['osc', 'square', 140, 50, 0.10, 0.32], ['osc', 'sine', 85, 30, 0.13, 0.22]],
   sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
@@ -379,6 +381,7 @@ const SOUND_RECIPES = {
   // Dull, low and short: a blocked round has to sound like nothing happened,
   // because that is exactly the information the player needs.
   block:       [['osc', 'square', 340, 260, 0.05, 0.10], ['noise', 0.05, 0.12, 500, 1.2]],
+  armor_break: [['osc', 'square', 780, 260, 0.07, 0.22], ['noise', 0.12, 0.35, 2200, 2], ['osc', 'sine', 200, 80, 0.10, 0.25]],
   powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
   headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
   kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
@@ -399,9 +402,10 @@ const SOUND_RECIPES = {
 // every time, so these get a few percent of pitch jitter — which is more variation
 // than the old live synthesis had, since its parameters were fixed too.
 const SOUND_VARIED = {
-  shot: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
+  shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
-  block: 1, kill: 1, dry: 1, pickup_ammo: 1, pickup_med: 1
+  block: 1, armor_break: 1, kill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
+  pickup_ammo: 1, pickup_med: 1
 };
 
 function recipeDuration(recipe) {

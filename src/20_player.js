@@ -409,9 +409,11 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg) {
   if (player.dead || godMode) return;
   const res = CORE.resolveArmorDamage(amount, player.armor);
+  const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor);
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
+  if (armorSnd) playSound(armorSnd);
   showDamageFx(dirDeg, amount);
   updateHudHealth();
   // A lethal hit no longer ends the run outright: losing 30-40 minutes to one

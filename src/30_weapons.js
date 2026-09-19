@@ -302,7 +302,7 @@ function fireShot(preserveSchedule) {
   player.recoilP += w.recoilV * rk.y;
   player.recoilY += w.recoilH * rk.x;
   shotKick = Math.min(shotKick + 0.5, 1.4);
-  if (w.type === 'SR') playSound('sniper'); else playSound('shot');
+  playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
   updateHudAmmo();
