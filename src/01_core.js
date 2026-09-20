@@ -3116,6 +3116,106 @@ const CORE = (function () {
     return target;
   }
 
+  // ---- Player Mobility, Stamina, Health Regen, and Resource Pickup Balance ----
+  const SLIDE_DURATION = 0.9;
+  const SLIDE_START_MUL = 1.2;
+  const SLIDE_END_MUL = 0.5;
+  const SLIDE_BOOST_MAX = 1.35;
+  const SLIDE_BOOST_SCALE = 0.3;
+  const SLIDE_JUMP_Y_MUL = 1.08;
+
+  function slideSpeedAt(slideT, baseSprintSpeed, baseCrouchSpeed, duration, startMul, endMul) {
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : SLIDE_DURATION;
+    const t = typeof slideT === 'number' && isFinite(slideT) ? Math.max(0, Math.min(1, slideT / dur)) : 0;
+    const sm = typeof startMul === 'number' && isFinite(startMul) ? startMul : SLIDE_START_MUL;
+    const em = typeof endMul === 'number' && isFinite(endMul) ? endMul : SLIDE_END_MUL;
+    const sprintSpd = typeof baseSprintSpeed === 'number' && isFinite(baseSprintSpeed) ? baseSprintSpeed : 8.1;
+    const crouchSpd = typeof baseCrouchSpeed === 'number' && isFinite(baseCrouchSpeed) ? baseCrouchSpeed : (sprintSpd * (em / sm));
+    const startSpd = sprintSpd * sm;
+    const endSpd = crouchSpd;
+    return startSpd + (endSpd - startSpd) * t;
+  }
+
+  function slideJumpBoost(horizontalSpeed, maxSprintSpeed, maxBoost, scale) {
+    const spd = typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
+    const sprint = typeof maxSprintSpeed === 'number' && isFinite(maxSprintSpeed) && maxSprintSpeed > 0 ? maxSprintSpeed : 8.1;
+    const mb = typeof maxBoost === 'number' && isFinite(maxBoost) ? maxBoost : SLIDE_BOOST_MAX;
+    const sc = typeof scale === 'number' && isFinite(scale) ? scale : SLIDE_BOOST_SCALE;
+    return Math.min(mb, 1 + (spd / sprint) * sc);
+  }
+
+  const STAMINA_RECOVER_RATE = 0.7;
+  const STAMINA_EXHAUST_RECOVER_RATIO = 0.35;
+
+  function stepPlayerStamina(stamina, maxStamina, isSprinting, isTacSprint, dt, drainRate, tacDrainMul, recoverRate) {
+    const s = typeof stamina === 'number' && isFinite(stamina) ? stamina : 0;
+    const max = typeof maxStamina === 'number' && isFinite(maxStamina) && maxStamina > 0 ? maxStamina : 5;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    if (isSprinting) {
+      const drain = typeof drainRate === 'number' && isFinite(drainRate) && drainRate > 0 ? drainRate : 1;
+      const tacMul = typeof tacDrainMul === 'number' && isFinite(tacDrainMul) && tacDrainMul > 0 ? tacDrainMul : 2.2;
+      const burn = d * (isTacSprint ? tacMul : drain);
+      return Math.max(0, s - burn);
+    }
+    const rec = typeof recoverRate === 'number' && isFinite(recoverRate) && recoverRate > 0 ? recoverRate : STAMINA_RECOVER_RATE;
+    return Math.min(max, s + d * rec);
+  }
+
+  function isPlayerExhausted(stamina, wasExhausted, maxStamina, recoverRatio) {
+    const s = typeof stamina === 'number' && isFinite(stamina) ? stamina : 0;
+    if (s <= 0) return true;
+    if (!wasExhausted) return false;
+    const max = typeof maxStamina === 'number' && isFinite(maxStamina) && maxStamina > 0 ? maxStamina : 5;
+    const ratio = typeof recoverRatio === 'number' && isFinite(recoverRatio) && recoverRatio >= 0 ? recoverRatio : STAMINA_EXHAUST_RECOVER_RATIO;
+    return s <= max * ratio;
+  }
+
+  function canRegenHealth(downed, timeSinceDamage, regenDelay, health, maxHealth) {
+    if (downed) return false;
+    const since = typeof timeSinceDamage === 'number' && isFinite(timeSinceDamage) ? timeSinceDamage : -1;
+    const delay = typeof regenDelay === 'number' && isFinite(regenDelay) ? regenDelay : 4.0;
+    if (since <= delay) return false;
+    const hp = typeof health === 'number' && isFinite(health) ? health : 0;
+    const max = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    return hp < max && hp > 0;
+  }
+
+  function stepHealthRegen(currentHealth, maxHealth, regenRate, diffRegenMul, dt) {
+    const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? currentHealth : 0;
+    const max = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    const rate = typeof regenRate === 'number' && isFinite(regenRate) && regenRate > 0 ? regenRate : 20;
+    const diffMul = typeof diffRegenMul === 'number' && isFinite(diffRegenMul) && diffRegenMul > 0 ? diffRegenMul : 1;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    return Math.min(max, hp + rate * diffMul * d);
+  }
+
+  const AMMO_PICKUP_MAG_RATIO = 1.5;
+  const MEDKIT_HEAL_BASE = 35;
+  const MEDKIT_ARMOR_BASE = 15;
+
+  function ammoPickupRestore(currentReserve, reserveMax, magSize, perkMul) {
+    const res = typeof currentReserve === 'number' && isFinite(currentReserve) ? Math.max(0, currentReserve) : 0;
+    const max = typeof reserveMax === 'number' && isFinite(reserveMax) && reserveMax > 0 ? reserveMax : 120;
+    const mag = typeof magSize === 'number' && isFinite(magSize) && magSize > 0 ? magSize : 30;
+    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
+    const gained = Math.round(mag * AMMO_PICKUP_MAG_RATIO * mul);
+    return Math.min(max, res + gained);
+  }
+
+  function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul) {
+    const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? Math.max(0, currentHealth) : 0;
+    const maxHp = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    const arm = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
+    const maxArm = typeof maxArmor === 'number' && isFinite(maxArmor) && maxArmor > 0 ? maxArmor : 50;
+    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
+    const heal = Math.round(MEDKIT_HEAL_BASE * mul);
+    const armorHeal = Math.round(MEDKIT_ARMOR_BASE * mul);
+    return {
+      health: Math.min(maxHp, hp + heal),
+      armor: Math.min(maxArm, arm + armorHeal)
+    };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3440,7 +3540,26 @@ const CORE = (function () {
     MK_MAX_STREAK: MK_MAX_STREAK,
     advanceKillStreak: advanceKillStreak,
     multikillLabel: multikillLabel,
-    multikillSound: multikillSound
+    multikillSound: multikillSound,
+    SLIDE_DURATION: SLIDE_DURATION,
+    SLIDE_START_MUL: SLIDE_START_MUL,
+    SLIDE_END_MUL: SLIDE_END_MUL,
+    SLIDE_BOOST_MAX: SLIDE_BOOST_MAX,
+    SLIDE_BOOST_SCALE: SLIDE_BOOST_SCALE,
+    SLIDE_JUMP_Y_MUL: SLIDE_JUMP_Y_MUL,
+    slideSpeedAt: slideSpeedAt,
+    slideJumpBoost: slideJumpBoost,
+    STAMINA_RECOVER_RATE: STAMINA_RECOVER_RATE,
+    STAMINA_EXHAUST_RECOVER_RATIO: STAMINA_EXHAUST_RECOVER_RATIO,
+    stepPlayerStamina: stepPlayerStamina,
+    isPlayerExhausted: isPlayerExhausted,
+    canRegenHealth: canRegenHealth,
+    stepHealthRegen: stepHealthRegen,
+    AMMO_PICKUP_MAG_RATIO: AMMO_PICKUP_MAG_RATIO,
+    MEDKIT_HEAL_BASE: MEDKIT_HEAL_BASE,
+    MEDKIT_ARMOR_BASE: MEDKIT_ARMOR_BASE,
+    ammoPickupRestore: ammoPickupRestore,
+    medkitPickupRestore: medkitPickupRestore
   };
 })();
 

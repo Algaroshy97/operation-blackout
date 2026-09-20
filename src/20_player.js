@@ -217,10 +217,9 @@ function updatePlayer(dt) {
       player.slideDir.normalize();
     }
     // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
-    const t = Math.min(1, player.slideT / 0.9);
-    const startSpd = CFG.player.speed * CFG.player.sprintMul * 1.2;
-    const endSpd = CFG.player.speed * 0.5;
-    const slideSpeed = startSpd + (endSpd - startSpd) * t;
+    const sprintBase = CFG.player.speed * CFG.player.sprintMul;
+    const crouchBase = CFG.player.speed * CORE.SLIDE_END_MUL;
+    const slideSpeed = CORE.slideSpeedAt(player.slideT, sprintBase, crouchBase, CORE.SLIDE_DURATION, CORE.SLIDE_START_MUL, CORE.SLIDE_END_MUL);
     player.vel.x = player.slideDir.x * slideSpeed;
     player.vel.z = player.slideDir.z * slideSpeed;
     // Slide cancel. The slide used to commit for a full 0.9 s with no early-out
@@ -243,9 +242,9 @@ function updatePlayer(dt) {
     if (pressed['Space'] && player.onGround) {
       player.sliding = false;
       const spd = Math.hypot(player.vel.x, player.vel.z);
-      const boost = Math.min(1.35, 1 + spd / (CFG.player.speed * CFG.player.sprintMul) * 0.3);
+      const boost = CORE.slideJumpBoost(spd, sprintBase, CORE.SLIDE_BOOST_MAX, CORE.SLIDE_BOOST_SCALE);
       player.vel.x *= boost; player.vel.z *= boost;
-      player.vel.y = CFG.player.jumpVel * 1.08;
+      player.vel.y = CFG.player.jumpVel * CORE.SLIDE_JUMP_Y_MUL;
       player.onGround = false;
       player.jumpBufT = 0;
       player.coyoteT = 0;
@@ -276,12 +275,13 @@ function updatePlayer(dt) {
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   if (wantSprint && !player.exhausted) {
     player.sprinting = true;
-    player.stamina -= dt * (player.tacT > 0 ? TAC_DRAIN : 1);
-    if (player.stamina <= 0) { player.stamina = 0; player.exhausted = true; player.sprinting = false; }
+    player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, true, player.tacT > 0, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
+    player.exhausted = CORE.isPlayerExhausted(player.stamina, player.exhausted, CFG.player.maxStamina, CORE.STAMINA_EXHAUST_RECOVER_RATIO);
+    if (player.exhausted) player.sprinting = false;
   } else {
     player.sprinting = false;
-    player.stamina = Math.min(CFG.player.maxStamina, player.stamina + dt * 0.7);
-    if (player.exhausted && player.stamina > CFG.player.maxStamina * 0.35) player.exhausted = false;
+    player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, false, false, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
+    player.exhausted = CORE.isPlayerExhausted(player.stamina, player.exhausted, CFG.player.maxStamina, CORE.STAMINA_EXHAUST_RECOVER_RATIO);
   }
 
   // movement intent (yaw-relative). iz: +1 = forward (W), -1 = back (S)
@@ -366,9 +366,10 @@ function updatePlayer(dt) {
 
   // health regen
   // A downed player does not regenerate: the bleed-out has to mean something.
-  if (!player.downed &&
-      gameT - player.lastDamageT > CFG.player.regenDelay && player.health < playerMaxHealth()) {
-    player.health = Math.min(playerMaxHealth(), player.health + CFG.player.regenRate * diff().regen * dt);
+  const timeSinceDmg = gameT - player.lastDamageT;
+  const maxHp = playerMaxHealth();
+  if (CORE.canRegenHealth(player.downed, timeSinceDmg, CFG.player.regenDelay, player.health, maxHp)) {
+    player.health = CORE.stepHealthRegen(player.health, maxHp, CFG.player.regenRate, diff().regen, dt);
   }
 
   // head bob

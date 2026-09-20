@@ -4184,3 +4184,130 @@ test('touchSlideState and touchSlideLabel reflect stance, kinetic slide, and spr
   assert.strictEqual(CORE.touchSlideState(false, false, false), '');
   assert.strictEqual(CORE.touchSlideLabel(false, false), 'SLIDE');
 });
+
+test('slideSpeedAt and slideJumpBoost govern kinetic slide momentum and jump transfer', () => {
+  const sprintSpd = 5.4 * 1.5; // 8.1 m/s
+  const crouchSpd = 5.4 * 0.5; // 2.7 m/s
+
+  // At start of slide (t = 0): 1.2x sprint speed = 9.72 m/s
+  const startSpeed = CORE.slideSpeedAt(0, sprintSpd, crouchSpd, 0.9, 1.2, 0.5);
+  assert.ok(Math.abs(startSpeed - 9.72) < 1e-4);
+
+  // At end of slide (t = 0.9): crouch speed = 2.7 m/s
+  const endSpeed = CORE.slideSpeedAt(0.9, sprintSpd, crouchSpd, 0.9, 1.2, 0.5);
+  assert.ok(Math.abs(endSpeed - 2.7) < 1e-4);
+
+  // Halfway through slide (t = 0.45): exact midpoint = 6.21 m/s
+  const midSpeed = CORE.slideSpeedAt(0.45, sprintSpd, crouchSpd, 0.9, 1.2, 0.5);
+  assert.ok(Math.abs(midSpeed - 6.21) < 1e-4);
+
+  // Clamping outside bounds
+  assert.ok(Math.abs(CORE.slideSpeedAt(-0.5, sprintSpd, crouchSpd, 0.9, 1.2, 0.5) - 9.72) < 1e-4);
+  assert.ok(Math.abs(CORE.slideSpeedAt(2.0, sprintSpd, crouchSpd, 0.9, 1.2, 0.5) - 2.7) < 1e-4);
+
+  // Jump boost transfer
+  assert.strictEqual(CORE.slideJumpBoost(0, sprintSpd, 1.35, 0.3), 1.0);
+  const sprintBoost = CORE.slideJumpBoost(sprintSpd, sprintSpd, 1.35, 0.3);
+  assert.ok(Math.abs(sprintBoost - 1.30) < 1e-4);
+
+  // Max boost clamping
+  const cappedBoost = CORE.slideJumpBoost(sprintSpd * 2, sprintSpd, 1.35, 0.3);
+  assert.strictEqual(cappedBoost, 1.35);
+});
+
+test('stepPlayerStamina and isPlayerExhausted govern stamina depletion, recovery, and exhaustion gates', () => {
+  const maxStamina = 5.0;
+
+  // Base sprint drain (1.0/s)
+  const drained = CORE.stepPlayerStamina(5.0, maxStamina, true, false, 1.0, 1.0, 2.2, 0.7);
+  assert.ok(Math.abs(drained - 4.0) < 1e-4);
+
+  // Tactical sprint drain (2.2/s)
+  const tacDrained = CORE.stepPlayerStamina(5.0, maxStamina, true, true, 1.0, 1.0, 2.2, 0.7);
+  assert.ok(Math.abs(tacDrained - 2.8) < 1e-4);
+
+  // Drain clamping to 0
+  const empty = CORE.stepPlayerStamina(1.0, maxStamina, true, true, 2.0, 1.0, 2.2, 0.7);
+  assert.strictEqual(empty, 0);
+
+  // Recovery (0.7/s)
+  const recovered = CORE.stepPlayerStamina(0, maxStamina, false, false, 2.0, 1.0, 2.2, 0.7);
+  assert.ok(Math.abs(recovered - 1.4) < 1e-4);
+
+  // Recovery clamping to maxStamina
+  const full = CORE.stepPlayerStamina(4.8, maxStamina, false, false, 1.0, 1.0, 2.2, 0.7);
+  assert.strictEqual(full, 5.0);
+
+  // Exhaustion state gates
+  // Zero stamina triggers exhaustion
+  assert.strictEqual(CORE.isPlayerExhausted(0, false, maxStamina, 0.35), true);
+
+  // Stays exhausted until recovering past 35% threshold (1.75)
+  assert.strictEqual(CORE.isPlayerExhausted(1.5, true, maxStamina, 0.35), true);
+  assert.strictEqual(CORE.isPlayerExhausted(1.75, true, maxStamina, 0.35), true);
+  assert.strictEqual(CORE.isPlayerExhausted(1.8, true, maxStamina, 0.35), false);
+
+  // Non-exhausted player is not exhausted while stamina remains positive
+  assert.strictEqual(CORE.isPlayerExhausted(1.0, false, maxStamina, 0.35), false);
+});
+
+test('canRegenHealth and stepHealthRegen govern natural combat recovery', () => {
+  const maxHp = 100;
+  const regenDelay = 4.0;
+
+  // Downed player cannot regenerate
+  assert.strictEqual(CORE.canRegenHealth(true, 5.0, regenDelay, 50, maxHp), false);
+
+  // Damage delay lockout
+  assert.strictEqual(CORE.canRegenHealth(false, 3.5, regenDelay, 50, maxHp), false);
+
+  // Full health needs no regeneration
+  assert.strictEqual(CORE.canRegenHealth(false, 5.0, regenDelay, 100, maxHp), false);
+
+  // Bleeding out / dead cannot regenerate
+  assert.strictEqual(CORE.canRegenHealth(false, 5.0, regenDelay, 0, maxHp), false);
+
+  // Valid regen conditions
+  assert.strictEqual(CORE.canRegenHealth(false, 5.0, regenDelay, 60, maxHp), true);
+
+  // Step health regen calculation
+  const healed = CORE.stepHealthRegen(60, maxHp, 20, 1.0, 0.5);
+  assert.ok(Math.abs(healed - 70) < 1e-4);
+
+  // Step health regen with difficulty multiplier
+  const hardHealed = CORE.stepHealthRegen(60, maxHp, 20, 0.8, 0.5);
+  assert.ok(Math.abs(hardHealed - 68) < 1e-4);
+
+  // Clamped at maxHealth
+  const cappedHeal = CORE.stepHealthRegen(95, maxHp, 20, 1.0, 1.0);
+  assert.strictEqual(cappedHeal, 100);
+});
+
+test('ammoPickupRestore and medkitPickupRestore calculate resource replenishment and perk scaling', () => {
+  // Ammo pickup: 1.5x mag size (30 * 1.5 = 45 rounds)
+  const ammoRes = CORE.ammoPickupRestore(30, 120, 30, 1.0);
+  assert.strictEqual(ammoRes, 75);
+
+  // Ammo pickup with Scavenger perk (1.6x -> 72 rounds)
+  const scavAmmo = CORE.ammoPickupRestore(30, 120, 30, 1.6);
+  assert.strictEqual(scavAmmo, 102);
+
+  // Ammo pickup reserve cap
+  const cappedAmmo = CORE.ammoPickupRestore(100, 120, 30, 1.6);
+  assert.strictEqual(cappedAmmo, 120);
+
+  // Medkit pickup: base 35 HP + 15 Armor
+  const medkitRes = CORE.medkitPickupRestore(50, 100, 10, 50, 1.0);
+  assert.strictEqual(medkitRes.health, 85);
+  assert.strictEqual(medkitRes.armor, 25);
+
+  // Medkit pickup with Scavenger perk (35 * 1.6 = 56 HP, 15 * 1.6 = 24 Armor)
+  const scavMedkit = CORE.medkitPickupRestore(50, 100, 10, 50, 1.6);
+  assert.strictEqual(scavMedkit.health, 100); // capped from 106
+  assert.strictEqual(scavMedkit.armor, 34);
+
+  // Medkit pickup clamping at full health/armor
+  const fullMedkit = CORE.medkitPickupRestore(95, 100, 45, 50, 1.0);
+  assert.strictEqual(fullMedkit.health, 100);
+  assert.strictEqual(fullMedkit.armor, 50);
+});

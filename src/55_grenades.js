@@ -674,14 +674,14 @@ function updatePickups(dt) {
         const s = curS();
         if (s) {
           const cw = curW();
-          s.reserve = Math.min(cw.reserveMax, s.reserve + Math.round(cw.mag * 1.5 * CORE.perkPickupMul(perks)));
+          s.reserve = CORE.ammoPickupRestore(s.reserve, cw.reserveMax, cw.mag, CORE.perkPickupMul(perks));
           updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
-        const heal = 35 * CORE.perkPickupMul(perks);     // SCAVENGER
-        player.health = Math.min(playerMaxHealth(), player.health + heal);
-        player.armor = Math.min(CFG.player.armor, player.armor + 15 * CORE.perkPickupMul(perks));
+        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks));
+        player.health = restored.health;
+        player.armor = restored.armor;
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }

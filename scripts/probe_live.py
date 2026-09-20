@@ -1060,7 +1060,50 @@ def main() -> int:
         }""")
         checks.append(("touch-tactical-interaction-rules", touch_tactical_rules_check))
 
-        # 32) Clean console throughout gameplay.
+        # 32) Player mobility, stamina, health regen, and pickup restore balance rules.
+        balance_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.slideSpeedAt !== 'function' ||
+                typeof CORE.slideJumpBoost !== 'function' ||
+                typeof CORE.stepPlayerStamina !== 'function' ||
+                typeof CORE.isPlayerExhausted !== 'function' ||
+                typeof CORE.canRegenHealth !== 'function' ||
+                typeof CORE.stepHealthRegen !== 'function' ||
+                typeof CORE.ammoPickupRestore !== 'function' ||
+                typeof CORE.medkitPickupRestore !== 'function') return false;
+
+            const sprintSpd = 8.1;
+            const crouchSpd = 2.7;
+            const slideStart = Math.abs(CORE.slideSpeedAt(0, sprintSpd, crouchSpd, 0.9, 1.2, 0.5) - 9.72) < 1e-4;
+            const slideEnd = Math.abs(CORE.slideSpeedAt(0.9, sprintSpd, crouchSpd, 0.9, 1.2, 0.5) - 2.7) < 1e-4;
+            const jumpBoost = Math.abs(CORE.slideJumpBoost(sprintSpd, sprintSpd, 1.35, 0.3) - 1.30) < 1e-4;
+
+            const stamDrain = Math.abs(CORE.stepPlayerStamina(5.0, 5.0, true, false, 1.0, 1.0, 2.2, 0.7) - 4.0) < 1e-4;
+            const stamTac = Math.abs(CORE.stepPlayerStamina(5.0, 5.0, true, true, 1.0, 1.0, 2.2, 0.7) - 2.8) < 1e-4;
+            const exhaustTrig = CORE.isPlayerExhausted(0, false, 5.0, 0.35) === true;
+            const exhaustHold = CORE.isPlayerExhausted(1.5, true, 5.0, 0.35) === true;
+            const exhaustClear = CORE.isPlayerExhausted(1.8, true, 5.0, 0.35) === false;
+
+            const regenDowned = CORE.canRegenHealth(true, 5.0, 4.0, 50, 100) === false;
+            const regenDelay = CORE.canRegenHealth(false, 3.5, 4.0, 50, 100) === false;
+            const regenOk = CORE.canRegenHealth(false, 5.0, 4.0, 50, 100) === true;
+            const regenStep = Math.abs(CORE.stepHealthRegen(50, 100, 20, 1.0, 0.5) - 60) < 1e-4;
+
+            const ammoRes = CORE.ammoPickupRestore(30, 120, 30, 1.0) === 75;
+            const ammoScav = CORE.ammoPickupRestore(30, 120, 30, 1.6) === 102;
+            const medRes = CORE.medkitPickupRestore(50, 100, 10, 50, 1.0);
+            const medOk = medRes.health === 85 && medRes.armor === 25;
+            const medScav = CORE.medkitPickupRestore(50, 100, 10, 50, 1.6);
+            const medScavOk = medScav.health === 100 && medScav.armor === 34;
+
+            return slideStart && slideEnd && jumpBoost &&
+                   stamDrain && stamTac && exhaustTrig && exhaustHold && exhaustClear &&
+                   regenDowned && regenDelay && regenOk && regenStep &&
+                   ammoRes && ammoScav && medOk && medScavOk;
+        }""")
+        checks.append(("player-mobility-and-survival-balance-rules", balance_rules_check))
+
+        # 33) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
