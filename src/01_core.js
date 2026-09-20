@@ -1943,6 +1943,58 @@ const CORE = (function () {
     if (fieldReady) return 'field';
     return 'empty';
   }
+  // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
+  // or 'ready' when a reserve weapon is owned and can be switched to.
+  function touchSwapState(curSlot, weaponsOwned) {
+    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return 'empty';
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
+    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
+    const wid = weaponsOwned[other];
+    if (typeof wid !== 'number' || !isFinite(wid) || wid < 0) return 'empty';
+    return 'ready';
+  }
+  // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
+  // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
+    if (touchSwapState(curSlot, weaponsOwned) === 'empty') return 'SWAP';
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
+    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
+    const wid = weaponsOwned[other];
+    if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
+      return weaponsList[wid].type;
+    }
+    return 'SWAP';
+  }
+  // Station interaction buy prompt prefix: generates 'HOLD USE — ' on mobile touch devices
+  // or 'HOLD F — ' on desktop when interactive purchase is available.
+  function buyPromptPrefix(isTouch, ok) {
+    if (!ok) return '';
+    return isTouch ? 'HOLD USE — ' : 'HOLD F — ';
+  }
+  // Mobile touch station USE button state: returns 'holding' when actively holding interaction,
+  // 'ready' when in range of an affordable station, 'blocked' when near an unaffordable station,
+  // or 'empty' when out of range of any interactive station.
+  function touchUseState(nearStation, canAfford, isHolding) {
+    if (!nearStation) return 'empty';
+    if (isHolding) return 'holding';
+    if (canAfford) return 'ready';
+    return 'blocked';
+  }
+  // Mobile touch stance/slide button state: returns 'sliding' during an active slide,
+  // 'crouch' while crouching, 'sprint' when forward sprint momentum is ready to slide,
+  // or '' during standard movement.
+  function touchSlideState(sliding, crouching, isSprint) {
+    if (sliding) return 'sliding';
+    if (crouching) return 'crouch';
+    if (isSprint) return 'sprint';
+    return '';
+  }
+  // Mobile touch stance/slide button label: returns 'STAND' when crouched, or 'SLIDE' otherwise.
+  function touchSlideLabel(sliding, crouching) {
+    if (sliding) return 'SLIDE';
+    if (crouching) return 'STAND';
+    return 'SLIDE';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -3349,6 +3401,12 @@ const CORE = (function () {
     touchPlateState: touchPlateState,
     touchEquipmentState: touchEquipmentState,
     touchStreakState: touchStreakState,
+    touchSwapState: touchSwapState,
+    touchSwapLabel: touchSwapLabel,
+    buyPromptPrefix: buyPromptPrefix,
+    touchUseState: touchUseState,
+    touchSlideState: touchSlideState,
+    touchSlideLabel: touchSlideLabel,
     GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
     GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
     GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,

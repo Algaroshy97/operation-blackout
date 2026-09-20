@@ -235,7 +235,10 @@
      0 in landscape, yet a tap that close still competes with the gesture bar. */
   body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
+  body.touch #tbtn-slide.sliding{background:rgba(80,180,255,.55);border-color:#50b4ff;color:#fff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 12px rgba(80,180,255,.25)}
+  body.touch #tbtn-slide.crouch{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,170,58,.25),inset 0 0 8px rgba(255,170,58,.18)}
+  body.touch #tbtn-slide.sprint{border-color:#80d4ff;color:#fff;box-shadow:0 0 0 2px rgba(128,212,255,.25)}
   body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
@@ -244,9 +247,13 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 12px rgba(255,210,74,.2)}
-  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-use.ready{border-color:#7ee08a;color:#7ee08a;box-shadow:0 0 0 3px rgba(126,224,138,.3),inset 0 0 10px rgba(126,224,138,.2)}
+  body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.35),inset 0 0 12px rgba(255,210,74,.25)}
+  body.touch #tbtn-use.blocked{border-color:#ff4a3d;color:#ff5f4a;opacity:.6}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.3),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
@@ -294,7 +301,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide{transition:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
@@ -6574,6 +6581,58 @@ const CORE = (function () {
     if (fieldReady) return 'field';
     return 'empty';
   }
+  // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
+  // or 'ready' when a reserve weapon is owned and can be switched to.
+  function touchSwapState(curSlot, weaponsOwned) {
+    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return 'empty';
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
+    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
+    const wid = weaponsOwned[other];
+    if (typeof wid !== 'number' || !isFinite(wid) || wid < 0) return 'empty';
+    return 'ready';
+  }
+  // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
+  // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
+    if (touchSwapState(curSlot, weaponsOwned) === 'empty') return 'SWAP';
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
+    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
+    const wid = weaponsOwned[other];
+    if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
+      return weaponsList[wid].type;
+    }
+    return 'SWAP';
+  }
+  // Station interaction buy prompt prefix: generates 'HOLD USE — ' on mobile touch devices
+  // or 'HOLD F — ' on desktop when interactive purchase is available.
+  function buyPromptPrefix(isTouch, ok) {
+    if (!ok) return '';
+    return isTouch ? 'HOLD USE — ' : 'HOLD F — ';
+  }
+  // Mobile touch station USE button state: returns 'holding' when actively holding interaction,
+  // 'ready' when in range of an affordable station, 'blocked' when near an unaffordable station,
+  // or 'empty' when out of range of any interactive station.
+  function touchUseState(nearStation, canAfford, isHolding) {
+    if (!nearStation) return 'empty';
+    if (isHolding) return 'holding';
+    if (canAfford) return 'ready';
+    return 'blocked';
+  }
+  // Mobile touch stance/slide button state: returns 'sliding' during an active slide,
+  // 'crouch' while crouching, 'sprint' when forward sprint momentum is ready to slide,
+  // or '' during standard movement.
+  function touchSlideState(sliding, crouching, isSprint) {
+    if (sliding) return 'sliding';
+    if (crouching) return 'crouch';
+    if (isSprint) return 'sprint';
+    return '';
+  }
+  // Mobile touch stance/slide button label: returns 'STAND' when crouched, or 'SLIDE' otherwise.
+  function touchSlideLabel(sliding, crouching) {
+    if (sliding) return 'SLIDE';
+    if (crouching) return 'STAND';
+    return 'SLIDE';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -7980,6 +8039,12 @@ const CORE = (function () {
     touchPlateState: touchPlateState,
     touchEquipmentState: touchEquipmentState,
     touchStreakState: touchStreakState,
+    touchSwapState: touchSwapState,
+    touchSwapLabel: touchSwapLabel,
+    buyPromptPrefix: buyPromptPrefix,
+    touchUseState: touchUseState,
+    touchSlideState: touchSlideState,
+    touchSlideLabel: touchSlideLabel,
     GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
     GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
     GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,
@@ -9825,6 +9890,22 @@ function applyTouchInput() {
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
   touchState.lookX = 0; touchState.lookY = 0;
+
+  // Stance / slide button tactical feedback
+  updateTouchSlideBtn();
+}
+
+let tbtnSlideEl = null;
+function updateTouchSlideBtn() {
+  if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
+  if (!tbtnSlideEl || typeof player === 'undefined') return;
+  const isSprint = !!keys['ShiftLeft'];
+  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint);
+  tbtnSlideEl.classList.toggle('sliding', slideState === 'sliding');
+  tbtnSlideEl.classList.toggle('crouch', slideState === 'crouch');
+  tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
+  if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
 }
 
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
@@ -13232,7 +13313,18 @@ function purchase(st) {
 
 // ---- Per-frame --------------------------------------------------------------
 function updateStations(dt) {
-  if (!started || paused || player.dead) { setBuyPrompt(null, 0); return; }
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (!started || paused || player.dead) {
+    setBuyPrompt(null, 0);
+    if (isTouch) {
+      const tb = $id('tbtn-use');
+      if (tb) {
+        tb.classList.add('empty');
+        tb.classList.remove('ready', 'holding', 'blocked');
+      }
+    }
+    return;
+  }
   // Plating runs to completion once started; it is a commitment, like a reload.
   if (plateT > 0) {
     plateT = Math.max(0, plateT - dt);
@@ -13250,7 +13342,17 @@ function updateStations(dt) {
 
   const idx = CORE.nearestStation(stations, player.pos.x, player.pos.z, CORE.BUY_RADIUS);
   if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
-  if (idx < 0) { setBuyPrompt(null, 0); return; }
+  if (idx < 0) {
+    setBuyPrompt(null, 0);
+    if (isTouch) {
+      const tb = $id('tbtn-use');
+      if (tb) {
+        tb.classList.add('empty');
+        tb.classList.remove('ready', 'holding', 'blocked');
+      }
+    }
+    return;
+  }
   const st = stations[idx];
   const offer = stationOffer(st);
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
@@ -13263,10 +13365,21 @@ function updateStations(dt) {
   } else if (stationHoldT > 0) {
     stationHoldT = Math.max(0, stationHoldT - dt * 3);
   }
+  if (isTouch) {
+    const tb = $id('tbtn-use');
+    if (tb) {
+      const uState = CORE.touchUseState(true, offer.ok, holding);
+      tb.classList.toggle('empty', uState === 'empty');
+      tb.classList.toggle('ready', uState === 'ready');
+      tb.classList.toggle('holding', uState === 'holding');
+      tb.classList.toggle('blocked', uState === 'blocked');
+    }
+  }
   const text = offer.price > 0
     ? offer.label + '  ·  ' + offer.price + ' CR'
     : offer.label;
-  setBuyPrompt((offer.ok ? 'HOLD F — ' : '') + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
+  const promptPrefix = CORE.buyPromptPrefix(isTouch, offer.ok);
+  setBuyPrompt(promptPrefix + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
 }
 
 function usePlate() {
@@ -13778,6 +13891,14 @@ function updateHudAmmo(force) {
     if (tbtnTac) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
       tbtnTac.classList.toggle('empty', tacState === 'empty');
+    }
+    const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
+    if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
+      tbtnSwap.classList.toggle('empty', swapState === 'empty');
+      tbtnSwap.classList.toggle('ready', swapState === 'ready');
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, CFG.weapons);
+      if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
     }
   }
 }

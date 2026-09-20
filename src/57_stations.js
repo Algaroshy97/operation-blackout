@@ -332,7 +332,18 @@ function purchase(st) {
 
 // ---- Per-frame --------------------------------------------------------------
 function updateStations(dt) {
-  if (!started || paused || player.dead) { setBuyPrompt(null, 0); return; }
+  const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
+  if (!started || paused || player.dead) {
+    setBuyPrompt(null, 0);
+    if (isTouch) {
+      const tb = $id('tbtn-use');
+      if (tb) {
+        tb.classList.add('empty');
+        tb.classList.remove('ready', 'holding', 'blocked');
+      }
+    }
+    return;
+  }
   // Plating runs to completion once started; it is a commitment, like a reload.
   if (plateT > 0) {
     plateT = Math.max(0, plateT - dt);
@@ -350,7 +361,17 @@ function updateStations(dt) {
 
   const idx = CORE.nearestStation(stations, player.pos.x, player.pos.z, CORE.BUY_RADIUS);
   if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
-  if (idx < 0) { setBuyPrompt(null, 0); return; }
+  if (idx < 0) {
+    setBuyPrompt(null, 0);
+    if (isTouch) {
+      const tb = $id('tbtn-use');
+      if (tb) {
+        tb.classList.add('empty');
+        tb.classList.remove('ready', 'holding', 'blocked');
+      }
+    }
+    return;
+  }
   const st = stations[idx];
   const offer = stationOffer(st);
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
@@ -363,10 +384,21 @@ function updateStations(dt) {
   } else if (stationHoldT > 0) {
     stationHoldT = Math.max(0, stationHoldT - dt * 3);
   }
+  if (isTouch) {
+    const tb = $id('tbtn-use');
+    if (tb) {
+      const uState = CORE.touchUseState(true, offer.ok, holding);
+      tb.classList.toggle('empty', uState === 'empty');
+      tb.classList.toggle('ready', uState === 'ready');
+      tb.classList.toggle('holding', uState === 'holding');
+      tb.classList.toggle('blocked', uState === 'blocked');
+    }
+  }
   const text = offer.price > 0
     ? offer.label + '  ·  ' + offer.price + ' CR'
     : offer.label;
-  setBuyPrompt((offer.ok ? 'HOLD F — ' : '') + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
+  const promptPrefix = CORE.buyPromptPrefix(isTouch, offer.ok);
+  setBuyPrompt(promptPrefix + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
 }
 
 function usePlate() {

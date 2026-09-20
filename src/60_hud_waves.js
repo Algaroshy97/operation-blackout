@@ -141,6 +141,14 @@ function updateHudAmmo(force) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
       tbtnTac.classList.toggle('empty', tacState === 'empty');
     }
+    const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
+    if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
+      tbtnSwap.classList.toggle('empty', swapState === 'empty');
+      tbtnSwap.classList.toggle('ready', swapState === 'ready');
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, CFG.weapons);
+      if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
+    }
   }
 }
 

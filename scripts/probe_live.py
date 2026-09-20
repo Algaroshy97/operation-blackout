@@ -1016,6 +1016,50 @@ def main() -> int:
         }""")
         checks.append(("kill-and-multikill-audio-rules", audio_rules_check))
 
+        touch_tactical_rules_check = page.evaluate("""() => {
+            if (typeof CORE.touchSwapState !== 'function' ||
+                typeof CORE.touchSwapLabel !== 'function' ||
+                typeof CORE.buyPromptPrefix !== 'function' ||
+                typeof CORE.touchUseState !== 'function' ||
+                typeof CORE.touchSlideState !== 'function' ||
+                typeof CORE.touchSlideLabel !== 'function') return false;
+
+            const mockWeapons = [
+                { name: 'M4 Carbine', type: 'AR' },
+                { name: 'MK18 Mod1', type: 'SMG' },
+                { name: 'SCAR-H', type: 'BR' },
+                { name: 'SV-98 Marksman', type: 'SR' }
+            ];
+
+            const swapEmpty = CORE.touchSwapState(0, [0, -1]) === 'empty';
+            const swapReady = CORE.touchSwapState(0, [0, 3]) === 'ready';
+            const swapLabelEmpty = CORE.touchSwapLabel(0, [0, -1], mockWeapons) === 'SWAP';
+            const swapLabelReady = CORE.touchSwapLabel(0, [0, 3], mockWeapons) === 'SR';
+            const swapLabelReverse = CORE.touchSwapLabel(1, [0, 3], mockWeapons) === 'AR';
+
+            const promptMobile = CORE.buyPromptPrefix(true, true) === 'HOLD USE — ';
+            const promptDesktop = CORE.buyPromptPrefix(false, true) === 'HOLD F — ';
+            const promptBlocked = CORE.buyPromptPrefix(true, false) === '';
+
+            const useEmpty = CORE.touchUseState(false, true, false) === 'empty';
+            const useReady = CORE.touchUseState(true, true, false) === 'ready';
+            const useHolding = CORE.touchUseState(true, true, true) === 'holding';
+            const useBlocked = CORE.touchUseState(true, false, false) === 'blocked';
+
+            const slideActive = CORE.touchSlideState(true, false, false) === 'sliding';
+            const slideCrouch = CORE.touchSlideState(false, true, false) === 'crouch';
+            const slideSprint = CORE.touchSlideState(false, false, true) === 'sprint';
+            const slideLabelActive = CORE.touchSlideLabel(true, false) === 'SLIDE';
+            const slideLabelCrouch = CORE.touchSlideLabel(false, true) === 'STAND';
+
+            return swapEmpty && swapReady && swapLabelEmpty && swapLabelReady && swapLabelReverse &&
+                   promptMobile && promptDesktop && promptBlocked &&
+                   useEmpty && useReady && useHolding && useBlocked &&
+                   slideActive && slideCrouch && slideSprint &&
+                   slideLabelActive && slideLabelCrouch;
+        }""")
+        checks.append(("touch-tactical-interaction-rules", touch_tactical_rules_check))
+
         # 32) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 

@@ -4110,3 +4110,77 @@ test('advanceKillStreak, multikillLabel, and multikillSound manage multikill mil
   assert.strictEqual(CORE.multikillLabel(-1), null);
   assert.strictEqual(CORE.multikillSound(6), null);
 });
+
+test('touchSwapState and touchSwapLabel resolve weapon switch feedback and reserve archetype indicator', () => {
+  const mockWeapons = [
+    { name: 'M4 Carbine', type: 'AR' },
+    { name: 'MK18 Mod1', type: 'SMG' },
+    { name: 'SCAR-H', type: 'BR' },
+    { name: 'SV-98 Marksman', type: 'SR' }
+  ];
+
+  // Single weapon owned (secondary slot empty)
+  assert.strictEqual(CORE.touchSwapState(0, [0, -1]), 'empty');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, -1], mockWeapons), 'SWAP');
+
+  // Both weapons owned, holding slot 0 (swapping would give weapon in slot 1)
+  assert.strictEqual(CORE.touchSwapState(0, [0, 3]), 'ready');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 3], mockWeapons), 'SR');
+
+  // Both weapons owned, holding slot 1 (swapping would give weapon in slot 0)
+  assert.strictEqual(CORE.touchSwapState(1, [0, 3]), 'ready');
+  assert.strictEqual(CORE.touchSwapLabel(1, [0, 3], mockWeapons), 'AR');
+
+  // Swap to SMG
+  assert.strictEqual(CORE.touchSwapState(0, [2, 1]), 'ready');
+  assert.strictEqual(CORE.touchSwapLabel(0, [2, 1], mockWeapons), 'SMG');
+
+  // Defensive handling of null/undefined/malformed structures
+  assert.strictEqual(CORE.touchSwapState(0, null), 'empty');
+  assert.strictEqual(CORE.touchSwapState(0, []), 'empty');
+  assert.strictEqual(CORE.touchSwapState(0, [0]), 'empty');
+  assert.strictEqual(CORE.touchSwapState(1, [-1, 2]), 'empty');
+  assert.strictEqual(CORE.touchSwapLabel(0, null, mockWeapons), 'SWAP');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 99], mockWeapons), 'SWAP');
+});
+
+test('buyPromptPrefix and touchUseState provide platform-accurate station prompts and interaction states', () => {
+  // buyPromptPrefix generates mobile touch vs desktop keyboard action text
+  assert.strictEqual(CORE.buyPromptPrefix(true, true), 'HOLD USE — ');
+  assert.strictEqual(CORE.buyPromptPrefix(false, true), 'HOLD F — ');
+  assert.strictEqual(CORE.buyPromptPrefix(true, false), '');
+  assert.strictEqual(CORE.buyPromptPrefix(false, false), '');
+
+  // touchUseState resolves feedback states
+  // Out of range: empty
+  assert.strictEqual(CORE.touchUseState(false, true, false), 'empty');
+  assert.strictEqual(CORE.touchUseState(false, false, false), 'empty');
+
+  // In range and affordable: ready
+  assert.strictEqual(CORE.touchUseState(true, true, false), 'ready');
+
+  // In range and holding interaction: holding
+  assert.strictEqual(CORE.touchUseState(true, true, true), 'holding');
+
+  // In range but unaffordable / blocked: blocked
+  assert.strictEqual(CORE.touchUseState(true, false, false), 'blocked');
+});
+
+test('touchSlideState and touchSlideLabel reflect stance, kinetic slide, and sprint momentum', () => {
+  // Active slide takes top precedence
+  assert.strictEqual(CORE.touchSlideState(true, false, false), 'sliding');
+  assert.strictEqual(CORE.touchSlideState(true, true, true), 'sliding');
+  assert.strictEqual(CORE.touchSlideLabel(true, false), 'SLIDE');
+
+  // Crouch stance
+  assert.strictEqual(CORE.touchSlideState(false, true, false), 'crouch');
+  assert.strictEqual(CORE.touchSlideLabel(false, true), 'STAND');
+
+  // Sprint momentum ready to slide
+  assert.strictEqual(CORE.touchSlideState(false, false, true), 'sprint');
+  assert.strictEqual(CORE.touchSlideLabel(false, false), 'SLIDE');
+
+  // Idle / normal walk
+  assert.strictEqual(CORE.touchSlideState(false, false, false), '');
+  assert.strictEqual(CORE.touchSlideLabel(false, false), 'SLIDE');
+});

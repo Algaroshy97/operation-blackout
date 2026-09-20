@@ -235,7 +235,10 @@
      0 in landscape, yet a tap that close still competes with the gesture bar. */
   body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
+  body.touch #tbtn-slide.sliding{background:rgba(80,180,255,.55);border-color:#50b4ff;color:#fff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 12px rgba(80,180,255,.25)}
+  body.touch #tbtn-slide.crouch{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,170,58,.25),inset 0 0 8px rgba(255,170,58,.18)}
+  body.touch #tbtn-slide.sprint{border-color:#80d4ff;color:#fff;box-shadow:0 0 0 2px rgba(128,212,255,.25)}
   body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
@@ -244,9 +247,13 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 12px rgba(255,210,74,.2)}
-  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
-  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-use.ready{border-color:#7ee08a;color:#7ee08a;box-shadow:0 0 0 3px rgba(126,224,138,.3),inset 0 0 10px rgba(126,224,138,.2)}
+  body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.35),inset 0 0 12px rgba(255,210,74,.25)}
+  body.touch #tbtn-use.blocked{border-color:#ff4a3d;color:#ff5f4a;opacity:.6}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.3),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
@@ -294,7 +301,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide{transition:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */

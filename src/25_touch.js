@@ -297,4 +297,20 @@ function applyTouchInput() {
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
   touchState.lookX = 0; touchState.lookY = 0;
+
+  // Stance / slide button tactical feedback
+  updateTouchSlideBtn();
+}
+
+let tbtnSlideEl = null;
+function updateTouchSlideBtn() {
+  if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
+  if (!tbtnSlideEl || typeof player === 'undefined') return;
+  const isSprint = !!keys['ShiftLeft'];
+  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint);
+  tbtnSlideEl.classList.toggle('sliding', slideState === 'sliding');
+  tbtnSlideEl.classList.toggle('crouch', slideState === 'crouch');
+  tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
+  if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
 }
