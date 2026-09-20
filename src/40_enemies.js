@@ -395,7 +395,7 @@ function killEnemy(en, isHead) {
   if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
   else dropPickup(en.pos);
   registerStreakKill();
-  playSound('kill');
+  playSound(CORE.killConfirmationSound(isHead, en.elite));
 }
 
 // Horizontal distance from an enemy to the player.

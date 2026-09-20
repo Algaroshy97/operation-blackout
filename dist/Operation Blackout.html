@@ -5180,6 +5180,39 @@ const CORE = (function () {
     return 'block';
   }
 
+  function killConfirmationSound(isHead, isElite) {
+    if (isElite) return 'kill_elite';
+    if (isHead) return 'kill_headshot';
+    return 'kill';
+  }
+
+  // Multi-kill streak window (seconds) and cap
+  const MK_WINDOW = 4;
+  const MK_MAX_STREAK = 5;
+
+  function advanceKillStreak(streak, lastKillTime, now, windowSec) {
+    const w = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MK_WINDOW;
+    const cur = (typeof streak === 'number' && isFinite(streak) && streak >= 0) ? Math.floor(streak) : 0;
+    const last = (typeof lastKillTime === 'number' && isFinite(lastKillTime)) ? lastKillTime : -99;
+    const t = (typeof now === 'number' && isFinite(now)) ? now : 0;
+    let next = (t - last <= w) ? cur + 1 : 1;
+    if (next > MK_MAX_STREAK) next = 0;
+    return next;
+  }
+
+  function multikillLabel(streak) {
+    if (streak === 2) return 'DOUBLE KILL';
+    if (streak === 3) return 'TRIPLE KILL';
+    if (streak === 4) return 'QUAD KILL';
+    if (streak === 5) return 'RAMPAGE';
+    return null;
+  }
+
+  function multikillSound(streak) {
+    if (streak >= 2 && streak <= 5) return 'multikill';
+    return null;
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -7974,7 +8007,13 @@ const CORE = (function () {
     hitArcOpacity: hitArcOpacity,
     stepParticlePhysics: stepParticlePhysics,
     ammoHudChanged: ammoHudChanged,
-    syncAmmoHudState: syncAmmoHudState
+    syncAmmoHudState: syncAmmoHudState,
+    killConfirmationSound: killConfirmationSound,
+    MK_WINDOW: MK_WINDOW,
+    MK_MAX_STREAK: MK_MAX_STREAK,
+    advanceKillStreak: advanceKillStreak,
+    multikillLabel: multikillLabel,
+    multikillSound: multikillSound
   };
 })();
 
@@ -10718,7 +10757,7 @@ function killEnemy(en, isHead) {
   if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
   else dropPickup(en.pos);
   registerStreakKill();
-  playSound('kill');
+  playSound(CORE.killConfirmationSound(isHead, en.elite));
 }
 
 // Horizontal distance from an enemy to the player.
@@ -11898,6 +11937,9 @@ const SOUND_RECIPES = {
   powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
   headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
   kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  kill_headshot: [['osc', 'sine', 1600, 1100, 0.08, 0.22], ['noise', 0.05, 0.18, 2800, 2.5], ['osc', 'sine', 750, 420, 0.11, 0.16]],
+  kill_elite:    [['noise', 0.10, 0.35, 750, 1.8], ['osc', 'sawtooth', 280, 120, 0.14, 0.22], ['osc', 'sine', 140, 35, 0.22, 0.35]],
+  multikill:     [['osc', 'sine', 520, 780, 0.12, 0.20], ['osc', 'sine', 780, 1040, 0.14, 0.16], ['osc', 'triangle', 260, 520, 0.16, 0.12]],
   hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
   wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
   death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
@@ -11917,7 +11959,7 @@ const SOUND_RECIPES = {
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
-  block: 1, armor_break: 1, kill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
+  block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1
 };
 
@@ -13892,17 +13934,17 @@ function pushKillfeed(html) {
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
 // Minimap colours, one per archetype, so a glance tells you what is coming.
 const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
-const MK_WINDOW = 4;          // seconds between kills to keep the streak alive
+const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
-  if (gameT - lastKillT <= MK_WINDOW) killStreak++;
-  else killStreak = 1;
+  killStreak = CORE.advanceKillStreak(killStreak, lastKillT, gameT, MK_WINDOW);
   lastKillT = gameT;
-  if (killStreak >= 2 && killStreak <= 5) {
-    const label = killStreak === 2 ? 'DOUBLE KILL' : killStreak === 3 ? 'TRIPLE KILL' : killStreak === 4 ? 'QUAD KILL' : 'RAMPAGE';
+  const label = CORE.multikillLabel(killStreak);
+  if (label) {
     addScore(CFG.score.multikill * (killStreak - 1), label + ' x' + killStreak);
+    const s = CORE.multikillSound(killStreak);
+    if (s) playSound(s);
   }
-  if (killStreak > 5) killStreak = 0;   // RAMPAGE cap reached — restart the streak
 }
 
 // ---- Wave system ----

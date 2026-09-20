@@ -296,17 +296,17 @@ function pushKillfeed(html) {
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
 // Minimap colours, one per archetype, so a glance tells you what is coming.
 const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
-const MK_WINDOW = 4;          // seconds between kills to keep the streak alive
+const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
-  if (gameT - lastKillT <= MK_WINDOW) killStreak++;
-  else killStreak = 1;
+  killStreak = CORE.advanceKillStreak(killStreak, lastKillT, gameT, MK_WINDOW);
   lastKillT = gameT;
-  if (killStreak >= 2 && killStreak <= 5) {
-    const label = killStreak === 2 ? 'DOUBLE KILL' : killStreak === 3 ? 'TRIPLE KILL' : killStreak === 4 ? 'QUAD KILL' : 'RAMPAGE';
+  const label = CORE.multikillLabel(killStreak);
+  if (label) {
     addScore(CFG.score.multikill * (killStreak - 1), label + ' x' + killStreak);
+    const s = CORE.multikillSound(killStreak);
+    if (s) playSound(s);
   }
-  if (killStreak > 5) killStreak = 0;   // RAMPAGE cap reached — restart the streak
 }
 
 // ---- Wave system ----

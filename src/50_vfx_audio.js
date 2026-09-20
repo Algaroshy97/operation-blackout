@@ -427,6 +427,9 @@ const SOUND_RECIPES = {
   powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
   headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
   kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  kill_headshot: [['osc', 'sine', 1600, 1100, 0.08, 0.22], ['noise', 0.05, 0.18, 2800, 2.5], ['osc', 'sine', 750, 420, 0.11, 0.16]],
+  kill_elite:    [['noise', 0.10, 0.35, 750, 1.8], ['osc', 'sawtooth', 280, 120, 0.14, 0.22], ['osc', 'sine', 140, 35, 0.22, 0.35]],
+  multikill:     [['osc', 'sine', 520, 780, 0.12, 0.20], ['osc', 'sine', 780, 1040, 0.14, 0.16], ['osc', 'triangle', 260, 520, 0.16, 0.12]],
   hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
   wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
   death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
@@ -446,7 +449,7 @@ const SOUND_RECIPES = {
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
-  block: 1, armor_break: 1, kill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
+  block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1
 };
 

@@ -4043,3 +4043,70 @@ test('meleeTarget directly supports game entity agents with .pos coordinates', (
   const idxRight = CORE.meleeTarget(agents, 0, 0, 1, 0, CORE.MELEE_REACH, CORE.MELEE_CONE);
   assert.strictEqual(idxRight, -1);
 });
+
+test('killConfirmationSound differentiates standard, headshot, and elite kills', () => {
+  // Standard body kill on non-elite
+  assert.strictEqual(CORE.killConfirmationSound(false, false), 'kill');
+  assert.strictEqual(CORE.killConfirmationSound(0, false), 'kill');
+
+  // Precision headshot kill on non-elite
+  assert.strictEqual(CORE.killConfirmationSound(true, false), 'kill_headshot');
+  assert.strictEqual(CORE.killConfirmationSound(1, false), 'kill_headshot');
+
+  // Elite kill prioritizes authoritative elite audio
+  assert.strictEqual(CORE.killConfirmationSound(false, true), 'kill_elite');
+  assert.strictEqual(CORE.killConfirmationSound(true, true), 'kill_elite');
+
+  // Fallbacks on missing or invalid inputs
+  assert.strictEqual(CORE.killConfirmationSound(), 'kill');
+  assert.strictEqual(CORE.killConfirmationSound(null, undefined), 'kill');
+});
+
+test('advanceKillStreak, multikillLabel, and multikillSound manage multikill milestones and audio', () => {
+  // Window constant
+  assert.strictEqual(CORE.MK_WINDOW, 4);
+  assert.strictEqual(CORE.MK_MAX_STREAK, 5);
+
+  // Initial kill from cold start
+  assert.strictEqual(CORE.advanceKillStreak(0, -99, 10, 4), 1);
+  assert.strictEqual(CORE.multikillLabel(1), null);
+  assert.strictEqual(CORE.multikillSound(1), null);
+
+  // Chained kills within 4-second window
+  assert.strictEqual(CORE.advanceKillStreak(1, 10, 12, 4), 2);
+  assert.strictEqual(CORE.multikillLabel(2), 'DOUBLE KILL');
+  assert.strictEqual(CORE.multikillSound(2), 'multikill');
+
+  assert.strictEqual(CORE.advanceKillStreak(2, 12, 14.5, 4), 3);
+  assert.strictEqual(CORE.multikillLabel(3), 'TRIPLE KILL');
+  assert.strictEqual(CORE.multikillSound(3), 'multikill');
+
+  assert.strictEqual(CORE.advanceKillStreak(3, 14.5, 17, 4), 4);
+  assert.strictEqual(CORE.multikillLabel(4), 'QUAD KILL');
+  assert.strictEqual(CORE.multikillSound(4), 'multikill');
+
+  assert.strictEqual(CORE.advanceKillStreak(4, 17, 20.9, 4), 5);
+  assert.strictEqual(CORE.multikillLabel(5), 'RAMPAGE');
+  assert.strictEqual(CORE.multikillSound(5), 'multikill');
+
+  // Hitting cap resets streak to 0 so next kill restarts cycle cleanly
+  assert.strictEqual(CORE.advanceKillStreak(5, 20.9, 22, 4), 0);
+  assert.strictEqual(CORE.multikillLabel(0), null);
+  assert.strictEqual(CORE.multikillSound(0), null);
+
+  // Next kill starts fresh streak at 1
+  assert.strictEqual(CORE.advanceKillStreak(0, 22, 23, 4), 1);
+
+  // Kill beyond window duration resets to 1
+  assert.strictEqual(CORE.advanceKillStreak(3, 10, 15, 4), 1, 'kill after 5s must reset to 1');
+  assert.strictEqual(CORE.advanceKillStreak(4, 10, 14.01, 4), 1);
+
+  // Exact boundary edge
+  assert.strictEqual(CORE.advanceKillStreak(1, 10, 14.0, 4), 2, 'exact window boundary must count as streak');
+
+  // Input sanitization
+  assert.strictEqual(CORE.advanceKillStreak(null, undefined, 5), 1);
+  assert.strictEqual(CORE.multikillLabel(6), null);
+  assert.strictEqual(CORE.multikillLabel(-1), null);
+  assert.strictEqual(CORE.multikillSound(6), null);
+});

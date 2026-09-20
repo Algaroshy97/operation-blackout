@@ -976,7 +976,47 @@ def main() -> int:
         }""")
         checks.append(("ammo-hud-and-particle-performance-rules", perf_rules_check))
 
-        # 31) Clean console throughout gameplay.
+        # 31) Kill confirmation and multi-kill acoustic feedback rules and sound recipes.
+        audio_rules_check = page.evaluate("""() => {
+            if (typeof CORE.killConfirmationSound !== 'function' ||
+                typeof CORE.advanceKillStreak !== 'function' ||
+                typeof CORE.multikillLabel !== 'function' ||
+                typeof CORE.multikillSound !== 'function') return false;
+
+            const killStd = CORE.killConfirmationSound(false, false) === 'kill';
+            const killHead = CORE.killConfirmationSound(true, false) === 'kill_headshot';
+            const killElite = CORE.killConfirmationSound(false, true) === 'kill_elite';
+            const killEliteHead = CORE.killConfirmationSound(true, true) === 'kill_elite';
+
+            const streakInit = CORE.advanceKillStreak(0, -99, 10, 4) === 1;
+            const streakChain = CORE.advanceKillStreak(1, 10, 12, 4) === 2;
+            const streakMax = CORE.advanceKillStreak(4, 16, 19, 4) === 5;
+            const streakWrap = CORE.advanceKillStreak(5, 19, 21, 4) === 0;
+            const streakReset = CORE.advanceKillStreak(3, 10, 15, 4) === 1;
+
+            const labelDbl = CORE.multikillLabel(2) === 'DOUBLE KILL';
+            const labelRamp = CORE.multikillLabel(5) === 'RAMPAGE';
+            const labelNull = CORE.multikillLabel(1) === null;
+
+            const sndDbl = CORE.multikillSound(2) === 'multikill';
+            const sndNull = CORE.multikillSound(1) === null;
+
+            const recipesOk = Array.isArray(SOUND_RECIPES.kill_headshot) &&
+                              Array.isArray(SOUND_RECIPES.kill_elite) &&
+                              Array.isArray(SOUND_RECIPES.multikill);
+
+            const variedOk = SOUND_VARIED.kill_headshot === 1 &&
+                             SOUND_VARIED.kill_elite === 1 &&
+                             SOUND_VARIED.multikill === 1;
+
+            return killStd && killHead && killElite && killEliteHead &&
+                   streakInit && streakChain && streakMax && streakWrap && streakReset &&
+                   labelDbl && labelRamp && labelNull && sndDbl && sndNull &&
+                   recipesOk && variedOk;
+        }""")
+        checks.append(("kill-and-multikill-audio-rules", audio_rules_check))
+
+        # 32) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -549,6 +549,39 @@ const CORE = (function () {
     return 'block';
   }
 
+  function killConfirmationSound(isHead, isElite) {
+    if (isElite) return 'kill_elite';
+    if (isHead) return 'kill_headshot';
+    return 'kill';
+  }
+
+  // Multi-kill streak window (seconds) and cap
+  const MK_WINDOW = 4;
+  const MK_MAX_STREAK = 5;
+
+  function advanceKillStreak(streak, lastKillTime, now, windowSec) {
+    const w = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MK_WINDOW;
+    const cur = (typeof streak === 'number' && isFinite(streak) && streak >= 0) ? Math.floor(streak) : 0;
+    const last = (typeof lastKillTime === 'number' && isFinite(lastKillTime)) ? lastKillTime : -99;
+    const t = (typeof now === 'number' && isFinite(now)) ? now : 0;
+    let next = (t - last <= w) ? cur + 1 : 1;
+    if (next > MK_MAX_STREAK) next = 0;
+    return next;
+  }
+
+  function multikillLabel(streak) {
+    if (streak === 2) return 'DOUBLE KILL';
+    if (streak === 3) return 'TRIPLE KILL';
+    if (streak === 4) return 'QUAD KILL';
+    if (streak === 5) return 'RAMPAGE';
+    return null;
+  }
+
+  function multikillSound(streak) {
+    if (streak >= 2 && streak <= 5) return 'multikill';
+    return null;
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -3343,7 +3376,13 @@ const CORE = (function () {
     hitArcOpacity: hitArcOpacity,
     stepParticlePhysics: stepParticlePhysics,
     ammoHudChanged: ammoHudChanged,
-    syncAmmoHudState: syncAmmoHudState
+    syncAmmoHudState: syncAmmoHudState,
+    killConfirmationSound: killConfirmationSound,
+    MK_WINDOW: MK_WINDOW,
+    MK_MAX_STREAK: MK_MAX_STREAK,
+    advanceKillStreak: advanceKillStreak,
+    multikillLabel: multikillLabel,
+    multikillSound: multikillSound
   };
 })();
 
