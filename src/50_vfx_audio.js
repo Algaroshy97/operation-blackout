@@ -440,7 +440,13 @@ const SOUND_RECIPES = {
   click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
   estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
   pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
-  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]]  // bright medkit chime
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]], // bright medkit chime
+  streak_uav:        [['osc', 'sine', 880, 1760, 0.14, 0.22], ['osc', 'sine', 1760, 880, 0.12, 0.12], ['noise', 0.08, 0.12, 3200, 2]],
+  streak_airstrike:  [['noise', 0.55, 0.45, 280, 0.5], ['osc', 'sawtooth', 160, 65, 0.45, 0.26], ['noise', 0.35, 0.3, 850, 0.8]],
+  streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
+  sentry_shot:       [['noise', 0.07, 0.38, 1100, 1.2], ['osc', 'square', 240, 75, 0.06, 0.24], ['osc', 'sine', 110, 45, 0.08, 0.18]],
+  munitions:         [['osc', 'sine', 130, 40, 0.20, 0.35], ['noise', 0.12, 0.32, 450, 1.0], ['noise', 0.06, 0.25, 2200, 2.5]],
+  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -450,7 +456,8 @@ const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
-  pickup_ammo: 1, pickup_med: 1
+  pickup_ammo: 1, pickup_med: 1,
+  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1
 };
 
 function recipeDuration(recipe) {

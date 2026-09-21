@@ -79,7 +79,7 @@ function useStreak() {
   } else if (key === 'sentry') {
     deploySentry();
   }
-  playSound('wave');
+  playSound(CORE.streakActivationSound(key));
   updateHudStreaks();
   return true;
 }
@@ -169,7 +169,7 @@ function updateSentries(dt) {
     _sentryTo.set(best.pos.x, best.pos.y + 1.1, best.pos.z);
     spawnTracer(_sentryFrom, _sentryTo);
     damageEnemy(best, SENTRY_DMG, _sentryTo.clone(), false);
-    playSound('eshot');
+    playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }
 
@@ -187,6 +187,7 @@ function deployMunitions() {
   scene.add(m);
   munitions.push({ m: m, t: CORE.FIELD_UPGRADE.dur, tick: 0 });
   showCenterMsg('MUNITIONS BOX');
+  playSound(CORE.fieldUpgradeSound(true));
 }
 
 function updateMunitions(dt) {
@@ -198,13 +199,19 @@ function updateMunitions(dt) {
         CORE.horizDist(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z) < CORE.FIELD_UPGRADE.radius) {
       b.tick = 1.0;
       const s = curS();
-      if (s) {
-        const w = curW();
-        s.reserve = Math.min(w.reserveMax, s.reserve + Math.round(w.mag * 0.5));
+      const w = curW();
+      const ammoNeed = s ? (s.reserve < (s.up ? s.up.reserveMax : w.reserveMax)) : false;
+      const nadeNeed = grenades.count < CFG.grenade.count;
+      const tacNeed = !!(equippedTactical && tacticalCount < TACTICAL_MAX);
+      if (CORE.canMunitionsResupply(ammoNeed, nadeNeed, tacNeed)) {
+        if (ammoNeed) {
+          s.reserve = Math.min((s.up ? s.up.reserveMax : w.reserveMax), s.reserve + Math.round(w.mag * 0.5));
+        }
+        if (nadeNeed) grenades.count++;
+        else if (tacNeed) tacticalCount++;
         updateHudAmmo();
+        playSound(CORE.fieldUpgradeSound(false));
       }
-      if (grenades.count < CFG.grenade.count) { grenades.count++; updateHudAmmo(); }
-      else if (equippedTactical && tacticalCount < TACTICAL_MAX) { tacticalCount++; updateHudAmmo(); }
     }
     if (b.t <= 0) { scene.remove(b.m); munitions.splice(i, 1); }
   }

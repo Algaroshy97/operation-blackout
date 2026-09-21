@@ -582,6 +582,28 @@ const CORE = (function () {
     return null;
   }
 
+  // Scorestreak & Field Upgrade Audio
+  const SENTRY_AUDIO_MAX_DIST = 65;
+
+  function streakActivationSound(streakKey) {
+    if (streakKey === 'uav') return 'streak_uav';
+    if (streakKey === 'airstrike') return 'streak_airstrike';
+    if (streakKey === 'sentry') return 'streak_sentry';
+    return 'wave';
+  }
+
+  function fieldUpgradeSound(isDeploy) {
+    return isDeploy ? 'munitions' : 'munitions_resupply';
+  }
+
+  function sentryFireSound() {
+    return 'sentry_shot';
+  }
+
+  function canMunitionsResupply(hasAmmoNeed, hasGrenadeNeed, hasTacticalNeed) {
+    return !!(hasAmmoNeed || hasGrenadeNeed || hasTacticalNeed);
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -3707,7 +3729,12 @@ const CORE = (function () {
     compassHeading: compassHeading,
     compassTickOffset: compassTickOffset,
     compassCardinalLabel: compassCardinalLabel,
-    evaluateCombatEnemies: evaluateCombatEnemies
+    evaluateCombatEnemies: evaluateCombatEnemies,
+    SENTRY_AUDIO_MAX_DIST: SENTRY_AUDIO_MAX_DIST,
+    streakActivationSound: streakActivationSound,
+    fieldUpgradeSound: fieldUpgradeSound,
+    sentryFireSound: sentryFireSound,
+    canMunitionsResupply: canMunitionsResupply
   };
 })();
 

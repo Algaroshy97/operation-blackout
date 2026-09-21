@@ -4477,3 +4477,31 @@ test('evaluateCombatEnemies calculates living hostiles and nearest distance with
   assert.strictEqual(CORE.evaluateCombatEnemies([], 0, 0).aliveCount, 0);
   assert.strictEqual(CORE.evaluateCombatEnemies(null, 0, 0).aliveCount, 0);
 });
+
+test('streakActivationSound, fieldUpgradeSound, sentryFireSound, and canMunitionsResupply govern scorestreak audio', () => {
+  // Sentry spatial audio distance limit
+  assert.strictEqual(CORE.SENTRY_AUDIO_MAX_DIST, 65);
+
+  // Scorestreak activation sound mapping
+  assert.strictEqual(CORE.streakActivationSound('uav'), 'streak_uav');
+  assert.strictEqual(CORE.streakActivationSound('airstrike'), 'streak_airstrike');
+  assert.strictEqual(CORE.streakActivationSound('sentry'), 'streak_sentry');
+  assert.strictEqual(CORE.streakActivationSound('unknown'), 'wave');
+  assert.strictEqual(CORE.streakActivationSound(null), 'wave');
+  assert.strictEqual(CORE.streakActivationSound(undefined), 'wave');
+
+  // Field upgrade deploy and resupply sounds
+  assert.strictEqual(CORE.fieldUpgradeSound(true), 'munitions');
+  assert.strictEqual(CORE.fieldUpgradeSound(false), 'munitions_resupply');
+
+  // Sentry fire sound
+  assert.strictEqual(CORE.sentryFireSound(), 'sentry_shot');
+
+  // Munitions resupply gating
+  assert.strictEqual(CORE.canMunitionsResupply(true, false, false), true);
+  assert.strictEqual(CORE.canMunitionsResupply(false, true, false), true);
+  assert.strictEqual(CORE.canMunitionsResupply(false, false, true), true);
+  assert.strictEqual(CORE.canMunitionsResupply(true, true, true), true);
+  assert.strictEqual(CORE.canMunitionsResupply(false, false, false), false);
+  assert.strictEqual(CORE.canMunitionsResupply(null, undefined, 0), false);
+});

@@ -1219,7 +1219,53 @@ def main() -> int:
         }""")
         checks.append(("canvas-hud-and-combat-performance-rules", perf_rules_check))
 
-        # 35) Clean console throughout gameplay.
+        # 35) Scorestreak and field upgrade acoustic feedback rules, sound recipes, and variation.
+        streak_audio_check = page.evaluate("""() => {
+            if (typeof CORE.streakActivationSound !== 'function' ||
+                typeof CORE.fieldUpgradeSound !== 'function' ||
+                typeof CORE.sentryFireSound !== 'function' ||
+                typeof CORE.canMunitionsResupply !== 'function' ||
+                typeof SOUND_RECIPES !== 'object' ||
+                typeof SOUND_VARIED !== 'object') return false;
+
+            const uavOk = CORE.streakActivationSound('uav') === 'streak_uav';
+            const strikeOk = CORE.streakActivationSound('airstrike') === 'streak_airstrike';
+            const sentryOk = CORE.streakActivationSound('sentry') === 'streak_sentry';
+            const streakFallback = CORE.streakActivationSound('unknown') === 'wave' &&
+                                   CORE.streakActivationSound(null) === 'wave';
+
+            const fieldDeployOk = CORE.fieldUpgradeSound(true) === 'munitions';
+            const fieldResupplyOk = CORE.fieldUpgradeSound(false) === 'munitions_resupply';
+
+            const sentryShotOk = CORE.sentryFireSound() === 'sentry_shot';
+            const distLimitOk = CORE.SENTRY_AUDIO_MAX_DIST === 65;
+
+            const resupplyGating = CORE.canMunitionsResupply(true, false, false) === true &&
+                                   CORE.canMunitionsResupply(false, true, false) === true &&
+                                   CORE.canMunitionsResupply(false, false, true) === true &&
+                                   CORE.canMunitionsResupply(false, false, false) === false;
+
+            const recipesOk = Array.isArray(SOUND_RECIPES.streak_uav) &&
+                              Array.isArray(SOUND_RECIPES.streak_airstrike) &&
+                              Array.isArray(SOUND_RECIPES.streak_sentry) &&
+                              Array.isArray(SOUND_RECIPES.sentry_shot) &&
+                              Array.isArray(SOUND_RECIPES.munitions) &&
+                              Array.isArray(SOUND_RECIPES.munitions_resupply);
+
+            const variedOk = SOUND_VARIED.streak_uav === 1 &&
+                             SOUND_VARIED.streak_airstrike === 1 &&
+                             SOUND_VARIED.streak_sentry === 1 &&
+                             SOUND_VARIED.sentry_shot === 1 &&
+                             SOUND_VARIED.munitions === 1 &&
+                             SOUND_VARIED.munitions_resupply === 1;
+
+            return uavOk && strikeOk && sentryOk && streakFallback &&
+                   fieldDeployOk && fieldResupplyOk && sentryShotOk && distLimitOk &&
+                   resupplyGating && recipesOk && variedOk;
+        }""")
+        checks.append(("scorestreak-and-field-upgrade-audio-rules", streak_audio_check))
+
+        # 36) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
