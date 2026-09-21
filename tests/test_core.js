@@ -4311,3 +4311,75 @@ test('ammoPickupRestore and medkitPickupRestore calculate resource replenishment
   assert.strictEqual(fullMedkit.health, 100);
   assert.strictEqual(fullMedkit.armor, 50);
 });
+
+test('isHealthCritical, criticalHealthIntensity, and healthDangerState govern near-death danger alert thresholds', () => {
+  const maxHp = 100;
+
+  // Full health
+  assert.strictEqual(CORE.isHealthCritical(100, maxHp), false);
+  assert.strictEqual(CORE.criticalHealthIntensity(100, maxHp), 0);
+  assert.strictEqual(CORE.healthDangerState(100, maxHp), 'nominal');
+
+  // Low health (28 HP) is low (<= 30%) but not critical (> 25%)
+  assert.strictEqual(CORE.isHealthLow(28, maxHp), true);
+  assert.strictEqual(CORE.isHealthCritical(28, maxHp), false);
+  assert.strictEqual(CORE.criticalHealthIntensity(28, maxHp), 0);
+  assert.strictEqual(CORE.healthDangerState(28, maxHp), 'low');
+
+  // Critical boundary (25 HP)
+  assert.strictEqual(CORE.isHealthCritical(25, maxHp), true);
+  assert.strictEqual(CORE.criticalHealthIntensity(25, maxHp), 0);
+  assert.strictEqual(CORE.healthDangerState(25, maxHp), 'critical');
+
+  // Mid-critical health (12.5 HP) -> 50% danger intensity
+  assert.strictEqual(CORE.isHealthCritical(12.5, maxHp), true);
+  assert.ok(Math.abs(CORE.criticalHealthIntensity(12.5, maxHp) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.healthDangerState(12.5, maxHp), 'critical');
+
+  // Near death (2.5 HP) -> 90% danger intensity
+  assert.strictEqual(CORE.isHealthCritical(2.5, maxHp), true);
+  assert.ok(Math.abs(CORE.criticalHealthIntensity(2.5, maxHp) - 0.9) < 1e-4);
+  assert.strictEqual(CORE.healthDangerState(2.5, maxHp), 'critical');
+
+  // Custom maxHealth (e.g. Juggernaut 150 HP, threshold 37.5 HP)
+  assert.strictEqual(CORE.isHealthCritical(35, 150), true);
+  assert.strictEqual(CORE.isHealthCritical(40, 150), false);
+
+  // Dead, downed, or invalid inputs
+  assert.strictEqual(CORE.isHealthCritical(0, maxHp), false);
+  assert.strictEqual(CORE.isHealthCritical(-10, maxHp), false);
+  assert.strictEqual(CORE.isHealthCritical(null, maxHp), false);
+  assert.strictEqual(CORE.isHealthCritical(undefined, maxHp), false);
+  assert.strictEqual(CORE.criticalHealthIntensity(0, maxHp), 0);
+  assert.strictEqual(CORE.criticalHealthIntensity(-5, maxHp), 0);
+  assert.strictEqual(CORE.healthDangerState(0, maxHp), 'dead');
+  assert.strictEqual(CORE.healthDangerState(-10, maxHp), 'dead');
+});
+
+test('criticalVignetteStyle and criticalPulseAlpha compute near-death feedback dynamics and reduced-motion fallbacks', () => {
+  // Zero intensity returns inert transparent box-shadow
+  assert.strictEqual(CORE.criticalVignetteStyle(0, false), 'inset 0 0 90px 30px rgba(180,15,15,0)');
+  assert.strictEqual(CORE.criticalVignetteStyle(-0.5, false), 'inset 0 0 90px 30px rgba(180,15,15,0)');
+
+  // Full intensity standard motion styling
+  const fullStyle = CORE.criticalVignetteStyle(1.0, false);
+  assert.strictEqual(fullStyle, 'inset 0 0 140px 55px rgba(180,15,15,0.800)');
+
+  // Mid intensity standard motion styling
+  const midStyle = CORE.criticalVignetteStyle(0.5, false);
+  assert.strictEqual(midStyle, 'inset 0 0 115px 43px rgba(180,15,15,0.625)');
+
+  // Reduced motion styling provides steady moderate opacity
+  const reducedStyle = CORE.criticalVignetteStyle(1.0, true);
+  assert.strictEqual(reducedStyle, 'inset 0 0 140px 55px rgba(180,15,15,0.600)');
+
+  // Pulse alpha dynamics
+  assert.strictEqual(CORE.criticalPulseAlpha(0, 0, false), 0);
+  assert.strictEqual(CORE.criticalPulseAlpha(1.0, 0, true), 0.5); // reduced motion steady
+
+  // Sine modulation peaks and troughs at heartbeat frequency
+  const peakAlpha = CORE.criticalPulseAlpha(1.0, 1 / (4 * 1.35), false); // sin(pi/2) = 1
+  assert.ok(Math.abs(peakAlpha - 0.85) < 1e-4);
+  const troughAlpha = CORE.criticalPulseAlpha(1.0, 3 / (4 * 1.35), false); // sin(3pi/2) = -1
+  assert.ok(Math.abs(troughAlpha - 0.35) < 1e-4);
+});

@@ -8,7 +8,7 @@ const hud = {
   waveNum: $id('wave-num'), enemiesLeft: $id('enemies-left'),
   waveBig: $id('wb-big'), waveSub: $id('wb-sub'), waveBanner: $id('wave-banner'),
   centerMsg: $id('center-msg'), killfeed: $id('killfeed'),
-  dmgVig: $id('damage-vignette'), flash: $id('flash-overlay'),
+  dmgVig: $id('damage-vignette'), critVig: $id('critical-vignette'), flash: $id('flash-overlay'),
   hitmark: document.querySelector('#crosshair .hitmark'),
   hitDir: $id('hit-dir-container'),
   sprintInd: $id('sprint-ind'), fps: $id('fps-counter'),
@@ -51,8 +51,18 @@ function updateHudHealth() {
     hud.healthBar.style.width = pct + '%';
     hud.healthNum.textContent = hp;
     const isLow = CORE.isHealthLow(hp, maxHp);
+    const isCrit = CORE.isHealthCritical(hp, maxHp);
     hud.healthBar.classList.toggle('low', isLow);
     hud.healthNum.classList.toggle('low', isLow);
+    hud.healthBar.classList.toggle('critical', isCrit);
+    hud.healthNum.classList.toggle('critical', isCrit);
+    if (hud.healthBar.parentElement) {
+      hud.healthBar.parentElement.classList.toggle('critical', isCrit);
+    }
+    const critVig = hud.critVig || (hud.critVig = $id('critical-vignette'));
+    if (critVig) {
+      critVig.classList.toggle('active', isCrit);
+    }
   }
   if (armor !== _hudArmor) {
     _hudArmor = armor;

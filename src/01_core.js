@@ -1878,6 +1878,60 @@ const CORE = (function () {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
     return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
+  const HEALTH_CRITICAL_RATIO = 0.25;
+  const CRITICAL_VIGNETTE_BASE_BLUR = 90;
+  const CRITICAL_VIGNETTE_MAX_BLUR = 140;
+  const CRITICAL_VIGNETTE_BASE_SPREAD = 30;
+  const CRITICAL_VIGNETTE_MAX_SPREAD = 55;
+
+  // Evaluates whether current health is in the critical danger zone (positive health <= 25% max).
+  function isHealthCritical(health, maxHealth, ratio) {
+    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return false;
+    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
+    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    return health <= max * r;
+  }
+
+  // Calculates normalized danger intensity [0.0, 1.0] as health drops from the critical threshold down to 0.
+  // Returns 0 if health is outside the critical window or dead.
+  function criticalHealthIntensity(health, maxHealth, ratio) {
+    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return 0;
+    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
+    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    const thresh = max * r;
+    if (health > thresh) return 0;
+    return Math.max(0, Math.min(1, (thresh - health) / thresh));
+  }
+
+  // Returns tactical health status: 'dead', 'critical', 'low', or 'nominal'.
+  function healthDangerState(health, maxHealth, critRatio, lowRatio) {
+    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return 'dead';
+    if (isHealthCritical(health, maxHealth, critRatio)) return 'critical';
+    if (isHealthLow(health, maxHealth)) return 'low';
+    return 'nominal';
+  }
+
+  // Computes CSS box-shadow styling for the critical near-death perimeter vignette.
+  function criticalVignetteStyle(intensity, isReducedMotion) {
+    const clamped = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    if (clamped <= 0) return 'inset 0 0 90px 30px rgba(180,15,15,0)';
+    const blur = Math.round(CRITICAL_VIGNETTE_BASE_BLUR + clamped * (CRITICAL_VIGNETTE_MAX_BLUR - CRITICAL_VIGNETTE_BASE_BLUR));
+    const spread = Math.round(CRITICAL_VIGNETTE_BASE_SPREAD + clamped * (CRITICAL_VIGNETTE_MAX_SPREAD - CRITICAL_VIGNETTE_BASE_SPREAD));
+    const alpha = isReducedMotion
+      ? (0.35 + clamped * 0.25).toFixed(3)
+      : (0.45 + clamped * 0.35).toFixed(3);
+    return 'inset 0 0 ' + blur + 'px ' + spread + 'px rgba(180,15,15,' + alpha + ')';
+  }
+
+  // Evaluates smooth sine heartbeat pulse alpha (1.35 Hz) for near-death danger alert.
+  function criticalPulseAlpha(intensity, timeSec, isReducedMotion) {
+    const clamped = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    if (clamped <= 0) return 0;
+    if (isReducedMotion) return 0.5 * clamped;
+    const t = (typeof timeSec === 'number' && isFinite(timeSec)) ? timeSec : 0;
+    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 1.35);
+    return Math.min(1, (0.35 + 0.50 * pulse) * clamped);
+  }
   const ARMOR_LOW_RATIO = 0.25;
   function isArmorLow(armor, maxArmor) {
     if (typeof armor !== 'number' || !isFinite(armor)) return false;
@@ -3559,7 +3613,17 @@ const CORE = (function () {
     MEDKIT_HEAL_BASE: MEDKIT_HEAL_BASE,
     MEDKIT_ARMOR_BASE: MEDKIT_ARMOR_BASE,
     ammoPickupRestore: ammoPickupRestore,
-    medkitPickupRestore: medkitPickupRestore
+    medkitPickupRestore: medkitPickupRestore,
+    HEALTH_CRITICAL_RATIO: HEALTH_CRITICAL_RATIO,
+    CRITICAL_VIGNETTE_BASE_BLUR: CRITICAL_VIGNETTE_BASE_BLUR,
+    CRITICAL_VIGNETTE_MAX_BLUR: CRITICAL_VIGNETTE_MAX_BLUR,
+    CRITICAL_VIGNETTE_BASE_SPREAD: CRITICAL_VIGNETTE_BASE_SPREAD,
+    CRITICAL_VIGNETTE_MAX_SPREAD: CRITICAL_VIGNETTE_MAX_SPREAD,
+    isHealthCritical: isHealthCritical,
+    criticalHealthIntensity: criticalHealthIntensity,
+    healthDangerState: healthDangerState,
+    criticalVignetteStyle: criticalVignetteStyle,
+    criticalPulseAlpha: criticalPulseAlpha
   };
 })();
 

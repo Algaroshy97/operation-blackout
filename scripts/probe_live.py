@@ -1103,7 +1103,71 @@ def main() -> int:
         }""")
         checks.append(("player-mobility-and-survival-balance-rules", balance_rules_check))
 
-        # 33) Clean console throughout gameplay.
+        # 33) Critical health danger alert, near-death perimeter vignette, and heartbeat pulse rules.
+        crit_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.isHealthCritical !== 'function' ||
+                typeof CORE.criticalHealthIntensity !== 'function' ||
+                typeof CORE.healthDangerState !== 'function' ||
+                typeof CORE.criticalVignetteStyle !== 'function' ||
+                typeof CORE.criticalPulseAlpha !== 'function') return false;
+
+            const critNom = CORE.isHealthCritical(100, 100) === false &&
+                            CORE.criticalHealthIntensity(100, 100) === 0 &&
+                            CORE.healthDangerState(100, 100) === 'nominal';
+
+            const critLow = CORE.isHealthCritical(28, 100) === false &&
+                            CORE.isHealthLow(28, 100) === true &&
+                            CORE.healthDangerState(28, 100) === 'low';
+
+            const critBoundary = CORE.isHealthCritical(25, 100) === true &&
+                                 CORE.criticalHealthIntensity(25, 100) === 0 &&
+                                 CORE.healthDangerState(25, 100) === 'critical';
+
+            const critMid = CORE.isHealthCritical(12.5, 100) === true &&
+                            Math.abs(CORE.criticalHealthIntensity(12.5, 100) - 0.5) < 1e-4 &&
+                            CORE.healthDangerState(12.5, 100) === 'critical';
+
+            const critDead = CORE.isHealthCritical(0, 100) === false &&
+                             CORE.criticalHealthIntensity(0, 100) === 0 &&
+                             CORE.healthDangerState(0, 100) === 'dead';
+
+            const styleInert = CORE.criticalVignetteStyle(0, false) === 'inset 0 0 90px 30px rgba(180,15,15,0)';
+            const styleActive = CORE.criticalVignetteStyle(1.0, false) === 'inset 0 0 140px 55px rgba(180,15,15,0.800)';
+            const styleReduced = CORE.criticalVignetteStyle(1.0, true) === 'inset 0 0 140px 55px rgba(180,15,15,0.600)';
+
+            const pulseReduced = CORE.criticalPulseAlpha(1.0, 0, true) === 0.5;
+            const pulsePeak = Math.abs(CORE.criticalPulseAlpha(1.0, 1 / (4 * 1.35), false) - 0.85) < 1e-4;
+
+            // Live HUD DOM verification
+            const bar = document.getElementById('health-bar');
+            const num = document.getElementById('health-num');
+            const critVig = document.getElementById('critical-vignette');
+            if (!bar || !num || !critVig) return false;
+
+            // Set player health to critical level (18 HP) and test DOM update
+            player.health = 18;
+            updateHudHealth();
+            const critDomActive = bar.classList.contains('critical') &&
+                                  num.classList.contains('critical') &&
+                                  bar.parentElement.classList.contains('critical') &&
+                                  critVig.classList.contains('active');
+
+            // Restore player health to 100 HP and verify clean removal
+            player.health = 100;
+            updateHudHealth();
+            const critDomCleared = !bar.classList.contains('critical') &&
+                                   !num.classList.contains('critical') &&
+                                   !bar.parentElement.classList.contains('critical') &&
+                                   !critVig.classList.contains('active');
+
+            return critNom && critLow && critBoundary && critMid && critDead &&
+                   styleInert && styleActive && styleReduced && pulseReduced && pulsePeak &&
+                   critDomActive && critDomCleared;
+        }""")
+        checks.append(("critical-health-visual-feedback-and-vignette-rules", crit_rules_check))
+
+        # 34) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
