@@ -4383,3 +4383,97 @@ test('criticalVignetteStyle and criticalPulseAlpha compute near-death feedback d
   const troughAlpha = CORE.criticalPulseAlpha(1.0, 3 / (4 * 1.35), false); // sin(3pi/2) = -1
   assert.ok(Math.abs(troughAlpha - 0.35) < 1e-4);
 });
+
+test('filterMinimapColliders and isMinimapBlockVisible extract static obstacles and cull off-screen blocks', () => {
+  const colliders = [
+    { min: { x: -10, y: 0, z: -10 }, max: { x: 10, y: 0.4, z: 10 } }, // ground/curb (max.y 0.4 < 0.6) -> excluded
+    { min: { x: 4, y: 0, z: 8 }, max: { x: 8, y: 3.5, z: 15 } },      // building (max.y 3.5 >= 0.6) -> included
+    { min: { x: -20, y: 0, z: -30 }, max: { x: -15, y: 2.0, z: -25 } }, // obstacle -> included
+    null,
+    { min: null, max: null }
+  ];
+
+  const filtered = CORE.filterMinimapColliders(colliders, 0.6);
+  assert.strictEqual(filtered.length, 2);
+  assert.deepStrictEqual(filtered[0], { minX: 4, minZ: 8, w: 4, d: 7 });
+  assert.deepStrictEqual(filtered[1], { minX: -20, minZ: -30, w: 5, d: 5 });
+
+  // Empty or invalid input handling
+  assert.deepStrictEqual(CORE.filterMinimapColliders([], 0.6), []);
+  assert.deepStrictEqual(CORE.filterMinimapColliders(null, 0.6), []);
+
+  // Minimap block visibility culling
+  const scale = 75 / 53; // typical minimap scale
+  const maxDistSq = 75 * 75 * 2.4; // R * R * 2.4
+
+  // Block near player (px = 4, pz = 8) -> visible
+  assert.strictEqual(CORE.isMinimapBlockVisible(4, 8, 4, 7, 4, 8, scale, maxDistSq), true);
+
+  // Block far outside minimap range (px = 4, pz = 8, block at minX = 200, minZ = 200) -> culled
+  assert.strictEqual(CORE.isMinimapBlockVisible(200, 200, 4, 7, 4, 8, scale, maxDistSq), false);
+
+  // Invalid parameters return false safely
+  assert.strictEqual(CORE.isMinimapBlockVisible(NaN, 0, 1, 1, 0, 0, 1, 100), false);
+});
+
+test('compassHeading, compassTickOffset, and compassCardinalLabel resolve heading and tick labels accurately', () => {
+  // Compass heading from yaw radians
+  assert.strictEqual(CORE.compassHeading(0), 0);
+  assert.strictEqual(CORE.compassHeading(Math.PI), 180);
+  assert.strictEqual(CORE.compassHeading(Math.PI / 2), 270);
+  assert.strictEqual(CORE.compassHeading(-Math.PI / 2), 90);
+  assert.strictEqual(CORE.compassHeading(2 * Math.PI), 0);
+  assert.strictEqual(CORE.compassHeading(null), 0);
+
+  // Tick angular offsets
+  assert.strictEqual(CORE.compassTickOffset(0, 0), 0);
+  assert.strictEqual(CORE.compassTickOffset(15, 0), 15);
+  assert.strictEqual(CORE.compassTickOffset(350, 0), -10); // wrapped delta
+  assert.strictEqual(CORE.compassTickOffset(0, 350), 10);
+  assert.strictEqual(CORE.compassTickOffset(180, 0), -180);
+
+  // Cardinal point labels
+  assert.strictEqual(CORE.compassCardinalLabel(0), 'N');
+  assert.strictEqual(CORE.compassCardinalLabel(45), 'NE');
+  assert.strictEqual(CORE.compassCardinalLabel(90), 'E');
+  assert.strictEqual(CORE.compassCardinalLabel(135), 'SE');
+  assert.strictEqual(CORE.compassCardinalLabel(180), 'S');
+  assert.strictEqual(CORE.compassCardinalLabel(225), 'SW');
+  assert.strictEqual(CORE.compassCardinalLabel(270), 'W');
+  assert.strictEqual(CORE.compassCardinalLabel(315), 'NW');
+  assert.strictEqual(CORE.compassCardinalLabel(360), 'N');
+  assert.strictEqual(CORE.compassCardinalLabel(-90), 'W');
+  assert.strictEqual(CORE.compassCardinalLabel(15), null);
+  assert.strictEqual(CORE.compassCardinalLabel(60), null);
+  assert.strictEqual(CORE.compassCardinalLabel(NaN), null);
+});
+
+test('evaluateCombatEnemies calculates living hostiles and nearest distance with zero allocations', () => {
+  const enemies = [
+    { pos: { x: 10, y: 0, z: 0 }, dead: false },
+    { pos: { x: 0, y: 0, z: 6 }, dead: false },
+    { pos: { x: 1, y: 0, z: 1 }, dead: true }, // dead corpse ignored
+    null
+  ];
+
+  const result = CORE.evaluateCombatEnemies(enemies, 0, 0);
+  assert.strictEqual(result.aliveCount, 2);
+  assert.strictEqual(result.nearestEnemy, 6);
+
+  // Reusable output object mutation
+  const out = { aliveCount: 0, nearestEnemy: undefined };
+  const mutated = CORE.evaluateCombatEnemies(enemies, 0, 0, out);
+  assert.strictEqual(mutated, out);
+  assert.strictEqual(out.aliveCount, 2);
+  assert.strictEqual(out.nearestEnemy, 6);
+
+  // No alive enemies returns nearest undefined
+  const noEnemies = [
+    { pos: { x: 10, y: 0, z: 0 }, dead: true }
+  ];
+  const emptyRes = CORE.evaluateCombatEnemies(noEnemies, 0, 0);
+  assert.strictEqual(emptyRes.aliveCount, 0);
+  assert.strictEqual(emptyRes.nearestEnemy, undefined);
+  assert.strictEqual(CORE.evaluateCombatEnemies([], 0, 0).aliveCount, 0);
+  assert.strictEqual(CORE.evaluateCombatEnemies(null, 0, 0).aliveCount, 0);
+});

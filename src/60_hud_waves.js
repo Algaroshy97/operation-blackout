@@ -695,6 +695,17 @@ const MM_STATION_COLOR = {
 };
 // Metres of unaided detection. The UAV lifts this to the whole minimap.
 const MM_BASE_DETECT = 26;
+var _minimapBlocks = null;
+function getMinimapBlocks() {
+  if (!_minimapBlocks && typeof colliders !== 'undefined' && colliders && colliders.length) {
+    _minimapBlocks = CORE.filterMinimapColliders(colliders, 0.6);
+  }
+  return _minimapBlocks || [];
+}
+function invalidateMinimapBlocks() {
+  _minimapBlocks = null;
+}
+
 function drawMinimap() {
   const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
   mmCtx.clearRect(0, 0, W, W);
@@ -703,15 +714,14 @@ function drawMinimap() {
   // rotate so up = facing
   mmCtx.rotate(player.yaw);
   const px = player.pos.x, pz = player.pos.z;
-  // colliders as blocks
+  // colliders as blocks (pre-filtered static obstacle geometry)
   mmCtx.fillStyle = 'rgba(160,170,185,0.5)';
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (c.max.y < 0.6) continue;
-    const x = (c.min.x - px) * scale, z = (c.min.z - pz) * scale;
-    const w = (c.max.x - c.min.x) * scale, h = (c.max.z - c.min.z) * scale;
-    if (x * x + z * z > R * R * 2.4) continue;
-    mmCtx.fillRect(x, z, w, h);
+  const blocks = getMinimapBlocks();
+  const maxBlockDistSq = R * R * 2.4;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!CORE.isMinimapBlockVisible(b.minX, b.minZ, b.w, b.d, px, pz, scale, maxBlockDistSq)) continue;
+    mmCtx.fillRect((b.minX - px) * scale, (b.minZ - pz) * scale, b.w * scale, b.d * scale);
   }
   // Baseline detection is near-only; the UAV reveals the whole arena. That split
   // is what gives the minimap — and the streak — any meaning at all.
@@ -773,23 +783,21 @@ function drawCompass() {
   cpCtx.clearRect(0, 0, w, h);
   cpCtx.font = 'bold 11px Segoe UI';
   cpCtx.textAlign = 'center';
-  // heading degrees: 0 = north (-z). yaw 0 faces -z? our forward = (-sin yaw, -cos yaw); yaw=0 -> (0,-1) = north
-  const heading = ((-player.yaw * 180 / Math.PI) % 360 + 360) % 360;
+  const heading = CORE.compassHeading(player.yaw);
   // draw ticks every 15deg within +/- 60 of heading
   const pxPerDeg = w / 90;   // 90 degrees of heading across the visible strip
   for (let d = -60; d <= 60; d += 5) {
     const deg = (heading + d + 360) % 360;
     // snap to 5-degree marks
-    const base = Math.round(deg / 5) * 5;
-    const dispDeg = base;
-    const off = (dispDeg - heading + 540) % 360 - 180;
+    const dispDeg = Math.round(deg / 5) * 5;
+    const off = CORE.compassTickOffset(dispDeg, heading);
     if (Math.abs(off) > 45) continue;
     const x = cx + off * pxPerDeg;
     const isMajor = dispDeg % 45 === 0;
     cpCtx.fillStyle = isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
     if (dispDeg % 15 === 0) cpCtx.fillRect(x - 1, 12, 2, 6);
     if (isMajor) {
-      const lbl = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' }[dispDeg];
+      const lbl = CORE.compassCardinalLabel(dispDeg);
       if (lbl) cpCtx.fillText(lbl, x, 10);
       else cpCtx.fillText(String(dispDeg), x, 10);
     }

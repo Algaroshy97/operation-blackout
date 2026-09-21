@@ -92,6 +92,10 @@ function getGrenadeSpeed() {
 }
 
 const _prevDir = new THREE.Vector3();
+const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
+const _blastFrom = new THREE.Vector3();
+const _blastTarget = new THREE.Vector3();
+const _blastPlayerTarget = new THREE.Vector3();
 // Colliders within reach of the throw arc, refreshed once per preview frame
 // instead of scanning all of them at every one of the 28 sample points.
 const previewNear = [];
@@ -291,13 +295,16 @@ function updateGrenades(dt) {
     // Semtex and thermite stick where they land; nothing moves them afterwards.
     if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
     g.vel.y -= 14 * dt;
-    const motion = { position: { x: g.m.position.x, y: g.m.position.y, z: g.m.position.z }, velocity: g.vel };
-    const motionResult = CORE.stepGrenadeMotion(motion, dt, colliders, {
+    _grenadeMotion.position.x = g.m.position.x;
+    _grenadeMotion.position.y = g.m.position.y;
+    _grenadeMotion.position.z = g.m.position.z;
+    _grenadeMotion.velocity = g.vel;
+    const motionResult = CORE.stepGrenadeMotion(_grenadeMotion, dt, colliders, {
       bounce: def.bounce === undefined ? CFG.grenade.bounce : def.bounce,
       maxContacts: 4,
       radius: 0.11
     });
-    g.m.position.set(motion.position.x, motion.position.y, motion.position.z);
+    g.m.position.set(_grenadeMotion.position.x, _grenadeMotion.position.y, _grenadeMotion.position.z);
     // Sticky payloads stop at their first contact; bouncing payloads consume
     // every leftover fraction of the frame, including chained contacts.
     if (def.sticky && motionResult.contacts > 0) {
@@ -552,21 +559,21 @@ function explodeGrenade(pos, scale) {
     vfx.blood.push({ m: s, v: v, life: 0.7, grav: 10 });
   }
   // damage with distance falloff and real cover occlusion
-  const blastFrom = pos.clone(); blastFrom.y += 0.12;
+  _blastFrom.copy(pos); _blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
     const d = en.pos.distanceTo(pos);
-    const target = en.pos.clone().setY(1.1);
-    if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
+    _blastTarget.set(en.pos.x, 1.1, en.pos.z);
+    if (d < CFG.grenade.radius && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
-      damageEnemy(en, dmg, target, false);
+      damageEnemy(en, dmg, _blastTarget, false);
     }
   }
   // player self-damage (half, encourages careful use; solid cover blocks it)
   const pd = player.pos.distanceTo(pos);
-  const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
-  if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
+  _blastPlayerTarget.set(player.pos.x, player.pos.y - 0.5, player.pos.z);
+  if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(_blastFrom, _blastPlayerTarget, null)) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);

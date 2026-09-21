@@ -1167,7 +1167,59 @@ def main() -> int:
         }""")
         checks.append(("critical-health-visual-feedback-and-vignette-rules", crit_rules_check))
 
-        # 34) Clean console throughout gameplay.
+        # 34) Minimap obstacle culling, compass rules, and combat evaluation performance.
+        perf_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // Minimap obstacle filtering
+            const testCols = [
+                { min: { x: 0, y: 0, z: 0 }, max: { x: 4, y: 0.3, z: 4 } },
+                { min: { x: 10, y: 0, z: 10 }, max: { x: 16, y: 3.0, z: 22 } }
+            ];
+            const filtered = CORE.filterMinimapColliders(testCols, 0.6);
+            const filterOk = Array.isArray(filtered) && filtered.length === 1 &&
+                             filtered[0].minX === 10 && filtered[0].minZ === 10 &&
+                             filtered[0].w === 6 && filtered[0].d === 12;
+
+            // Minimap block culling
+            const cullNear = CORE.isMinimapBlockVisible(10, 10, 6, 12, 10, 10, 1.4, 75 * 75 * 2.4) === true;
+            const cullFar = CORE.isMinimapBlockVisible(300, 300, 6, 12, 0, 0, 1.4, 75 * 75 * 2.4) === false;
+
+            // Compass calculations
+            const headNorth = CORE.compassHeading(0) === 0;
+            const headSouth = CORE.compassHeading(Math.PI) === 180;
+            const tickZero = CORE.compassTickOffset(0, 0) === 0;
+            const tickWrap = CORE.compassTickOffset(350, 0) === -10;
+            const cardNorth = CORE.compassCardinalLabel(0) === 'N';
+            const cardEast = CORE.compassCardinalLabel(90) === 'E';
+            const cardNull = CORE.compassCardinalLabel(15) === null;
+
+            // Combat enemy evaluation
+            const testEnemies = [
+                { pos: { x: 5, y: 0, z: 0 }, dead: false },
+                { pos: { x: 0, y: 0, z: 12 }, dead: false },
+                { pos: { x: 1, y: 0, z: 1 }, dead: true }
+            ];
+            const outBuf = { aliveCount: 0, nearestEnemy: undefined };
+            const evalRes = CORE.evaluateCombatEnemies(testEnemies, 0, 0, outBuf);
+            const combatOk = evalRes === outBuf && outBuf.aliveCount === 2 && outBuf.nearestEnemy === 5;
+
+            // Live execution of drawMinimap and drawCompass
+            let drawOk = true;
+            try {
+                if (typeof drawMinimap === 'function') drawMinimap();
+                if (typeof drawCompass === 'function') drawCompass();
+            } catch (e) {
+                drawOk = false;
+            }
+
+            return filterOk && cullNear && cullFar && headNorth && headSouth &&
+                   tickZero && tickWrap && cardNorth && cardEast && cardNull &&
+                   combatOk && drawOk;
+        }""")
+        checks.append(("canvas-hud-and-combat-performance-rules", perf_rules_check))
+
+        # 35) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

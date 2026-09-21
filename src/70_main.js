@@ -182,6 +182,7 @@ function resetGame() {
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
+  if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   curWeapon = 0;
   fireClockT = 0;
   initWeapons();
@@ -667,6 +668,7 @@ let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
 let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
+const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -731,17 +733,10 @@ function frame(now) {
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
-    let nearest;
-    let aliveCount = 0;
-    for (let i = 0; i < enemies.length; i++) {
-      if (enemies[i].dead) continue;
-      aliveCount++;
-      const d = CORE.horizDist(enemies[i].pos.x, enemies[i].pos.z, player.pos.x, player.pos.z);
-      if (nearest === undefined || d < nearest) nearest = d;
-    }
+    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut);
     _musicState.inCombat = waveActive && !player.dead;
-    _musicState.aliveEnemies = aliveCount;
-    _musicState.nearestEnemy = nearest;
+    _musicState.aliveEnemies = _combatEvalOut.aliveCount;
+    _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
     _musicState.health = player.health;
     updateMusic(dt, _musicState);
     updateHitArcs();

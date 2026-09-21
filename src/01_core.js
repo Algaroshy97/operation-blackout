@@ -3270,6 +3270,84 @@ const CORE = (function () {
     };
   }
 
+  // ---- Minimap & Compass 2D Canvas Performance ----
+  function filterMinimapColliders(colliders, minHeight) {
+    const out = [];
+    if (!colliders || !colliders.length) return out;
+    const hFloor = typeof minHeight === 'number' && isFinite(minHeight) ? minHeight : 0.6;
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (!c || !c.min || !c.max) continue;
+      if (typeof c.max.y !== 'number' || c.max.y < hFloor) continue;
+      const minX = c.min.x, minZ = c.min.z;
+      const maxX = c.max.x, maxZ = c.max.z;
+      if (!isFinite(minX) || !isFinite(minZ) || !isFinite(maxX) || !isFinite(maxZ)) continue;
+      out.push({
+        minX: minX,
+        minZ: minZ,
+        w: maxX - minX,
+        d: maxZ - minZ
+      });
+    }
+    return out;
+  }
+
+  function isMinimapBlockVisible(minX, minZ, w, d, px, pz, scale, maxDistSq) {
+    if (!isFinite(minX) || !isFinite(minZ) || !isFinite(px) || !isFinite(pz) || !isFinite(scale)) return false;
+    const x = (minX - px) * scale, z = (minZ - pz) * scale;
+    const limit = (typeof maxDistSq === 'number' && isFinite(maxDistSq)) ? maxDistSq : Infinity;
+    return (x * x + z * z) <= limit;
+  }
+
+  function compassHeading(yawRad) {
+    if (typeof yawRad !== 'number' || !isFinite(yawRad)) return 0;
+    return ((-yawRad * 180 / Math.PI) % 360 + 360) % 360;
+  }
+
+  function compassTickOffset(dispDeg, heading) {
+    if (!isFinite(dispDeg) || !isFinite(heading)) return 0;
+    return (dispDeg - heading + 540) % 360 - 180;
+  }
+
+  const COMPASS_CARDINALS = {
+    0: 'N',
+    45: 'NE',
+    90: 'E',
+    135: 'SE',
+    180: 'S',
+    225: 'SW',
+    270: 'W',
+    315: 'NW'
+  };
+  function compassCardinalLabel(deg) {
+    if (typeof deg !== 'number' || !isFinite(deg)) return null;
+    const norm = ((Math.round(deg) % 360) + 360) % 360;
+    return COMPASS_CARDINALS[norm] || null;
+  }
+
+  // ---- Combat Enemies Evaluation ----
+  function evaluateCombatEnemies(enemies, px, pz, out) {
+    let aliveCount = 0;
+    let nearestSq = Infinity;
+    if (enemies && enemies.length) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || e.dead || !e.pos) continue;
+        aliveCount++;
+        const dx = e.pos.x - px, dz = e.pos.z - pz;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < nearestSq) nearestSq = dSq;
+      }
+    }
+    const nearest = isFinite(nearestSq) ? Math.sqrt(nearestSq) : undefined;
+    if (out && typeof out === 'object') {
+      out.aliveCount = aliveCount;
+      out.nearestEnemy = nearest;
+      return out;
+    }
+    return { aliveCount: aliveCount, nearestEnemy: nearest };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3623,7 +3701,13 @@ const CORE = (function () {
     criticalHealthIntensity: criticalHealthIntensity,
     healthDangerState: healthDangerState,
     criticalVignetteStyle: criticalVignetteStyle,
-    criticalPulseAlpha: criticalPulseAlpha
+    criticalPulseAlpha: criticalPulseAlpha,
+    filterMinimapColliders: filterMinimapColliders,
+    isMinimapBlockVisible: isMinimapBlockVisible,
+    compassHeading: compassHeading,
+    compassTickOffset: compassTickOffset,
+    compassCardinalLabel: compassCardinalLabel,
+    evaluateCombatEnemies: evaluateCombatEnemies
   };
 })();
 
