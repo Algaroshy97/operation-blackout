@@ -2071,6 +2071,62 @@ const CORE = (function () {
     if (crouching) return 'STAND';
     return 'SLIDE';
   }
+  // Mobile touch plate button label: returns 'ARMOR' while inserting, 'PLT ' + count
+  // when plates are available, or 'EMPTY' when inventory is 0.
+  function touchPlateLabel(plates, inserting) {
+    if (inserting) return 'ARMOR';
+    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
+    return 'PLT ' + plates;
+  }
+  // Mobile touch tactical equipment button label: displays 'FLASH', 'STUN', 'SMOKE'
+  // based on active ordnance key, 'EMPTY' when depleted, or 'TAC' fallback.
+  function touchTacticalLabel(equippedKey, count) {
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+    if (equippedKey === 'flash') return 'FLASH';
+    if (equippedKey === 'stun') return 'STUN';
+    if (equippedKey === 'smoke') return 'SMOKE';
+    return 'TAC';
+  }
+  // Mobile touch lethal equipment button label: displays 'HOLD' while charging, 'FRAG',
+  // 'SMTX', 'CLAY' based on active explosive key, 'EMPTY' when depleted, or 'NADE' fallback.
+  function touchLethalLabel(equippedKey, count, isCharging) {
+    if (isCharging) return 'HOLD';
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+    if (equippedKey === 'semtex') return 'SMTX';
+    if (equippedKey === 'claymore') return 'CLAY';
+    if (equippedKey === 'frag') return 'FRAG';
+    return 'NADE';
+  }
+  // Mobile touch scorestreak / field upgrade button label: displays 'UAV', 'AIR', 'TUR'
+  // for active banked streaks, 'BOX' when munitions field upgrade is ready, or 'STRK' fallback.
+  function touchStreakLabel(topStreakKey, fieldReady) {
+    if (topStreakKey) {
+      if (topStreakKey === 'uav') return 'UAV';
+      if (topStreakKey === 'airstrike') return 'AIR';
+      if (topStreakKey === 'sentry') return 'TUR';
+      const d = streakByKey(topStreakKey);
+      if (d && typeof d.short === 'string') return d.short;
+      return 'STRK';
+    }
+    if (fieldReady) return 'BOX';
+    return 'STRK';
+  }
+  // Mobile touch melee button state: returns 'cooldown' while melee swing recovers,
+  // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
+  function touchMeleeState(hasTarget, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    if (cd > 0) return 'cooldown';
+    if (hasTarget) return 'ready';
+    return '';
+  }
+  // Mobile touch melee button label: returns 'WAIT' during swing recovery,
+  // 'STRIKE' when an enemy is within blade strike range, or 'KNIFE' default.
+  function touchMeleeLabel(hasTarget, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    if (cd > 0) return 'WAIT';
+    if (hasTarget) return 'STRIKE';
+    return 'KNIFE';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -3370,6 +3426,75 @@ const CORE = (function () {
     return { aliveCount: aliveCount, nearestEnemy: nearest };
   }
 
+  // ---- Sniper Marksman Sway, Steady Aim, Recoil Recovery, and Aim Assist Balance ----
+  const STEADY_MAX = 2.2;
+  const STEADY_RECOVER = 2.2;
+  const ADS_SCOPE_THRESHOLD = 0.8;
+  const SCOPE_LOCKED_THRESHOLD = 0.82;
+  const RECOIL_DECAY_RATE = 0.02;
+
+  function isSteadyActive(weaponType, adsAmount, isHoldingShift, steadyT) {
+    if (weaponType !== 'SR') return false;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
+    return ads > ADS_SCOPE_THRESHOLD && Boolean(isHoldingShift) && t > 0;
+  }
+
+  function stepSteadyAim(steadyT, steadyActive, dt, maxTime, recoverRate) {
+    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const max = typeof maxTime === 'number' && isFinite(maxTime) && maxTime > 0 ? maxTime : STEADY_MAX;
+    const rec = typeof recoverRate === 'number' && isFinite(recoverRate) && recoverRate > 0 ? recoverRate : STEADY_RECOVER;
+    if (steadyActive) {
+      return Math.max(0, t - d);
+    }
+    return Math.min(max, t + d * rec);
+  }
+
+  function swayAmplitude(baseAmp, steadyActive, steadyMul, weaponSwayMul) {
+    const base = typeof baseAmp === 'number' && isFinite(baseAmp) ? baseAmp : 0.0042;
+    const sm = steadyActive ? (typeof steadyMul === 'number' && isFinite(steadyMul) ? steadyMul : 0.14) : 1.0;
+    const wSway = typeof weaponSwayMul === 'number' && isFinite(weaponSwayMul) && weaponSwayMul > 0 ? weaponSwayMul : 1.0;
+    return base * sm * wSway;
+  }
+
+  function swayOffsets(phase, amp, out) {
+    const p = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    const a = typeof amp === 'number' && isFinite(amp) ? amp : 0;
+    const x = Math.sin(p * 1.7) * a + Math.sin(p * 0.9) * a * 0.6;
+    const y = Math.sin(p * 1.3 + 1.2) * a * 0.8;
+    if (out && typeof out === 'object') {
+      out.x = x;
+      out.y = y;
+      return out;
+    }
+    return { x: x, y: y };
+  }
+
+  function isScoped(adsAmount, weaponType) {
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    return ads > SCOPE_LOCKED_THRESHOLD && weaponType === 'SR';
+  }
+
+  function recoilDecay(recoilVal, dt, baseDecayRate) {
+    const val = typeof recoilVal === 'number' && isFinite(recoilVal) ? recoilVal : 0;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const rate = typeof baseDecayRate === 'number' && isFinite(baseDecayRate) && baseDecayRate > 0 ? baseDecayRate : RECOIL_DECAY_RATE;
+    return val * Math.pow(rate, d);
+  }
+
+  function aimAssistAngle(baseAngle, isSteady, steadyBonusMul) {
+    const base = typeof baseAngle === 'number' && isFinite(baseAngle) ? baseAngle : 0.14;
+    const bonus = typeof steadyBonusMul === 'number' && isFinite(steadyBonusMul) ? steadyBonusMul : 1.6;
+    return base * (isSteady ? bonus : 1.0);
+  }
+
+  function aimAssistPull(baseStrength, pullRatio) {
+    const base = typeof baseStrength === 'number' && isFinite(baseStrength) ? baseStrength : 2.2;
+    const ratio = typeof pullRatio === 'number' && isFinite(pullRatio) ? pullRatio : 0.25;
+    return Math.min(1.0, base * ratio);
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3661,6 +3786,12 @@ const CORE = (function () {
     touchUseState: touchUseState,
     touchSlideState: touchSlideState,
     touchSlideLabel: touchSlideLabel,
+    touchPlateLabel: touchPlateLabel,
+    touchTacticalLabel: touchTacticalLabel,
+    touchLethalLabel: touchLethalLabel,
+    touchStreakLabel: touchStreakLabel,
+    touchMeleeState: touchMeleeState,
+    touchMeleeLabel: touchMeleeLabel,
     GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
     GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
     GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,
@@ -3734,7 +3865,20 @@ const CORE = (function () {
     streakActivationSound: streakActivationSound,
     fieldUpgradeSound: fieldUpgradeSound,
     sentryFireSound: sentryFireSound,
-    canMunitionsResupply: canMunitionsResupply
+    canMunitionsResupply: canMunitionsResupply,
+    STEADY_MAX: STEADY_MAX,
+    STEADY_RECOVER: STEADY_RECOVER,
+    ADS_SCOPE_THRESHOLD: ADS_SCOPE_THRESHOLD,
+    SCOPE_LOCKED_THRESHOLD: SCOPE_LOCKED_THRESHOLD,
+    RECOIL_DECAY_RATE: RECOIL_DECAY_RATE,
+    isSteadyActive: isSteadyActive,
+    stepSteadyAim: stepSteadyAim,
+    swayAmplitude: swayAmplitude,
+    swayOffsets: swayOffsets,
+    isScoped: isScoped,
+    recoilDecay: recoilDecay,
+    aimAssistAngle: aimAssistAngle,
+    aimAssistPull: aimAssistPull
   };
 })();
 

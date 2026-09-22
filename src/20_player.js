@@ -184,7 +184,8 @@ function updatePlayer(dt) {
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
   // recoil decay — now only what the player did NOT compensate for
-  player.recoilP *= Math.pow(0.02, dt); player.recoilY *= Math.pow(0.02, dt);
+  player.recoilP = CORE.recoilDecay(player.recoilP, dt, CORE.RECOIL_DECAY_RATE);
+  player.recoilY = CORE.recoilDecay(player.recoilY, dt, CORE.RECOIL_DECAY_RATE);
 
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.

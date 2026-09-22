@@ -4505,3 +4505,107 @@ test('streakActivationSound, fieldUpgradeSound, sentryFireSound, and canMunition
   assert.strictEqual(CORE.canMunitionsResupply(false, false, false), false);
   assert.strictEqual(CORE.canMunitionsResupply(null, undefined, 0), false);
 });
+
+test('touchPlateLabel, touchTacticalLabel, touchLethalLabel, touchStreakLabel, touchMeleeState, and touchMeleeLabel govern mobile tactical feedback', () => {
+  // touchPlateLabel
+  assert.strictEqual(CORE.touchPlateLabel(2, true), 'ARMOR');
+  assert.strictEqual(CORE.touchPlateLabel(0, true), 'ARMOR');
+  assert.strictEqual(CORE.touchPlateLabel(3, false), 'PLT 3');
+  assert.strictEqual(CORE.touchPlateLabel(1, false), 'PLT 1');
+  assert.strictEqual(CORE.touchPlateLabel(0, false), 'EMPTY');
+  assert.strictEqual(CORE.touchPlateLabel(-1, false), 'EMPTY');
+  assert.strictEqual(CORE.touchPlateLabel(null, false), 'EMPTY');
+  assert.strictEqual(CORE.touchPlateLabel(undefined, false), 'EMPTY');
+
+  // touchTacticalLabel
+  assert.strictEqual(CORE.touchTacticalLabel('flash', 2), 'FLASH');
+  assert.strictEqual(CORE.touchTacticalLabel('stun', 1), 'STUN');
+  assert.strictEqual(CORE.touchTacticalLabel('smoke', 2), 'SMOKE');
+  assert.strictEqual(CORE.touchTacticalLabel('other', 1), 'TAC');
+  assert.strictEqual(CORE.touchTacticalLabel(null, 1), 'TAC');
+  assert.strictEqual(CORE.touchTacticalLabel('flash', 0), 'EMPTY');
+  assert.strictEqual(CORE.touchTacticalLabel('stun', -1), 'EMPTY');
+  assert.strictEqual(CORE.touchTacticalLabel('smoke', null), 'EMPTY');
+
+  // touchLethalLabel
+  assert.strictEqual(CORE.touchLethalLabel('frag', 2, true), 'HOLD');
+  assert.strictEqual(CORE.touchLethalLabel('frag', 2, false), 'FRAG');
+  assert.strictEqual(CORE.touchLethalLabel('semtex', 1, false), 'SMTX');
+  assert.strictEqual(CORE.touchLethalLabel('claymore', 1, false), 'CLAY');
+  assert.strictEqual(CORE.touchLethalLabel('unknown', 1, false), 'NADE');
+  assert.strictEqual(CORE.touchLethalLabel(null, 1, false), 'NADE');
+  assert.strictEqual(CORE.touchLethalLabel('frag', 0, false), 'EMPTY');
+  assert.strictEqual(CORE.touchLethalLabel('semtex', -1, false), 'EMPTY');
+  assert.strictEqual(CORE.touchLethalLabel('claymore', null, false), 'EMPTY');
+
+  // touchStreakLabel
+  assert.strictEqual(CORE.touchStreakLabel('uav', false), 'UAV');
+  assert.strictEqual(CORE.touchStreakLabel('airstrike', false), 'AIR');
+  assert.strictEqual(CORE.touchStreakLabel('sentry', false), 'TUR');
+  assert.strictEqual(CORE.touchStreakLabel(null, true), 'BOX');
+  assert.strictEqual(CORE.touchStreakLabel(undefined, true), 'BOX');
+  assert.strictEqual(CORE.touchStreakLabel(null, false), 'STRK');
+  assert.strictEqual(CORE.touchStreakLabel(undefined, false), 'STRK');
+
+  // touchMeleeState
+  assert.strictEqual(CORE.touchMeleeState(true, 0), 'ready');
+  assert.strictEqual(CORE.touchMeleeState(false, 0), '');
+  assert.strictEqual(CORE.touchMeleeState(true, 0.4), 'cooldown');
+  assert.strictEqual(CORE.touchMeleeState(false, 0.4), 'cooldown');
+
+  // touchMeleeLabel
+  assert.strictEqual(CORE.touchMeleeLabel(true, 0), 'STRIKE');
+  assert.strictEqual(CORE.touchMeleeLabel(false, 0), 'KNIFE');
+  assert.strictEqual(CORE.touchMeleeLabel(true, 0.4), 'WAIT');
+  assert.strictEqual(CORE.touchMeleeLabel(false, 0.4), 'WAIT');
+});
+
+test('isSteadyActive, stepSteadyAim, swayAmplitude, swayOffsets, isScoped, recoilDecay, aimAssistAngle, and aimAssistPull govern marksman precision balance', () => {
+  // isSteadyActive
+  assert.strictEqual(CORE.isSteadyActive('SR', 0.85, true, 2.0), true);
+  assert.strictEqual(CORE.isSteadyActive('SR', 0.85, false, 2.0), false);
+  assert.strictEqual(CORE.isSteadyActive('SR', 0.75, true, 2.0), false);
+  assert.strictEqual(CORE.isSteadyActive('SR', 0.85, true, 0), false);
+  assert.strictEqual(CORE.isSteadyActive('AR', 0.85, true, 2.0), false);
+  assert.strictEqual(CORE.isSteadyActive('SMG', 0.85, true, 2.0), false);
+  assert.strictEqual(CORE.isSteadyActive('BR', 0.85, true, 2.0), false);
+
+  // stepSteadyAim
+  assert.ok(Math.abs(CORE.stepSteadyAim(2.0, true, 0.5, 2.2, 2.2) - 1.5) < 1e-4);
+  assert.ok(Math.abs(CORE.stepSteadyAim(0.3, true, 0.5, 2.2, 2.2) - 0.0) < 1e-4);
+  assert.ok(Math.abs(CORE.stepSteadyAim(1.0, false, 0.5, 2.2, 2.2) - 2.1) < 1e-4);
+  assert.ok(Math.abs(CORE.stepSteadyAim(2.0, false, 0.5, 2.2, 2.2) - 2.2) < 1e-4);
+
+  // swayAmplitude
+  assert.ok(Math.abs(CORE.swayAmplitude(0.0042, false, 0.14, 1.0) - 0.0042) < 1e-6);
+  assert.ok(Math.abs(CORE.swayAmplitude(0.0042, true, 0.14, 1.0) - 0.0042 * 0.14) < 1e-6);
+  assert.ok(Math.abs(CORE.swayAmplitude(0.0042, false, 0.14, 1.5) - 0.0042 * 1.5) < 1e-6);
+
+  // swayOffsets
+  const s1 = CORE.swayOffsets(0, 0.01);
+  assert.ok(Math.abs(s1.x - 0) < 1e-6);
+  assert.ok(Math.abs(s1.y - (Math.sin(1.2) * 0.01 * 0.8)) < 1e-6);
+  const reuse = { x: 0, y: 0 };
+  const s2 = CORE.swayOffsets(1.0, 0.005, reuse);
+  assert.strictEqual(s2, reuse);
+  assert.ok(Math.abs(reuse.x - (Math.sin(1.7) * 0.005 + Math.sin(0.9) * 0.005 * 0.6)) < 1e-6);
+
+  // isScoped
+  assert.strictEqual(CORE.isScoped(0.85, 'SR'), true);
+  assert.strictEqual(CORE.isScoped(0.80, 'SR'), false);
+  assert.strictEqual(CORE.isScoped(0.85, 'AR'), false);
+  assert.strictEqual(CORE.isScoped(0.85, 'SMG'), false);
+
+  // recoilDecay
+  assert.ok(Math.abs(CORE.recoilDecay(1.0, 0, 0.02) - 1.0) < 1e-4);
+  assert.ok(Math.abs(CORE.recoilDecay(1.0, 1.0, 0.02) - 0.02) < 1e-4);
+  assert.ok(Math.abs(CORE.recoilDecay(0.5, 0.5, 0.04) - 0.1) < 1e-4);
+
+  // aimAssistAngle
+  assert.ok(Math.abs(CORE.aimAssistAngle(0.14, false, 1.6) - 0.14) < 1e-4);
+  assert.ok(Math.abs(CORE.aimAssistAngle(0.14, true, 1.6) - 0.224) < 1e-4);
+
+  // aimAssistPull
+  assert.ok(Math.abs(CORE.aimAssistPull(2.2, 0.25) - 0.55) < 1e-4);
+  assert.ok(Math.abs(CORE.aimAssistPull(5.0, 0.5) - 1.0) < 1e-4);
+});

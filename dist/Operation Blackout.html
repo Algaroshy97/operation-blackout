@@ -254,9 +254,12 @@
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 12px rgba(255,210,74,.2)}
+  body.touch #tbtn-nade.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
-  body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-melee.ready{border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,95,74,.3),inset 0 0 10px rgba(255,95,74,.2)}
+  body.touch #tbtn-melee.cooldown{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-use.ready{border-color:#7ee08a;color:#7ee08a;box-shadow:0 0 0 3px rgba(126,224,138,.3),inset 0 0 10px rgba(126,224,138,.2)}
   body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.35),inset 0 0 12px rgba(255,210,74,.25)}
@@ -264,7 +267,9 @@
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.3),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-plate.ready{border-color:#4fa3d8;color:#4fa3d8;box-shadow:0 0 0 2px rgba(79,163,216,.25),inset 0 0 8px rgba(79,163,216,.15)}
   body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-tactical.ready{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.15)}
   body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-streak.streak{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 10px rgba(255,210,74,.2)}
   body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 10px rgba(80,180,255,.2)}
@@ -308,7 +313,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee{transition:none}
   body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
   body.reduced-motion .health-bar-bg.critical{animation:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
@@ -6719,6 +6724,62 @@ const CORE = (function () {
     if (crouching) return 'STAND';
     return 'SLIDE';
   }
+  // Mobile touch plate button label: returns 'ARMOR' while inserting, 'PLT ' + count
+  // when plates are available, or 'EMPTY' when inventory is 0.
+  function touchPlateLabel(plates, inserting) {
+    if (inserting) return 'ARMOR';
+    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
+    return 'PLT ' + plates;
+  }
+  // Mobile touch tactical equipment button label: displays 'FLASH', 'STUN', 'SMOKE'
+  // based on active ordnance key, 'EMPTY' when depleted, or 'TAC' fallback.
+  function touchTacticalLabel(equippedKey, count) {
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+    if (equippedKey === 'flash') return 'FLASH';
+    if (equippedKey === 'stun') return 'STUN';
+    if (equippedKey === 'smoke') return 'SMOKE';
+    return 'TAC';
+  }
+  // Mobile touch lethal equipment button label: displays 'HOLD' while charging, 'FRAG',
+  // 'SMTX', 'CLAY' based on active explosive key, 'EMPTY' when depleted, or 'NADE' fallback.
+  function touchLethalLabel(equippedKey, count, isCharging) {
+    if (isCharging) return 'HOLD';
+    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+    if (equippedKey === 'semtex') return 'SMTX';
+    if (equippedKey === 'claymore') return 'CLAY';
+    if (equippedKey === 'frag') return 'FRAG';
+    return 'NADE';
+  }
+  // Mobile touch scorestreak / field upgrade button label: displays 'UAV', 'AIR', 'TUR'
+  // for active banked streaks, 'BOX' when munitions field upgrade is ready, or 'STRK' fallback.
+  function touchStreakLabel(topStreakKey, fieldReady) {
+    if (topStreakKey) {
+      if (topStreakKey === 'uav') return 'UAV';
+      if (topStreakKey === 'airstrike') return 'AIR';
+      if (topStreakKey === 'sentry') return 'TUR';
+      const d = streakByKey(topStreakKey);
+      if (d && typeof d.short === 'string') return d.short;
+      return 'STRK';
+    }
+    if (fieldReady) return 'BOX';
+    return 'STRK';
+  }
+  // Mobile touch melee button state: returns 'cooldown' while melee swing recovers,
+  // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
+  function touchMeleeState(hasTarget, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    if (cd > 0) return 'cooldown';
+    if (hasTarget) return 'ready';
+    return '';
+  }
+  // Mobile touch melee button label: returns 'WAIT' during swing recovery,
+  // 'STRIKE' when an enemy is within blade strike range, or 'KNIFE' default.
+  function touchMeleeLabel(hasTarget, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    if (cd > 0) return 'WAIT';
+    if (hasTarget) return 'STRIKE';
+    return 'KNIFE';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -8018,6 +8079,75 @@ const CORE = (function () {
     return { aliveCount: aliveCount, nearestEnemy: nearest };
   }
 
+  // ---- Sniper Marksman Sway, Steady Aim, Recoil Recovery, and Aim Assist Balance ----
+  const STEADY_MAX = 2.2;
+  const STEADY_RECOVER = 2.2;
+  const ADS_SCOPE_THRESHOLD = 0.8;
+  const SCOPE_LOCKED_THRESHOLD = 0.82;
+  const RECOIL_DECAY_RATE = 0.02;
+
+  function isSteadyActive(weaponType, adsAmount, isHoldingShift, steadyT) {
+    if (weaponType !== 'SR') return false;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
+    return ads > ADS_SCOPE_THRESHOLD && Boolean(isHoldingShift) && t > 0;
+  }
+
+  function stepSteadyAim(steadyT, steadyActive, dt, maxTime, recoverRate) {
+    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const max = typeof maxTime === 'number' && isFinite(maxTime) && maxTime > 0 ? maxTime : STEADY_MAX;
+    const rec = typeof recoverRate === 'number' && isFinite(recoverRate) && recoverRate > 0 ? recoverRate : STEADY_RECOVER;
+    if (steadyActive) {
+      return Math.max(0, t - d);
+    }
+    return Math.min(max, t + d * rec);
+  }
+
+  function swayAmplitude(baseAmp, steadyActive, steadyMul, weaponSwayMul) {
+    const base = typeof baseAmp === 'number' && isFinite(baseAmp) ? baseAmp : 0.0042;
+    const sm = steadyActive ? (typeof steadyMul === 'number' && isFinite(steadyMul) ? steadyMul : 0.14) : 1.0;
+    const wSway = typeof weaponSwayMul === 'number' && isFinite(weaponSwayMul) && weaponSwayMul > 0 ? weaponSwayMul : 1.0;
+    return base * sm * wSway;
+  }
+
+  function swayOffsets(phase, amp, out) {
+    const p = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    const a = typeof amp === 'number' && isFinite(amp) ? amp : 0;
+    const x = Math.sin(p * 1.7) * a + Math.sin(p * 0.9) * a * 0.6;
+    const y = Math.sin(p * 1.3 + 1.2) * a * 0.8;
+    if (out && typeof out === 'object') {
+      out.x = x;
+      out.y = y;
+      return out;
+    }
+    return { x: x, y: y };
+  }
+
+  function isScoped(adsAmount, weaponType) {
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    return ads > SCOPE_LOCKED_THRESHOLD && weaponType === 'SR';
+  }
+
+  function recoilDecay(recoilVal, dt, baseDecayRate) {
+    const val = typeof recoilVal === 'number' && isFinite(recoilVal) ? recoilVal : 0;
+    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const rate = typeof baseDecayRate === 'number' && isFinite(baseDecayRate) && baseDecayRate > 0 ? baseDecayRate : RECOIL_DECAY_RATE;
+    return val * Math.pow(rate, d);
+  }
+
+  function aimAssistAngle(baseAngle, isSteady, steadyBonusMul) {
+    const base = typeof baseAngle === 'number' && isFinite(baseAngle) ? baseAngle : 0.14;
+    const bonus = typeof steadyBonusMul === 'number' && isFinite(steadyBonusMul) ? steadyBonusMul : 1.6;
+    return base * (isSteady ? bonus : 1.0);
+  }
+
+  function aimAssistPull(baseStrength, pullRatio) {
+    const base = typeof baseStrength === 'number' && isFinite(baseStrength) ? baseStrength : 2.2;
+    const ratio = typeof pullRatio === 'number' && isFinite(pullRatio) ? pullRatio : 0.25;
+    return Math.min(1.0, base * ratio);
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8309,6 +8439,12 @@ const CORE = (function () {
     touchUseState: touchUseState,
     touchSlideState: touchSlideState,
     touchSlideLabel: touchSlideLabel,
+    touchPlateLabel: touchPlateLabel,
+    touchTacticalLabel: touchTacticalLabel,
+    touchLethalLabel: touchLethalLabel,
+    touchStreakLabel: touchStreakLabel,
+    touchMeleeState: touchMeleeState,
+    touchMeleeLabel: touchMeleeLabel,
     GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
     GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
     GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,
@@ -8382,7 +8518,20 @@ const CORE = (function () {
     streakActivationSound: streakActivationSound,
     fieldUpgradeSound: fieldUpgradeSound,
     sentryFireSound: sentryFireSound,
-    canMunitionsResupply: canMunitionsResupply
+    canMunitionsResupply: canMunitionsResupply,
+    STEADY_MAX: STEADY_MAX,
+    STEADY_RECOVER: STEADY_RECOVER,
+    ADS_SCOPE_THRESHOLD: ADS_SCOPE_THRESHOLD,
+    SCOPE_LOCKED_THRESHOLD: SCOPE_LOCKED_THRESHOLD,
+    RECOIL_DECAY_RATE: RECOIL_DECAY_RATE,
+    isSteadyActive: isSteadyActive,
+    stepSteadyAim: stepSteadyAim,
+    swayAmplitude: swayAmplitude,
+    swayOffsets: swayOffsets,
+    isScoped: isScoped,
+    recoilDecay: recoilDecay,
+    aimAssistAngle: aimAssistAngle,
+    aimAssistPull: aimAssistPull
   };
 })();
 
@@ -9620,7 +9769,8 @@ function updatePlayer(dt) {
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
   // recoil decay — now only what the player did NOT compensate for
-  player.recoilP *= Math.pow(0.02, dt); player.recoilY *= Math.pow(0.02, dt);
+  player.recoilP = CORE.recoilDecay(player.recoilP, dt, CORE.RECOIL_DECAY_RATE);
+  player.recoilY = CORE.recoilDecay(player.recoilY, dt, CORE.RECOIL_DECAY_RATE);
 
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
@@ -10198,6 +10348,8 @@ function applyTouchInput() {
 
   // Stance / slide button tactical feedback
   updateTouchSlideBtn();
+  // Melee strike readiness and cooldown feedback
+  updateTouchMeleeBtn();
 }
 
 let tbtnSlideEl = null;
@@ -10211,6 +10363,22 @@ function updateTouchSlideBtn() {
   tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
   const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
   if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
+}
+
+let tbtnMeleeEl = null;
+function updateTouchMeleeBtn() {
+  if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');
+  if (!tbtnMeleeEl || typeof player === 'undefined') return;
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const targetIdx = (typeof enemies !== 'undefined' && typeof CORE.meleeTarget === 'function')
+    ? CORE.meleeTarget(enemies, player.pos.x, player.pos.z, dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE)
+    : -1;
+  const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
+  const mState = CORE.touchMeleeState(targetIdx >= 0, cd);
+  tbtnMeleeEl.classList.toggle('ready', mState === 'ready');
+  tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
+  if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
 }
 
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
@@ -10361,22 +10529,25 @@ let adsAmount = 0;   // 0..1 smooth
 let gunSwitchT = 1;  // 1 = fully raised
 
 // ---- Sniper scope state ----
-const SWAY_USE = 5.5, STEADY_RECOVER = 2.2, STEADY_MAX = 2.2;
+const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.STEADY_MAX;
 let swayPhase = 0, swayX = 0, swayY = 0;
 let steadyT = STEADY_MAX; // remaining breath-hold time
 let steadyActive = false;
+const _swayOut = { x: 0, y: 0 };
 
 function updateSway(dt) {
   swayPhase += dt;
-  steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
-  if (steadyActive) steadyT = Math.max(0, steadyT - dt);
-  else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (curW().sway || 1);
-  swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
-  swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
+  const w = curW();
+  steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, !!keys['ShiftLeft'], steadyT);
+  steadyT = CORE.stepSteadyAim(steadyT, steadyActive, dt, STEADY_MAX, STEADY_RECOVER);
+  const amp = CORE.swayAmplitude(CFG.assist.swayAmp, steadyActive, CFG.assist.steadyMul, w ? w.sway : 1);
+  CORE.swayOffsets(swayPhase, amp, _swayOut);
+  swayX = _swayOut.x;
+  swayY = _swayOut.y;
 }
 function isScoped() {
-  return adsAmount > 0.82 && curW().type === 'SR';
+  const w = curW();
+  return CORE.isScoped(adsAmount, w ? w.type : '');
 }
 
 const _assistTo = new THREE.Vector3();
@@ -10386,8 +10557,8 @@ const _assistNudged = new THREE.Vector3();
 
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
-  if (adsAmount < 0.8) return dir;
-  let hasBest = false, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
+  if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
+  let hasBest = false, bestAng = CORE.aimAssistAngle(CFG.assist.angle, steadyActive, 1.6);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
@@ -10411,7 +10582,7 @@ function applyAimAssist(dir, from) {
   }
   if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
-  const pull = Math.min(1, CFG.assist.strength * 0.25);
+  const pull = CORE.aimAssistPull(CFG.assist.strength, 0.25);
   _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
   return _assistNudged;
 }
@@ -14067,10 +14238,15 @@ function updateHudStreaks() {
   if (isTouch) {
     const tbtnStreak = typeof $id === 'function' ? $id('tbtn-streak') : document.getElementById('tbtn-streak');
     if (tbtnStreak) {
-      const sState = CORE.touchStreakState(streakBank.length > 0, CORE.fieldReady(fieldCharge));
+      const hasStreak = streakBank.length > 0;
+      const fReady = CORE.fieldReady(fieldCharge);
+      const sState = CORE.touchStreakState(hasStreak, fReady);
       tbtnStreak.classList.toggle('streak', sState === 'streak');
       tbtnStreak.classList.toggle('field', sState === 'field');
       tbtnStreak.classList.toggle('empty', sState === 'empty');
+      const topStreak = hasStreak ? streakBank[0] : null;
+      const sLabel = CORE.touchStreakLabel(topStreak, fReady);
+      if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
     }
   }
 }
@@ -14163,6 +14339,9 @@ function updateHudHealth() {
       tbtnPlate.classList.toggle('empty', plateState === 'empty');
       tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
       tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+      tbtnPlate.classList.toggle('ready', plateState === 'ready');
+      const plateLabel = CORE.touchPlateLabel(curPlates, isIns);
+      if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
     }
   }
 }
@@ -14222,11 +14401,17 @@ function updateHudAmmo(force) {
       const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
       tbtnNade.classList.toggle('empty', nadeState === 'empty');
       tbtnNade.classList.toggle('charging', nadeState === 'charging');
+      tbtnNade.classList.toggle('ready', nadeState === 'ready');
+      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
+      if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
       tbtnTac.classList.toggle('empty', tacState === 'empty');
+      tbtnTac.classList.toggle('ready', tacState === 'ready');
+      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
+      if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {

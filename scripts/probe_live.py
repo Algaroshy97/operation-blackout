@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,6 +18,25 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD = ROOT / "dist" / "Operation Blackout.html"
+
+
+def sanitize_headless_env() -> None:
+    """Ensure headless Chromium has a clean environment without dead X11 displays."""
+    disp = os.environ.get("DISPLAY")
+    if not disp:
+        return
+    if disp.startswith(":"):
+        screen = disp.split(":")[1].split(".")[0]
+        sock = Path(f"/tmp/.X11-unix/X{screen}")
+        if not sock.exists():
+            del os.environ["DISPLAY"]
+            return
+    if shutil.which("xdpyinfo"):
+        try:
+            if subprocess.run(["xdpyinfo"], capture_output=True, timeout=1).returncode != 0:
+                del os.environ["DISPLAY"]
+        except Exception:
+            del os.environ["DISPLAY"]
 
 
 def wait_until(page, expr, timeout_s=20):
@@ -31,6 +53,7 @@ def wait_until(page, expr, timeout_s=20):
 
 
 def main() -> int:
+    sanitize_headless_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     args = ap.parse_args()
@@ -1265,7 +1288,123 @@ def main() -> int:
         }""")
         checks.append(("scorestreak-and-field-upgrade-audio-rules", streak_audio_check))
 
-        # 36) Clean console throughout gameplay.
+        # 36) Mobile touch tactical equipment, plate, streak, and melee readiness rules and styles.
+        touch_readiness_check = page.evaluate("""() => {
+            if (typeof CORE.touchPlateLabel !== 'function' ||
+                typeof CORE.touchTacticalLabel !== 'function' ||
+                typeof CORE.touchLethalLabel !== 'function' ||
+                typeof CORE.touchStreakLabel !== 'function' ||
+                typeof CORE.touchMeleeState !== 'function' ||
+                typeof CORE.touchMeleeLabel !== 'function') return false;
+
+            const plateLabelArmor = CORE.touchPlateLabel(2, true) === 'ARMOR';
+            const plateLabelPlt = CORE.touchPlateLabel(3, false) === 'PLT 3';
+            const plateLabelEmpty = CORE.touchPlateLabel(0, false) === 'EMPTY';
+
+            const tacLabelFlash = CORE.touchTacticalLabel('flash', 2) === 'FLASH';
+            const tacLabelStun = CORE.touchTacticalLabel('stun', 1) === 'STUN';
+            const tacLabelSmoke = CORE.touchTacticalLabel('smoke', 1) === 'SMOKE';
+            const tacLabelEmpty = CORE.touchTacticalLabel('flash', 0) === 'EMPTY';
+
+            const nadeLabelHold = CORE.touchLethalLabel('frag', 2, true) === 'HOLD';
+            const nadeLabelFrag = CORE.touchLethalLabel('frag', 2, false) === 'FRAG';
+            const nadeLabelSmtx = CORE.touchLethalLabel('semtex', 1, false) === 'SMTX';
+            const nadeLabelClay = CORE.touchLethalLabel('claymore', 1, false) === 'CLAY';
+            const nadeLabelEmpty = CORE.touchLethalLabel('frag', 0, false) === 'EMPTY';
+
+            const streakUav = CORE.touchStreakLabel('uav', false) === 'UAV';
+            const streakAir = CORE.touchStreakLabel('airstrike', false) === 'AIR';
+            const streakTur = CORE.touchStreakLabel('sentry', false) === 'TUR';
+            const streakBox = CORE.touchStreakLabel(null, true) === 'BOX';
+            const streakDefault = CORE.touchStreakLabel(null, false) === 'STRK';
+
+            const meleeReady = CORE.touchMeleeState(true, 0) === 'ready';
+            const meleeCooldown = CORE.touchMeleeState(true, 0.5) === 'cooldown';
+            const meleeNeutral = CORE.touchMeleeState(false, 0) === '';
+
+            const meleeLabelStrike = CORE.touchMeleeLabel(true, 0) === 'STRIKE';
+            const meleeLabelWait = CORE.touchMeleeLabel(true, 0.5) === 'WAIT';
+            const meleeLabelKnife = CORE.touchMeleeLabel(false, 0) === 'KNIFE';
+
+            // Verify DOM computed styles for touch ready/cooldown classes
+            document.body.classList.add('touch');
+            const pEl = document.createElement('div');
+            pEl.id = 'tbtn-plate'; pEl.className = 'tbtn ready';
+            const mEl = document.createElement('div');
+            mEl.id = 'tbtn-melee'; mEl.className = 'tbtn ready';
+            document.body.appendChild(pEl);
+            document.body.appendChild(mEl);
+            const pBorder = getComputedStyle(pEl).borderColor;
+            const mBorder = getComputedStyle(mEl).borderColor;
+            document.body.removeChild(pEl);
+            document.body.removeChild(mEl);
+            document.body.classList.remove('touch');
+
+            const plateBorderOk = pBorder.includes('79, 163, 216') || pBorder.includes('rgb(79, 163, 216)');
+            const meleeBorderOk = mBorder.includes('255, 95, 74') || mBorder.includes('rgb(255, 95, 74)');
+
+            return plateLabelArmor && plateLabelPlt && plateLabelEmpty &&
+                   tacLabelFlash && tacLabelStun && tacLabelSmoke && tacLabelEmpty &&
+                   nadeLabelHold && nadeLabelFrag && nadeLabelSmtx && nadeLabelClay && nadeLabelEmpty &&
+                   streakUav && streakAir && streakTur && streakBox && streakDefault &&
+                   meleeReady && meleeCooldown && meleeNeutral &&
+                   meleeLabelStrike && meleeLabelWait && meleeLabelKnife &&
+                   plateBorderOk && meleeBorderOk;
+        }""")
+        checks.append(("touch-equipment-and-tactical-readiness-rules", touch_readiness_check))
+
+        # 38) Marksman precision, scope sway, steady aim, and recoil decay balance rules.
+        marksman_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.isSteadyActive !== 'function' ||
+                typeof CORE.stepSteadyAim !== 'function' ||
+                typeof CORE.swayAmplitude !== 'function' ||
+                typeof CORE.swayOffsets !== 'function' ||
+                typeof CORE.isScoped !== 'function' ||
+                typeof CORE.recoilDecay !== 'function' ||
+                typeof CORE.aimAssistAngle !== 'function' ||
+                typeof CORE.aimAssistPull !== 'function') return false;
+
+            const steadySr = CORE.isSteadyActive('SR', 0.85, true, 2.0) === true;
+            const steadyNoShift = CORE.isSteadyActive('SR', 0.85, false, 2.0) === false;
+            const steadyNoAds = CORE.isSteadyActive('SR', 0.70, true, 2.0) === false;
+            const steadyDepleted = CORE.isSteadyActive('SR', 0.85, true, 0) === false;
+            const steadyAr = CORE.isSteadyActive('AR', 0.85, true, 2.0) === false;
+
+            const stepDrain = Math.abs(CORE.stepSteadyAim(2.0, true, 0.5, 2.2, 2.2) - 1.5) < 1e-4;
+            const stepClamp = Math.abs(CORE.stepSteadyAim(0.3, true, 0.5, 2.2, 2.2) - 0.0) < 1e-4;
+            const stepRec = Math.abs(CORE.stepSteadyAim(1.0, false, 0.5, 2.2, 2.2) - 2.1) < 1e-4;
+            const stepMax = Math.abs(CORE.stepSteadyAim(2.0, false, 0.5, 2.2, 2.2) - 2.2) < 1e-4;
+
+            const swayBase = Math.abs(CORE.swayAmplitude(0.0042, false, 0.14, 1.0) - 0.0042) < 1e-6;
+            const swaySteady = Math.abs(CORE.swayAmplitude(0.0042, true, 0.14, 1.0) - 0.0042 * 0.14) < 1e-6;
+            const swayWeapon = Math.abs(CORE.swayAmplitude(0.0042, false, 0.14, 1.5) - 0.0042 * 1.5) < 1e-6;
+
+            const s1 = CORE.swayOffsets(0, 0.01);
+            const swayPhaseZero = Math.abs(s1.x) < 1e-6 && Math.abs(s1.y - (Math.sin(1.2) * 0.01 * 0.8)) < 1e-6;
+
+            const scopedSr = CORE.isScoped(0.85, 'SR') === true;
+            const scopedSrLow = CORE.isScoped(0.80, 'SR') === false;
+            const scopedAr = CORE.isScoped(0.85, 'AR') === false;
+
+            const recoilD0 = Math.abs(CORE.recoilDecay(1.0, 0, 0.02) - 1.0) < 1e-4;
+            const recoilD1 = Math.abs(CORE.recoilDecay(1.0, 1.0, 0.02) - 0.02) < 1e-4;
+
+            const assistAngNormal = Math.abs(CORE.aimAssistAngle(0.14, false, 1.6) - 0.14) < 1e-4;
+            const assistAngSteady = Math.abs(CORE.aimAssistAngle(0.14, true, 1.6) - 0.224) < 1e-4;
+            const assistPullCap = Math.abs(CORE.aimAssistPull(5.0, 0.5) - 1.0) < 1e-4;
+            const assistPullNorm = Math.abs(CORE.aimAssistPull(2.2, 0.25) - 0.55) < 1e-4;
+
+            return steadySr && steadyNoShift && steadyNoAds && steadyDepleted && steadyAr &&
+                   stepDrain && stepClamp && stepRec && stepMax &&
+                   swayBase && swaySteady && swayWeapon && swayPhaseZero &&
+                   scopedSr && scopedSrLow && scopedAr &&
+                   recoilD0 && recoilD1 &&
+                   assistAngNormal && assistAngSteady && assistPullCap && assistPullNorm;
+        }""")
+        checks.append(("marksman-and-aim-precision-rules", marksman_rules_check))
+
+        # 39) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

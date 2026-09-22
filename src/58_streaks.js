@@ -243,10 +243,15 @@ function updateHudStreaks() {
   if (isTouch) {
     const tbtnStreak = typeof $id === 'function' ? $id('tbtn-streak') : document.getElementById('tbtn-streak');
     if (tbtnStreak) {
-      const sState = CORE.touchStreakState(streakBank.length > 0, CORE.fieldReady(fieldCharge));
+      const hasStreak = streakBank.length > 0;
+      const fReady = CORE.fieldReady(fieldCharge);
+      const sState = CORE.touchStreakState(hasStreak, fReady);
       tbtnStreak.classList.toggle('streak', sState === 'streak');
       tbtnStreak.classList.toggle('field', sState === 'field');
       tbtnStreak.classList.toggle('empty', sState === 'empty');
+      const topStreak = hasStreak ? streakBank[0] : null;
+      const sLabel = CORE.touchStreakLabel(topStreak, fReady);
+      if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
     }
   }
 }

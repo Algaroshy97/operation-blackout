@@ -86,6 +86,9 @@ function updateHudHealth() {
       tbtnPlate.classList.toggle('empty', plateState === 'empty');
       tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
       tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+      tbtnPlate.classList.toggle('ready', plateState === 'ready');
+      const plateLabel = CORE.touchPlateLabel(curPlates, isIns);
+      if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
     }
   }
 }
@@ -145,11 +148,17 @@ function updateHudAmmo(force) {
       const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
       tbtnNade.classList.toggle('empty', nadeState === 'empty');
       tbtnNade.classList.toggle('charging', nadeState === 'charging');
+      tbtnNade.classList.toggle('ready', nadeState === 'ready');
+      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
+      if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
       tbtnTac.classList.toggle('empty', tacState === 'empty');
+      tbtnTac.classList.toggle('ready', tacState === 'ready');
+      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
+      if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {

@@ -146,22 +146,25 @@ let adsAmount = 0;   // 0..1 smooth
 let gunSwitchT = 1;  // 1 = fully raised
 
 // ---- Sniper scope state ----
-const SWAY_USE = 5.5, STEADY_RECOVER = 2.2, STEADY_MAX = 2.2;
+const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.STEADY_MAX;
 let swayPhase = 0, swayX = 0, swayY = 0;
 let steadyT = STEADY_MAX; // remaining breath-hold time
 let steadyActive = false;
+const _swayOut = { x: 0, y: 0 };
 
 function updateSway(dt) {
   swayPhase += dt;
-  steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
-  if (steadyActive) steadyT = Math.max(0, steadyT - dt);
-  else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (curW().sway || 1);
-  swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
-  swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
+  const w = curW();
+  steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, !!keys['ShiftLeft'], steadyT);
+  steadyT = CORE.stepSteadyAim(steadyT, steadyActive, dt, STEADY_MAX, STEADY_RECOVER);
+  const amp = CORE.swayAmplitude(CFG.assist.swayAmp, steadyActive, CFG.assist.steadyMul, w ? w.sway : 1);
+  CORE.swayOffsets(swayPhase, amp, _swayOut);
+  swayX = _swayOut.x;
+  swayY = _swayOut.y;
 }
 function isScoped() {
-  return adsAmount > 0.82 && curW().type === 'SR';
+  const w = curW();
+  return CORE.isScoped(adsAmount, w ? w.type : '');
 }
 
 const _assistTo = new THREE.Vector3();
@@ -171,8 +174,8 @@ const _assistNudged = new THREE.Vector3();
 
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
-  if (adsAmount < 0.8) return dir;
-  let hasBest = false, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
+  if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
+  let hasBest = false, bestAng = CORE.aimAssistAngle(CFG.assist.angle, steadyActive, 1.6);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
@@ -196,7 +199,7 @@ function applyAimAssist(dir, from) {
   }
   if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
-  const pull = Math.min(1, CFG.assist.strength * 0.25);
+  const pull = CORE.aimAssistPull(CFG.assist.strength, 0.25);
   _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
   return _assistNudged;
 }

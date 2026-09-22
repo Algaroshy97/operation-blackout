@@ -300,6 +300,8 @@ function applyTouchInput() {
 
   // Stance / slide button tactical feedback
   updateTouchSlideBtn();
+  // Melee strike readiness and cooldown feedback
+  updateTouchMeleeBtn();
 }
 
 let tbtnSlideEl = null;
@@ -313,4 +315,20 @@ function updateTouchSlideBtn() {
   tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
   const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
   if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
+}
+
+let tbtnMeleeEl = null;
+function updateTouchMeleeBtn() {
+  if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');
+  if (!tbtnMeleeEl || typeof player === 'undefined') return;
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const targetIdx = (typeof enemies !== 'undefined' && typeof CORE.meleeTarget === 'function')
+    ? CORE.meleeTarget(enemies, player.pos.x, player.pos.z, dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE)
+    : -1;
+  const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
+  const mState = CORE.touchMeleeState(targetIdx >= 0, cd);
+  tbtnMeleeEl.classList.toggle('ready', mState === 'ready');
+  tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
+  if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
 }
