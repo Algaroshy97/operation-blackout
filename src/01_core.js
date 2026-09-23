@@ -630,6 +630,40 @@ const CORE = (function () {
     return !!(hasAmmoNeed || hasGrenadeNeed || hasTacticalNeed);
   }
 
+  // Tactical Mobility & Movement Audio
+  const FOOTSTEP_BASE_CADENCE = 1.0;
+  const FOOTSTEP_SPRINT_CADENCE = 1.6;
+  const FOOTSTEP_TAC_SPRINT_CADENCE = 2.0;
+  const FOOTSTEP_CROUCH_CADENCE = 0.65;
+  const FOOTSTEP_MIN_SPEED = 1.5;
+
+  function mantleSound() {
+    return 'mantle';
+  }
+
+  function slideStartSound() {
+    return 'slide';
+  }
+
+  function footstepCadence(isSprinting, isTacSprint, isCrouching) {
+    if (isCrouching) return FOOTSTEP_CROUCH_CADENCE;
+    if (isTacSprint) return FOOTSTEP_TAC_SPRINT_CADENCE;
+    if (isSprinting) return FOOTSTEP_SPRINT_CADENCE;
+    return FOOTSTEP_BASE_CADENCE;
+  }
+
+  function playerFootstepSound(isCrouching) {
+    return isCrouching ? 'step_crouch' : 'step';
+  }
+
+  function shouldPlayFootstep(onGround, horizontalSpeed, minSpeed) {
+    const minSpd = (typeof minSpeed === 'number' && isFinite(minSpeed) && minSpeed >= 0)
+      ? minSpeed : FOOTSTEP_MIN_SPEED;
+    const spd = (typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed))
+      ? horizontalSpeed : 0;
+    return Boolean(onGround && spd > minSpd);
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -4000,7 +4034,17 @@ const CORE = (function () {
     sprintIndicatorState: sprintIndicatorState,
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
-    touchJumpState: touchJumpState
+    touchJumpState: touchJumpState,
+    FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
+    FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
+    FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,
+    FOOTSTEP_CROUCH_CADENCE: FOOTSTEP_CROUCH_CADENCE,
+    FOOTSTEP_MIN_SPEED: FOOTSTEP_MIN_SPEED,
+    mantleSound: mantleSound,
+    slideStartSound: slideStartSound,
+    footstepCadence: footstepCadence,
+    playerFootstepSound: playerFootstepSound,
+    shouldPlayFootstep: shouldPlayFootstep
   };
 })();
 

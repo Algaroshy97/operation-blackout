@@ -4770,3 +4770,55 @@ test('healthHudChanged and syncHealthHudState govern change-driven health HUD up
   CORE.syncHealthHudState(state, 100, 100, 50, 3, false);
   assert.strictEqual(CORE.healthHudChanged(state, 100, 100, 50, 3, true), true);
 });
+
+test('mantleSound, slideStartSound, footstepCadence, playerFootstepSound, and shouldPlayFootstep govern tactical mobility audio', () => {
+  // Sound keys
+  assert.strictEqual(CORE.mantleSound(), 'mantle');
+  assert.strictEqual(CORE.slideStartSound(), 'slide');
+
+  // Footstep sound resolution
+  assert.strictEqual(CORE.playerFootstepSound(false), 'step');
+  assert.strictEqual(CORE.playerFootstepSound(true), 'step_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(0), 'step');
+  assert.strictEqual(CORE.playerFootstepSound(1), 'step_crouch');
+
+  // Cadence constants
+  assert.strictEqual(CORE.FOOTSTEP_BASE_CADENCE, 1.0);
+  assert.strictEqual(CORE.FOOTSTEP_SPRINT_CADENCE, 1.6);
+  assert.strictEqual(CORE.FOOTSTEP_TAC_SPRINT_CADENCE, 2.0);
+  assert.strictEqual(CORE.FOOTSTEP_CROUCH_CADENCE, 0.65);
+
+  // Normal walking (no sprint, no tac, no crouch)
+  assert.strictEqual(CORE.footstepCadence(false, false, false), 1.0);
+
+  // Standard sprint
+  assert.strictEqual(CORE.footstepCadence(true, false, false), 1.6);
+
+  // Tactical sprint (faster cadence)
+  assert.strictEqual(CORE.footstepCadence(true, true, false), 2.0);
+
+  // Crouch walking (stealth: slower cadence)
+  assert.strictEqual(CORE.footstepCadence(false, false, true), 0.65);
+
+  // Crouch overrides sprint keys
+  assert.strictEqual(CORE.footstepCadence(true, false, true), 0.65);
+  assert.strictEqual(CORE.footstepCadence(true, true, true), 0.65);
+
+  // shouldPlayFootstep: requires grounded AND horizontal speed > threshold
+  assert.strictEqual(CORE.FOOTSTEP_MIN_SPEED, 1.5);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 2.5), true);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 1.5), false);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 1.2), false);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 0), false);
+  assert.strictEqual(CORE.shouldPlayFootstep(false, 5.0), false); // airborne
+  assert.strictEqual(CORE.shouldPlayFootstep(false, 0), false);
+
+  // Custom minSpeed override
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 2.0, 1.0), true);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, 2.0, 3.0), false);
+
+  // Edge cases: non-numbers / undefined
+  assert.strictEqual(CORE.shouldPlayFootstep(true, NaN), false);
+  assert.strictEqual(CORE.shouldPlayFootstep(true, undefined), false);
+  assert.strictEqual(CORE.shouldPlayFootstep(false, 10), false);
+});

@@ -237,7 +237,6 @@ function updatePlayer(dt) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos);
-      playSound('slide');
     }
     // slide-jump: convert momentum into a boost jump
     if (pressed['Space'] && player.onGround) {
@@ -444,7 +443,7 @@ function tryMantle() {
   player.mantleTo.set(t.x, t.y + CFG.player.height, t.z);
   player.sliding = false;
   player.onGround = false;
-  playSound('jump');
+  playSound(CORE.mantleSound());
   spawnSlideDust(player.pos);
   return true;
 }
@@ -457,6 +456,6 @@ function startSlide() {
   const hv = tmpV.set(player.vel.x, 0, player.vel.z);
   if (hv.lengthSq() > 1) hv.normalize(); else hv.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   player.slideDir.copy(hv);
-  playSound('jump');   // soft whoosh
+  playSound(CORE.slideStartSound());
   spawnSlideDust(player.pos);
 }

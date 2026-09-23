@@ -446,7 +446,9 @@ const SOUND_RECIPES = {
   streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
   sentry_shot:       [['noise', 0.07, 0.38, 1100, 1.2], ['osc', 'square', 240, 75, 0.06, 0.24], ['osc', 'sine', 110, 45, 0.08, 0.18]],
   munitions:         [['osc', 'sine', 130, 40, 0.20, 0.35], ['noise', 0.12, 0.32, 450, 1.0], ['noise', 0.06, 0.25, 2200, 2.5]],
-  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]]
+  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]],
+  mantle:            [['noise', 0.09, 0.22, 950, 1.2], ['osc', 'sine', 160, 70, 0.12, 0.20]],
+  step_crouch:       [['noise', 0.035, 0.022, 280, 0.8]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -457,7 +459,8 @@ const SOUND_VARIED = {
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
-  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1
+  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1,
+  mantle: 1, step_crouch: 1
 };
 
 function recipeDuration(recipe) {
@@ -581,9 +584,14 @@ function playSound3D(name, x, y, z, maxDist) {
 let stepT = 0;
 function updateFootsteps(dt) {
   const hs = Math.hypot(player.vel.x, player.vel.z);
-  if (player.onGround && hs > 1.5) {
-    stepT -= dt * (player.sprinting ? 1.6 : 1);
-    if (stepT <= 0) { playSound('step'); stepT = 1; }
+  if (CORE.shouldPlayFootstep(player.onGround, hs)) {
+    const isTac = !!(player.sprinting && player.tacT > 0);
+    const cadence = CORE.footstepCadence(player.sprinting, isTac, player.crouching);
+    stepT -= dt * cadence;
+    if (stepT <= 0) {
+      playSound(CORE.playerFootstepSound(player.crouching));
+      stepT = 1;
+    }
   }
   // landing
   if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true

@@ -1446,7 +1446,46 @@ def main() -> int:
         }""")
         checks.append(("crosshair-and-mobility-visual-feedback-rules", crosshair_rules_check))
 
-        # 40) Clean console throughout gameplay.
+        # 40) Tactical mobility and movement audio rules.
+        mobility_audio_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.mantleSound !== 'function' ||
+                typeof CORE.slideStartSound !== 'function' ||
+                typeof CORE.footstepCadence !== 'function' ||
+                typeof CORE.playerFootstepSound !== 'function' ||
+                typeof CORE.shouldPlayFootstep !== 'function') return false;
+
+            const mantle = CORE.mantleSound() === 'mantle';
+            const slideStart = CORE.slideStartSound() === 'slide';
+
+            const cadWalk = Math.abs(CORE.footstepCadence(false, false, false) - 1.0) < 1e-4;
+            const cadSprint = Math.abs(CORE.footstepCadence(true, false, false) - 1.6) < 1e-4;
+            const cadTac = Math.abs(CORE.footstepCadence(true, true, false) - 2.0) < 1e-4;
+            const cadCrouch = Math.abs(CORE.footstepCadence(false, false, true) - 0.65) < 1e-4;
+            const cadCrouchSprint = Math.abs(CORE.footstepCadence(true, true, true) - 0.65) < 1e-4;
+
+            const sndWalk = CORE.playerFootstepSound(false) === 'step';
+            const sndCrouch = CORE.playerFootstepSound(true) === 'step_crouch';
+
+            const footGroundWalk = CORE.shouldPlayFootstep(true, 3.0) === true;
+            const footAirWalk = CORE.shouldPlayFootstep(false, 3.0) === false;
+            const footGroundSlow = CORE.shouldPlayFootstep(true, 1.2) === false;
+            const footGroundCustom = CORE.shouldPlayFootstep(true, 2.0, 2.5) === false;
+
+            const recipeMantle = typeof SOUND_RECIPES !== 'undefined' && Array.isArray(SOUND_RECIPES.mantle);
+            const recipeStepCrouch = typeof SOUND_RECIPES !== 'undefined' && Array.isArray(SOUND_RECIPES.step_crouch);
+            const variedMantle = typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.mantle === 1;
+            const variedStepCrouch = typeof SOUND_VARIED !== 'undefined' && SOUND_VARIED.step_crouch === 1;
+
+            return mantle && slideStart &&
+                   cadWalk && cadSprint && cadTac && cadCrouch && cadCrouchSprint &&
+                   sndWalk && sndCrouch &&
+                   footGroundWalk && footAirWalk && footGroundSlow && footGroundCustom &&
+                   recipeMantle && recipeStepCrouch && variedMantle && variedStepCrouch;
+        }""")
+        checks.append(("tactical-mobility-audio-rules", mobility_audio_check))
+
+        # 41) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -5291,6 +5291,40 @@ const CORE = (function () {
     return !!(hasAmmoNeed || hasGrenadeNeed || hasTacticalNeed);
   }
 
+  // Tactical Mobility & Movement Audio
+  const FOOTSTEP_BASE_CADENCE = 1.0;
+  const FOOTSTEP_SPRINT_CADENCE = 1.6;
+  const FOOTSTEP_TAC_SPRINT_CADENCE = 2.0;
+  const FOOTSTEP_CROUCH_CADENCE = 0.65;
+  const FOOTSTEP_MIN_SPEED = 1.5;
+
+  function mantleSound() {
+    return 'mantle';
+  }
+
+  function slideStartSound() {
+    return 'slide';
+  }
+
+  function footstepCadence(isSprinting, isTacSprint, isCrouching) {
+    if (isCrouching) return FOOTSTEP_CROUCH_CADENCE;
+    if (isTacSprint) return FOOTSTEP_TAC_SPRINT_CADENCE;
+    if (isSprinting) return FOOTSTEP_SPRINT_CADENCE;
+    return FOOTSTEP_BASE_CADENCE;
+  }
+
+  function playerFootstepSound(isCrouching) {
+    return isCrouching ? 'step_crouch' : 'step';
+  }
+
+  function shouldPlayFootstep(onGround, horizontalSpeed, minSpeed) {
+    const minSpd = (typeof minSpeed === 'number' && isFinite(minSpeed) && minSpeed >= 0)
+      ? minSpeed : FOOTSTEP_MIN_SPEED;
+    const spd = (typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed))
+      ? horizontalSpeed : 0;
+    return Boolean(onGround && spd > minSpd);
+  }
+
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
@@ -8661,7 +8695,17 @@ const CORE = (function () {
     sprintIndicatorState: sprintIndicatorState,
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
-    touchJumpState: touchJumpState
+    touchJumpState: touchJumpState,
+    FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
+    FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
+    FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,
+    FOOTSTEP_CROUCH_CADENCE: FOOTSTEP_CROUCH_CADENCE,
+    FOOTSTEP_MIN_SPEED: FOOTSTEP_MIN_SPEED,
+    mantleSound: mantleSound,
+    slideStartSound: slideStartSound,
+    footstepCadence: footstepCadence,
+    playerFootstepSound: playerFootstepSound,
+    shouldPlayFootstep: shouldPlayFootstep
   };
 })();
 
@@ -9952,7 +9996,6 @@ function updatePlayer(dt) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos);
-      playSound('slide');
     }
     // slide-jump: convert momentum into a boost jump
     if (pressed['Space'] && player.onGround) {
@@ -10159,7 +10202,7 @@ function tryMantle() {
   player.mantleTo.set(t.x, t.y + CFG.player.height, t.z);
   player.sliding = false;
   player.onGround = false;
-  playSound('jump');
+  playSound(CORE.mantleSound());
   spawnSlideDust(player.pos);
   return true;
 }
@@ -10172,7 +10215,7 @@ function startSlide() {
   const hv = tmpV.set(player.vel.x, 0, player.vel.z);
   if (hv.lengthSq() > 1) hv.normalize(); else hv.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   player.slideDir.copy(hv);
-  playSound('jump');   // soft whoosh
+  playSound(CORE.slideStartSound());
   spawnSlideDust(player.pos);
 }
 
@@ -12683,7 +12726,9 @@ const SOUND_RECIPES = {
   streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
   sentry_shot:       [['noise', 0.07, 0.38, 1100, 1.2], ['osc', 'square', 240, 75, 0.06, 0.24], ['osc', 'sine', 110, 45, 0.08, 0.18]],
   munitions:         [['osc', 'sine', 130, 40, 0.20, 0.35], ['noise', 0.12, 0.32, 450, 1.0], ['noise', 0.06, 0.25, 2200, 2.5]],
-  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]]
+  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]],
+  mantle:            [['noise', 0.09, 0.22, 950, 1.2], ['osc', 'sine', 160, 70, 0.12, 0.20]],
+  step_crouch:       [['noise', 0.035, 0.022, 280, 0.8]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -12694,7 +12739,8 @@ const SOUND_VARIED = {
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
-  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1
+  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1,
+  mantle: 1, step_crouch: 1
 };
 
 function recipeDuration(recipe) {
@@ -12818,9 +12864,14 @@ function playSound3D(name, x, y, z, maxDist) {
 let stepT = 0;
 function updateFootsteps(dt) {
   const hs = Math.hypot(player.vel.x, player.vel.z);
-  if (player.onGround && hs > 1.5) {
-    stepT -= dt * (player.sprinting ? 1.6 : 1);
-    if (stepT <= 0) { playSound('step'); stepT = 1; }
+  if (CORE.shouldPlayFootstep(player.onGround, hs)) {
+    const isTac = !!(player.sprinting && player.tacT > 0);
+    const cadence = CORE.footstepCadence(player.sprinting, isTac, player.crouching);
+    stepT -= dt * cadence;
+    if (stepT <= 0) {
+      playSound(CORE.playerFootstepSound(player.crouching));
+      stepT = 1;
+    }
   }
   // landing
   if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true
