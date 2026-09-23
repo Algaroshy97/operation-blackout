@@ -2204,6 +2204,42 @@ const CORE = (function () {
   function touchJumpState(onGround) {
     return onGround ? '' : 'airborne';
   }
+  // Mobile touch fire button feedback state: returns 'reloading' during reload cycle,
+  // 'empty' when all ammo is completely exhausted (ammo <= 0 and reserve <= 0),
+  // 'dry' when magazine is empty but reserve is available (ammo <= 0 and reserve > 0),
+  // or 'ready' when ammunition is chambered and weapon can fire.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchFireState(ammo, reserve, reloading) {
+    if (reloading) return 'reloading';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'empty';
+    if (a <= 0 && r > 0) return 'dry';
+    return 'ready';
+  }
+  // Mobile touch fire button contextual label: returns 'RELOAD' when reloading or dry,
+  // 'EMPTY' when all ammo is exhausted, or 'ADS+FIRE' / 'FIRE' when ready.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchFireLabel(ammo, reserve, reloading, isAdsFire) {
+    if (reloading) return 'RELOAD';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'EMPTY';
+    if (a <= 0 && r > 0) return 'RELOAD';
+    return isAdsFire ? 'ADS+FIRE' : 'FIRE';
+  }
+  // Mobile touch reload button contextual label: returns 'WAIT' during reload cycle,
+  // 'RELOAD' when urgent reload is required (ammo <= 0 and reserve > 0),
+  // 'EMPTY' when all ammo is exhausted, or 'RLD' standard default.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchReloadLabel(ammo, reserve, reloading) {
+    if (reloading) return 'WAIT';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'EMPTY';
+    if (a <= 0 && r > 0) return 'RELOAD';
+    return 'RLD';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -4035,6 +4071,9 @@ const CORE = (function () {
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
     touchJumpState: touchJumpState,
+    touchFireState: touchFireState,
+    touchFireLabel: touchFireLabel,
+    touchReloadLabel: touchReloadLabel,
     FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
     FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
     FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,

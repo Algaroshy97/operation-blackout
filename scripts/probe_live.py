@@ -1485,7 +1485,65 @@ def main() -> int:
         }""")
         checks.append(("tactical-mobility-audio-rules", mobility_audio_check))
 
-        # 41) Clean console throughout gameplay.
+        # 41) Mobile touch fire & reload combat feedback rules and styles.
+        touch_combat_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.touchFireState !== 'function' ||
+                typeof CORE.touchFireLabel !== 'function' ||
+                typeof CORE.touchReloadLabel !== 'function') return false;
+
+            const fireReady = CORE.touchFireState(30, 90, false) === 'ready';
+            const fireDry = CORE.touchFireState(0, 90, false) === 'dry';
+            const fireRel = CORE.touchFireState(0, 90, true) === 'reloading';
+            const fireEmpty = CORE.touchFireState(0, 0, false) === 'empty';
+
+            const fireLblReady = CORE.touchFireLabel(30, 90, false, false) === 'FIRE';
+            const fireLblAds = CORE.touchFireLabel(30, 90, false, true) === 'ADS+FIRE';
+            const fireLblDry = CORE.touchFireLabel(0, 90, false, false) === 'RELOAD';
+            const fireLblRel = CORE.touchFireLabel(0, 90, true, false) === 'RELOAD';
+            const fireLblEmpty = CORE.touchFireLabel(0, 0, false, false) === 'EMPTY';
+
+            const rldLblReady = CORE.touchReloadLabel(30, 90, false) === 'RLD';
+            const rldLblUrgent = CORE.touchReloadLabel(0, 90, false) === 'RELOAD';
+            const rldLblWait = CORE.touchReloadLabel(0, 90, true) === 'WAIT';
+            const rldLblEmpty = CORE.touchReloadLabel(0, 0, false) === 'EMPTY';
+
+            document.body.classList.add('touch');
+            const fireEl = document.getElementById('tbtn-fire');
+            const rldEl = document.getElementById('tbtn-reload');
+            if (!fireEl || !rldEl) {
+                document.body.classList.remove('touch');
+                return false;
+            }
+
+            fireEl.classList.add('dry');
+            const dryBorder = getComputedStyle(fireEl).borderColor;
+            fireEl.classList.remove('dry');
+
+            fireEl.classList.add('reloading');
+            const relBorder = getComputedStyle(fireEl).borderColor;
+            fireEl.classList.remove('reloading');
+
+            fireEl.classList.add('empty');
+            const emptyOp = parseFloat(getComputedStyle(fireEl).opacity);
+            fireEl.classList.remove('empty');
+
+            rldEl.classList.add('empty');
+            const rldEmptyOp = parseFloat(getComputedStyle(rldEl).opacity);
+            rldEl.classList.remove('empty');
+
+            document.body.classList.remove('touch');
+
+            const styleOk = Boolean(dryBorder && relBorder && emptyOp <= 0.5 && rldEmptyOp <= 0.5);
+
+            return fireReady && fireDry && fireRel && fireEmpty &&
+                   fireLblReady && fireLblAds && fireLblDry && fireLblRel && fireLblEmpty &&
+                   rldLblReady && rldLblUrgent && rldLblWait && rldLblEmpty &&
+                   styleOk;
+        }""")
+        checks.append(("touch-combat-feedback-rules", touch_combat_check))
+
+        # 42) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

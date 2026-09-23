@@ -156,11 +156,24 @@ function updateHudAmmo(force) {
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
   if (isTouch) {
+    const isAdsFire = (typeof getSetting === 'function' ? getSetting('fireMode') : (typeof SETTINGS !== 'undefined' ? SETTINGS.fireMode : 'fire')) === 'ads + fire';
+    const tbtnFire = hud.tbtnFire || (hud.tbtnFire = $id('tbtn-fire'));
+    if (tbtnFire) {
+      const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading);
+      tbtnFire.classList.toggle('empty', fireState === 'empty');
+      tbtnFire.classList.toggle('dry', fireState === 'dry');
+      tbtnFire.classList.toggle('reloading', fireState === 'reloading');
+      const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire);
+      if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+    }
     const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
     if (tbtnReload) {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
       tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
       tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+      tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
+      const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading);
+      if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
     }
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {

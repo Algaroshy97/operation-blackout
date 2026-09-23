@@ -4822,3 +4822,52 @@ test('mantleSound, slideStartSound, footstepCadence, playerFootstepSound, and sh
   assert.strictEqual(CORE.shouldPlayFootstep(true, undefined), false);
   assert.strictEqual(CORE.shouldPlayFootstep(false, 10), false);
 });
+
+test('touchFireState, touchFireLabel, and touchReloadLabel govern mobile combat action button feedback', () => {
+  // touchFireState:
+  // ready when ammo in mag
+  assert.strictEqual(CORE.touchFireState(30, 90, false), 'ready');
+  assert.strictEqual(CORE.touchFireState(1, 0, false), 'ready');
+  // dry when mag is empty but reserve is available
+  assert.strictEqual(CORE.touchFireState(0, 90, false), 'dry');
+  assert.strictEqual(CORE.touchFireState(-1, 30, false), 'dry');
+  // reloading when reloading regardless of ammo
+  assert.strictEqual(CORE.touchFireState(0, 90, true), 'reloading');
+  assert.strictEqual(CORE.touchFireState(30, 90, true), 'reloading');
+  // empty when both mag and reserve are exhausted
+  assert.strictEqual(CORE.touchFireState(0, 0, false), 'empty');
+  assert.strictEqual(CORE.touchFireState(-1, 0, false), 'empty');
+  assert.strictEqual(CORE.touchFireState(0, -5, false), 'empty');
+  assert.strictEqual(CORE.touchFireState(NaN, 0, false), 'empty');
+
+  // touchFireLabel:
+  // standard ready
+  assert.strictEqual(CORE.touchFireLabel(30, 90, false, false), 'FIRE');
+  assert.strictEqual(CORE.touchFireLabel(1, 0, false, false), 'FIRE');
+  // ADS+FIRE mode ready
+  assert.strictEqual(CORE.touchFireLabel(30, 90, false, true), 'ADS+FIRE');
+  // dry (needs reload)
+  assert.strictEqual(CORE.touchFireLabel(0, 90, false, false), 'RELOAD');
+  assert.strictEqual(CORE.touchFireLabel(0, 90, false, true), 'RELOAD');
+  // reloading
+  assert.strictEqual(CORE.touchFireLabel(0, 90, true, false), 'RELOAD');
+  assert.strictEqual(CORE.touchFireLabel(15, 90, true, true), 'RELOAD');
+  // empty
+  assert.strictEqual(CORE.touchFireLabel(0, 0, false, false), 'EMPTY');
+  assert.strictEqual(CORE.touchFireLabel(0, 0, false, true), 'EMPTY');
+
+  // touchReloadLabel:
+  // standard ready with ammo in mag
+  assert.strictEqual(CORE.touchReloadLabel(30, 90, false), 'RLD');
+  assert.strictEqual(CORE.touchReloadLabel(1, 90, false), 'RLD');
+  // urgent reload when mag empty and reserve available
+  assert.strictEqual(CORE.touchReloadLabel(0, 90, false), 'RELOAD');
+  assert.strictEqual(CORE.touchReloadLabel(-1, 30, false), 'RELOAD');
+  // reloading in progress
+  assert.strictEqual(CORE.touchReloadLabel(0, 90, true), 'WAIT');
+  assert.strictEqual(CORE.touchReloadLabel(15, 90, true), 'WAIT');
+  // empty reserve and empty mag
+  assert.strictEqual(CORE.touchReloadLabel(0, 0, false), 'EMPTY');
+  assert.strictEqual(CORE.touchReloadLabel(0, -5, false), 'EMPTY');
+  assert.strictEqual(CORE.touchReloadLabel(NaN, 0, false), 'EMPTY');
+});

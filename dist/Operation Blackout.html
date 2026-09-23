@@ -244,7 +244,10 @@
      cluster inside 244px, clear of the top-right corner at every size. Nothing sits
      within 50px of the bottom edge either: Android reports safe-area-inset-bottom as
      0 in landscape, yet a tap that close still competes with the gesture bar. */
-  body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
+  body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6);transition:border-color .15s,color .15s,box-shadow .15s,background .15s,opacity .15s}
+  body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
+  body.touch #tbtn-fire.dry{background:rgba(180,60,20,.45);border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.28),inset 0 0 10px rgba(255,170,58,.2)}
+  body.touch #tbtn-fire.reloading{background:rgba(120,80,20,.4);border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-ads.active{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.18)}
   body.touch #tbtn-ads.scoped{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 4px rgba(80,180,255,.35),inset 0 0 14px rgba(80,180,255,.3)}
@@ -320,7 +323,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
   body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transform:none}
   body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
   body.reduced-motion .health-bar-bg.critical{animation:none}
@@ -6865,6 +6868,42 @@ const CORE = (function () {
   function touchJumpState(onGround) {
     return onGround ? '' : 'airborne';
   }
+  // Mobile touch fire button feedback state: returns 'reloading' during reload cycle,
+  // 'empty' when all ammo is completely exhausted (ammo <= 0 and reserve <= 0),
+  // 'dry' when magazine is empty but reserve is available (ammo <= 0 and reserve > 0),
+  // or 'ready' when ammunition is chambered and weapon can fire.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchFireState(ammo, reserve, reloading) {
+    if (reloading) return 'reloading';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'empty';
+    if (a <= 0 && r > 0) return 'dry';
+    return 'ready';
+  }
+  // Mobile touch fire button contextual label: returns 'RELOAD' when reloading or dry,
+  // 'EMPTY' when all ammo is exhausted, or 'ADS+FIRE' / 'FIRE' when ready.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchFireLabel(ammo, reserve, reloading, isAdsFire) {
+    if (reloading) return 'RELOAD';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'EMPTY';
+    if (a <= 0 && r > 0) return 'RELOAD';
+    return isAdsFire ? 'ADS+FIRE' : 'FIRE';
+  }
+  // Mobile touch reload button contextual label: returns 'WAIT' during reload cycle,
+  // 'RELOAD' when urgent reload is required (ammo <= 0 and reserve > 0),
+  // 'EMPTY' when all ammo is exhausted, or 'RLD' standard default.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchReloadLabel(ammo, reserve, reloading) {
+    if (reloading) return 'WAIT';
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (a <= 0 && r <= 0) return 'EMPTY';
+    if (a <= 0 && r > 0) return 'RELOAD';
+    return 'RLD';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -8696,6 +8735,9 @@ const CORE = (function () {
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
     touchJumpState: touchJumpState,
+    touchFireState: touchFireState,
+    touchFireLabel: touchFireLabel,
+    touchReloadLabel: touchReloadLabel,
     FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
     FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
     FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,
@@ -14630,11 +14672,24 @@ function updateHudAmmo(force) {
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
   if (isTouch) {
+    const isAdsFire = (typeof getSetting === 'function' ? getSetting('fireMode') : (typeof SETTINGS !== 'undefined' ? SETTINGS.fireMode : 'fire')) === 'ads + fire';
+    const tbtnFire = hud.tbtnFire || (hud.tbtnFire = $id('tbtn-fire'));
+    if (tbtnFire) {
+      const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading);
+      tbtnFire.classList.toggle('empty', fireState === 'empty');
+      tbtnFire.classList.toggle('dry', fireState === 'dry');
+      tbtnFire.classList.toggle('reloading', fireState === 'reloading');
+      const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire);
+      if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+    }
     const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
     if (tbtnReload) {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
       tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
       tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+      tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
+      const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading);
+      if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
     }
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
