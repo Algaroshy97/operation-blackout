@@ -4682,3 +4682,47 @@ test('touchAdsState and touchJumpState resolve mobile ADS scoped feedback and ju
   assert.strictEqual(CORE.touchJumpState(false), 'airborne');
 });
 
+test('waveClearScore and waveResupplyAmmo govern wave progression score bonus and ammo resupply balance', () => {
+  // WAVE_SCORE_PER_WAVE is the per-wave ramp constant (50 pts/wave)
+  assert.strictEqual(CORE.WAVE_SCORE_PER_WAVE, 50);
+
+  // waveClearScore: flat base plus progressive ramp
+  // wave 1 clear: 250 + 1 * 50 = 300
+  assert.strictEqual(CORE.waveClearScore(250, 1, 50), 300);
+  // wave 5 clear: 250 + 5 * 50 = 500
+  assert.strictEqual(CORE.waveClearScore(250, 5, 50), 500);
+  // wave 15 (victory): 250 + 15 * 50 = 1000
+  assert.strictEqual(CORE.waveClearScore(250, 15, 50), 1000);
+  // uses WAVE_SCORE_PER_WAVE as default when perWave omitted or non-numeric
+  assert.strictEqual(CORE.waveClearScore(250, 1, undefined), 300);
+  assert.strictEqual(CORE.waveClearScore(250, 1, NaN), 300);
+  // negative or non-numeric inputs clamp to zero-safe defaults
+  assert.strictEqual(CORE.waveClearScore(-10, 5, 50), 250);   // base clamped to 0
+  assert.strictEqual(CORE.waveClearScore(250, -2, 50), 250);  // wave clamped to 0
+  assert.strictEqual(CORE.waveClearScore(undefined, 3, 50), 150);  // base defaults to 0
+  // fractional wave numbers are floored (cannot clear half a wave)
+  assert.strictEqual(CORE.waveClearScore(250, 3.9, 50), 400);  // floor(3.9) = 3
+
+  // RESUPPLY_MAG_RATIO: 2.5 mags refilled per wave clear
+  assert.strictEqual(CORE.RESUPPLY_MAG_RATIO, 2.5);
+
+  // waveResupplyAmmo: tops up reserve by ratio mags, capped at reserveMax
+  // M4 Carbine: mag=30, reserveMax=150. At 0 reserve: 0 + round(30 * 2.5) = 75
+  assert.strictEqual(CORE.waveResupplyAmmo(0, 150, 30, 2.5), 75);
+  // At 100 reserve: 100 + 75 = 175, capped at 150
+  assert.strictEqual(CORE.waveResupplyAmmo(100, 150, 30, 2.5), 150);
+  // At 80 reserve: 80 + 75 = 155, capped at 150
+  assert.strictEqual(CORE.waveResupplyAmmo(80, 150, 30, 2.5), 150);
+  // uses RESUPPLY_MAG_RATIO as default when ratio omitted
+  assert.strictEqual(CORE.waveResupplyAmmo(0, 150, 30, undefined), 75);
+  assert.strictEqual(CORE.waveResupplyAmmo(0, 150, 30, NaN), 75);
+  // SV-98: mag=5, reserveMax=35. At 0: 0 + round(5 * 2.5) = 13
+  assert.strictEqual(CORE.waveResupplyAmmo(0, 35, 5, 2.5), 13);
+  // negative reserve is treated as 0
+  assert.strictEqual(CORE.waveResupplyAmmo(-5, 35, 5, 2.5), 13);
+  // zero magSize yields no refill (gun with no mag size is invalid)
+  assert.strictEqual(CORE.waveResupplyAmmo(0, 35, 0, 2.5), 0);
+  // already at max: no change
+  assert.strictEqual(CORE.waveResupplyAmmo(35, 35, 5, 2.5), 35);
+});
+

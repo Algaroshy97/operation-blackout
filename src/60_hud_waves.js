@@ -548,7 +548,7 @@ function updateWaves(dt) {
       // wave cleared
       waveActive = false;
       betweenWaveT = 4;
-      addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
+      addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
       clearObjective();   // the zone belongs to the wave that spawned it
       reviveFromDown();   // holding out to the wave clear is the other way back up
@@ -659,7 +659,7 @@ function openSpawnPoints() {
 function resupply() {
   for (let i = 0; i < wState.length; i++) {
     if (!wState[i]) continue;
-    wState[i].reserve = Math.min(CFG.weapons[weaponsOwned[i]].reserveMax, wState[i].reserve + Math.round(CFG.weapons[weaponsOwned[i]].mag * 2.5));
+    wState[i].reserve = CORE.waveResupplyAmmo(wState[i].reserve, CFG.weapons[weaponsOwned[i]].reserveMax, CFG.weapons[weaponsOwned[i]].mag, CORE.RESUPPLY_MAG_RATIO);
   }
   player.armor = CFG.player.armor;
   grenades.count = Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);

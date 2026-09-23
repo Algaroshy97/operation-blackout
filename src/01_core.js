@@ -194,6 +194,32 @@ const CORE = (function () {
     return Math.min(max, base + n * perWave);
   }
 
+  // ---- Wave-clear score bonus -------------------------------------------------
+  // The flat `CFG.score.waveClear` rewards clearing any wave. The per-wave ramp
+  // (`waveNum * WAVE_SCORE_PER_WAVE`) increases the reward for surviving deeper
+  // into the run, giving the score curve a meaningful slope without compressing
+  // early waves. Magic number extracted here so the test suite can pin it.
+  const WAVE_SCORE_PER_WAVE = 50;
+  function waveClearScore(baseScore, waveNum, perWave) {
+    const base = (typeof baseScore === 'number' && isFinite(baseScore) && baseScore >= 0) ? baseScore : 0;
+    const w = (typeof waveNum === 'number' && isFinite(waveNum) && waveNum >= 0) ? Math.floor(waveNum) : 0;
+    const p = (typeof perWave === 'number' && isFinite(perWave) && perWave >= 0) ? perWave : WAVE_SCORE_PER_WAVE;
+    return base + w * p;
+  }
+
+  // ---- Wave resupply ammo recovery -------------------------------------------
+  // Each wave clear tops up reserves by `RESUPPLY_MAG_RATIO` mags, capped at the
+  // weapon's reserveMax. The ratio is extracted here so it can be referenced in
+  // tests and tuned in one place without touching the HUD module.
+  const RESUPPLY_MAG_RATIO = 2.5;
+  function waveResupplyAmmo(currentReserve, reserveMax, magSize, ratio) {
+    const cur = (typeof currentReserve === 'number' && isFinite(currentReserve) && currentReserve >= 0) ? currentReserve : 0;
+    const max = (typeof reserveMax === 'number' && isFinite(reserveMax) && reserveMax >= 0) ? reserveMax : 0;
+    const mag = (typeof magSize === 'number' && isFinite(magSize) && magSize > 0) ? magSize : 0;
+    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : RESUPPLY_MAG_RATIO;
+    return Math.min(max, cur + Math.round(mag * r));
+  }
+
   // ---- AABB helpers ----------------------------------------------------------
   function aabbOverlapsXZ(c, x, z, r) {
     return x > c.min.x - r && x < c.max.x + r && z > c.min.z - r && z < c.max.z + r;
@@ -3566,6 +3592,10 @@ const CORE = (function () {
     waveEnemyCount: waveEnemyCount,
     waveHpMultiplier: waveHpMultiplier,
     waveRangedAccuracy: waveRangedAccuracy,
+    WAVE_SCORE_PER_WAVE: WAVE_SCORE_PER_WAVE,
+    waveClearScore: waveClearScore,
+    RESUPPLY_MAG_RATIO: RESUPPLY_MAG_RATIO,
+    waveResupplyAmmo: waveResupplyAmmo,
     aabbOverlapsXZ: aabbOverlapsXZ,
     blocksWalker: blocksWalker,
     isSpawnValid: isSpawnValid,
