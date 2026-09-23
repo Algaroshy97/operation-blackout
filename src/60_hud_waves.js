@@ -91,6 +91,25 @@ function updateHudHealth() {
       if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
     }
   }
+  updateHudMobility();
+}
+
+let _lastMobilityState = null;
+function updateHudMobility() {
+  const isTac = typeof player !== 'undefined' && player.tacT > 0;
+  const isSlide = typeof player !== 'undefined' && !!player.sliding;
+  const isExh = typeof player !== 'undefined' && !!player.exhausted;
+  const state = CORE.sprintIndicatorState(isTac, isSlide, isExh);
+  if (state === _lastMobilityState) return;
+  _lastMobilityState = state;
+  const el = hud.sprintInd || (hud.sprintInd = $id('sprint-ind'));
+  if (!el) return;
+  const label = CORE.sprintIndicatorLabel(state);
+  el.textContent = label;
+  el.style.opacity = label ? '1' : '0';
+  el.classList.toggle('tac', state === 'tac');
+  el.classList.toggle('slide', state === 'slide');
+  el.classList.toggle('exhausted', state === 'exhausted');
 }
 // Change-driven: updateHudAmmo is called every frame from updateWeapons, and DOM writes
 // cost significantly more than the primitive equality checks that skip them.

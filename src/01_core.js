@@ -2127,6 +2127,23 @@ const CORE = (function () {
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
+  // Mobile touch ADS button state: returns 'scoped' when a sniper or battle rifle has fully
+  // engaged its optical scope (adsAmount >= scopeLockedThreshold and weapon type is SR or BR),
+  // 'active' when ADS is engaged for any weapon, or '' when at hip-fire.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold) {
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
+    if (ads <= 0) return '';
+    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) return 'scoped';
+    return 'active';
+  }
+  // Mobile touch jump button state: returns 'airborne' when the player is off the ground,
+  // or '' when grounded. Signals that a second jump is unavailable.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpState(onGround) {
+    return onGround ? '' : 'airborne';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -3495,6 +3512,46 @@ const CORE = (function () {
     return Math.min(1.0, base * ratio);
   }
 
+  const CROSSHAIR_MIN_GAP_OFFSET = 0;
+  const CROSSHAIR_MAX_GAP_OFFSET = 24;
+
+  function crosshairGapOffset(spread, adsAmount, isReducedMotion) {
+    if (isReducedMotion) return 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    if (ads > 0) {
+      return -Math.round(ads * 6);
+    }
+    const s = typeof spread === 'number' && isFinite(spread) ? Math.max(0, spread) : 0;
+    const offset = Math.round((s - 0.010) * 220);
+    return Math.max(CROSSHAIR_MIN_GAP_OFFSET, Math.min(CROSSHAIR_MAX_GAP_OFFSET, offset));
+  }
+
+  function crosshairOpacity(adsAmount, isScopedWeapon, isDead) {
+    if (isDead) return 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    if (isScopedWeapon) {
+      if (ads >= 0.75) return 0;
+      if (ads <= 0.30) return 1;
+      return Math.max(0, Math.min(1, 1 - (ads - 0.30) / 0.45));
+    }
+    if (ads >= 0.70) return 0;
+    return Math.max(0, Math.min(1, 1 - ads / 0.70));
+  }
+
+  function sprintIndicatorState(isTacSprint, isSliding, isExhausted) {
+    if (isExhausted) return 'exhausted';
+    if (isSliding) return 'slide';
+    if (isTacSprint) return 'tac';
+    return '';
+  }
+
+  function sprintIndicatorLabel(state) {
+    if (state === 'exhausted') return 'EXHAUSTED';
+    if (state === 'slide') return 'SLIDE';
+    if (state === 'tac') return 'TAC SPRINT';
+    return '';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -3878,7 +3935,15 @@ const CORE = (function () {
     isScoped: isScoped,
     recoilDecay: recoilDecay,
     aimAssistAngle: aimAssistAngle,
-    aimAssistPull: aimAssistPull
+    aimAssistPull: aimAssistPull,
+    CROSSHAIR_MIN_GAP_OFFSET: CROSSHAIR_MIN_GAP_OFFSET,
+    CROSSHAIR_MAX_GAP_OFFSET: CROSSHAIR_MAX_GAP_OFFSET,
+    crosshairGapOffset: crosshairGapOffset,
+    crosshairOpacity: crosshairOpacity,
+    sprintIndicatorState: sprintIndicatorState,
+    sprintIndicatorLabel: sprintIndicatorLabel,
+    touchAdsState: touchAdsState,
+    touchJumpState: touchJumpState
   };
 })();
 

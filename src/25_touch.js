@@ -302,6 +302,10 @@ function applyTouchInput() {
   updateTouchSlideBtn();
   // Melee strike readiness and cooldown feedback
   updateTouchMeleeBtn();
+  // ADS / scoped optical indicator
+  updateTouchAdsBtn();
+  // Jump airborne availability indicator
+  updateTouchJumpBtn();
 }
 
 let tbtnSlideEl = null;
@@ -331,4 +335,25 @@ function updateTouchMeleeBtn() {
   tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
   const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
   if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
+}
+
+// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in.
+let tbtnAdsEl = null;
+function updateTouchAdsBtn() {
+  if (!tbtnAdsEl) tbtnAdsEl = document.getElementById('tbtn-ads');
+  if (!tbtnAdsEl || typeof adsAmount === 'undefined' || typeof player === 'undefined') return;
+  const w = (typeof curW === 'function') ? curW() : null;
+  const wType = w ? w.type : '';
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD);
+  tbtnAdsEl.classList.toggle('active', adsState === 'active');
+  tbtnAdsEl.classList.toggle('scoped', adsState === 'scoped');
+}
+
+// Jump button: dims and glows cyan when the player is airborne to signal no jump available.
+let tbtnJumpEl = null;
+function updateTouchJumpBtn() {
+  if (!tbtnJumpEl) tbtnJumpEl = document.getElementById('tbtn-jump');
+  if (!tbtnJumpEl || typeof player === 'undefined') return;
+  const jState = CORE.touchJumpState(!!player.onGround);
+  tbtnJumpEl.classList.toggle('airborne', jState === 'airborne');
 }

@@ -178,6 +178,8 @@ function resetGame() {
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
   adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
+  if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state

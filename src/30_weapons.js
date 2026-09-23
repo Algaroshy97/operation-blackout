@@ -342,6 +342,7 @@ let shotKick = 0;
 let recoilShot = 0;
 let lastShotT = -99;
 let bloom = 0;
+let _lastChOp = -1, _lastChGap = -1;
 let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
@@ -522,7 +523,21 @@ function updateViewmodel(dt) {
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
   if (gunGroup) gunGroup.visible = !(scoped);
   const ch = $id('crosshair');
-  if (ch) ch.style.opacity = (adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR')) ? 0 : 1;
+  if (ch) {
+    const isScopedW = (w.type === 'BR' || w.type === 'SR');
+    const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
+    const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
+    const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
+    if (chOp !== _lastChOp) {
+      _lastChOp = chOp;
+      ch.style.opacity = String(chOp);
+    }
+    if (chGap !== _lastChGap) {
+      _lastChGap = chGap;
+      ch.style.setProperty('--ch-gap', chGap + 'px');
+    }
+  }
   // steady indicator
   const steadyInd = $id('steady-ind');
   if (steadyInd) {

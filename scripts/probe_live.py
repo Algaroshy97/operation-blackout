@@ -1404,7 +1404,49 @@ def main() -> int:
         }""")
         checks.append(("marksman-and-aim-precision-rules", marksman_rules_check))
 
-        # 39) Clean console throughout gameplay.
+        # 39) Crosshair and mobility visual feedback rules.
+        crosshair_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const gapReduced = CORE.crosshairGapOffset(0.05, 0, true) === 0;
+            const gapRest = CORE.crosshairGapOffset(0.010, 0, false) === 0;
+            const gapSmg = CORE.crosshairGapOffset(0.020, 0, false) === 2;
+            const gapFiring = CORE.crosshairGapOffset(0.065, 0, false) === 12;
+            const gapCap = CORE.crosshairGapOffset(0.200, 0, false) === 24;
+            const gapAdsHalf = CORE.crosshairGapOffset(0.014, 0.5, false) === -3;
+            const gapAdsFull = CORE.crosshairGapOffset(0.014, 1.0, false) === -6;
+
+            const opDead = CORE.crosshairOpacity(0, false, true) === 0;
+            const opScopedRest = CORE.crosshairOpacity(0, true, false) === 1;
+            const opScopedAim = CORE.crosshairOpacity(0.75, true, false) === 0;
+            const opScopedHalf = Math.abs(CORE.crosshairOpacity(0.525, true, false) - 0.5) < 1e-4;
+            const opNormRest = CORE.crosshairOpacity(0, false, false) === 1;
+            const opNormAim = CORE.crosshairOpacity(0.70, false, false) === 0;
+            const opNormHalf = Math.abs(CORE.crosshairOpacity(0.35, false, false) - 0.5) < 1e-4;
+
+            const stateExh = CORE.sprintIndicatorState(true, true, true) === 'exhausted';
+            const stateSlide = CORE.sprintIndicatorState(false, true, false) === 'slide';
+            const stateTac = CORE.sprintIndicatorState(true, false, false) === 'tac';
+            const stateNom = CORE.sprintIndicatorState(false, false, false) === '';
+
+            const labelExh = CORE.sprintIndicatorLabel('exhausted') === 'EXHAUSTED';
+            const labelSlide = CORE.sprintIndicatorLabel('slide') === 'SLIDE';
+            const labelTac = CORE.sprintIndicatorLabel('tac') === 'TAC SPRINT';
+            const labelNom = CORE.sprintIndicatorLabel('') === '';
+
+            const spEl = document.getElementById('sprint-ind');
+            const chEl = document.getElementById('crosshair');
+            const domOk = Boolean(spEl && chEl);
+
+            return gapReduced && gapRest && gapSmg && gapFiring && gapCap && gapAdsHalf && gapAdsFull &&
+                   opDead && opScopedRest && opScopedAim && opScopedHalf && opNormRest && opNormAim && opNormHalf &&
+                   stateExh && stateSlide && stateTac && stateNom &&
+                   labelExh && labelSlide && labelTac && labelNom &&
+                   domOk;
+        }""")
+        checks.append(("crosshair-and-mobility-visual-feedback-rules", crosshair_rules_check))
+
+        # 40) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

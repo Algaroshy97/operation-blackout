@@ -4609,3 +4609,76 @@ test('isSteadyActive, stepSteadyAim, swayAmplitude, swayOffsets, isScoped, recoi
   assert.ok(Math.abs(CORE.aimAssistPull(2.2, 0.25) - 0.55) < 1e-4);
   assert.ok(Math.abs(CORE.aimAssistPull(5.0, 0.5) - 1.0) < 1e-4);
 });
+
+test('crosshairGapOffset, crosshairOpacity, sprintIndicatorState, and sprintIndicatorLabel govern dynamic crosshair and mobility visuals', () => {
+  // crosshairGapOffset
+  assert.strictEqual(CORE.crosshairGapOffset(0.05, 0, true), 0);
+  assert.strictEqual(CORE.crosshairGapOffset(0.010, 0, false), 0);
+  assert.strictEqual(CORE.crosshairGapOffset(0.020, 0, false), 2);
+  assert.strictEqual(CORE.crosshairGapOffset(0.065, 0, false), 12);
+  assert.strictEqual(CORE.crosshairGapOffset(0.200, 0, false), 24);
+  assert.strictEqual(CORE.crosshairGapOffset(0.014, 0.5, false), -3);
+  assert.strictEqual(CORE.crosshairGapOffset(0.014, 1.0, false), -6);
+
+  // crosshairOpacity
+  assert.strictEqual(CORE.crosshairOpacity(0, false, true), 0);
+  // scoped weapon (SR/BR)
+  assert.strictEqual(CORE.crosshairOpacity(0, true, false), 1);
+  assert.strictEqual(CORE.crosshairOpacity(0.2, true, false), 1);
+  assert.ok(Math.abs(CORE.crosshairOpacity(0.525, true, false) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.crosshairOpacity(0.75, true, false), 0);
+  assert.strictEqual(CORE.crosshairOpacity(1.0, true, false), 0);
+  // non-scoped weapon (AR/SMG)
+  assert.strictEqual(CORE.crosshairOpacity(0, false, false), 1);
+  assert.ok(Math.abs(CORE.crosshairOpacity(0.35, false, false) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.crosshairOpacity(0.70, false, false), 0);
+  assert.strictEqual(CORE.crosshairOpacity(1.0, false, false), 0);
+
+  // sprintIndicatorState
+  assert.strictEqual(CORE.sprintIndicatorState(true, true, true), 'exhausted');
+  assert.strictEqual(CORE.sprintIndicatorState(false, true, false), 'slide');
+  assert.strictEqual(CORE.sprintIndicatorState(true, false, false), 'tac');
+  assert.strictEqual(CORE.sprintIndicatorState(false, false, false), '');
+
+  // sprintIndicatorLabel
+  assert.strictEqual(CORE.sprintIndicatorLabel('exhausted'), 'EXHAUSTED');
+  assert.strictEqual(CORE.sprintIndicatorLabel('slide'), 'SLIDE');
+  assert.strictEqual(CORE.sprintIndicatorLabel('tac'), 'TAC SPRINT');
+  assert.strictEqual(CORE.sprintIndicatorLabel(''), '');
+});
+
+test('touchAdsState and touchJumpState resolve mobile ADS scoped feedback and jump airborne indicator', () => {
+  // touchAdsState: '' at hip-fire regardless of weapon type
+  assert.strictEqual(CORE.touchAdsState(0, 'SR', 0.82), '');
+  assert.strictEqual(CORE.touchAdsState(0, 'AR', 0.82), '');
+  assert.strictEqual(CORE.touchAdsState(-1, 'SR', 0.82), '');   // invalid clamped to 0
+
+  // touchAdsState: 'active' for any weapon type during partial ADS below scope threshold
+  assert.strictEqual(CORE.touchAdsState(0.5, 'AR', 0.82), 'active');
+  assert.strictEqual(CORE.touchAdsState(0.5, 'SMG', 0.82), 'active');
+  assert.strictEqual(CORE.touchAdsState(0.5, 'SG', 0.82), 'active');
+  assert.strictEqual(CORE.touchAdsState(0.5, 'BR', 0.82), 'active');  // below threshold
+  assert.strictEqual(CORE.touchAdsState(0.5, 'SR', 0.82), 'active');  // below threshold
+
+  // touchAdsState: 'scoped' only for SR or BR at or above scope locked threshold
+  assert.strictEqual(CORE.touchAdsState(0.82, 'SR', 0.82), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'SR', 0.82), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(0.82, 'BR', 0.82), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'BR', 0.82), 'scoped');
+
+  // touchAdsState: 'active' (not 'scoped') for non-optic weapons even at full ADS
+  assert.strictEqual(CORE.touchAdsState(1.0, 'AR', 0.82), 'active');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'SMG', 0.82), 'active');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'SG', 0.82), 'active');
+
+  // touchAdsState: default threshold 0.82 when scopeLockedThreshold is not a number
+  assert.strictEqual(CORE.touchAdsState(0.9, 'SR', undefined), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(0.9, 'SR', NaN), 'scoped');
+
+  // touchJumpState: '' when grounded
+  assert.strictEqual(CORE.touchJumpState(true), '');
+
+  // touchJumpState: 'airborne' when off the ground
+  assert.strictEqual(CORE.touchJumpState(false), 'airborne');
+});
+

@@ -12,12 +12,14 @@
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',Arial,sans-serif;user-select:none;-webkit-user-select:none;cursor:default}
   #game-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
   .hud{position:absolute;pointer-events:none;z-index:10}
-  #crosshair{top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px}
+  #crosshair{top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;transition:opacity .12s ease-out}
   #crosshair .c-line{position:absolute;background:#eaffea;box-shadow:0 0 3px rgba(0,0,0,.9)}
-  #crosshair .c-v{width:2px;height:9px;left:21px}
-  #crosshair .c-v.top{top:0}#crosshair .c-v.bot{bottom:0}
-  #crosshair .c-h{height:2px;width:9px;top:21px}
-  #crosshair .c-h.left{left:0}#crosshair .c-h.right{right:0}
+  #crosshair .c-v{width:2px;height:9px;left:21px;transition:transform .08s ease-out}
+  #crosshair .c-v.top{top:0;transform:translateY(calc(-1 * var(--ch-gap,0px)))}
+  #crosshair .c-v.bot{bottom:0;transform:translateY(var(--ch-gap,0px))}
+  #crosshair .c-h{height:2px;width:9px;top:21px;transition:transform .08s ease-out}
+  #crosshair .c-h.left{left:0;transform:translateX(calc(-1 * var(--ch-gap,0px)))}
+  #crosshair .c-h.right{right:0;transform:translateX(var(--ch-gap,0px))}
   #crosshair .c-dot{position:absolute;top:20px;left:20px;width:4px;height:4px;border-radius:50%;background:#eaffea;box-shadow:0 0 3px rgba(0,0,0,.9)}
   #crosshair .hitmark{position:absolute;top:19px;left:19px;width:6px;height:6px;opacity:0;transform:rotate(45deg)}
   #crosshair .hitmark span{position:absolute;background:#ff4a3d;box-shadow:0 0 2px #000}
@@ -152,9 +154,11 @@
   #critical-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 90px 30px rgba(180,15,15,0);transition:opacity .25s ease-out;z-index:4;pointer-events:none;opacity:0}
   #critical-vignette.active{opacity:1;animation:crit-pulse 1.1s infinite alternate ease-in-out}
   @keyframes crit-pulse{0%{box-shadow:inset 0 0 85px 28px rgba(180,15,15,.32)}100%{box-shadow:inset 0 0 135px 52px rgba(220,20,20,.72)}}
-  #flash-overlay{top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;z-index:6}
-  #sprint-ind{bottom:56px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.55);font-size:10px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000}
-  #killfeed{top:70px;right:26px;text-align:right}
+  #sprint-ind{bottom:56px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.55);font-size:10px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .15s,color .15s}
+  #sprint-ind.tac{color:#50b4ff;text-shadow:0 0 8px rgba(80,180,255,.6),0 1px 3px #000}
+  #sprint-ind.slide{color:#80d4ff;text-shadow:0 0 8px rgba(128,212,255,.5),0 1px 3px #000}
+  #sprint-ind.exhausted{color:#ff5f4a;text-shadow:0 0 8px rgba(255,95,74,.6),0 1px 3px #000}
+  body.touch #sprint-ind{bottom:calc(82px + var(--sa-b))}
   .killfeed-item{color:rgba(255,255,255,.9);font-size:12px;font-weight:600;text-shadow:0 1px 3px #000;margin-bottom:3px;animation:kf 4s forwards}
   .killfeed-item .xp{color:#ffd24a}
   @keyframes kf{0%{opacity:0;transform:translateX(12px)}8%{opacity:1;transform:translateX(0)}80%{opacity:1}100%{opacity:0}}
@@ -241,12 +245,15 @@
      within 50px of the bottom edge either: Android reports safe-area-inset-bottom as
      0 in landscape, yet a tap that close still competes with the gesture bar. */
   body.touch #tbtn-fire{right:calc(26px + var(--sa-r));bottom:calc(56px + var(--sa-b));width:84px;height:84px;font-size:14px;background:rgba(160,30,30,.45);border-color:rgba(255,90,70,.6)}
-  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px}
+  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
+  body.touch #tbtn-ads.active{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.18)}
+  body.touch #tbtn-ads.scoped{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 4px rgba(80,180,255,.35),inset 0 0 14px rgba(80,180,255,.3)}
+  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-jump.airborne{border-color:#50b4ff;color:#80d4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.15);opacity:.55}
   body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-slide.sliding{background:rgba(80,180,255,.55);border-color:#50b4ff;color:#fff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 12px rgba(80,180,255,.25)}
   body.touch #tbtn-slide.crouch{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,170,58,.25),inset 0 0 8px rgba(255,170,58,.18)}
   body.touch #tbtn-slide.sprint{border-color:#80d4ff;color:#fff;box-shadow:0 0 0 2px rgba(128,212,255,.25)}
-  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px}
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
   body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
@@ -313,7 +320,8 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
+  body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transform:none}
   body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
   body.reduced-motion .health-bar-bg.critical{animation:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
@@ -6780,6 +6788,23 @@ const CORE = (function () {
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
+  // Mobile touch ADS button state: returns 'scoped' when a sniper or battle rifle has fully
+  // engaged its optical scope (adsAmount >= scopeLockedThreshold and weapon type is SR or BR),
+  // 'active' when ADS is engaged for any weapon, or '' when at hip-fire.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold) {
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
+    if (ads <= 0) return '';
+    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) return 'scoped';
+    return 'active';
+  }
+  // Mobile touch jump button state: returns 'airborne' when the player is off the ground,
+  // or '' when grounded. Signals that a second jump is unavailable.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpState(onGround) {
+    return onGround ? '' : 'airborne';
+  }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
   function perkAdsMul(owned) { return hasPerk(owned, 'steady') ? 1.5 : 1; }
@@ -8148,6 +8173,46 @@ const CORE = (function () {
     return Math.min(1.0, base * ratio);
   }
 
+  const CROSSHAIR_MIN_GAP_OFFSET = 0;
+  const CROSSHAIR_MAX_GAP_OFFSET = 24;
+
+  function crosshairGapOffset(spread, adsAmount, isReducedMotion) {
+    if (isReducedMotion) return 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    if (ads > 0) {
+      return -Math.round(ads * 6);
+    }
+    const s = typeof spread === 'number' && isFinite(spread) ? Math.max(0, spread) : 0;
+    const offset = Math.round((s - 0.010) * 220);
+    return Math.max(CROSSHAIR_MIN_GAP_OFFSET, Math.min(CROSSHAIR_MAX_GAP_OFFSET, offset));
+  }
+
+  function crosshairOpacity(adsAmount, isScopedWeapon, isDead) {
+    if (isDead) return 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    if (isScopedWeapon) {
+      if (ads >= 0.75) return 0;
+      if (ads <= 0.30) return 1;
+      return Math.max(0, Math.min(1, 1 - (ads - 0.30) / 0.45));
+    }
+    if (ads >= 0.70) return 0;
+    return Math.max(0, Math.min(1, 1 - ads / 0.70));
+  }
+
+  function sprintIndicatorState(isTacSprint, isSliding, isExhausted) {
+    if (isExhausted) return 'exhausted';
+    if (isSliding) return 'slide';
+    if (isTacSprint) return 'tac';
+    return '';
+  }
+
+  function sprintIndicatorLabel(state) {
+    if (state === 'exhausted') return 'EXHAUSTED';
+    if (state === 'slide') return 'SLIDE';
+    if (state === 'tac') return 'TAC SPRINT';
+    return '';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8531,7 +8596,15 @@ const CORE = (function () {
     isScoped: isScoped,
     recoilDecay: recoilDecay,
     aimAssistAngle: aimAssistAngle,
-    aimAssistPull: aimAssistPull
+    aimAssistPull: aimAssistPull,
+    CROSSHAIR_MIN_GAP_OFFSET: CROSSHAIR_MIN_GAP_OFFSET,
+    CROSSHAIR_MAX_GAP_OFFSET: CROSSHAIR_MAX_GAP_OFFSET,
+    crosshairGapOffset: crosshairGapOffset,
+    crosshairOpacity: crosshairOpacity,
+    sprintIndicatorState: sprintIndicatorState,
+    sprintIndicatorLabel: sprintIndicatorLabel,
+    touchAdsState: touchAdsState,
+    touchJumpState: touchJumpState
   };
 })();
 
@@ -10350,6 +10423,10 @@ function applyTouchInput() {
   updateTouchSlideBtn();
   // Melee strike readiness and cooldown feedback
   updateTouchMeleeBtn();
+  // ADS / scoped optical indicator
+  updateTouchAdsBtn();
+  // Jump airborne availability indicator
+  updateTouchJumpBtn();
 }
 
 let tbtnSlideEl = null;
@@ -10379,6 +10456,27 @@ function updateTouchMeleeBtn() {
   tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
   const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
   if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
+}
+
+// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in.
+let tbtnAdsEl = null;
+function updateTouchAdsBtn() {
+  if (!tbtnAdsEl) tbtnAdsEl = document.getElementById('tbtn-ads');
+  if (!tbtnAdsEl || typeof adsAmount === 'undefined' || typeof player === 'undefined') return;
+  const w = (typeof curW === 'function') ? curW() : null;
+  const wType = w ? w.type : '';
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD);
+  tbtnAdsEl.classList.toggle('active', adsState === 'active');
+  tbtnAdsEl.classList.toggle('scoped', adsState === 'scoped');
+}
+
+// Jump button: dims and glows cyan when the player is airborne to signal no jump available.
+let tbtnJumpEl = null;
+function updateTouchJumpBtn() {
+  if (!tbtnJumpEl) tbtnJumpEl = document.getElementById('tbtn-jump');
+  if (!tbtnJumpEl || typeof player === 'undefined') return;
+  const jState = CORE.touchJumpState(!!player.onGround);
+  tbtnJumpEl.classList.toggle('airborne', jState === 'airborne');
 }
 
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
@@ -10725,6 +10823,7 @@ let shotKick = 0;
 let recoilShot = 0;
 let lastShotT = -99;
 let bloom = 0;
+let _lastChOp = -1, _lastChGap = -1;
 let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
@@ -10905,7 +11004,21 @@ function updateViewmodel(dt) {
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
   if (gunGroup) gunGroup.visible = !(scoped);
   const ch = $id('crosshair');
-  if (ch) ch.style.opacity = (adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR')) ? 0 : 1;
+  if (ch) {
+    const isScopedW = (w.type === 'BR' || w.type === 'SR');
+    const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
+    const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
+    const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
+    if (chOp !== _lastChOp) {
+      _lastChOp = chOp;
+      ch.style.opacity = String(chOp);
+    }
+    if (chGap !== _lastChGap) {
+      _lastChGap = chGap;
+      ch.style.setProperty('--ch-gap', chGap + 'px');
+    }
+  }
   // steady indicator
   const steadyInd = $id('steady-ind');
   if (steadyInd) {
@@ -14344,6 +14457,25 @@ function updateHudHealth() {
       if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
     }
   }
+  updateHudMobility();
+}
+
+let _lastMobilityState = null;
+function updateHudMobility() {
+  const isTac = typeof player !== 'undefined' && player.tacT > 0;
+  const isSlide = typeof player !== 'undefined' && !!player.sliding;
+  const isExh = typeof player !== 'undefined' && !!player.exhausted;
+  const state = CORE.sprintIndicatorState(isTac, isSlide, isExh);
+  if (state === _lastMobilityState) return;
+  _lastMobilityState = state;
+  const el = hud.sprintInd || (hud.sprintInd = $id('sprint-ind'));
+  if (!el) return;
+  const label = CORE.sprintIndicatorLabel(state);
+  el.textContent = label;
+  el.style.opacity = label ? '1' : '0';
+  el.classList.toggle('tac', state === 'tac');
+  el.classList.toggle('slide', state === 'slide');
+  el.classList.toggle('exhausted', state === 'exhausted');
 }
 // Change-driven: updateHudAmmo is called every frame from updateWeapons, and DOM writes
 // cost significantly more than the primitive equality checks that skip them.
@@ -15246,6 +15378,8 @@ function resetGame() {
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
   adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
+  if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
