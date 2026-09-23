@@ -37,51 +37,51 @@ function updateHudGrenadeCharge(visible, pct, speed) {
   if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = 'GRENADE ' + Math.round(speed || 0) + ' M/S (' + pct + '%)';
 }
 
-// Change-driven: this is called every frame, and each style write on an element
-// the compositor is already tracking costs more than the comparison that skips it.
-let _hudHp = -1, _hudArmor = -1, _hudMaxHp = -1;
-function updateHudHealth() {
+// Change-driven: this runs every animation frame (60 Hz). A single flat diff on five
+// primitives costs one comparison each and returns on the first mismatch, which is far
+// cheaper than the DOM writes, class-list toggles, and touch-plate text checks that the
+// full body performs. Force-flush callers (resupply, deploy, reset) pass force=true.
+const _hudHealthState = { hp: -1, maxHp: -1, armor: -1, plates: -1, plateInserting: null };
+function updateHudHealth(force) {
   const hp = Math.max(0, Math.round(player.health));
   const maxHp = typeof playerMaxHealth === 'function' ? playerMaxHealth() : CFG.player.health;
-  const pct = Math.round(Math.max(0, player.health / maxHp * 100));
-  const armor = Math.round(Math.max(0, player.armor / CFG.player.armor * 100));
-  if (hp !== _hudHp || maxHp !== _hudMaxHp) {
-    _hudHp = hp;
-    _hudMaxHp = maxHp;
-    hud.healthBar.style.width = pct + '%';
-    hud.healthNum.textContent = hp;
-    const isLow = CORE.isHealthLow(hp, maxHp);
-    const isCrit = CORE.isHealthCritical(hp, maxHp);
-    hud.healthBar.classList.toggle('low', isLow);
-    hud.healthNum.classList.toggle('low', isLow);
-    hud.healthBar.classList.toggle('critical', isCrit);
-    hud.healthNum.classList.toggle('critical', isCrit);
-    if (hud.healthBar.parentElement) {
-      hud.healthBar.parentElement.classList.toggle('critical', isCrit);
-    }
-    const critVig = hud.critVig || (hud.critVig = $id('critical-vignette'));
-    if (critVig) {
-      critVig.classList.toggle('active', isCrit);
-    }
+  const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
+  const armor = Math.round(Math.max(0, player.armor / maxArmor * 100));
+  const curPlates = typeof plates !== 'undefined' ? plates : 0;
+  const isIns = typeof plateT !== 'undefined' && plateT > 0;
+  if (!force && !CORE.healthHudChanged(_hudHealthState, hp, maxHp, armor, curPlates, isIns)) {
+    updateHudMobility();
+    return;
   }
-  if (armor !== _hudArmor) {
-    _hudArmor = armor;
-    hud.armorBar.style.width = armor + '%';
-    const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
-    const isLow = CORE.isArmorLow(player.armor, maxArmor);
-    const isEmpty = CORE.isArmorEmpty(player.armor);
-    hud.armorBar.classList.toggle('low', isLow);
-    if (hud.armorBar.parentElement) {
-      hud.armorBar.parentElement.classList.toggle('empty', isEmpty);
-    }
+  CORE.syncHealthHudState(_hudHealthState, hp, maxHp, armor, curPlates, isIns);
+  const pct = Math.round(Math.max(0, hp / maxHp * 100));
+  hud.healthBar.style.width = pct + '%';
+  hud.healthNum.textContent = hp;
+  const isLow = CORE.isHealthLow(hp, maxHp);
+  const isCrit = CORE.isHealthCritical(hp, maxHp);
+  hud.healthBar.classList.toggle('low', isLow);
+  hud.healthNum.classList.toggle('low', isLow);
+  hud.healthBar.classList.toggle('critical', isCrit);
+  hud.healthNum.classList.toggle('critical', isCrit);
+  if (hud.healthBar.parentElement) {
+    hud.healthBar.parentElement.classList.toggle('critical', isCrit);
+  }
+  const critVig = hud.critVig || (hud.critVig = $id('critical-vignette'));
+  if (critVig) {
+    critVig.classList.toggle('active', isCrit);
+  }
+  const armorPct = armor;
+  hud.armorBar.style.width = armorPct + '%';
+  const isArmorLow = CORE.isArmorLow(player.armor, maxArmor);
+  const isArmorEmpty = CORE.isArmorEmpty(player.armor);
+  hud.armorBar.classList.toggle('low', isArmorLow);
+  if (hud.armorBar.parentElement) {
+    hud.armorBar.parentElement.classList.toggle('empty', isArmorEmpty);
   }
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
   if (isTouch) {
     const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
     if (tbtnPlate) {
-      const maxArmor = (typeof CFG !== 'undefined' && CFG.player && CFG.player.armor) ? CFG.player.armor : 50;
-      const curPlates = typeof plates !== 'undefined' ? plates : 0;
-      const isIns = typeof plateT !== 'undefined' && plateT > 0;
       const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
       tbtnPlate.classList.toggle('empty', plateState === 'empty');
       tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
@@ -663,7 +663,7 @@ function resupply() {
   }
   player.armor = CFG.player.armor;
   grenades.count = Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);
-  updateHudAmmo(); updateHudHealth();
+  updateHudAmmo(); updateHudHealth(true);
 }
 
 // ---- Secondary weapon unlock ----

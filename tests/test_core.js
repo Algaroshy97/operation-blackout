@@ -4726,3 +4726,47 @@ test('waveClearScore and waveResupplyAmmo govern wave progression score bonus an
   assert.strictEqual(CORE.waveResupplyAmmo(35, 35, 5, 2.5), 35);
 });
 
+test('healthHudChanged and syncHealthHudState govern change-driven health HUD updates', () => {
+  // null / non-object lastState always triggers a redraw (fresh init)
+  assert.strictEqual(CORE.healthHudChanged(null, 100, 100, 100, 0, false), true);
+  assert.strictEqual(CORE.healthHudChanged(undefined, 100, 100, 100, 0, false), true);
+  assert.strictEqual(CORE.healthHudChanged('stale', 100, 100, 100, 0, false), true);
+
+  // syncHealthHudState initialises a fresh cache object when given null
+  const state = CORE.syncHealthHudState(null, 80, 100, 60, 2, false);
+  assert.strictEqual(state.hp, 80);
+  assert.strictEqual(state.maxHp, 100);
+  assert.strictEqual(state.armor, 60);
+  assert.strictEqual(state.plates, 2);
+  assert.strictEqual(state.plateInserting, false);
+
+  // identical values: no change
+  assert.strictEqual(CORE.healthHudChanged(state, 80, 100, 60, 2, false), false);
+
+  // each field individually triggers a change
+  assert.strictEqual(CORE.healthHudChanged(state, 79, 100, 60, 2, false), true);   // hp changed
+  assert.strictEqual(CORE.healthHudChanged(state, 80, 120, 60, 2, false), true);   // maxHp changed
+  assert.strictEqual(CORE.healthHudChanged(state, 80, 100, 59, 2, false), true);   // armor changed
+  assert.strictEqual(CORE.healthHudChanged(state, 80, 100, 60, 1, false), true);   // plates changed
+  assert.strictEqual(CORE.healthHudChanged(state, 80, 100, 60, 2, true), true);    // plateInserting changed
+
+  // sync mutates the same object in place and returns it
+  const same = CORE.syncHealthHudState(state, 50, 100, 0, 0, true);
+  assert.strictEqual(same, state);  // mutates in place
+  assert.strictEqual(state.hp, 50);
+  assert.strictEqual(state.armor, 0);
+  assert.strictEqual(state.plates, 0);
+  assert.strictEqual(state.plateInserting, true);
+
+  // after sync, same values produce no change
+  assert.strictEqual(CORE.healthHudChanged(state, 50, 100, 0, 0, true), false);
+
+  // zero health (dead player) is valid and detected
+  CORE.syncHealthHudState(state, 0, 100, 0, 0, false);
+  assert.strictEqual(CORE.healthHudChanged(state, 0, 100, 0, 0, false), false);
+  assert.strictEqual(CORE.healthHudChanged(state, 1, 100, 0, 0, false), true);
+
+  // plateInserting false → true is a state change (plate animation started)
+  CORE.syncHealthHudState(state, 100, 100, 50, 3, false);
+  assert.strictEqual(CORE.healthHudChanged(state, 100, 100, 50, 3, true), true);
+});

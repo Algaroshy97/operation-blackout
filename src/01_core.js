@@ -3291,6 +3291,31 @@ const CORE = (function () {
     return target;
   }
 
+  // ---- Health HUD change-detection rules ----
+  // Pure diff and sync for the health/armor/plate HUD. updateHudHealth() runs every
+  // animation frame (60 Hz); the vast majority of frames see no state change. A flat
+  // equality check here costs one integer comparison per field and returns false
+  // immediately on the first mismatch — far cheaper than repeating all DOM writes.
+  // plates and plateInserting are included so the touch-plate button is also gated.
+  function healthHudChanged(lastState, hp, maxHp, armor, plates, plateInserting) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    return lastState.hp !== hp ||
+           lastState.maxHp !== maxHp ||
+           lastState.armor !== armor ||
+           lastState.plates !== plates ||
+           lastState.plateInserting !== plateInserting;
+  }
+
+  function syncHealthHudState(lastState, hp, maxHp, armor, plates, plateInserting) {
+    const target = lastState && typeof lastState === 'object' ? lastState : {};
+    target.hp = hp;
+    target.maxHp = maxHp;
+    target.armor = armor;
+    target.plates = plates;
+    target.plateInserting = plateInserting;
+    return target;
+  }
+
   // ---- Player Mobility, Stamina, Health Regen, and Resource Pickup Balance ----
   const SLIDE_DURATION = 0.9;
   const SLIDE_START_MUL = 1.2;
@@ -3907,6 +3932,8 @@ const CORE = (function () {
     stepParticlePhysics: stepParticlePhysics,
     ammoHudChanged: ammoHudChanged,
     syncAmmoHudState: syncAmmoHudState,
+    healthHudChanged: healthHudChanged,
+    syncHealthHudState: syncHealthHudState,
     killConfirmationSound: killConfirmationSound,
     MK_WINDOW: MK_WINDOW,
     MK_MAX_STREAK: MK_MAX_STREAK,
