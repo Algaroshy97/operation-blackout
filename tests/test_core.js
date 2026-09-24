@@ -5113,3 +5113,107 @@ test('playerMoveSpeed, movementAccelRate, stepHorizontalVelocity, stepHeadBob, l
   assert.ok(decayedKick < 1.0 && decayedKick > 0);
   assert.ok(Math.abs(CORE.sniperUnscopeAds(1.0) - 0.45) < 1e-4);
 });
+
+test('stepSlideVignette, slideVignetteStyle, objectiveHud, isScopeOverlayActive, and steadyIndicator govern overlay churn and performance', () => {
+  assert.strictEqual(CORE.SLIDE_VIGNETTE_RATE, 14);
+  assert.strictEqual(CORE.SLIDE_VIGNETTE_MAX_ALPHA, 0.55);
+
+  // stepSlideVignette:
+  // Want slide transitions toward 1.0
+  const steppedUp = CORE.stepSlideVignette(0, true, 0.05);
+  assert.ok(steppedUp > 0 && steppedUp <= 1);
+  assert.ok(Math.abs(steppedUp - (14 * 0.05)) < 1e-4);
+  // Snaps to 1 when near ceiling
+  assert.strictEqual(CORE.stepSlideVignette(0.998, true, 0.05), 1);
+  // Want slide false transitions toward 0
+  const steppedDown = CORE.stepSlideVignette(0.5, false, 0.05);
+  assert.ok(steppedDown < 0.5 && steppedDown >= 0);
+  // Snaps to 0 when near floor
+  assert.strictEqual(CORE.stepSlideVignette(0.003, false, 0.05), 0);
+  // Clamps out-of-range inputs
+  assert.strictEqual(CORE.stepSlideVignette(-0.5, false, 0.05), 0);
+  assert.strictEqual(CORE.stepSlideVignette(1.5, true, 0.05), 1);
+
+  // slideVignetteStyle:
+  assert.strictEqual(CORE.slideVignetteStyle(0), 'inset 0 0 90px 30px rgba(0,0,0,0)');
+  assert.strictEqual(CORE.slideVignetteStyle(1), 'inset 0 0 90px 30px rgba(0,0,0,0.55)');
+  assert.strictEqual(CORE.slideVignetteStyle(0.5), 'inset 0 0 90px 30px rgba(0,0,0,0.275)');
+  assert.strictEqual(CORE.slideVignetteStyle(1, 0.8), 'inset 0 0 90px 30px rgba(0,0,0,0.8)');
+
+  // objectiveLabel:
+  assert.strictEqual(CORE.objectiveLabel(true, 42), 'HOLDING — 42%');
+  assert.strictEqual(CORE.objectiveLabel(false, 42), 'RETURN TO THE ZONE — 42%');
+  assert.strictEqual(CORE.objectiveLabel(true, 105), 'HOLDING — 100%');
+  assert.strictEqual(CORE.objectiveLabel(false, -5), 'RETURN TO THE ZONE — 0%');
+
+  // objectiveHudChanged & syncObjectiveHudState:
+  const objState = { visible: false, inside: false, pct: -1 };
+  assert.strictEqual(CORE.objectiveHudChanged(objState, true, true, 0), true);
+  CORE.syncObjectiveHudState(objState, true, true, 0);
+  assert.strictEqual(objState.visible, true);
+  assert.strictEqual(objState.inside, true);
+  assert.strictEqual(objState.pct, 0);
+  // Identical frame returns false
+  assert.strictEqual(CORE.objectiveHudChanged(objState, true, true, 0), false);
+  // Pct advance returns true
+  assert.strictEqual(CORE.objectiveHudChanged(objState, true, true, 1), true);
+  CORE.syncObjectiveHudState(objState, true, true, 1);
+  assert.strictEqual(objState.pct, 1);
+  // Inside change returns true
+  assert.strictEqual(CORE.objectiveHudChanged(objState, true, false, 1), true);
+  CORE.syncObjectiveHudState(objState, true, false, 1);
+  // Both hidden returns false
+  assert.strictEqual(CORE.objectiveHudChanged(objState, false, false, 1), true);
+  CORE.syncObjectiveHudState(objState, false, false, -1);
+  assert.strictEqual(CORE.objectiveHudChanged(objState, false, false, -1), false);
+
+  // isScopeOverlayActive:
+  assert.strictEqual(CORE.isScopeOverlayActive(0.8, 'SR'), true);
+  assert.strictEqual(CORE.isScopeOverlayActive(0.8, 'BR'), true);
+  assert.strictEqual(CORE.isScopeOverlayActive(0.7, 'SR'), false);
+  assert.strictEqual(CORE.isScopeOverlayActive(0.85, 'AR'), false);
+  assert.strictEqual(CORE.isScopeOverlayActive(0.85, 'SMG'), false);
+
+  // scopeOverlayChanged & syncScopeOverlayState:
+  const scopeState = { active: false, isSniper: false };
+  assert.strictEqual(CORE.scopeOverlayChanged(scopeState, true, true), true);
+  CORE.syncScopeOverlayState(scopeState, true, true);
+  assert.strictEqual(scopeState.active, true);
+  assert.strictEqual(scopeState.isSniper, true);
+  // Identical returns false
+  assert.strictEqual(CORE.scopeOverlayChanged(scopeState, true, true), false);
+  // Class change returns true
+  assert.strictEqual(CORE.scopeOverlayChanged(scopeState, true, false), true);
+  CORE.syncScopeOverlayState(scopeState, true, false);
+  // Both inactive returns false
+  assert.strictEqual(CORE.scopeOverlayChanged(scopeState, false, false), true);
+  CORE.syncScopeOverlayState(scopeState, false, false);
+  assert.strictEqual(CORE.scopeOverlayChanged(scopeState, false, false), false);
+
+  // isSteadyIndicatorVisible:
+  assert.strictEqual(CORE.isSteadyIndicatorVisible('SR', 0.85), true);
+  assert.strictEqual(CORE.isSteadyIndicatorVisible('SR', 0.75), false);
+  assert.strictEqual(CORE.isSteadyIndicatorVisible('AR', 0.9), false);
+
+  // steadyIndicatorLabel:
+  assert.strictEqual(CORE.steadyIndicatorLabel(true, 1.8), 'STEADY · 1.8s');
+  assert.strictEqual(CORE.steadyIndicatorLabel(true, 2.0), 'STEADY · 2s');
+  assert.strictEqual(CORE.steadyIndicatorLabel(false, 1.5), 'HOLD SHIFT TO STEADY');
+  assert.strictEqual(CORE.steadyIndicatorLabel(false, 0.1), 'CATCH YOUR BREATH');
+
+  // steadyIndicatorChanged & syncSteadyIndicatorState:
+  const steadyState = { visible: false, steadyActive: false, label: '' };
+  assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, true, false, 'HOLD SHIFT TO STEADY'), true);
+  CORE.syncSteadyIndicatorState(steadyState, true, false, 'HOLD SHIFT TO STEADY');
+  assert.strictEqual(steadyState.visible, true);
+  assert.strictEqual(steadyState.label, 'HOLD SHIFT TO STEADY');
+  // Identical returns false
+  assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, true, false, 'HOLD SHIFT TO STEADY'), false);
+  // Activation returns true
+  assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, true, true, 'STEADY · 2.0s'), true);
+  CORE.syncSteadyIndicatorState(steadyState, true, true, 'STEADY · 2.0s');
+  // Inactive returns false when both hidden
+  assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, false, false, ''), true);
+  CORE.syncSteadyIndicatorState(steadyState, false, false, '');
+  assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, false, false, ''), false);
+});

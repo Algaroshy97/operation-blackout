@@ -181,6 +181,12 @@ function resetGame() {
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
+  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
+  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
+  if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
+  if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
+  if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
@@ -673,6 +679,9 @@ let hudFlickT = -9;     // gameT of last flick-forced redraw
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
 const _camPosOut = { x: 0, y: 0 };
+let _slideOvEl = null;
+let _slideVigOpacity = 0;
+let _lastSlideVigWritten = -1;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -762,13 +771,19 @@ function frame(now) {
       if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }
       if (adsAmount < 0.5 && wasScoped) { playSound('scope_out'); wasScoped = false; }
     } else wasScoped = false;
-    // slide vignette + FOV kick
-    const slideOv = $id('slide-vignette');
-    if (slideOv) {
-      const wantSlide = player.sliding ? 1 : 0;
-      const cur = slideOv.style.opacity ? parseFloat(slideOv.style.opacity) : 0;
-      slideOv.style.opacity = String(Math.min(1, cur + (wantSlide - cur) * Math.min(1, 14 * dt)));
-      slideOv.style.boxShadow = 'inset 0 0 90px 30px rgba(0,0,0,' + (0.55 * parseFloat(slideOv.style.opacity)) + ')';
+    // slide vignette
+    const wantSlide = player.sliding ? 1 : 0;
+    if (_slideVigOpacity > 0 || wantSlide) {
+      _slideVigOpacity = CORE.stepSlideVignette(_slideVigOpacity, wantSlide, dt);
+      const roundedOp = Math.round(_slideVigOpacity * 100) / 100;
+      if (roundedOp !== _lastSlideVigWritten) {
+        _lastSlideVigWritten = roundedOp;
+        if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+        if (_slideOvEl) {
+          _slideOvEl.style.opacity = String(roundedOp);
+          _slideOvEl.style.boxShadow = roundedOp > 0 ? CORE.slideVignetteStyle(roundedOp) : 'none';
+        }
+      }
     }
   }
   // clear edge-trigger keys

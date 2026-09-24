@@ -1667,7 +1667,71 @@ def main() -> int:
         }""")
         checks.append(("locomotion-and-combat-balance-rules", locomotion_balance_check))
 
-        # 44) Clean console throughout gameplay.
+        # 44) Slide vignette, objective HUD, weapon scope overlay, and steady aim performance rules.
+        overlay_perf_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.stepSlideVignette !== 'function' ||
+                typeof CORE.slideVignetteStyle !== 'function' ||
+                typeof CORE.objectiveLabel !== 'function' ||
+                typeof CORE.objectiveHudChanged !== 'function' ||
+                typeof CORE.syncObjectiveHudState !== 'function' ||
+                typeof CORE.isScopeOverlayActive !== 'function' ||
+                typeof CORE.scopeOverlayChanged !== 'function' ||
+                typeof CORE.syncScopeOverlayState !== 'function' ||
+                typeof CORE.isSteadyIndicatorVisible !== 'function' ||
+                typeof CORE.steadyIndicatorLabel !== 'function' ||
+                typeof CORE.steadyIndicatorChanged !== 'function' ||
+                typeof CORE.syncSteadyIndicatorState !== 'function') return false;
+
+            const vigStepUp = Math.abs(CORE.stepSlideVignette(0, true, 0.05) - 0.7) < 1e-4;
+            const vigStepDown = Math.abs(CORE.stepSlideVignette(1.0, false, 0.05) - 0.3) < 1e-4;
+            const vigSnapZero = CORE.stepSlideVignette(0.002, false, 0.05) === 0;
+            const vigSnapOne = CORE.stepSlideVignette(0.998, true, 0.05) === 1;
+
+            const vigStyleZero = CORE.slideVignetteStyle(0) === 'inset 0 0 90px 30px rgba(0,0,0,0)';
+            const vigStyleFull = CORE.slideVignetteStyle(1) === 'inset 0 0 90px 30px rgba(0,0,0,0.55)';
+
+            const objLblHold = CORE.objectiveLabel(true, 50) === 'HOLDING — 50%';
+            const objLblReturn = CORE.objectiveLabel(false, 50) === 'RETURN TO THE ZONE — 50%';
+
+            const objState = { visible: false, inside: false, pct: -1 };
+            const objCh1 = CORE.objectiveHudChanged(objState, true, true, 10);
+            CORE.syncObjectiveHudState(objState, true, true, 10);
+            const objChSame = !CORE.objectiveHudChanged(objState, true, true, 10);
+            const objChAdv = CORE.objectiveHudChanged(objState, true, true, 20);
+
+            const scopeSr = CORE.isScopeOverlayActive(0.8, 'SR');
+            const scopeBr = CORE.isScopeOverlayActive(0.8, 'BR');
+            const scopeAr = !CORE.isScopeOverlayActive(0.85, 'AR');
+            const scopeLow = !CORE.isScopeOverlayActive(0.5, 'SR');
+
+            const scopeState = { active: false, isSniper: false };
+            const scopeCh1 = CORE.scopeOverlayChanged(scopeState, true, true);
+            CORE.syncScopeOverlayState(scopeState, true, true);
+            const scopeChSame = !CORE.scopeOverlayChanged(scopeState, true, true);
+
+            const steadyVisSr = CORE.isSteadyIndicatorVisible('SR', 0.85);
+            const steadyVisAr = !CORE.isSteadyIndicatorVisible('AR', 0.9);
+            const steadyLblActive = CORE.steadyIndicatorLabel(true, 1.5).startsWith('STEADY · 1.5s');
+            const steadyLblHold = CORE.steadyIndicatorLabel(false, 1.5) === 'HOLD SHIFT TO STEADY';
+            const steadyLblBreath = CORE.steadyIndicatorLabel(false, 0.1) === 'CATCH YOUR BREATH';
+
+            const steadyState = { visible: false, steadyActive: false, label: '' };
+            const steadyCh1 = CORE.steadyIndicatorChanged(steadyState, true, false, 'HOLD SHIFT TO STEADY');
+            CORE.syncSteadyIndicatorState(steadyState, true, false, 'HOLD SHIFT TO STEADY');
+            const steadyChSame = !CORE.steadyIndicatorChanged(steadyState, true, false, 'HOLD SHIFT TO STEADY');
+
+            return vigStepUp && vigStepDown && vigSnapZero && vigSnapOne &&
+                   vigStyleZero && vigStyleFull && objLblHold && objLblReturn &&
+                   objCh1 && objChSame && objChAdv &&
+                   scopeSr && scopeBr && scopeAr && scopeLow &&
+                   scopeCh1 && scopeChSame &&
+                   steadyVisSr && steadyVisAr && steadyLblActive && steadyLblHold && steadyLblBreath &&
+                   steadyCh1 && steadyChSame;
+        }""")
+        checks.append(("hud-churn-and-overlay-performance-rules", overlay_perf_check))
+
+        # 45) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

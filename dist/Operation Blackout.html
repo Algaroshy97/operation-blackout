@@ -323,7 +323,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #slide-vignette,body.reduced-motion #scoping-overlay,body.reduced-motion #steady-ind,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
   body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transform:none}
   body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
   body.reduced-motion .health-bar-bg.critical{animation:none}
@@ -8562,6 +8562,101 @@ const CORE = (function () {
     return cur * f;
   }
 
+  // ---- HUD Churn & Overlay Performance Rules (v90) ---------------------------
+  const SLIDE_VIGNETTE_RATE = 14;
+  const SLIDE_VIGNETTE_MAX_ALPHA = 0.55;
+
+  function stepSlideVignette(curOpacity, wantSlide, dt, rate) {
+    const cur = typeof curOpacity === 'number' && !isNaN(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
+    const target = wantSlide ? 1 : 0;
+    if (cur === target) return target;
+    const r = typeof rate === 'number' && rate > 0 ? rate : SLIDE_VIGNETTE_RATE;
+    const delta = typeof dt === 'number' && dt > 0 ? dt : 0;
+    const step = Math.min(1, r * delta);
+    const next = cur + (target - cur) * step;
+    if (Math.abs(next - target) < 0.005) return target;
+    return Math.max(0, Math.min(1, next));
+  }
+
+  function slideVignetteStyle(opacity, maxAlpha) {
+    const op = typeof opacity === 'number' && !isNaN(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
+    const ma = typeof maxAlpha === 'number' && maxAlpha >= 0 ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
+    const a = Math.round((op * ma) * 1000) / 1000;
+    return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
+  }
+
+  function objectiveLabel(inside, pct) {
+    const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    return inside ? 'HOLDING — ' + p + '%' : 'RETURN TO THE ZONE — ' + p + '%';
+  }
+
+  function objectiveHudChanged(lastState, visible, inside, pct) {
+    if (!lastState) return true;
+    const vis = !!visible;
+    if (lastState.visible !== vis) return true;
+    if (!vis) return false;
+    const ins = !!inside;
+    const p = Math.round(pct || 0);
+    return lastState.inside !== ins || lastState.pct !== p;
+  }
+
+  function syncObjectiveHudState(lastState, visible, inside, pct) {
+    if (!lastState) return;
+    lastState.visible = !!visible;
+    lastState.inside = !!inside;
+    lastState.pct = Math.round(pct || 0);
+  }
+
+  function isScopeOverlayActive(adsAmount, weaponType) {
+    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const type = String(weaponType || '').toUpperCase();
+    return ads > 0.75 && (type === 'BR' || type === 'SR');
+  }
+
+  function scopeOverlayChanged(lastState, wantScope, isSniper) {
+    if (!lastState) return true;
+    const want = !!wantScope;
+    if (lastState.active !== want) return true;
+    if (!want) return false;
+    return lastState.isSniper !== !!isSniper;
+  }
+
+  function syncScopeOverlayState(lastState, wantScope, isSniper) {
+    if (!lastState) return;
+    lastState.active = !!wantScope;
+    lastState.isSniper = !!isSniper;
+  }
+
+  function isSteadyIndicatorVisible(weaponType, adsAmount) {
+    const type = String(weaponType || '').toUpperCase();
+    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    return type === 'SR' && ads > 0.8;
+  }
+
+  function steadyIndicatorLabel(steadyActive, steadyT) {
+    if (steadyActive) {
+      const t = Math.max(0, typeof steadyT === 'number' ? steadyT : 0);
+      return 'STEADY · ' + (Math.ceil(t * 10) / 10) + 's';
+    }
+    const t = typeof steadyT === 'number' ? steadyT : 0;
+    return t < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY';
+  }
+
+  function steadyIndicatorChanged(lastState, visible, steadyActive, label) {
+    if (!lastState) return true;
+    const vis = !!visible;
+    if (lastState.visible !== vis) return true;
+    if (!vis) return false;
+    return lastState.steadyActive !== !!steadyActive || lastState.label !== label;
+  }
+
+  function syncSteadyIndicatorState(lastState, visible, steadyActive, label) {
+    if (!lastState) return;
+    lastState.visible = !!visible;
+    lastState.steadyActive = !!steadyActive;
+    lastState.label = label;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -9025,7 +9120,21 @@ const CORE = (function () {
     stepGunSwitch: stepGunSwitch,
     applyShotKick: applyShotKick,
     decayShotKick: decayShotKick,
-    sniperUnscopeAds: sniperUnscopeAds
+    sniperUnscopeAds: sniperUnscopeAds,
+    SLIDE_VIGNETTE_RATE: SLIDE_VIGNETTE_RATE,
+    SLIDE_VIGNETTE_MAX_ALPHA: SLIDE_VIGNETTE_MAX_ALPHA,
+    stepSlideVignette: stepSlideVignette,
+    slideVignetteStyle: slideVignetteStyle,
+    objectiveLabel: objectiveLabel,
+    objectiveHudChanged: objectiveHudChanged,
+    syncObjectiveHudState: syncObjectiveHudState,
+    isScopeOverlayActive: isScopeOverlayActive,
+    scopeOverlayChanged: scopeOverlayChanged,
+    syncScopeOverlayState: syncScopeOverlayState,
+    isSteadyIndicatorVisible: isSteadyIndicatorVisible,
+    steadyIndicatorLabel: steadyIndicatorLabel,
+    steadyIndicatorChanged: steadyIndicatorChanged,
+    syncSteadyIndicatorState: syncSteadyIndicatorState
   };
 })();
 
@@ -11244,6 +11353,9 @@ let recoilShot = 0;
 let lastShotT = -99;
 let bloom = 0;
 let _lastChOp = -1, _lastChGap = -1;
+let _scopeOvEl = null, _chEl = null, _steadyIndEl = null;
+const _scopeOvState = { active: null, isSniper: null };
+const _steadyIndState = { visible: null, steadyActive: null, label: null };
 let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
@@ -11412,14 +11524,20 @@ function updateViewmodel(dt) {
   gunGroup.position.x -= gunGroup.position.x * 0.75 * narrow;
   gunGroup.position.y += 0.05 * narrow;
   // scope overlay for BR / SR
-  const scopeOv = $id('scoping-overlay');
-  const wantScope = adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR');
-  scopeOv.style.opacity = wantScope ? 1 : 0;
-  scopeOv.classList.toggle('scope-sniper', w.type === 'SR');
+  const isSr = w.type === 'SR';
+  const wantScope = CORE.isScopeOverlayActive(adsAmount, w.type);
+  if (CORE.scopeOverlayChanged(_scopeOvState, wantScope, isSr)) {
+    CORE.syncScopeOverlayState(_scopeOvState, wantScope, isSr);
+    if (!_scopeOvEl) _scopeOvEl = $id('scoping-overlay');
+    if (_scopeOvEl) {
+      _scopeOvEl.style.opacity = wantScope ? '1' : '0';
+      _scopeOvEl.classList.toggle('scope-sniper', isSr);
+    }
+  }
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
   if (gunGroup) gunGroup.visible = !(scoped);
-  const ch = $id('crosshair');
-  if (ch) {
+  if (!_chEl) _chEl = $id('crosshair');
+  if (_chEl) {
     const isScopedW = (w.type === 'BR' || w.type === 'SR');
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
     const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
@@ -11427,19 +11545,24 @@ function updateViewmodel(dt) {
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
     if (chOp !== _lastChOp) {
       _lastChOp = chOp;
-      ch.style.opacity = String(chOp);
+      _chEl.style.opacity = String(chOp);
     }
     if (chGap !== _lastChGap) {
       _lastChGap = chGap;
-      ch.style.setProperty('--ch-gap', chGap + 'px');
+      _chEl.style.setProperty('--ch-gap', chGap + 'px');
     }
   }
   // steady indicator
-  const steadyInd = $id('steady-ind');
-  if (steadyInd) {
-    steadyInd.style.opacity = (w.type === 'SR' && adsAmount > 0.8) ? 1 : 0;
-    steadyInd.textContent = steadyActive ? 'STEADY · ' + Math.ceil(steadyT * 10) / 10 + 's' : (steadyT < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY');
-    steadyInd.classList.toggle('steady-on', steadyActive);
+  const steadyVis = CORE.isSteadyIndicatorVisible(w.type, adsAmount);
+  const steadyLbl = steadyVis ? CORE.steadyIndicatorLabel(steadyActive, steadyT) : '';
+  if (CORE.steadyIndicatorChanged(_steadyIndState, steadyVis, steadyActive, steadyLbl)) {
+    CORE.syncSteadyIndicatorState(_steadyIndState, steadyVis, steadyActive, steadyLbl);
+    if (!_steadyIndEl) _steadyIndEl = $id('steady-ind');
+    if (_steadyIndEl) {
+      _steadyIndEl.style.opacity = steadyVis ? '1' : '0';
+      if (steadyVis) _steadyIndEl.textContent = steadyLbl;
+      _steadyIndEl.classList.toggle('steady-on', !!steadyActive);
+    }
   }
 }
 let flashT = 0;
@@ -15290,26 +15413,55 @@ function startObjective(n) {
   setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
 }
 
+const _objHudState = { visible: false, inside: false, pct: -1 };
+let _objEl = null, _objBarEl = null, _objTxtEl = null;
+function getObjEls() {
+  if (!_objEl) {
+    _objEl = $id('objective-hud');
+    _objBarEl = $id('objective-fill');
+    _objTxtEl = $id('objective-txt');
+  }
+  return _objEl;
+}
+function resetObjectiveHudCache() {
+  _objHudState.visible = false;
+  _objHudState.inside = false;
+  _objHudState.pct = -1;
+  if (getObjEls()) _objEl.style.opacity = '0';
+}
+
 function clearObjective() {
   objective = null;
   if (objRing) { scene.remove(objRing); objRing = null; }
   if (objPillar) { scene.remove(objPillar); objPillar = null; }
-  const el = $id('objective-hud');
-  if (el) el.style.opacity = '0';
+  if (_objHudState.visible) {
+    _objHudState.visible = false;
+    _objHudState.inside = false;
+    _objHudState.pct = -1;
+    if (getObjEls()) _objEl.style.opacity = '0';
+  }
 }
 
 function updateObjective(dt) {
-  const el = $id('objective-hud');
-  if (!objective || objective.done || player.dead) { if (el) el.style.opacity = '0'; return; }
+  if (!objective || objective.done || player.dead) {
+    if (_objHudState.visible) {
+      _objHudState.visible = false;
+      _objHudState.inside = false;
+      _objHudState.pct = -1;
+      if (getObjEls()) _objEl.style.opacity = '0';
+    }
+    return;
+  }
   const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
   objective.t = CORE.objectiveProgress(objective.t, dt, inside);
   const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
-  if (el) {
-    el.style.opacity = '1';
-    const bar = $id('objective-fill');
-    if (bar) bar.style.width = pct + '%';
-    const txt = $id('objective-txt');
-    if (txt) txt.textContent = inside ? 'HOLDING — ' + pct + '%' : 'RETURN TO THE ZONE — ' + pct + '%';
+  if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
+    CORE.syncObjectiveHudState(_objHudState, true, inside, pct);
+    if (getObjEls()) {
+      _objEl.style.opacity = '1';
+      if (_objBarEl) _objBarEl.style.width = pct + '%';
+      if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct);
+    }
   }
   if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
   if (CORE.objectiveComplete(objective.t)) {
@@ -15817,6 +15969,12 @@ function resetGame() {
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
+  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
+  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
+  if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
+  if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
+  if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
@@ -16309,6 +16467,9 @@ let hudFlickT = -9;     // gameT of last flick-forced redraw
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
 const _camPosOut = { x: 0, y: 0 };
+let _slideOvEl = null;
+let _slideVigOpacity = 0;
+let _lastSlideVigWritten = -1;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -16398,13 +16559,19 @@ function frame(now) {
       if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }
       if (adsAmount < 0.5 && wasScoped) { playSound('scope_out'); wasScoped = false; }
     } else wasScoped = false;
-    // slide vignette + FOV kick
-    const slideOv = $id('slide-vignette');
-    if (slideOv) {
-      const wantSlide = player.sliding ? 1 : 0;
-      const cur = slideOv.style.opacity ? parseFloat(slideOv.style.opacity) : 0;
-      slideOv.style.opacity = String(Math.min(1, cur + (wantSlide - cur) * Math.min(1, 14 * dt)));
-      slideOv.style.boxShadow = 'inset 0 0 90px 30px rgba(0,0,0,' + (0.55 * parseFloat(slideOv.style.opacity)) + ')';
+    // slide vignette
+    const wantSlide = player.sliding ? 1 : 0;
+    if (_slideVigOpacity > 0 || wantSlide) {
+      _slideVigOpacity = CORE.stepSlideVignette(_slideVigOpacity, wantSlide, dt);
+      const roundedOp = Math.round(_slideVigOpacity * 100) / 100;
+      if (roundedOp !== _lastSlideVigWritten) {
+        _lastSlideVigWritten = roundedOp;
+        if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+        if (_slideOvEl) {
+          _slideOvEl.style.opacity = String(roundedOp);
+          _slideOvEl.style.boxShadow = roundedOp > 0 ? CORE.slideVignetteStyle(roundedOp) : 'none';
+        }
+      }
     }
   }
   // clear edge-trigger keys

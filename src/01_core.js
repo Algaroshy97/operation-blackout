@@ -3898,6 +3898,101 @@ const CORE = (function () {
     return cur * f;
   }
 
+  // ---- HUD Churn & Overlay Performance Rules (v90) ---------------------------
+  const SLIDE_VIGNETTE_RATE = 14;
+  const SLIDE_VIGNETTE_MAX_ALPHA = 0.55;
+
+  function stepSlideVignette(curOpacity, wantSlide, dt, rate) {
+    const cur = typeof curOpacity === 'number' && !isNaN(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
+    const target = wantSlide ? 1 : 0;
+    if (cur === target) return target;
+    const r = typeof rate === 'number' && rate > 0 ? rate : SLIDE_VIGNETTE_RATE;
+    const delta = typeof dt === 'number' && dt > 0 ? dt : 0;
+    const step = Math.min(1, r * delta);
+    const next = cur + (target - cur) * step;
+    if (Math.abs(next - target) < 0.005) return target;
+    return Math.max(0, Math.min(1, next));
+  }
+
+  function slideVignetteStyle(opacity, maxAlpha) {
+    const op = typeof opacity === 'number' && !isNaN(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
+    const ma = typeof maxAlpha === 'number' && maxAlpha >= 0 ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
+    const a = Math.round((op * ma) * 1000) / 1000;
+    return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
+  }
+
+  function objectiveLabel(inside, pct) {
+    const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    return inside ? 'HOLDING — ' + p + '%' : 'RETURN TO THE ZONE — ' + p + '%';
+  }
+
+  function objectiveHudChanged(lastState, visible, inside, pct) {
+    if (!lastState) return true;
+    const vis = !!visible;
+    if (lastState.visible !== vis) return true;
+    if (!vis) return false;
+    const ins = !!inside;
+    const p = Math.round(pct || 0);
+    return lastState.inside !== ins || lastState.pct !== p;
+  }
+
+  function syncObjectiveHudState(lastState, visible, inside, pct) {
+    if (!lastState) return;
+    lastState.visible = !!visible;
+    lastState.inside = !!inside;
+    lastState.pct = Math.round(pct || 0);
+  }
+
+  function isScopeOverlayActive(adsAmount, weaponType) {
+    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const type = String(weaponType || '').toUpperCase();
+    return ads > 0.75 && (type === 'BR' || type === 'SR');
+  }
+
+  function scopeOverlayChanged(lastState, wantScope, isSniper) {
+    if (!lastState) return true;
+    const want = !!wantScope;
+    if (lastState.active !== want) return true;
+    if (!want) return false;
+    return lastState.isSniper !== !!isSniper;
+  }
+
+  function syncScopeOverlayState(lastState, wantScope, isSniper) {
+    if (!lastState) return;
+    lastState.active = !!wantScope;
+    lastState.isSniper = !!isSniper;
+  }
+
+  function isSteadyIndicatorVisible(weaponType, adsAmount) {
+    const type = String(weaponType || '').toUpperCase();
+    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    return type === 'SR' && ads > 0.8;
+  }
+
+  function steadyIndicatorLabel(steadyActive, steadyT) {
+    if (steadyActive) {
+      const t = Math.max(0, typeof steadyT === 'number' ? steadyT : 0);
+      return 'STEADY · ' + (Math.ceil(t * 10) / 10) + 's';
+    }
+    const t = typeof steadyT === 'number' ? steadyT : 0;
+    return t < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY';
+  }
+
+  function steadyIndicatorChanged(lastState, visible, steadyActive, label) {
+    if (!lastState) return true;
+    const vis = !!visible;
+    if (lastState.visible !== vis) return true;
+    if (!vis) return false;
+    return lastState.steadyActive !== !!steadyActive || lastState.label !== label;
+  }
+
+  function syncSteadyIndicatorState(lastState, visible, steadyActive, label) {
+    if (!lastState) return;
+    lastState.visible = !!visible;
+    lastState.steadyActive = !!steadyActive;
+    lastState.label = label;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4361,7 +4456,21 @@ const CORE = (function () {
     stepGunSwitch: stepGunSwitch,
     applyShotKick: applyShotKick,
     decayShotKick: decayShotKick,
-    sniperUnscopeAds: sniperUnscopeAds
+    sniperUnscopeAds: sniperUnscopeAds,
+    SLIDE_VIGNETTE_RATE: SLIDE_VIGNETTE_RATE,
+    SLIDE_VIGNETTE_MAX_ALPHA: SLIDE_VIGNETTE_MAX_ALPHA,
+    stepSlideVignette: stepSlideVignette,
+    slideVignetteStyle: slideVignetteStyle,
+    objectiveLabel: objectiveLabel,
+    objectiveHudChanged: objectiveHudChanged,
+    syncObjectiveHudState: syncObjectiveHudState,
+    isScopeOverlayActive: isScopeOverlayActive,
+    scopeOverlayChanged: scopeOverlayChanged,
+    syncScopeOverlayState: syncScopeOverlayState,
+    isSteadyIndicatorVisible: isSteadyIndicatorVisible,
+    steadyIndicatorLabel: steadyIndicatorLabel,
+    steadyIndicatorChanged: steadyIndicatorChanged,
+    syncSteadyIndicatorState: syncSteadyIndicatorState
   };
 })();
 

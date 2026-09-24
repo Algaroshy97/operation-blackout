@@ -343,6 +343,9 @@ let recoilShot = 0;
 let lastShotT = -99;
 let bloom = 0;
 let _lastChOp = -1, _lastChGap = -1;
+let _scopeOvEl = null, _chEl = null, _steadyIndEl = null;
+const _scopeOvState = { active: null, isSniper: null };
+const _steadyIndState = { visible: null, steadyActive: null, label: null };
 let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
@@ -511,14 +514,20 @@ function updateViewmodel(dt) {
   gunGroup.position.x -= gunGroup.position.x * 0.75 * narrow;
   gunGroup.position.y += 0.05 * narrow;
   // scope overlay for BR / SR
-  const scopeOv = $id('scoping-overlay');
-  const wantScope = adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR');
-  scopeOv.style.opacity = wantScope ? 1 : 0;
-  scopeOv.classList.toggle('scope-sniper', w.type === 'SR');
+  const isSr = w.type === 'SR';
+  const wantScope = CORE.isScopeOverlayActive(adsAmount, w.type);
+  if (CORE.scopeOverlayChanged(_scopeOvState, wantScope, isSr)) {
+    CORE.syncScopeOverlayState(_scopeOvState, wantScope, isSr);
+    if (!_scopeOvEl) _scopeOvEl = $id('scoping-overlay');
+    if (_scopeOvEl) {
+      _scopeOvEl.style.opacity = wantScope ? '1' : '0';
+      _scopeOvEl.classList.toggle('scope-sniper', isSr);
+    }
+  }
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
   if (gunGroup) gunGroup.visible = !(scoped);
-  const ch = $id('crosshair');
-  if (ch) {
+  if (!_chEl) _chEl = $id('crosshair');
+  if (_chEl) {
     const isScopedW = (w.type === 'BR' || w.type === 'SR');
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
     const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
@@ -526,19 +535,24 @@ function updateViewmodel(dt) {
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
     if (chOp !== _lastChOp) {
       _lastChOp = chOp;
-      ch.style.opacity = String(chOp);
+      _chEl.style.opacity = String(chOp);
     }
     if (chGap !== _lastChGap) {
       _lastChGap = chGap;
-      ch.style.setProperty('--ch-gap', chGap + 'px');
+      _chEl.style.setProperty('--ch-gap', chGap + 'px');
     }
   }
   // steady indicator
-  const steadyInd = $id('steady-ind');
-  if (steadyInd) {
-    steadyInd.style.opacity = (w.type === 'SR' && adsAmount > 0.8) ? 1 : 0;
-    steadyInd.textContent = steadyActive ? 'STEADY · ' + Math.ceil(steadyT * 10) / 10 + 's' : (steadyT < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY');
-    steadyInd.classList.toggle('steady-on', steadyActive);
+  const steadyVis = CORE.isSteadyIndicatorVisible(w.type, adsAmount);
+  const steadyLbl = steadyVis ? CORE.steadyIndicatorLabel(steadyActive, steadyT) : '';
+  if (CORE.steadyIndicatorChanged(_steadyIndState, steadyVis, steadyActive, steadyLbl)) {
+    CORE.syncSteadyIndicatorState(_steadyIndState, steadyVis, steadyActive, steadyLbl);
+    if (!_steadyIndEl) _steadyIndEl = $id('steady-ind');
+    if (_steadyIndEl) {
+      _steadyIndEl.style.opacity = steadyVis ? '1' : '0';
+      if (steadyVis) _steadyIndEl.textContent = steadyLbl;
+      _steadyIndEl.classList.toggle('steady-on', !!steadyActive);
+    }
   }
 }
 let flashT = 0;

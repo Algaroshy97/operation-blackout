@@ -501,26 +501,55 @@ function startObjective(n) {
   setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
 }
 
+const _objHudState = { visible: false, inside: false, pct: -1 };
+let _objEl = null, _objBarEl = null, _objTxtEl = null;
+function getObjEls() {
+  if (!_objEl) {
+    _objEl = $id('objective-hud');
+    _objBarEl = $id('objective-fill');
+    _objTxtEl = $id('objective-txt');
+  }
+  return _objEl;
+}
+function resetObjectiveHudCache() {
+  _objHudState.visible = false;
+  _objHudState.inside = false;
+  _objHudState.pct = -1;
+  if (getObjEls()) _objEl.style.opacity = '0';
+}
+
 function clearObjective() {
   objective = null;
   if (objRing) { scene.remove(objRing); objRing = null; }
   if (objPillar) { scene.remove(objPillar); objPillar = null; }
-  const el = $id('objective-hud');
-  if (el) el.style.opacity = '0';
+  if (_objHudState.visible) {
+    _objHudState.visible = false;
+    _objHudState.inside = false;
+    _objHudState.pct = -1;
+    if (getObjEls()) _objEl.style.opacity = '0';
+  }
 }
 
 function updateObjective(dt) {
-  const el = $id('objective-hud');
-  if (!objective || objective.done || player.dead) { if (el) el.style.opacity = '0'; return; }
+  if (!objective || objective.done || player.dead) {
+    if (_objHudState.visible) {
+      _objHudState.visible = false;
+      _objHudState.inside = false;
+      _objHudState.pct = -1;
+      if (getObjEls()) _objEl.style.opacity = '0';
+    }
+    return;
+  }
   const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
   objective.t = CORE.objectiveProgress(objective.t, dt, inside);
   const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
-  if (el) {
-    el.style.opacity = '1';
-    const bar = $id('objective-fill');
-    if (bar) bar.style.width = pct + '%';
-    const txt = $id('objective-txt');
-    if (txt) txt.textContent = inside ? 'HOLDING — ' + pct + '%' : 'RETURN TO THE ZONE — ' + pct + '%';
+  if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
+    CORE.syncObjectiveHudState(_objHudState, true, inside, pct);
+    if (getObjEls()) {
+      _objEl.style.opacity = '1';
+      if (_objBarEl) _objBarEl.style.width = pct + '%';
+      if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct);
+    }
   }
   if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
   if (CORE.objectiveComplete(objective.t)) {
