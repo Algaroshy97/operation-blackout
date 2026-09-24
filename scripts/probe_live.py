@@ -1543,7 +1543,64 @@ def main() -> int:
         }""")
         checks.append(("touch-combat-feedback-rules", touch_combat_check))
 
-        # 42) Clean console throughout gameplay.
+        # 42) Tactical camera dynamics, dynamic FOV scaling, and procedural roll rules.
+        tactical_camera_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.weaponAdsZoom !== 'function' ||
+                typeof CORE.mobilityFovBoost !== 'function' ||
+                typeof CORE.targetCameraFov !== 'function' ||
+                typeof CORE.strafeDirection !== 'function' ||
+                typeof CORE.cameraRoll !== 'function' ||
+                typeof CORE.cameraPositionOffsets !== 'function') return false;
+
+            const zoomSr = CORE.weaponAdsZoom('SR') === 52;
+            const zoomAr = CORE.weaponAdsZoom('AR') === 24;
+            const zoomSmg = CORE.weaponAdsZoom('SMG') === 24;
+
+            const fovNom = CORE.mobilityFovBoost(false, false, 0, false) === 0;
+            const fovSlide = CORE.mobilityFovBoost(true, false, 0, false) === 6;
+            const fovTac = CORE.mobilityFovBoost(false, true, 0, false) === 4;
+            const fovReduced = CORE.mobilityFovBoost(true, true, 0, true) === 0;
+            const fovAds = CORE.mobilityFovBoost(true, true, 0.8, false) === 0;
+
+            const fovTargetNom = Math.abs(CORE.targetCameraFov(75, 0, 24, 0) - 75) < 1e-4;
+            const fovTargetZoom = Math.abs(CORE.targetCameraFov(75, 1, 24, 0) - 51) < 1e-4;
+            const fovTargetSr = Math.abs(CORE.targetCameraFov(75, 1, 52, 0) - 23) < 1e-4;
+            const fovTargetSlide = Math.abs(CORE.targetCameraFov(75, 0, 24, 6) - 81) < 1e-4;
+            const fovTargetTac = Math.abs(CORE.targetCameraFov(75, 0, 24, 4) - 79) < 1e-4;
+
+            const strafeNone = CORE.strafeDirection(false, false, 0) === 0;
+            const strafeLeftKey = CORE.strafeDirection(true, false, 0) === -1;
+            const strafeRightKey = CORE.strafeDirection(false, true, 0) === 1;
+            const strafeBoth = CORE.strafeDirection(true, true, 0) === 0;
+            const strafeAnalogL = CORE.strafeDirection(false, false, -0.6) === -1;
+            const strafeAnalogR = CORE.strafeDirection(false, false, 0.5) === 1;
+            const strafeAnalogDead = CORE.strafeDirection(false, false, 0.05) === 0;
+
+            const rollReduced = Math.abs(CORE.cameraRoll(1.0, 1.0, 1.0, 1.0, true, 0, false)) < 1e-4;
+            const rollStrafeL = CORE.cameraRoll(0, 0, 0, -1, false, 0, false);
+            const rollStrafeR = CORE.cameraRoll(0, 0, 0, 1, false, 0, false);
+            const rollOpposite = rollStrafeL < 0 && rollStrafeR > 0;
+            const rollSlide = CORE.cameraRoll(0, 0, 1, 0, false, 0, false);
+            const rollSlideOk = Math.abs(rollSlide - 0.16) < 1e-4;
+
+            const out = { x: 0, y: 0 };
+            CORE.cameraPositionOffsets(0, 1, 1, false, out);
+            const posSlideOk = Math.abs(out.x) < 1e-4 && Math.abs(out.y - (-0.45)) < 1e-4;
+            CORE.cameraPositionOffsets(0, 1, 1, true, out);
+            const posReducedOk = Math.abs(out.x) < 1e-4 && Math.abs(out.y) < 1e-4;
+
+            return zoomSr && zoomAr && zoomSmg &&
+                   fovNom && fovSlide && fovTac && fovReduced && fovAds &&
+                   fovTargetNom && fovTargetZoom && fovTargetSr && fovTargetSlide && fovTargetTac &&
+                   strafeNone && strafeLeftKey && strafeRightKey && strafeBoth &&
+                   strafeAnalogL && strafeAnalogR && strafeAnalogDead &&
+                   rollReduced && rollOpposite && rollSlideOk &&
+                   posSlideOk && posReducedOk;
+        }""")
+        checks.append(("tactical-camera-and-visual-polish-rules", tactical_camera_check))
+
+        # 43) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -3673,6 +3673,82 @@ const CORE = (function () {
     return '';
   }
 
+  // Tactical camera dynamics, dynamic FOV scaling, and procedural roll rules
+  const SNIPER_ADS_ZOOM = 52;
+  const DEFAULT_ADS_ZOOM = 24;
+  const SLIDE_FOV_BOOST = 6;
+  const TAC_SPRINT_FOV_BOOST = 4;
+  const CAMERA_MIN_FOV = 20;
+  const CAMERA_MAX_FOV = 130;
+  const CAMERA_BOB_X_SCALE = 0.025;
+  const CAMERA_BOB_Y_SCALE = 0.05;
+  const CAMERA_SLIDE_DIP = 0.45;
+  const CAMERA_BOB_ROLL_SCALE = 0.008;
+  const CAMERA_SLIDE_ROLL = 0.16;
+  const CAMERA_STRAFE_ROLL_SCALE = 0.012;
+
+  function weaponAdsZoom(weaponType) {
+    return weaponType === 'SR' ? SNIPER_ADS_ZOOM : DEFAULT_ADS_ZOOM;
+  }
+
+  function mobilityFovBoost(isSliding, isTacSprint, adsAmount, isReducedMotion) {
+    if (isReducedMotion) return 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    if (ads > 0.5) return 0;
+    if (isSliding) return SLIDE_FOV_BOOST;
+    if (isTacSprint) return TAC_SPRINT_FOV_BOOST;
+    return 0;
+  }
+
+  function targetCameraFov(baseSettingFov, adsAmount, weaponZoom, mobilityBoost) {
+    const fov = typeof baseSettingFov === 'number' && isFinite(baseSettingFov) ? baseSettingFov : 75;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const zoom = typeof weaponZoom === 'number' && isFinite(weaponZoom) ? weaponZoom : DEFAULT_ADS_ZOOM;
+    const boost = typeof mobilityBoost === 'number' && isFinite(mobilityBoost) ? mobilityBoost : 0;
+    const target = fov - ads * zoom + boost;
+    return Math.max(CAMERA_MIN_FOV, Math.min(CAMERA_MAX_FOV, target));
+  }
+
+  function strafeDirection(keyA, keyD, analogX) {
+    if (typeof analogX === 'number' && isFinite(analogX) && Math.abs(analogX) > 0.15) {
+      return analogX < 0 ? -1 : 1;
+    }
+    const a = !!keyA, d = !!keyD;
+    if (a && !d) return -1;
+    if (d && !a) return 1;
+    return 0;
+  }
+
+  function cameraRoll(bobPhase, bobAmp, slideBlend, strafeDir, isReducedMotion, swayX, isScoped) {
+    const motionMul = isReducedMotion ? 0 : 1;
+    const phase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const amp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
+    const slide = typeof slideBlend === 'number' && isFinite(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
+    const strafe = typeof strafeDir === 'number' && isFinite(strafeDir) ? Math.max(-1, Math.min(1, strafeDir)) : 0;
+    const bobRoll = Math.sin(phase) * amp * CAMERA_BOB_ROLL_SCALE;
+    const slideRoll = slide * CAMERA_SLIDE_ROLL;
+    const strafeRoll = strafe * CAMERA_STRAFE_ROLL_SCALE;
+    const motionRoll = (bobRoll + slideRoll + strafeRoll) * motionMul;
+    const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
+    const swayRoll = isScoped ? sx * 0.5 : 0;
+    return motionRoll + swayRoll;
+  }
+
+  function cameraPositionOffsets(bobPhase, bobAmp, slideBlend, isReducedMotion, out) {
+    const o = out || { x: 0, y: 0 };
+    if (isReducedMotion) {
+      o.x = 0;
+      o.y = 0;
+      return o;
+    }
+    const phase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const amp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
+    const slide = typeof slideBlend === 'number' && isFinite(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
+    o.x = Math.sin(phase) * amp * CAMERA_BOB_X_SCALE;
+    o.y = Math.abs(Math.sin(phase)) * amp * CAMERA_BOB_Y_SCALE - slide * CAMERA_SLIDE_DIP;
+    return o;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4083,7 +4159,25 @@ const CORE = (function () {
     slideStartSound: slideStartSound,
     footstepCadence: footstepCadence,
     playerFootstepSound: playerFootstepSound,
-    shouldPlayFootstep: shouldPlayFootstep
+    shouldPlayFootstep: shouldPlayFootstep,
+    SNIPER_ADS_ZOOM: SNIPER_ADS_ZOOM,
+    DEFAULT_ADS_ZOOM: DEFAULT_ADS_ZOOM,
+    SLIDE_FOV_BOOST: SLIDE_FOV_BOOST,
+    TAC_SPRINT_FOV_BOOST: TAC_SPRINT_FOV_BOOST,
+    CAMERA_MIN_FOV: CAMERA_MIN_FOV,
+    CAMERA_MAX_FOV: CAMERA_MAX_FOV,
+    CAMERA_BOB_X_SCALE: CAMERA_BOB_X_SCALE,
+    CAMERA_BOB_Y_SCALE: CAMERA_BOB_Y_SCALE,
+    CAMERA_SLIDE_DIP: CAMERA_SLIDE_DIP,
+    CAMERA_BOB_ROLL_SCALE: CAMERA_BOB_ROLL_SCALE,
+    CAMERA_SLIDE_ROLL: CAMERA_SLIDE_ROLL,
+    CAMERA_STRAFE_ROLL_SCALE: CAMERA_STRAFE_ROLL_SCALE,
+    weaponAdsZoom: weaponAdsZoom,
+    mobilityFovBoost: mobilityFovBoost,
+    targetCameraFov: targetCameraFov,
+    strafeDirection: strafeDirection,
+    cameraRoll: cameraRoll,
+    cameraPositionOffsets: cameraPositionOffsets
   };
 })();
 

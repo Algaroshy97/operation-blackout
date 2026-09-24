@@ -672,6 +672,7 @@ let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
+const _camPosOut = { x: 0, y: 0 };
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -777,25 +778,26 @@ function frame(now) {
   if (!player.dead) {
     // GAP-08: reduced motion strips the bob and roll that make some players ill.
     const motion = getSetting('reducedMotion') ? 0 : 1;
-    const bobY = Math.abs(Math.sin(player.bobPhase)) * player.bobAmp * 0.05 * motion;
-    const bobX = Math.sin(player.bobPhase) * player.bobAmp * 0.025 * motion;
-    // slide: lower camera + roll tilt + slight FOV widen
+    const isRedMotion = !motion;
     const slideBlend = player.sliding ? 1 : 0;
-    slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
-    // Ease toward one bounded FOV target. The old incremental update let FOV
-    // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = getSetting('fov') - adsAmount * (curW().type === 'SR' ? 52 : 24);
-    const targetFov = baseFov + slideFov;
+    const isTac = player.tacT > 0;
+    const desiredMobilityFov = CORE.mobilityFovBoost(player.sliding, isTac, adsAmount, isRedMotion);
+    slideFov += (desiredMobilityFov - slideFov) * Math.min(1, 10 * dt);
+    const zoom = CORE.weaponAdsZoom(curW().type);
+    const targetFov = CORE.targetCameraFov(getSetting('fov'), adsAmount, zoom, slideFov);
     const previousFov = camera.fov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
-    const slideDip = slideBlend * 0.45 * motion;
-    camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
+
+    CORE.cameraPositionOffsets(player.bobPhase, player.bobAmp, slideBlend, isRedMotion, _camPosOut);
+    camera.position.set(player.pos.x + _camPosOut.x, player.pos.y + _camPosOut.y, player.pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw + player.recoilY;
     camera.rotation.x = player.pitch + player.recoilP;
-    // roll: bob + slide lean + sway
-    camera.rotation.z = (Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16) * motion + (adsAmount > 0.8 ? swayX * 0.5 : 0);
+
+    // roll: bob + slide lean + strafe banking + sway
+    const strafeDir = CORE.strafeDirection(!!keys['KeyA'], !!keys['KeyD'], window.__analogMove ? window.__analogMove.x : 0);
+    camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8);
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground

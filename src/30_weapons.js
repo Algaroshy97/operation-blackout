@@ -511,10 +511,6 @@ function updateViewmodel(dt) {
   const narrow = Math.max(0, Math.min(1, (1.2 - aspect) / 0.7));
   gunGroup.position.x -= gunGroup.position.x * 0.75 * narrow;
   gunGroup.position.y += 0.05 * narrow;
-  // camera FOV: ads zoom (sniper much tighter)
-  const sniperZoom = w.type === 'SR' ? 52 : 24;
-  const targetFov = getSetting('fov') - adsAmount * sniperZoom;
-  if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, 10 * dt); camera.updateProjectionMatrix(); }
   // scope overlay for BR / SR
   const scopeOv = $id('scoping-overlay');
   const wantScope = adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR');

@@ -4871,3 +4871,117 @@ test('touchFireState, touchFireLabel, and touchReloadLabel govern mobile combat 
   assert.strictEqual(CORE.touchReloadLabel(0, -5, false), 'EMPTY');
   assert.strictEqual(CORE.touchReloadLabel(NaN, 0, false), 'EMPTY');
 });
+
+test('weaponAdsZoom, mobilityFovBoost, targetCameraFov, strafeDirection, cameraRoll, and cameraPositionOffsets govern tactical camera dynamics', () => {
+  // Constants
+  assert.strictEqual(CORE.SNIPER_ADS_ZOOM, 52);
+  assert.strictEqual(CORE.DEFAULT_ADS_ZOOM, 24);
+  assert.strictEqual(CORE.SLIDE_FOV_BOOST, 6);
+  assert.strictEqual(CORE.TAC_SPRINT_FOV_BOOST, 4);
+  assert.strictEqual(CORE.CAMERA_MIN_FOV, 20);
+  assert.strictEqual(CORE.CAMERA_MAX_FOV, 130);
+  assert.strictEqual(CORE.CAMERA_BOB_X_SCALE, 0.025);
+  assert.strictEqual(CORE.CAMERA_BOB_Y_SCALE, 0.05);
+  assert.strictEqual(CORE.CAMERA_SLIDE_DIP, 0.45);
+  assert.strictEqual(CORE.CAMERA_BOB_ROLL_SCALE, 0.008);
+  assert.strictEqual(CORE.CAMERA_SLIDE_ROLL, 0.16);
+  assert.strictEqual(CORE.CAMERA_STRAFE_ROLL_SCALE, 0.012);
+
+  // weaponAdsZoom
+  assert.strictEqual(CORE.weaponAdsZoom('SR'), 52);
+  assert.strictEqual(CORE.weaponAdsZoom('AR'), 24);
+  assert.strictEqual(CORE.weaponAdsZoom('SMG'), 24);
+  assert.strictEqual(CORE.weaponAdsZoom('SG'), 24);
+  assert.strictEqual(CORE.weaponAdsZoom('BR'), 24);
+  assert.strictEqual(CORE.weaponAdsZoom(''), 24);
+  assert.strictEqual(CORE.weaponAdsZoom(undefined), 24);
+
+  // mobilityFovBoost
+  // Nominal standing/running
+  assert.strictEqual(CORE.mobilityFovBoost(false, false, 0, false), 0);
+  // Slide boost (+6 deg)
+  assert.strictEqual(CORE.mobilityFovBoost(true, false, 0, false), 6);
+  // Tactical sprint boost (+4 deg)
+  assert.strictEqual(CORE.mobilityFovBoost(false, true, 0, false), 4);
+  // Slide takes precedence over tac sprint
+  assert.strictEqual(CORE.mobilityFovBoost(true, true, 0, false), 6);
+  // Reduced motion suppresses mobility FOV boosts
+  assert.strictEqual(CORE.mobilityFovBoost(true, false, 0, true), 0);
+  assert.strictEqual(CORE.mobilityFovBoost(false, true, 0, true), 0);
+  // ADS suppresses mobility FOV boosts to prioritize sight alignment
+  assert.strictEqual(CORE.mobilityFovBoost(true, false, 0.8, false), 0);
+  assert.strictEqual(CORE.mobilityFovBoost(false, true, 0.6, false), 0);
+  assert.strictEqual(CORE.mobilityFovBoost(true, false, 0.4, false), 6);
+
+  // targetCameraFov
+  // Base hip-fire
+  assert.strictEqual(CORE.targetCameraFov(75, 0, 24, 0), 75);
+  // Standard weapon ADS zoom
+  assert.strictEqual(CORE.targetCameraFov(75, 1, 24, 0), 51);
+  // Sniper rifle ADS zoom
+  assert.strictEqual(CORE.targetCameraFov(75, 1, 52, 0), 23);
+  // Partial ADS zoom
+  assert.strictEqual(CORE.targetCameraFov(75, 0.5, 24, 0), 63);
+  // Slide FOV kick
+  assert.strictEqual(CORE.targetCameraFov(75, 0, 24, 6), 81);
+  // Tactical sprint FOV kick
+  assert.strictEqual(CORE.targetCameraFov(75, 0, 24, 4), 79);
+  // Bounds clamping
+  assert.strictEqual(CORE.targetCameraFov(150, 0, 24, 0), 130);
+  assert.strictEqual(CORE.targetCameraFov(10, 1, 52, 0), 20);
+  // Fallbacks for corrupt input
+  assert.strictEqual(CORE.targetCameraFov(NaN, 0, 24, 0), 75);
+  assert.strictEqual(CORE.targetCameraFov(75, NaN, 24, 0), 75);
+  assert.strictEqual(CORE.targetCameraFov(75, 0, NaN, 0), 75);
+
+  // strafeDirection
+  // Neutral
+  assert.strictEqual(CORE.strafeDirection(false, false, 0), 0);
+  // Keyboard keys
+  assert.strictEqual(CORE.strafeDirection(true, false, 0), -1);
+  assert.strictEqual(CORE.strafeDirection(false, true, 0), 1);
+  assert.strictEqual(CORE.strafeDirection(true, true, 0), 0);
+  // Analog stick
+  assert.strictEqual(CORE.strafeDirection(false, false, -0.7), -1);
+  assert.strictEqual(CORE.strafeDirection(false, false, 0.8), 1);
+  // Analog deadzone (<= 0.15)
+  assert.strictEqual(CORE.strafeDirection(false, false, 0.10), 0);
+  assert.strictEqual(CORE.strafeDirection(false, false, -0.12), 0);
+  // Analog overrides keys if active
+  assert.strictEqual(CORE.strafeDirection(true, false, 0.5), 1);
+
+  // cameraRoll
+  // Reduced motion suppresses motion roll
+  assert.strictEqual(CORE.cameraRoll(1.5, 1.0, 1.0, 1, true, 0, false), 0);
+  // Scoped sway roll is preserved even under reduced motion
+  assert.strictEqual(CORE.cameraRoll(1.5, 1.0, 1.0, 1, true, 0.08, true), 0.04);
+  // Strafe banking roll: left is negative, right is positive
+  const rollLeft = CORE.cameraRoll(0, 0, 0, -1, false, 0, false);
+  const rollRight = CORE.cameraRoll(0, 0, 0, 1, false, 0, false);
+  assert.strictEqual(rollLeft, -0.012);
+  assert.strictEqual(rollRight, 0.012);
+  // Slide roll tilt (+0.16)
+  assert.strictEqual(CORE.cameraRoll(0, 0, 1, 0, false, 0, false), 0.16);
+  // Bob roll
+  const bobR = CORE.cameraRoll(Math.PI / 2, 1, 0, 0, false, 0, false);
+  assert.ok(Math.abs(bobR - 0.008) < 1e-4);
+
+  // cameraPositionOffsets
+  const posOut = { x: 0, y: 0 };
+  // Reduced motion zeroes position offsets
+  CORE.cameraPositionOffsets(1.5, 1.0, 1.0, true, posOut);
+  assert.strictEqual(posOut.x, 0);
+  assert.strictEqual(posOut.y, 0);
+  // Slide dip (-0.45 m)
+  CORE.cameraPositionOffsets(0, 0, 1.0, false, posOut);
+  assert.strictEqual(posOut.x, 0);
+  assert.strictEqual(posOut.y, -0.45);
+  // Bob oscillation
+  CORE.cameraPositionOffsets(Math.PI / 2, 1.0, 0, false, posOut);
+  assert.ok(Math.abs(posOut.x - 0.025) < 1e-4);
+  assert.ok(Math.abs(posOut.y - 0.05) < 1e-4);
+  // Return new object if not passed
+  const freshOut = CORE.cameraPositionOffsets(0, 0, 0, false);
+  assert.strictEqual(freshOut.x, 0);
+  assert.strictEqual(freshOut.y, 0);
+});
