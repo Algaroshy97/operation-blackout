@@ -8413,6 +8413,155 @@ const CORE = (function () {
     return o;
   }
 
+  // Locomotion balance, air control physics, jump grace timing, head-bob step physics, and weapon recoil/ADS balance rules
+  const TAC_SPRINT_SPEED_MUL = 1.25;
+  const LAND_STUN_SPEED_MUL = 0.55;
+  const ADS_MOVE_SPEED_MUL = 0.65;
+  const AIR_SLIDE_ACCEL_RATE = 4;
+  const AIR_MOVE_ACCEL_RATE = 7;
+  const GROUND_DECEL_DEFAULT = 38;
+  const VELOCITY_SNAP_THRESHOLD = 0.05;
+  const BOB_SPEED_THRESHOLD = 0.5;
+  const BOB_FREQ_SPRINT = 13;
+  const BOB_FREQ_WALK = 9;
+  const BOB_SPEED_SCALE = 6;
+  const BOB_GROW_RATE = 6;
+  const BOB_DECAY_RATE = 8;
+  const LAND_STUN_BASE_TIME = 0.25;
+  const LAND_STUN_SCALE = 0.5;
+  const COYOTE_TIME = 0.12;
+  const JUMP_BUFFER_TIME = 0.15;
+  const ADS_BASE_SPEED = 12;
+  const GUN_SWITCH_SPEED = 3.5;
+  const SNIPER_UNSCOPE_FACTOR = 0.45;
+  const SHOT_KICK_IMPULSE = 0.5;
+  const SHOT_KICK_MAX = 1.4;
+  const SHOT_KICK_DECAY_BASE = 0.001;
+
+  function playerMoveSpeed(baseSpeed, analogMag, isSprinting, isTacSprint, isDowned, isLandStun, isCrouching, isAds, sprintMul, crouchMul, weaponMoveMul) {
+    const base = typeof baseSpeed === 'number' && isFinite(baseSpeed) ? Math.max(0, baseSpeed) : 5.4;
+    const mag = typeof analogMag === 'number' && isFinite(analogMag) ? Math.max(0, Math.min(1, analogMag)) : 1;
+    let spd = base * mag;
+    const sMul = typeof sprintMul === 'number' && isFinite(sprintMul) ? sprintMul : 1.65;
+    const cMul = typeof crouchMul === 'number' && isFinite(crouchMul) ? crouchMul : 0.55;
+    const wMul = typeof weaponMoveMul === 'number' && isFinite(weaponMoveMul) ? Math.max(0.1, weaponMoveMul) : 1;
+
+    if (isSprinting) spd *= sMul * (isTacSprint ? TAC_SPRINT_SPEED_MUL : 1);
+    if (isDowned) spd *= DOWN_SPEED_MUL;
+    if (isLandStun) spd *= LAND_STUN_SPEED_MUL;
+    if (isCrouching) spd *= cMul;
+    if (isAds) spd *= ADS_MOVE_SPEED_MUL * wMul;
+    return Math.max(0, spd);
+  }
+
+  function movementAccelRate(onGround, isSliding, hasInput, groundAccel, groundDecel) {
+    if (!onGround) return isSliding ? AIR_SLIDE_ACCEL_RATE : AIR_MOVE_ACCEL_RATE;
+    const accel = typeof groundAccel === 'number' && isFinite(groundAccel) ? groundAccel : 16;
+    const decel = typeof groundDecel === 'number' && isFinite(groundDecel) ? groundDecel : GROUND_DECEL_DEFAULT;
+    return hasInput ? accel : decel;
+  }
+
+  function stepHorizontalVelocity(currentVx, currentVz, targetVx, targetVz, rate, dt, onGround, hasInput, out) {
+    const o = out || { x: 0, z: 0 };
+    const cvx = typeof currentVx === 'number' && isFinite(currentVx) ? currentVx : 0;
+    const cvz = typeof currentVz === 'number' && isFinite(currentVz) ? currentVz : 0;
+    const tvx = typeof targetVx === 'number' && isFinite(targetVx) ? targetVx : 0;
+    const tvz = typeof targetVz === 'number' && isFinite(targetVz) ? targetVz : 0;
+    const r = typeof rate === 'number' && isFinite(rate) ? Math.max(0, rate) : 16;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const blend = Math.min(1, r * delta);
+
+    let vx = cvx + (tvx - cvx) * blend;
+    let vz = cvz + (tvz - cvz) * blend;
+    if (onGround && !hasInput && Math.hypot(vx, vz) < VELOCITY_SNAP_THRESHOLD) {
+      vx = 0;
+      vz = 0;
+    }
+    o.x = vx;
+    o.z = vz;
+    return o;
+  }
+
+  function stepHeadBob(bobPhase, bobAmp, onGround, horizontalSpeed, isSprinting, dt, out) {
+    const o = out || { phase: 0, amp: 0 };
+    const p = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const a = typeof bobAmp === 'number' && isFinite(bobAmp) ? Math.max(0, Math.min(1, bobAmp)) : 0;
+    const spd = typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+
+    if (onGround && spd > BOB_SPEED_THRESHOLD) {
+      const freq = isSprinting ? BOB_FREQ_SPRINT : BOB_FREQ_WALK;
+      o.phase = p + delta * freq;
+      const targetAmp = Math.min(1, spd / BOB_SPEED_SCALE);
+      o.amp = a + (targetAmp - a) * Math.min(1, BOB_GROW_RATE * delta);
+    } else {
+      o.phase = p;
+      o.amp = a + (0 - a) * Math.min(1, BOB_DECAY_RATE * delta);
+    }
+    return o;
+  }
+
+  function landingStunDuration(landingSpeedMul) {
+    const mul = typeof landingSpeedMul === 'number' && isFinite(landingSpeedMul)
+      ? Math.max(0, Math.min(1, landingSpeedMul)) : 1;
+    return LAND_STUN_BASE_TIME + (1 - mul) * LAND_STUN_SCALE;
+  }
+
+  function stepJumpTimers(coyoteT, jumpBufT, onGround, jumpPressed, dt, out) {
+    const o = out || { coyoteT: 0, jumpBufT: 0 };
+    const cT = typeof coyoteT === 'number' && isFinite(coyoteT) ? Math.max(0, coyoteT) : 0;
+    const jT = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? Math.max(0, jumpBufT) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+
+    o.coyoteT = onGround ? COYOTE_TIME : Math.max(0, cT - delta);
+    o.jumpBufT = jumpPressed ? JUMP_BUFFER_TIME : Math.max(0, jT - delta);
+    return o;
+  }
+
+  function canInitiateJump(jumpBufT, coyoteT, isCrouching, isSliding, isDowned, landStunT) {
+    const jb = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? jumpBufT : 0;
+    const ct = typeof coyoteT === 'number' && isFinite(coyoteT) ? coyoteT : 0;
+    const ls = typeof landStunT === 'number' && isFinite(landStunT) ? landStunT : 0;
+    return jb > 0 && ct > 0 && !isCrouching && !isSliding && !isDowned && ls <= 0;
+  }
+
+  function stepAdsTransition(currentAds, wantAds, dt, perkMul, weaponAdsSpeed) {
+    const cur = typeof currentAds === 'number' && isFinite(currentAds) ? Math.max(0, Math.min(1, currentAds)) : 0;
+    const target = wantAds ? 1 : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const pMul = typeof perkMul === 'number' && isFinite(perkMul) ? Math.max(0.1, perkMul) : 1;
+    const wSpeed = typeof weaponAdsSpeed === 'number' && isFinite(weaponAdsSpeed) ? Math.max(0.1, weaponAdsSpeed) : 1;
+    const rate = ADS_BASE_SPEED * pMul * wSpeed;
+    return cur + (target - cur) * Math.min(1, rate * delta);
+  }
+
+  function stepGunSwitch(currentSwitchT, dt, speed) {
+    const cur = typeof currentSwitchT === 'number' && isFinite(currentSwitchT) ? Math.max(0, Math.min(1, currentSwitchT)) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0.1, speed) : GUN_SWITCH_SPEED;
+    return Math.min(1, cur + delta * spd);
+  }
+
+  function applyShotKick(currentKick, impulse, maxKick) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const imp = typeof impulse === 'number' && isFinite(impulse) ? impulse : SHOT_KICK_IMPULSE;
+    const mx = typeof maxKick === 'number' && isFinite(maxKick) ? maxKick : SHOT_KICK_MAX;
+    return Math.min(cur + imp, mx);
+  }
+
+  function decayShotKick(currentKick, dt, decayBase) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const base = typeof decayBase === 'number' && isFinite(decayBase) && decayBase > 0 ? decayBase : SHOT_KICK_DECAY_BASE;
+    return cur * Math.pow(base, delta);
+  }
+
+  function sniperUnscopeAds(adsAmount, factor) {
+    const cur = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const f = typeof factor === 'number' && isFinite(factor) ? factor : SNIPER_UNSCOPE_FACTOR;
+    return cur * f;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8841,7 +8990,42 @@ const CORE = (function () {
     targetCameraFov: targetCameraFov,
     strafeDirection: strafeDirection,
     cameraRoll: cameraRoll,
-    cameraPositionOffsets: cameraPositionOffsets
+    cameraPositionOffsets: cameraPositionOffsets,
+    TAC_SPRINT_SPEED_MUL: TAC_SPRINT_SPEED_MUL,
+    LAND_STUN_SPEED_MUL: LAND_STUN_SPEED_MUL,
+    ADS_MOVE_SPEED_MUL: ADS_MOVE_SPEED_MUL,
+    AIR_SLIDE_ACCEL_RATE: AIR_SLIDE_ACCEL_RATE,
+    AIR_MOVE_ACCEL_RATE: AIR_MOVE_ACCEL_RATE,
+    GROUND_DECEL_DEFAULT: GROUND_DECEL_DEFAULT,
+    VELOCITY_SNAP_THRESHOLD: VELOCITY_SNAP_THRESHOLD,
+    BOB_SPEED_THRESHOLD: BOB_SPEED_THRESHOLD,
+    BOB_FREQ_SPRINT: BOB_FREQ_SPRINT,
+    BOB_FREQ_WALK: BOB_FREQ_WALK,
+    BOB_SPEED_SCALE: BOB_SPEED_SCALE,
+    BOB_GROW_RATE: BOB_GROW_RATE,
+    BOB_DECAY_RATE: BOB_DECAY_RATE,
+    LAND_STUN_BASE_TIME: LAND_STUN_BASE_TIME,
+    LAND_STUN_SCALE: LAND_STUN_SCALE,
+    COYOTE_TIME: COYOTE_TIME,
+    JUMP_BUFFER_TIME: JUMP_BUFFER_TIME,
+    ADS_BASE_SPEED: ADS_BASE_SPEED,
+    GUN_SWITCH_SPEED: GUN_SWITCH_SPEED,
+    SNIPER_UNSCOPE_FACTOR: SNIPER_UNSCOPE_FACTOR,
+    SHOT_KICK_IMPULSE: SHOT_KICK_IMPULSE,
+    SHOT_KICK_MAX: SHOT_KICK_MAX,
+    SHOT_KICK_DECAY_BASE: SHOT_KICK_DECAY_BASE,
+    playerMoveSpeed: playerMoveSpeed,
+    movementAccelRate: movementAccelRate,
+    stepHorizontalVelocity: stepHorizontalVelocity,
+    stepHeadBob: stepHeadBob,
+    landingStunDuration: landingStunDuration,
+    stepJumpTimers: stepJumpTimers,
+    canInitiateJump: canInitiateJump,
+    stepAdsTransition: stepAdsTransition,
+    stepGunSwitch: stepGunSwitch,
+    applyShotKick: applyShotKick,
+    decayShotKick: decayShotKick,
+    sniperUnscopeAds: sniperUnscopeAds
   };
 })();
 
@@ -9988,7 +10172,7 @@ const MANTLE_MAX_RISE = 1.7;
 // burn. Sprint was one speed, which made every rotation feel the same length.
 const TAC_TAP_WINDOW = 0.32;
 const TAC_DURATION = 2.5;
-const TAC_MUL = 1.25;
+const TAC_MUL = CORE.TAC_SPRINT_SPEED_MUL;
 const TAC_DRAIN = 2.2;
 let lastSprintTap = -99;
 // Distance from the eye to the top of the head. The ceiling resolve keeps this
@@ -10042,6 +10226,9 @@ function resolveVertical(pos, r) {
 const tmpV = new THREE.Vector3();
 const _assistFrom = new THREE.Vector3();
 const _assistDir = new THREE.Vector3();
+const _velOut = { x: 0, z: 0 };
+const _bobStepOut = { phase: 0, amp: 0 };
+const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
   // mobile: joystick axes -> keys/look accumulators
@@ -10199,12 +10386,20 @@ function updatePlayer(dt) {
   } else window.__analogMag = 1;
   const len = Math.hypot(ix, iz);
   if (len > 0) { ix /= len; iz /= len; }
-  let speed = CFG.player.speed * (window.__analogMag || 1);
-  if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
-  if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
-  if (player.landStunT > 0) speed *= 0.55;
-  if (player.crouching) speed *= CFG.player.crouchMul;
-  if (adsDown()) speed *= 0.65 * (curW().moveMul || 1);   // stock attachments
+  const cw = curW();
+  const speed = CORE.playerMoveSpeed(
+    CFG.player.speed,
+    window.__analogMag || 1,
+    player.sprinting,
+    player.tacT > 0,
+    player.downed,
+    player.landStunT > 0,
+    player.crouching,
+    adsDown(),
+    CFG.player.sprintMul,
+    CFG.player.crouchMul,
+    cw ? cw.moveMul : 1
+  );
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
   // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
   // ix=+1 (D) -> right; iz=+1 (W) -> forward
@@ -10212,32 +10407,24 @@ function updatePlayer(dt) {
   const wz = ix * (-sy) + iz * (-cy);
   const targetVX = wx * speed, targetVZ = wz * speed;
   // air control: partial authority while airborne (not while sliding)
-  let rate;
-  if (!player.onGround) {
-    rate = player.sliding ? 4 : 7;
-  } else {
-    // ground: tighten deceleration when movement keys are released to stop in ~0.1s without snappy acceleration
-    rate = len > 0 ? CFG.player.accel : (CFG.player.decel || 38);
-  }
+  const rate = CORE.movementAccelRate(player.onGround, player.sliding, len > 0, CFG.player.accel, CFG.player.decel);
   if (!player.sliding) {
-    player.vel.x += (targetVX - player.vel.x) * Math.min(1, rate * dt);
-    player.vel.z += (targetVZ - player.vel.z) * Math.min(1, rate * dt);
-    if (player.onGround && len === 0 && Math.hypot(player.vel.x, player.vel.z) < 0.05) {
-      player.vel.x = 0; player.vel.z = 0;
-    }
+    CORE.stepHorizontalVelocity(player.vel.x, player.vel.z, targetVX, targetVZ, rate, dt, player.onGround, len > 0, _velOut);
+    player.vel.x = _velOut.x;
+    player.vel.z = _velOut.z;
   }
 
   // jump: coyote time (0.12s grace after leaving ground) + jump buffering (0.15s)
-  if (player.onGround) { player.coyoteT = 0.12; player.lastGroundT = gameT; }
-  else player.coyoteT = Math.max(0, player.coyoteT - dt);
-  if (pressed['Space']) player.jumpBufT = 0.15;
-  else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
+  CORE.stepJumpTimers(player.coyoteT, player.jumpBufT, player.onGround, !!pressed['Space'], dt, _jumpTimersOut);
+  player.coyoteT = _jumpTimersOut.coyoteT;
+  player.jumpBufT = _jumpTimersOut.jumpBufT;
+  if (player.onGround) player.lastGroundT = gameT;
   // A mantle beats a jump: if there is a ledge in front, climbing it is what the
   // player meant. Anything under STEP_H is already handled by step-up.
   if (player.downed || player.landStunT > 0) player.jumpBufT = 0;
   if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
     player.jumpBufT = 0;
-  } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
+  } else if (CORE.canInitiateJump(player.jumpBufT, player.coyoteT, player.crouching, player.sliding, player.downed, player.landStunT)) {
     player.vel.y = CFG.player.jumpVel;
     player.onGround = false; player.coyoteT = 0; player.jumpBufT = 0;
     playSound('jump');
@@ -10269,12 +10456,9 @@ function updatePlayer(dt) {
 
   // head bob
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
-  if (player.onGround && hSpeed > 0.5) {
-    player.bobPhase += dt * (player.sprinting ? 13 : 9);
-    player.bobAmp += (Math.min(1, hSpeed / 6) - player.bobAmp) * Math.min(1, 6 * dt);
-  } else {
-    player.bobAmp += (0 - player.bobAmp) * Math.min(1, 8 * dt);
-  }
+  CORE.stepHeadBob(player.bobPhase, player.bobAmp, player.onGround, hSpeed, player.sprinting, dt, _bobStepOut);
+  player.bobPhase = _bobStepOut.phase;
+  player.bobAmp = _bobStepOut.amp;
 
   // Fall damage. The original code said "none (arena is flat)", which stopped being
   // true the moment mantling put the player on crates, containers and the roof. The
@@ -10290,7 +10474,7 @@ function updatePlayer(dt) {
       const mul = CORE.landingSpeedMul(impact);
       player.vel.x *= mul;
       player.vel.z *= mul;
-      player.landStunT = 0.25 + (1 - mul) * 0.5;
+      player.landStunT = CORE.landingStunDuration(mul);
       damagePlayer(dmg, undefined);
       playSound('hurt');
     }
@@ -11009,7 +11193,7 @@ function fireShot(preserveSchedule) {
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)
-  if (w.type === 'SR') { adsAmount *= 0.45; }
+  if (w.type === 'SR') { adsAmount = CORE.sniperUnscopeAds(adsAmount); }
   // recoil
   // Learnable pattern, not noise. The old model was +/-20% random vertical and a
   // zero-mean random horizontal, so there was no shape to pull against and no
@@ -11021,7 +11205,7 @@ function fireShot(preserveSchedule) {
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
   player.recoilP += w.recoilV * rk.y;
   player.recoilY += w.recoilH * rk.x;
-  shotKick = Math.min(shotKick + 0.5, 1.4);
+  shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
@@ -11173,9 +11357,8 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount)
-    * Math.min(1, 12 * CORE.perkAdsMul(perks) * (curW().adsSpeed || 1) * dt);
-  gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
+  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), w ? w.adsSpeed : 1);
+  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;
   const swayX2 = Math.sin(player.bobPhase) * bob;
@@ -16251,7 +16434,7 @@ function frame(now) {
     // roll: bob + slide lean + strafe banking + sway
     const strafeDir = CORE.strafeDirection(!!keys['KeyA'], !!keys['KeyD'], window.__analogMove ? window.__analogMove.x : 0);
     camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8);
-    shotKick *= Math.pow(0.001, dt);
+    shotKick = CORE.decayShotKick(shotKick, dt);
   } else {
     // death cam: fall to ground
     camera.position.y += (0.45 - camera.position.y) * Math.min(1, 3 * dt);

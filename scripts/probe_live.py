@@ -1600,7 +1600,74 @@ def main() -> int:
         }""")
         checks.append(("tactical-camera-and-visual-polish-rules", tactical_camera_check))
 
-        # 43) Clean console throughout gameplay.
+        # 43) Player locomotion, jump grace, head-bob, and weapon recoil/ADS balance rules.
+        locomotion_balance_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.playerMoveSpeed !== 'function' ||
+                typeof CORE.movementAccelRate !== 'function' ||
+                typeof CORE.stepHorizontalVelocity !== 'function' ||
+                typeof CORE.stepHeadBob !== 'function' ||
+                typeof CORE.landingStunDuration !== 'function' ||
+                typeof CORE.stepJumpTimers !== 'function' ||
+                typeof CORE.canInitiateJump !== 'function' ||
+                typeof CORE.stepAdsTransition !== 'function' ||
+                typeof CORE.stepGunSwitch !== 'function' ||
+                typeof CORE.applyShotKick !== 'function' ||
+                typeof CORE.decayShotKick !== 'function' ||
+                typeof CORE.sniperUnscopeAds !== 'function') return false;
+
+            const walkSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, false, 1.65, 0.55, 1) - 5.4) < 1e-4;
+            const sprintSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, true, false, false, false, false, false, 1.65, 0.55, 1) - 8.91) < 1e-4;
+            const tacSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, true, true, false, false, false, false, 1.65, 0.55, 1) - 11.1375) < 1e-4;
+            const downedSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, true, false, false, false, 1.65, 0.55, 1) - 1.89) < 1e-4;
+            const stunSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, true, false, false, 1.65, 0.55, 1) - 2.97) < 1e-4;
+            const crouchSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, true, false, 1.65, 0.55, 1) - 2.97) < 1e-4;
+            const adsSpeed = Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, true, 1.65, 0.55, 1) - 3.51) < 1e-4;
+
+            const accelGround = CORE.movementAccelRate(true, false, true, 16, 38) === 16;
+            const decelGround = CORE.movementAccelRate(true, false, false, 16, 38) === 38;
+            const accelAir = CORE.movementAccelRate(false, false, true, 16, 38) === 7;
+            const accelSlideAir = CORE.movementAccelRate(false, true, true, 16, 38) === 4;
+
+            const vOut = { x: 0, z: 0 };
+            CORE.stepHorizontalVelocity(0.03, 0.02, 0, 0, 38, 0.05, true, false, vOut);
+            const snapZero = vOut.x === 0 && vOut.z === 0;
+
+            const bobOut = { phase: 0, amp: 0 };
+            CORE.stepHeadBob(0, 0, true, 3.0, false, 0.1, bobOut);
+            const bobWalk = Math.abs(bobOut.phase - 0.9) < 1e-4;
+            CORE.stepHeadBob(0, 0, true, 8.0, true, 0.1, bobOut);
+            const bobSprint = Math.abs(bobOut.phase - 1.3) < 1e-4;
+
+            const stunDur = CORE.landingStunDuration(1.0) === 0.25 && CORE.landingStunDuration(0.0) === 0.75;
+
+            const jOut = { coyoteT: 0, jumpBufT: 0 };
+            CORE.stepJumpTimers(0, 0, true, false, 0.016, jOut);
+            const coyoteRefreshed = jOut.coyoteT === 0.12;
+            CORE.stepJumpTimers(0.1, 0, false, true, 0.016, jOut);
+            const jumpBuffered = jOut.jumpBufT === 0.15;
+
+            const canJumpOk = CORE.canInitiateJump(0.15, 0.12, false, false, false, 0) === true;
+            const canJumpNoBuf = CORE.canInitiateJump(0, 0.12, false, false, false, 0) === false;
+            const canJumpCrouch = CORE.canInitiateJump(0.15, 0.12, true, false, false, 0) === false;
+            const canJumpStun = CORE.canInitiateJump(0.15, 0.12, false, false, false, 0.2) === false;
+
+            const adsIn = Math.abs(CORE.stepAdsTransition(0, true, 0.05, 1, 1) - (12 * 0.05)) < 1e-4;
+            const switchStep = CORE.stepGunSwitch(0.95, 0.1) === 1.0;
+            const kickApply = CORE.applyShotKick(0) === 0.5 && CORE.applyShotKick(1.2) === 1.4;
+            const kickDecay = CORE.decayShotKick(1.0, 0.05) < 1.0;
+            const unscopeOk = Math.abs(CORE.sniperUnscopeAds(1.0) - 0.45) < 1e-4;
+
+            return walkSpeed && sprintSpeed && tacSpeed && downedSpeed && stunSpeed && crouchSpeed && adsSpeed &&
+                   accelGround && decelGround && accelAir && accelSlideAir &&
+                   snapZero && bobWalk && bobSprint && stunDur &&
+                   coyoteRefreshed && jumpBuffered &&
+                   canJumpOk && canJumpNoBuf && canJumpCrouch && canJumpStun &&
+                   adsIn && switchStep && kickApply && kickDecay && unscopeOk;
+        }""")
+        checks.append(("locomotion-and-combat-balance-rules", locomotion_balance_check))
+
+        # 44) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

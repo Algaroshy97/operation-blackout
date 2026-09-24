@@ -93,7 +93,7 @@ const MANTLE_MAX_RISE = 1.7;
 // burn. Sprint was one speed, which made every rotation feel the same length.
 const TAC_TAP_WINDOW = 0.32;
 const TAC_DURATION = 2.5;
-const TAC_MUL = 1.25;
+const TAC_MUL = CORE.TAC_SPRINT_SPEED_MUL;
 const TAC_DRAIN = 2.2;
 let lastSprintTap = -99;
 // Distance from the eye to the top of the head. The ceiling resolve keeps this
@@ -147,6 +147,9 @@ function resolveVertical(pos, r) {
 const tmpV = new THREE.Vector3();
 const _assistFrom = new THREE.Vector3();
 const _assistDir = new THREE.Vector3();
+const _velOut = { x: 0, z: 0 };
+const _bobStepOut = { phase: 0, amp: 0 };
+const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
   // mobile: joystick axes -> keys/look accumulators
@@ -304,12 +307,20 @@ function updatePlayer(dt) {
   } else window.__analogMag = 1;
   const len = Math.hypot(ix, iz);
   if (len > 0) { ix /= len; iz /= len; }
-  let speed = CFG.player.speed * (window.__analogMag || 1);
-  if (player.sprinting) speed *= CFG.player.sprintMul * (player.tacT > 0 ? TAC_MUL : 1);
-  if (player.downed) speed *= CORE.DOWN_SPEED_MUL;
-  if (player.landStunT > 0) speed *= 0.55;
-  if (player.crouching) speed *= CFG.player.crouchMul;
-  if (adsDown()) speed *= 0.65 * (curW().moveMul || 1);   // stock attachments
+  const cw = curW();
+  const speed = CORE.playerMoveSpeed(
+    CFG.player.speed,
+    window.__analogMag || 1,
+    player.sprinting,
+    player.tacT > 0,
+    player.downed,
+    player.landStunT > 0,
+    player.crouching,
+    adsDown(),
+    CFG.player.sprintMul,
+    CFG.player.crouchMul,
+    cw ? cw.moveMul : 1
+  );
   const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
   // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
   // ix=+1 (D) -> right; iz=+1 (W) -> forward
@@ -317,32 +328,24 @@ function updatePlayer(dt) {
   const wz = ix * (-sy) + iz * (-cy);
   const targetVX = wx * speed, targetVZ = wz * speed;
   // air control: partial authority while airborne (not while sliding)
-  let rate;
-  if (!player.onGround) {
-    rate = player.sliding ? 4 : 7;
-  } else {
-    // ground: tighten deceleration when movement keys are released to stop in ~0.1s without snappy acceleration
-    rate = len > 0 ? CFG.player.accel : (CFG.player.decel || 38);
-  }
+  const rate = CORE.movementAccelRate(player.onGround, player.sliding, len > 0, CFG.player.accel, CFG.player.decel);
   if (!player.sliding) {
-    player.vel.x += (targetVX - player.vel.x) * Math.min(1, rate * dt);
-    player.vel.z += (targetVZ - player.vel.z) * Math.min(1, rate * dt);
-    if (player.onGround && len === 0 && Math.hypot(player.vel.x, player.vel.z) < 0.05) {
-      player.vel.x = 0; player.vel.z = 0;
-    }
+    CORE.stepHorizontalVelocity(player.vel.x, player.vel.z, targetVX, targetVZ, rate, dt, player.onGround, len > 0, _velOut);
+    player.vel.x = _velOut.x;
+    player.vel.z = _velOut.z;
   }
 
   // jump: coyote time (0.12s grace after leaving ground) + jump buffering (0.15s)
-  if (player.onGround) { player.coyoteT = 0.12; player.lastGroundT = gameT; }
-  else player.coyoteT = Math.max(0, player.coyoteT - dt);
-  if (pressed['Space']) player.jumpBufT = 0.15;
-  else player.jumpBufT = Math.max(0, player.jumpBufT - dt);
+  CORE.stepJumpTimers(player.coyoteT, player.jumpBufT, player.onGround, !!pressed['Space'], dt, _jumpTimersOut);
+  player.coyoteT = _jumpTimersOut.coyoteT;
+  player.jumpBufT = _jumpTimersOut.jumpBufT;
+  if (player.onGround) player.lastGroundT = gameT;
   // A mantle beats a jump: if there is a ledge in front, climbing it is what the
   // player meant. Anything under STEP_H is already handled by step-up.
   if (player.downed || player.landStunT > 0) player.jumpBufT = 0;
   if (player.jumpBufT > 0 && !player.sliding && tryMantle()) {
     player.jumpBufT = 0;
-  } else if (player.jumpBufT > 0 && player.coyoteT > 0 && !player.crouching && !player.sliding) {
+  } else if (CORE.canInitiateJump(player.jumpBufT, player.coyoteT, player.crouching, player.sliding, player.downed, player.landStunT)) {
     player.vel.y = CFG.player.jumpVel;
     player.onGround = false; player.coyoteT = 0; player.jumpBufT = 0;
     playSound('jump');
@@ -374,12 +377,9 @@ function updatePlayer(dt) {
 
   // head bob
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
-  if (player.onGround && hSpeed > 0.5) {
-    player.bobPhase += dt * (player.sprinting ? 13 : 9);
-    player.bobAmp += (Math.min(1, hSpeed / 6) - player.bobAmp) * Math.min(1, 6 * dt);
-  } else {
-    player.bobAmp += (0 - player.bobAmp) * Math.min(1, 8 * dt);
-  }
+  CORE.stepHeadBob(player.bobPhase, player.bobAmp, player.onGround, hSpeed, player.sprinting, dt, _bobStepOut);
+  player.bobPhase = _bobStepOut.phase;
+  player.bobAmp = _bobStepOut.amp;
 
   // Fall damage. The original code said "none (arena is flat)", which stopped being
   // true the moment mantling put the player on crates, containers and the roof. The
@@ -395,7 +395,7 @@ function updatePlayer(dt) {
       const mul = CORE.landingSpeedMul(impact);
       player.vel.x *= mul;
       player.vel.z *= mul;
-      player.landStunT = 0.25 + (1 - mul) * 0.5;
+      player.landStunT = CORE.landingStunDuration(mul);
       damagePlayer(dmg, undefined);
       playSound('hurt');
     }

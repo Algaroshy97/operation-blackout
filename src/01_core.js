@@ -3749,6 +3749,155 @@ const CORE = (function () {
     return o;
   }
 
+  // Locomotion balance, air control physics, jump grace timing, head-bob step physics, and weapon recoil/ADS balance rules
+  const TAC_SPRINT_SPEED_MUL = 1.25;
+  const LAND_STUN_SPEED_MUL = 0.55;
+  const ADS_MOVE_SPEED_MUL = 0.65;
+  const AIR_SLIDE_ACCEL_RATE = 4;
+  const AIR_MOVE_ACCEL_RATE = 7;
+  const GROUND_DECEL_DEFAULT = 38;
+  const VELOCITY_SNAP_THRESHOLD = 0.05;
+  const BOB_SPEED_THRESHOLD = 0.5;
+  const BOB_FREQ_SPRINT = 13;
+  const BOB_FREQ_WALK = 9;
+  const BOB_SPEED_SCALE = 6;
+  const BOB_GROW_RATE = 6;
+  const BOB_DECAY_RATE = 8;
+  const LAND_STUN_BASE_TIME = 0.25;
+  const LAND_STUN_SCALE = 0.5;
+  const COYOTE_TIME = 0.12;
+  const JUMP_BUFFER_TIME = 0.15;
+  const ADS_BASE_SPEED = 12;
+  const GUN_SWITCH_SPEED = 3.5;
+  const SNIPER_UNSCOPE_FACTOR = 0.45;
+  const SHOT_KICK_IMPULSE = 0.5;
+  const SHOT_KICK_MAX = 1.4;
+  const SHOT_KICK_DECAY_BASE = 0.001;
+
+  function playerMoveSpeed(baseSpeed, analogMag, isSprinting, isTacSprint, isDowned, isLandStun, isCrouching, isAds, sprintMul, crouchMul, weaponMoveMul) {
+    const base = typeof baseSpeed === 'number' && isFinite(baseSpeed) ? Math.max(0, baseSpeed) : 5.4;
+    const mag = typeof analogMag === 'number' && isFinite(analogMag) ? Math.max(0, Math.min(1, analogMag)) : 1;
+    let spd = base * mag;
+    const sMul = typeof sprintMul === 'number' && isFinite(sprintMul) ? sprintMul : 1.65;
+    const cMul = typeof crouchMul === 'number' && isFinite(crouchMul) ? crouchMul : 0.55;
+    const wMul = typeof weaponMoveMul === 'number' && isFinite(weaponMoveMul) ? Math.max(0.1, weaponMoveMul) : 1;
+
+    if (isSprinting) spd *= sMul * (isTacSprint ? TAC_SPRINT_SPEED_MUL : 1);
+    if (isDowned) spd *= DOWN_SPEED_MUL;
+    if (isLandStun) spd *= LAND_STUN_SPEED_MUL;
+    if (isCrouching) spd *= cMul;
+    if (isAds) spd *= ADS_MOVE_SPEED_MUL * wMul;
+    return Math.max(0, spd);
+  }
+
+  function movementAccelRate(onGround, isSliding, hasInput, groundAccel, groundDecel) {
+    if (!onGround) return isSliding ? AIR_SLIDE_ACCEL_RATE : AIR_MOVE_ACCEL_RATE;
+    const accel = typeof groundAccel === 'number' && isFinite(groundAccel) ? groundAccel : 16;
+    const decel = typeof groundDecel === 'number' && isFinite(groundDecel) ? groundDecel : GROUND_DECEL_DEFAULT;
+    return hasInput ? accel : decel;
+  }
+
+  function stepHorizontalVelocity(currentVx, currentVz, targetVx, targetVz, rate, dt, onGround, hasInput, out) {
+    const o = out || { x: 0, z: 0 };
+    const cvx = typeof currentVx === 'number' && isFinite(currentVx) ? currentVx : 0;
+    const cvz = typeof currentVz === 'number' && isFinite(currentVz) ? currentVz : 0;
+    const tvx = typeof targetVx === 'number' && isFinite(targetVx) ? targetVx : 0;
+    const tvz = typeof targetVz === 'number' && isFinite(targetVz) ? targetVz : 0;
+    const r = typeof rate === 'number' && isFinite(rate) ? Math.max(0, rate) : 16;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const blend = Math.min(1, r * delta);
+
+    let vx = cvx + (tvx - cvx) * blend;
+    let vz = cvz + (tvz - cvz) * blend;
+    if (onGround && !hasInput && Math.hypot(vx, vz) < VELOCITY_SNAP_THRESHOLD) {
+      vx = 0;
+      vz = 0;
+    }
+    o.x = vx;
+    o.z = vz;
+    return o;
+  }
+
+  function stepHeadBob(bobPhase, bobAmp, onGround, horizontalSpeed, isSprinting, dt, out) {
+    const o = out || { phase: 0, amp: 0 };
+    const p = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const a = typeof bobAmp === 'number' && isFinite(bobAmp) ? Math.max(0, Math.min(1, bobAmp)) : 0;
+    const spd = typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+
+    if (onGround && spd > BOB_SPEED_THRESHOLD) {
+      const freq = isSprinting ? BOB_FREQ_SPRINT : BOB_FREQ_WALK;
+      o.phase = p + delta * freq;
+      const targetAmp = Math.min(1, spd / BOB_SPEED_SCALE);
+      o.amp = a + (targetAmp - a) * Math.min(1, BOB_GROW_RATE * delta);
+    } else {
+      o.phase = p;
+      o.amp = a + (0 - a) * Math.min(1, BOB_DECAY_RATE * delta);
+    }
+    return o;
+  }
+
+  function landingStunDuration(landingSpeedMul) {
+    const mul = typeof landingSpeedMul === 'number' && isFinite(landingSpeedMul)
+      ? Math.max(0, Math.min(1, landingSpeedMul)) : 1;
+    return LAND_STUN_BASE_TIME + (1 - mul) * LAND_STUN_SCALE;
+  }
+
+  function stepJumpTimers(coyoteT, jumpBufT, onGround, jumpPressed, dt, out) {
+    const o = out || { coyoteT: 0, jumpBufT: 0 };
+    const cT = typeof coyoteT === 'number' && isFinite(coyoteT) ? Math.max(0, coyoteT) : 0;
+    const jT = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? Math.max(0, jumpBufT) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+
+    o.coyoteT = onGround ? COYOTE_TIME : Math.max(0, cT - delta);
+    o.jumpBufT = jumpPressed ? JUMP_BUFFER_TIME : Math.max(0, jT - delta);
+    return o;
+  }
+
+  function canInitiateJump(jumpBufT, coyoteT, isCrouching, isSliding, isDowned, landStunT) {
+    const jb = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? jumpBufT : 0;
+    const ct = typeof coyoteT === 'number' && isFinite(coyoteT) ? coyoteT : 0;
+    const ls = typeof landStunT === 'number' && isFinite(landStunT) ? landStunT : 0;
+    return jb > 0 && ct > 0 && !isCrouching && !isSliding && !isDowned && ls <= 0;
+  }
+
+  function stepAdsTransition(currentAds, wantAds, dt, perkMul, weaponAdsSpeed) {
+    const cur = typeof currentAds === 'number' && isFinite(currentAds) ? Math.max(0, Math.min(1, currentAds)) : 0;
+    const target = wantAds ? 1 : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const pMul = typeof perkMul === 'number' && isFinite(perkMul) ? Math.max(0.1, perkMul) : 1;
+    const wSpeed = typeof weaponAdsSpeed === 'number' && isFinite(weaponAdsSpeed) ? Math.max(0.1, weaponAdsSpeed) : 1;
+    const rate = ADS_BASE_SPEED * pMul * wSpeed;
+    return cur + (target - cur) * Math.min(1, rate * delta);
+  }
+
+  function stepGunSwitch(currentSwitchT, dt, speed) {
+    const cur = typeof currentSwitchT === 'number' && isFinite(currentSwitchT) ? Math.max(0, Math.min(1, currentSwitchT)) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0.1, speed) : GUN_SWITCH_SPEED;
+    return Math.min(1, cur + delta * spd);
+  }
+
+  function applyShotKick(currentKick, impulse, maxKick) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const imp = typeof impulse === 'number' && isFinite(impulse) ? impulse : SHOT_KICK_IMPULSE;
+    const mx = typeof maxKick === 'number' && isFinite(maxKick) ? maxKick : SHOT_KICK_MAX;
+    return Math.min(cur + imp, mx);
+  }
+
+  function decayShotKick(currentKick, dt, decayBase) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const base = typeof decayBase === 'number' && isFinite(decayBase) && decayBase > 0 ? decayBase : SHOT_KICK_DECAY_BASE;
+    return cur * Math.pow(base, delta);
+  }
+
+  function sniperUnscopeAds(adsAmount, factor) {
+    const cur = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const f = typeof factor === 'number' && isFinite(factor) ? factor : SNIPER_UNSCOPE_FACTOR;
+    return cur * f;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4177,7 +4326,42 @@ const CORE = (function () {
     targetCameraFov: targetCameraFov,
     strafeDirection: strafeDirection,
     cameraRoll: cameraRoll,
-    cameraPositionOffsets: cameraPositionOffsets
+    cameraPositionOffsets: cameraPositionOffsets,
+    TAC_SPRINT_SPEED_MUL: TAC_SPRINT_SPEED_MUL,
+    LAND_STUN_SPEED_MUL: LAND_STUN_SPEED_MUL,
+    ADS_MOVE_SPEED_MUL: ADS_MOVE_SPEED_MUL,
+    AIR_SLIDE_ACCEL_RATE: AIR_SLIDE_ACCEL_RATE,
+    AIR_MOVE_ACCEL_RATE: AIR_MOVE_ACCEL_RATE,
+    GROUND_DECEL_DEFAULT: GROUND_DECEL_DEFAULT,
+    VELOCITY_SNAP_THRESHOLD: VELOCITY_SNAP_THRESHOLD,
+    BOB_SPEED_THRESHOLD: BOB_SPEED_THRESHOLD,
+    BOB_FREQ_SPRINT: BOB_FREQ_SPRINT,
+    BOB_FREQ_WALK: BOB_FREQ_WALK,
+    BOB_SPEED_SCALE: BOB_SPEED_SCALE,
+    BOB_GROW_RATE: BOB_GROW_RATE,
+    BOB_DECAY_RATE: BOB_DECAY_RATE,
+    LAND_STUN_BASE_TIME: LAND_STUN_BASE_TIME,
+    LAND_STUN_SCALE: LAND_STUN_SCALE,
+    COYOTE_TIME: COYOTE_TIME,
+    JUMP_BUFFER_TIME: JUMP_BUFFER_TIME,
+    ADS_BASE_SPEED: ADS_BASE_SPEED,
+    GUN_SWITCH_SPEED: GUN_SWITCH_SPEED,
+    SNIPER_UNSCOPE_FACTOR: SNIPER_UNSCOPE_FACTOR,
+    SHOT_KICK_IMPULSE: SHOT_KICK_IMPULSE,
+    SHOT_KICK_MAX: SHOT_KICK_MAX,
+    SHOT_KICK_DECAY_BASE: SHOT_KICK_DECAY_BASE,
+    playerMoveSpeed: playerMoveSpeed,
+    movementAccelRate: movementAccelRate,
+    stepHorizontalVelocity: stepHorizontalVelocity,
+    stepHeadBob: stepHeadBob,
+    landingStunDuration: landingStunDuration,
+    stepJumpTimers: stepJumpTimers,
+    canInitiateJump: canInitiateJump,
+    stepAdsTransition: stepAdsTransition,
+    stepGunSwitch: stepGunSwitch,
+    applyShotKick: applyShotKick,
+    decayShotKick: decayShotKick,
+    sniperUnscopeAds: sniperUnscopeAds
   };
 })();
 

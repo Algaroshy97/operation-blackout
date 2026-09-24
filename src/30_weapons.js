@@ -292,7 +292,7 @@ function fireShot(preserveSchedule) {
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)
-  if (w.type === 'SR') { adsAmount *= 0.45; }
+  if (w.type === 'SR') { adsAmount = CORE.sniperUnscopeAds(adsAmount); }
   // recoil
   // Learnable pattern, not noise. The old model was +/-20% random vertical and a
   // zero-mean random horizontal, so there was no shape to pull against and no
@@ -304,7 +304,7 @@ function fireShot(preserveSchedule) {
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
   player.recoilP += w.recoilV * rk.y;
   player.recoilY += w.recoilH * rk.x;
-  shotKick = Math.min(shotKick + 0.5, 1.4);
+  shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
@@ -456,9 +456,8 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount += ((aimAds ? 1 : 0) - adsAmount)
-    * Math.min(1, 12 * CORE.perkAdsMul(perks) * (curW().adsSpeed || 1) * dt);
-  gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5);
+  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), w ? w.adsSpeed : 1);
+  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt);
   const raise = (1 - gunSwitchT) * 0.25;
   const bob = player.bobAmp * 0.014;
   const swayX2 = Math.sin(player.bobPhase) * bob;

@@ -798,7 +798,7 @@ function frame(now) {
     // roll: bob + slide lean + strafe banking + sway
     const strafeDir = CORE.strafeDirection(!!keys['KeyA'], !!keys['KeyD'], window.__analogMove ? window.__analogMove.x : 0);
     camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8);
-    shotKick *= Math.pow(0.001, dt);
+    shotKick = CORE.decayShotKick(shotKick, dt);
   } else {
     // death cam: fall to ground
     camera.position.y += (0.45 - camera.position.y) * Math.min(1, 3 * dt);

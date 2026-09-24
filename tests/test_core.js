@@ -4985,3 +4985,131 @@ test('weaponAdsZoom, mobilityFovBoost, targetCameraFov, strafeDirection, cameraR
   assert.strictEqual(freshOut.x, 0);
   assert.strictEqual(freshOut.y, 0);
 });
+
+test('playerMoveSpeed, movementAccelRate, stepHorizontalVelocity, stepHeadBob, landingStunDuration, stepJumpTimers, canInitiateJump, stepAdsTransition, stepGunSwitch, applyShotKick, decayShotKick, and sniperUnscopeAds govern mobility and combat balance', () => {
+  // Constants
+  assert.strictEqual(CORE.TAC_SPRINT_SPEED_MUL, 1.25);
+  assert.strictEqual(CORE.LAND_STUN_SPEED_MUL, 0.55);
+  assert.strictEqual(CORE.ADS_MOVE_SPEED_MUL, 0.65);
+  assert.strictEqual(CORE.AIR_SLIDE_ACCEL_RATE, 4);
+  assert.strictEqual(CORE.AIR_MOVE_ACCEL_RATE, 7);
+  assert.strictEqual(CORE.GROUND_DECEL_DEFAULT, 38);
+  assert.strictEqual(CORE.VELOCITY_SNAP_THRESHOLD, 0.05);
+  assert.strictEqual(CORE.BOB_SPEED_THRESHOLD, 0.5);
+  assert.strictEqual(CORE.BOB_FREQ_SPRINT, 13);
+  assert.strictEqual(CORE.BOB_FREQ_WALK, 9);
+  assert.strictEqual(CORE.BOB_SPEED_SCALE, 6);
+  assert.strictEqual(CORE.BOB_GROW_RATE, 6);
+  assert.strictEqual(CORE.BOB_DECAY_RATE, 8);
+  assert.strictEqual(CORE.LAND_STUN_BASE_TIME, 0.25);
+  assert.strictEqual(CORE.LAND_STUN_SCALE, 0.5);
+  assert.strictEqual(CORE.COYOTE_TIME, 0.12);
+  assert.strictEqual(CORE.JUMP_BUFFER_TIME, 0.15);
+  assert.strictEqual(CORE.ADS_BASE_SPEED, 12);
+  assert.strictEqual(CORE.GUN_SWITCH_SPEED, 3.5);
+  assert.strictEqual(CORE.SNIPER_UNSCOPE_FACTOR, 0.45);
+  assert.strictEqual(CORE.SHOT_KICK_IMPULSE, 0.5);
+  assert.strictEqual(CORE.SHOT_KICK_MAX, 1.4);
+  assert.strictEqual(CORE.SHOT_KICK_DECAY_BASE, 0.001);
+
+  // playerMoveSpeed:
+  // Base walking speed
+  assert.strictEqual(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, false, 1.65, 0.55, 1), 5.4);
+  // Analog partial tilt (0.5x)
+  assert.strictEqual(CORE.playerMoveSpeed(5.4, 0.5, false, false, false, false, false, false, 1.65, 0.55, 1), 2.7);
+  // Standard sprint (5.4 * 1.65 = 8.91)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, true, false, false, false, false, false, 1.65, 0.55, 1) - 8.91) < 1e-4);
+  // Tactical sprint burst (5.4 * 1.65 * 1.25 = 11.1375)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, true, true, false, false, false, false, 1.65, 0.55, 1) - 11.1375) < 1e-4);
+  // Downed penalty (5.4 * 0.35 = 1.89)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, true, false, false, false, 1.65, 0.55, 1) - 1.89) < 1e-4);
+  // Hard landing stun penalty (5.4 * 0.55 = 2.97)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, true, false, false, 1.65, 0.55, 1) - 2.97) < 1e-4);
+  // Crouch walk (5.4 * 0.55 = 2.97)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, true, false, 1.65, 0.55, 1) - 2.97) < 1e-4);
+  // Aiming down sights (5.4 * 0.65 = 3.51)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, true, 1.65, 0.55, 1) - 3.51) < 1e-4);
+  // ADS with lightweight stock attachment (+15% mobility -> moveMul 1.15)
+  assert.ok(Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, true, 1.65, 0.55, 1.15) - (5.4 * 0.65 * 1.15)) < 1e-4);
+
+  // movementAccelRate:
+  assert.strictEqual(CORE.movementAccelRate(true, false, true, 16, 38), 16);
+  assert.strictEqual(CORE.movementAccelRate(true, false, false, 16, 38), 38);
+  assert.strictEqual(CORE.movementAccelRate(false, false, true, 16, 38), 7);
+  assert.strictEqual(CORE.movementAccelRate(false, true, true, 16, 38), 4);
+
+  // stepHorizontalVelocity:
+  const vOut = { x: 0, z: 0 };
+  CORE.stepHorizontalVelocity(0, 0, 10, 0, 16, 0.05, true, true, vOut);
+  // blend = min(1, 16 * 0.05) = 0.8 -> vx = 8
+  assert.ok(Math.abs(vOut.x - 8.0) < 1e-4);
+  assert.strictEqual(vOut.z, 0);
+  // Stop snap to 0 below threshold (0.05 m/s) when on ground with no input
+  CORE.stepHorizontalVelocity(0.03, 0.02, 0, 0, 38, 0.05, true, false, vOut);
+  assert.strictEqual(vOut.x, 0);
+  assert.strictEqual(vOut.z, 0);
+
+  // stepHeadBob:
+  const bobOut = { phase: 0, amp: 0 };
+  // Stationary on ground -> decays amplitude
+  CORE.stepHeadBob(1.0, 0.8, true, 0.2, false, 0.05, bobOut);
+  assert.strictEqual(bobOut.phase, 1.0);
+  assert.ok(bobOut.amp < 0.8);
+  // Walking -> advances phase by 9 rad/s
+  CORE.stepHeadBob(0, 0, true, 3.0, false, 0.1, bobOut);
+  assert.ok(Math.abs(bobOut.phase - 0.9) < 1e-4);
+  assert.ok(bobOut.amp > 0);
+  // Sprinting -> advances phase by 13 rad/s
+  CORE.stepHeadBob(0, 0, true, 8.0, true, 0.1, bobOut);
+  assert.ok(Math.abs(bobOut.phase - 1.3) < 1e-4);
+
+  // landingStunDuration:
+  assert.strictEqual(CORE.landingStunDuration(1.0), 0.25);
+  assert.strictEqual(CORE.landingStunDuration(0.5), 0.50);
+  assert.strictEqual(CORE.landingStunDuration(0.0), 0.75);
+
+  // stepJumpTimers:
+  const jOut = { coyoteT: 0, jumpBufT: 0 };
+  // On ground refreshes coyote timer to 0.12s
+  CORE.stepJumpTimers(0, 0, true, false, 0.016, jOut);
+  assert.strictEqual(jOut.coyoteT, 0.12);
+  assert.strictEqual(jOut.jumpBufT, 0);
+  // Space pressed registers buffer timer to 0.15s
+  CORE.stepJumpTimers(0.1, 0, false, true, 0.016, jOut);
+  assert.strictEqual(jOut.jumpBufT, 0.15);
+  assert.ok(Math.abs(jOut.coyoteT - (0.1 - 0.016)) < 1e-4);
+
+  // canInitiateJump:
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0.12, false, false, false, 0), true);
+  // Blocked if no jump buffered
+  assert.strictEqual(CORE.canInitiateJump(0, 0.12, false, false, false, 0), false);
+  // Blocked if coyote expired
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0, false, false, false, 0), false);
+  // Blocked if crouching
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0.12, true, false, false, 0), false);
+  // Blocked if sliding
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0.12, false, true, false, 0), false);
+  // Blocked if downed
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0.12, false, false, true, 0), false);
+  // Blocked if stunned by hard landing
+  assert.strictEqual(CORE.canInitiateJump(0.15, 0.12, false, false, false, 0.2), false);
+
+  // stepAdsTransition & stepGunSwitch:
+  // ADS transition in
+  const adsIn = CORE.stepAdsTransition(0, true, 0.05, 1, 1);
+  assert.ok(Math.abs(adsIn - (12 * 0.05)) < 1e-4);
+  // ADS transition out
+  const adsOut = CORE.stepAdsTransition(1, false, 0.05, 1, 1);
+  assert.ok(Math.abs(adsOut - (1 - 12 * 0.05)) < 1e-4);
+  // Gun switch step
+  const switchStep = CORE.stepGunSwitch(0.2, 0.1);
+  assert.ok(Math.abs(switchStep - (0.2 + 0.1 * 3.5)) < 1e-4);
+  assert.strictEqual(CORE.stepGunSwitch(0.95, 0.1), 1.0);
+
+  // applyShotKick, decayShotKick, sniperUnscopeAds:
+  assert.strictEqual(CORE.applyShotKick(0), 0.5);
+  assert.strictEqual(CORE.applyShotKick(1.2), 1.4);
+  const decayedKick = CORE.decayShotKick(1.0, 0.05);
+  assert.ok(decayedKick < 1.0 && decayedKick > 0);
+  assert.ok(Math.abs(CORE.sniperUnscopeAds(1.0) - 0.45) < 1e-4);
+});
