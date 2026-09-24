@@ -326,7 +326,8 @@ function purchase(st) {
     updateHudPerks();
     showCenterMsg(p.name + ' ACQUIRED');
   }
-  playSound('powerup');
+  const isWallAmmo = (st.kind === 'wall' && weaponsOwned.indexOf(st.weapon) >= 0);
+  playSound(CORE.stationPurchaseSound(st.kind, isWallAmmo));
   return true;
 }
 
@@ -434,7 +435,7 @@ function downPlayer() {
   player.sprinting = false;
   player.sliding = false;
   showCenterMsg('DOWN — HOLD OUT');
-  playSound('hurt');
+  playSound(CORE.playerDownSound());
   updateHudHealth();
 }
 
@@ -457,7 +458,7 @@ function reviveFromDown() {
   player.health = CORE.DOWN_REVIVE_HEALTH;
   updateHudHealth();
   showCenterMsg('BACK IN THE FIGHT');
-  playSound('powerup');
+  playSound(CORE.playerReviveSound());
 }
 
 function clearDowned() {

@@ -448,7 +448,12 @@ const SOUND_RECIPES = {
   munitions:         [['osc', 'sine', 130, 40, 0.20, 0.35], ['noise', 0.12, 0.32, 450, 1.0], ['noise', 0.06, 0.25, 2200, 2.5]],
   munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]],
   mantle:            [['noise', 0.09, 0.22, 950, 1.2], ['osc', 'sine', 160, 70, 0.12, 0.20]],
-  step_crouch:       [['noise', 0.035, 0.022, 280, 0.8]]
+  step_crouch:       [['noise', 0.035, 0.022, 280, 0.8]],
+  armory_upgrade:    [['noise', 0.14, 0.32, 900, 1.5], ['osc', 'sawtooth', 220, 660, 0.22, 0.25], ['osc', 'sine', 330, 880, 0.25, 0.20]],
+  door_unlock:       [['noise', 0.35, 0.38, 240, 0.7], ['osc', 'sawtooth', 120, 40, 0.30, 0.28], ['osc', 'sine', 80, 30, 0.40, 0.32]],
+  weapon_buy:        [['noise', 0.08, 0.25, 1400, 2.2], ['osc', 'square', 320, 180, 0.06, 0.16], ['noise', 0.06, 0.22, 2200, 3]],
+  player_down:       [['osc', 'sawtooth', 140, 40, 0.35, 0.28], ['noise', 0.22, 0.26, 320, 0.8], ['osc', 'sine', 75, 25, 0.30, 0.35]],
+  player_revive:     [['osc', 'sine', 330, 660, 0.20, 0.22], ['osc', 'sine', 550, 1100, 0.22, 0.18], ['osc', 'triangle', 220, 440, 0.25, 0.15]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -460,7 +465,8 @@ const SOUND_VARIED = {
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
   streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1,
-  mantle: 1, step_crouch: 1
+  mantle: 1, step_crouch: 1,
+  armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1
 };
 
 function recipeDuration(recipe) {
@@ -685,20 +691,15 @@ function updateMusic(dt, state) {
   if (!MUSIC.built || !MUSIC.running) return;
   const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
   const target = CORE.combatIntensity(state);
-  // Ease toward the target: intensity should swell and settle, not snap.
-  const rate = target > MUSIC.intensity ? 1.6 : 0.5;    // rise fast, fall slow
-  MUSIC.intensity += (target - MUSIC.intensity) * Math.min(1, rate * dt);
+  MUSIC.intensity = CORE.stepMusicIntensity(MUSIC.intensity, target, dt);
   const i = MUSIC.intensity;
 
-  MUSIC.bus.gain.value = vol * (0.22 + i * 0.5);
-  MUSIC.tension.gain.value = Math.max(0, (i - 0.25) / 0.75) * 0.16;
-  MUSIC.filter.frequency.value = 200 + i * 900;
+  MUSIC.bus.gain.value = CORE.musicBusGain(vol, i);
+  MUSIC.tension.gain.value = CORE.musicTensionGain(i);
+  MUSIC.filter.frequency.value = CORE.musicFilterCutoff(i);
 
-  // Heartbeat: 46 bpm at rest up to ~132 bpm at full intensity.
-  const bpm = 46 + i * 86;
-  MUSIC.pulsePhase += dt * (bpm / 60);
-  if (MUSIC.pulsePhase >= 1) MUSIC.pulsePhase -= 1;
-  // Sharp attack, exponential decay, shaped so it reads as a pulse not a hum.
-  const env = Math.pow(1 - MUSIC.pulsePhase, 6);
-  MUSIC.pulseGain.gain.value = env * (0.05 + i * 0.5);
+  const bpm = CORE.musicPulseBpm(i);
+  MUSIC.pulsePhase = CORE.stepMusicPulsePhase(MUSIC.pulsePhase, dt, bpm);
+  const env = CORE.musicPulseEnvelope(MUSIC.pulsePhase);
+  MUSIC.pulseGain.gain.value = CORE.musicPulseGain(env, i);
 }

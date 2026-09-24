@@ -1750,7 +1750,81 @@ def main() -> int:
         }""")
         checks.append(("hud-churn-and-overlay-performance-rules", overlay_perf_check))
 
-        # 45) Clean console throughout gameplay.
+        # 45) Adaptive music dynamics and tactical station/downed audio rules.
+        adaptive_audio_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.stepMusicIntensity !== 'function' ||
+                typeof CORE.musicBusGain !== 'function' ||
+                typeof CORE.musicTensionGain !== 'function' ||
+                typeof CORE.musicFilterCutoff !== 'function' ||
+                typeof CORE.musicPulseBpm !== 'function' ||
+                typeof CORE.stepMusicPulsePhase !== 'function' ||
+                typeof CORE.musicPulseEnvelope !== 'function' ||
+                typeof CORE.musicPulseGain !== 'function' ||
+                typeof CORE.stationPurchaseSound !== 'function' ||
+                typeof CORE.playerDownSound !== 'function' ||
+                typeof CORE.playerReviveSound !== 'function') return false;
+
+            const riseStep = Math.abs(CORE.stepMusicIntensity(0, 1, 0.05) - 0.08) < 1e-4;
+            const fallStep = Math.abs(CORE.stepMusicIntensity(1, 0, 0.05) - 0.975) < 1e-4;
+            const fullTarget = CORE.stepMusicIntensity(0, 0.8, 10) === 0.8;
+
+            const busZero = Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4;
+            const busFull = Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4;
+
+            const tensionLow = CORE.musicTensionGain(0.2) === 0;
+            const tensionHigh = Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4;
+
+            const cutoffLow = CORE.musicFilterCutoff(0) === 200;
+            const cutoffHigh = CORE.musicFilterCutoff(1.0) === 1100;
+
+            const bpmLow = CORE.musicPulseBpm(0) === 46;
+            const bpmHigh = CORE.musicPulseBpm(1.0) === 132;
+
+            const phaseStep = Math.abs(CORE.stepMusicPulsePhase(0, 0.5, 60) - 0.5) < 1e-4;
+            const phaseWrap = Math.abs(CORE.stepMusicPulsePhase(0.9, 0.2, 60) - 0.1) < 1e-4;
+
+            const envPeak = CORE.musicPulseEnvelope(0) === 1.0;
+            const envFloor = CORE.musicPulseEnvelope(1.0) === 0.0;
+
+            const pulseLow = Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4;
+            const pulseHigh = Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4;
+
+            const sndArmory = CORE.stationPurchaseSound('armory') === 'armory_upgrade';
+            const sndDoor = CORE.stationPurchaseSound('door') === 'door_unlock';
+            const sndWeapon = CORE.stationPurchaseSound('wall', false) === 'weapon_buy';
+            const sndAmmo = CORE.stationPurchaseSound('wall', true) === 'pickup_ammo';
+            const sndPlate = CORE.stationPurchaseSound('plate') === 'pickup_ammo';
+            const sndPerk = CORE.stationPurchaseSound('perk') === 'powerup';
+
+            const sndDown = CORE.playerDownSound() === 'player_down';
+            const sndRevive = CORE.playerReviveSound() === 'player_revive';
+
+            const recipesOk = typeof SOUND_RECIPES !== 'undefined' &&
+                              Array.isArray(SOUND_RECIPES.armory_upgrade) &&
+                              Array.isArray(SOUND_RECIPES.door_unlock) &&
+                              Array.isArray(SOUND_RECIPES.weapon_buy) &&
+                              Array.isArray(SOUND_RECIPES.player_down) &&
+                              Array.isArray(SOUND_RECIPES.player_revive);
+
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             SOUND_VARIED.armory_upgrade === 1 &&
+                             SOUND_VARIED.door_unlock === 1 &&
+                             SOUND_VARIED.weapon_buy === 1 &&
+                             SOUND_VARIED.player_down === 1 &&
+                             SOUND_VARIED.player_revive === 1;
+
+            return riseStep && fallStep && fullTarget &&
+                   busZero && busFull && tensionLow && tensionHigh &&
+                   cutoffLow && cutoffHigh && bpmLow && bpmHigh &&
+                   phaseStep && phaseWrap && envPeak && envFloor &&
+                   pulseLow && pulseHigh &&
+                   sndArmory && sndDoor && sndWeapon && sndAmmo && sndPlate && sndPerk &&
+                   sndDown && sndRevive && recipesOk && variedOk;
+        }""")
+        checks.append(("adaptive-music-and-tactical-audio-rules", adaptive_audio_check))
+
+        # 46) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

@@ -3993,6 +3993,94 @@ const CORE = (function () {
     lastState.label = label;
   }
 
+  // ---- Adaptive music parameter dynamics ----
+  const MUSIC_RISE_RATE = 1.6;
+  const MUSIC_FALL_RATE = 0.5;
+  const MUSIC_BASE_BUS_GAIN = 0.22;
+  const MUSIC_INTENSITY_BUS_SCALE = 0.5;
+  const MUSIC_TENSION_THRESHOLD = 0.25;
+  const MUSIC_TENSION_MAX_GAIN = 0.16;
+  const MUSIC_BASE_CUTOFF = 200;
+  const MUSIC_MAX_CUTOFF_SCALE = 900;
+  const MUSIC_BASE_BPM = 46;
+  const MUSIC_MAX_BPM_SCALE = 86;
+  const MUSIC_PULSE_BASE_GAIN = 0.05;
+  const MUSIC_PULSE_MAX_GAIN_SCALE = 0.5;
+  const MUSIC_PULSE_EXPONENT = 6;
+
+  function stepMusicIntensity(currentIntensity, targetIntensity, dt, riseRate, fallRate) {
+    const cur = (typeof currentIntensity === 'number' && isFinite(currentIntensity)) ? currentIntensity : 0;
+    const tgt = (typeof targetIntensity === 'number' && isFinite(targetIntensity)) ? Math.max(0, Math.min(1, targetIntensity)) : 0;
+    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
+    const rRise = (typeof riseRate === 'number' && isFinite(riseRate) && riseRate > 0) ? riseRate : MUSIC_RISE_RATE;
+    const rFall = (typeof fallRate === 'number' && isFinite(fallRate) && fallRate > 0) ? fallRate : MUSIC_FALL_RATE;
+    const rate = tgt > cur ? rRise : rFall;
+    const blend = rate * d;
+    if (blend >= 1) return tgt;
+    const next = cur + (tgt - cur) * blend;
+    return Math.max(0, Math.min(1, next));
+  }
+
+  function musicBusGain(volumeSetting, intensity) {
+    const vol = (typeof volumeSetting === 'number' && isFinite(volumeSetting)) ? Math.max(0, Math.min(1, volumeSetting)) : 0;
+    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    return vol * (MUSIC_BASE_BUS_GAIN + i * MUSIC_INTENSITY_BUS_SCALE);
+  }
+
+  function musicTensionGain(intensity) {
+    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    if (i <= MUSIC_TENSION_THRESHOLD) return 0;
+    return Math.min(MUSIC_TENSION_MAX_GAIN, ((i - MUSIC_TENSION_THRESHOLD) / (1 - MUSIC_TENSION_THRESHOLD)) * MUSIC_TENSION_MAX_GAIN);
+  }
+
+  function musicFilterCutoff(intensity) {
+    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    return MUSIC_BASE_CUTOFF + i * MUSIC_MAX_CUTOFF_SCALE;
+  }
+
+  function musicPulseBpm(intensity) {
+    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    return MUSIC_BASE_BPM + i * MUSIC_MAX_BPM_SCALE;
+  }
+
+  function stepMusicPulsePhase(phase, dt, bpm) {
+    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
+    const b = (typeof bpm === 'number' && isFinite(bpm) && bpm > 0) ? bpm : MUSIC_BASE_BPM;
+    let next = p + d * (b / 60);
+    next = next - Math.floor(next);
+    return next;
+  }
+
+  function musicPulseEnvelope(phase) {
+    const p = (typeof phase === 'number' && isFinite(phase)) ? Math.max(0, Math.min(1, phase)) : 0;
+    return Math.pow(1 - p, MUSIC_PULSE_EXPONENT);
+  }
+
+  function musicPulseGain(envelope, intensity) {
+    const env = (typeof envelope === 'number' && isFinite(envelope)) ? Math.max(0, Math.min(1, envelope)) : 0;
+    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    return env * (MUSIC_PULSE_BASE_GAIN + i * MUSIC_PULSE_MAX_GAIN_SCALE);
+  }
+
+  // ---- Station purchases & tactical audio cues ----
+  function stationPurchaseSound(stationKind, isWallAmmo) {
+    if (stationKind === 'armory') return 'armory_upgrade';
+    if (stationKind === 'door') return 'door_unlock';
+    if (stationKind === 'wall') return isWallAmmo ? 'pickup_ammo' : 'weapon_buy';
+    if (stationKind === 'plate') return 'pickup_ammo';
+    if (stationKind === 'lethal' || stationKind === 'tactical') return 'draw';
+    return 'powerup';
+  }
+
+  function playerDownSound() {
+    return 'player_down';
+  }
+
+  function playerReviveSound() {
+    return 'player_revive';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4470,7 +4558,31 @@ const CORE = (function () {
     isSteadyIndicatorVisible: isSteadyIndicatorVisible,
     steadyIndicatorLabel: steadyIndicatorLabel,
     steadyIndicatorChanged: steadyIndicatorChanged,
-    syncSteadyIndicatorState: syncSteadyIndicatorState
+    syncSteadyIndicatorState: syncSteadyIndicatorState,
+    MUSIC_RISE_RATE: MUSIC_RISE_RATE,
+    MUSIC_FALL_RATE: MUSIC_FALL_RATE,
+    MUSIC_BASE_BUS_GAIN: MUSIC_BASE_BUS_GAIN,
+    MUSIC_INTENSITY_BUS_SCALE: MUSIC_INTENSITY_BUS_SCALE,
+    MUSIC_TENSION_THRESHOLD: MUSIC_TENSION_THRESHOLD,
+    MUSIC_TENSION_MAX_GAIN: MUSIC_TENSION_MAX_GAIN,
+    MUSIC_BASE_CUTOFF: MUSIC_BASE_CUTOFF,
+    MUSIC_MAX_CUTOFF_SCALE: MUSIC_MAX_CUTOFF_SCALE,
+    MUSIC_BASE_BPM: MUSIC_BASE_BPM,
+    MUSIC_MAX_BPM_SCALE: MUSIC_MAX_BPM_SCALE,
+    MUSIC_PULSE_BASE_GAIN: MUSIC_PULSE_BASE_GAIN,
+    MUSIC_PULSE_MAX_GAIN_SCALE: MUSIC_PULSE_MAX_GAIN_SCALE,
+    MUSIC_PULSE_EXPONENT: MUSIC_PULSE_EXPONENT,
+    stepMusicIntensity: stepMusicIntensity,
+    musicBusGain: musicBusGain,
+    musicTensionGain: musicTensionGain,
+    musicFilterCutoff: musicFilterCutoff,
+    musicPulseBpm: musicPulseBpm,
+    stepMusicPulsePhase: stepMusicPulsePhase,
+    musicPulseEnvelope: musicPulseEnvelope,
+    musicPulseGain: musicPulseGain,
+    stationPurchaseSound: stationPurchaseSound,
+    playerDownSound: playerDownSound,
+    playerReviveSound: playerReviveSound
   };
 })();
 

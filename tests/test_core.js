@@ -5217,3 +5217,98 @@ test('stepSlideVignette, slideVignetteStyle, objectiveHud, isScopeOverlayActive,
   CORE.syncSteadyIndicatorState(steadyState, false, false, '');
   assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, false, false, ''), false);
 });
+
+test('stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff, musicPulseBpm, stepMusicPulsePhase, musicPulseEnvelope, musicPulseGain, stationPurchaseSound, playerDownSound, and playerReviveSound govern adaptive music and tactical audio', () => {
+  assert.strictEqual(CORE.MUSIC_RISE_RATE, 1.6);
+  assert.strictEqual(CORE.MUSIC_FALL_RATE, 0.5);
+  assert.strictEqual(CORE.MUSIC_BASE_BUS_GAIN, 0.22);
+  assert.strictEqual(CORE.MUSIC_INTENSITY_BUS_SCALE, 0.5);
+  assert.strictEqual(CORE.MUSIC_TENSION_THRESHOLD, 0.25);
+  assert.strictEqual(CORE.MUSIC_TENSION_MAX_GAIN, 0.16);
+  assert.strictEqual(CORE.MUSIC_BASE_CUTOFF, 200);
+  assert.strictEqual(CORE.MUSIC_MAX_CUTOFF_SCALE, 900);
+  assert.strictEqual(CORE.MUSIC_BASE_BPM, 46);
+  assert.strictEqual(CORE.MUSIC_MAX_BPM_SCALE, 86);
+  assert.strictEqual(CORE.MUSIC_PULSE_BASE_GAIN, 0.05);
+  assert.strictEqual(CORE.MUSIC_PULSE_MAX_GAIN_SCALE, 0.5);
+  assert.strictEqual(CORE.MUSIC_PULSE_EXPONENT, 6);
+
+  // stepMusicIntensity:
+  // Rising from 0 toward 1
+  const riseStep = CORE.stepMusicIntensity(0, 1, 0.05);
+  assert.ok(Math.abs(riseStep - (1.6 * 0.05)) < 1e-4);
+  // Falling from 1 toward 0
+  const fallStep = CORE.stepMusicIntensity(1, 0, 0.05);
+  assert.ok(Math.abs(fallStep - (1 - 0.5 * 0.05)) < 1e-4);
+  // Reaches target exactly when dt is large
+  assert.strictEqual(CORE.stepMusicIntensity(0, 0.8, 10), 0.8);
+  assert.strictEqual(CORE.stepMusicIntensity(1, 0.2, 10), 0.2);
+  // Clamps out of range target
+  assert.strictEqual(CORE.stepMusicIntensity(0.5, 1.5, 10), 1.0);
+  assert.strictEqual(CORE.stepMusicIntensity(0.5, -0.5, 10), 0.0);
+  // Zero-safety on invalid / non-finite inputs
+  assert.strictEqual(CORE.stepMusicIntensity('invalid', 'bad', NaN), 0);
+
+  // musicBusGain:
+  assert.ok(Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4);
+  assert.ok(Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4);
+  assert.ok(Math.abs(CORE.musicBusGain(0.5, 0.5) - (0.5 * (0.22 + 0.25))) < 1e-4);
+  assert.strictEqual(CORE.musicBusGain(0, 1.0), 0);
+  assert.strictEqual(CORE.musicBusGain(NaN, 1.0), 0);
+
+  // musicTensionGain:
+  assert.strictEqual(CORE.musicTensionGain(0), 0);
+  assert.strictEqual(CORE.musicTensionGain(0.25), 0);
+  assert.strictEqual(CORE.musicTensionGain(0.2), 0);
+  assert.ok(Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4);
+  assert.ok(Math.abs(CORE.musicTensionGain(0.625) - 0.08) < 1e-4);
+  assert.strictEqual(CORE.musicTensionGain('bad'), 0);
+
+  // musicFilterCutoff:
+  assert.strictEqual(CORE.musicFilterCutoff(0), 200);
+  assert.strictEqual(CORE.musicFilterCutoff(1.0), 1100);
+  assert.strictEqual(CORE.musicFilterCutoff(0.5), 650);
+  assert.strictEqual(CORE.musicFilterCutoff('bad'), 200);
+
+  // musicPulseBpm:
+  assert.strictEqual(CORE.musicPulseBpm(0), 46);
+  assert.strictEqual(CORE.musicPulseBpm(1.0), 132);
+  assert.strictEqual(CORE.musicPulseBpm(0.5), 89);
+  assert.strictEqual(CORE.musicPulseBpm('bad'), 46);
+
+  // stepMusicPulsePhase:
+  const phaseStep = CORE.stepMusicPulsePhase(0, 0.5, 60);
+  assert.ok(Math.abs(phaseStep - 0.5) < 1e-4);
+  // Wraps around 1.0
+  const phaseWrap = CORE.stepMusicPulsePhase(0.9, 0.2, 60);
+  assert.ok(Math.abs(phaseWrap - 0.1) < 1e-4);
+  assert.ok(phaseWrap >= 0 && phaseWrap < 1);
+  assert.strictEqual(CORE.stepMusicPulsePhase('bad', 0, 60), 0);
+
+  // musicPulseEnvelope:
+  assert.strictEqual(CORE.musicPulseEnvelope(0), 1.0);
+  assert.strictEqual(CORE.musicPulseEnvelope(1.0), 0.0);
+  assert.ok(Math.abs(CORE.musicPulseEnvelope(0.5) - Math.pow(0.5, 6)) < 1e-4);
+  assert.strictEqual(CORE.musicPulseEnvelope('bad'), 1.0);
+
+  // musicPulseGain:
+  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4);
+  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4);
+  assert.ok(Math.abs(CORE.musicPulseGain(0.5, 0.5) - (0.5 * (0.05 + 0.25))) < 1e-4);
+  assert.strictEqual(CORE.musicPulseGain(0, 1.0), 0);
+
+  // stationPurchaseSound:
+  assert.strictEqual(CORE.stationPurchaseSound('armory'), 'armory_upgrade');
+  assert.strictEqual(CORE.stationPurchaseSound('door'), 'door_unlock');
+  assert.strictEqual(CORE.stationPurchaseSound('wall', false), 'weapon_buy');
+  assert.strictEqual(CORE.stationPurchaseSound('wall', true), 'pickup_ammo');
+  assert.strictEqual(CORE.stationPurchaseSound('plate'), 'pickup_ammo');
+  assert.strictEqual(CORE.stationPurchaseSound('lethal'), 'draw');
+  assert.strictEqual(CORE.stationPurchaseSound('tactical'), 'draw');
+  assert.strictEqual(CORE.stationPurchaseSound('perk'), 'powerup');
+  assert.strictEqual(CORE.stationPurchaseSound('unknown'), 'powerup');
+
+  // playerDownSound & playerReviveSound:
+  assert.strictEqual(CORE.playerDownSound(), 'player_down');
+  assert.strictEqual(CORE.playerReviveSound(), 'player_revive');
+});
