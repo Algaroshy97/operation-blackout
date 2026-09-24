@@ -1509,12 +1509,28 @@ def main() -> int:
             const rldLblEmpty = CORE.touchReloadLabel(0, 0, false) === 'EMPTY';
 
             document.body.classList.add('touch');
-            const fireEl = document.getElementById('tbtn-fire');
-            const rldEl = document.getElementById('tbtn-reload');
+            let fireEl = document.getElementById('tbtn-fire');
+            let rldEl = document.getElementById('tbtn-reload');
+            if (!fireEl || !rldEl) {
+                // Headless probe: the real touch UI only exists when IS_TOUCH, so
+                // inject identical-fixture buttons that still match the real
+                // stylesheet rules, then remove them after measuring.
+                const wrap = document.createElement('div');
+                wrap.id = '__probe_touch_fixture__';
+                wrap.innerHTML = '<div id="tbtn-fire" class="tbtn">FIRE</div><div id="tbtn-reload" class="tbtn">RLD</div>';
+                document.body.appendChild(wrap);
+                fireEl = document.getElementById('tbtn-fire');
+                rldEl = document.getElementById('tbtn-reload');
+            }
             if (!fireEl || !rldEl) {
                 document.body.classList.remove('touch');
                 return false;
             }
+            // The real buttons animate opacity/border over ~150ms; the probe reads
+            // computed styles synchronously after flipping classes, so disable
+            // transitions to measure final values instead of mid-transition ones.
+            fireEl.style.transition = 'none';
+            rldEl.style.transition = 'none';
 
             fireEl.classList.add('dry');
             const dryBorder = getComputedStyle(fireEl).borderColor;
@@ -1533,6 +1549,9 @@ def main() -> int:
             rldEl.classList.remove('empty');
 
             document.body.classList.remove('touch');
+            if (document.getElementById('__probe_touch_fixture__')) {
+                document.getElementById('__probe_touch_fixture__').remove();
+            }
 
             const styleOk = Boolean(dryBorder && relBorder && emptyOp <= 0.5 && rldEmptyOp <= 0.5);
 
