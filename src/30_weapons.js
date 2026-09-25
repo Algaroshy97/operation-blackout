@@ -455,64 +455,41 @@ function buildViewmodel() {
 
 // per-frame viewmodel pose
 const _gunQ = new THREE.Quaternion();
+const _viewmodelPoseOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+const _reloadAnimOut = { dip: 0, rot: 0, magY: -0.13 };
 function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
   adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), w ? w.adsSpeed : 1);
   gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt);
-  const raise = (1 - gunSwitchT) * 0.25;
-  const bob = player.bobAmp * 0.014;
-  const swayX2 = Math.sin(player.bobPhase) * bob;
-  const swayY2 = Math.abs(Math.cos(player.bobPhase)) * bob;
-  // hip pose / ads pose lerp
-  const hipX = 0.22, hipY = -0.2, hipZ = -0.05;
-  const adsX = 0, adsY = -0.148, adsZ = 0.02;
-  let px = hipX + (adsX - hipX) * adsAmount;
-  let py = hipY + (adsY - hipY) * adsAmount;
-  let pz = hipZ + (adsZ - hipZ) * adsAmount;
-  // sprint pose
-  const sprintPose = player.sprinting ? 1 : 0;
-  px += sprintPose * 0.08 * (1 - adsAmount);
-  py += sprintPose * -0.06 * (1 - adsAmount);
-  // kick
-  const kick = shotKick * 0.045;
-  pz += kick; py += kick * 0.3;
-  // sniper scope pose: pull gun up so ocular fills center; hide crosshair
-  const scoped = w.type === 'SR' && adsAmount > 0.82;
-  if (w.type === 'SR') {
-    // scoped alignment: scope ocular at eye level
-    py += adsAmount * 0.062;
-    pz += adsAmount * 0.16;
-    px += swayX * (1 - adsAmount * 0.5);
-    py += swayY * (1 - adsAmount * 0.5);
-  }
-  // reload dip
+
   const s = curS();
-  let reloadDip = 0, reloadRot = 0;
-  if (s && s.reloading) {
-    const p = s.reloadT / w.reload;
-    const bump = Math.sin(p * Math.PI);
-    reloadDip = bump * 0.09;
-    reloadRot = bump * 0.5;
-    if (gunParts.mag) gunParts.mag.position.y = -0.13 - (p < 0.4 ? p * 0.3 : Math.max(0, 0.55 - p) * 0.45);
-  } else if (gunParts.mag) gunParts.mag.position.y = -0.13;
-  gunGroup.position.set(px + swayX2 * (1 - adsAmount), py - swayY2 * (1 - adsAmount) - reloadDip - raise, pz);
-  gunGroup.rotation.set(-reloadRot * 0.6 - player.pitch * 0.03, (0.06 - sprintPose * 0.35) * (1 - adsAmount), sprintPose * 0.3 * (1 - adsAmount));
-  if (gunParts.bolt) gunParts.bolt.position.z = -0.02 + Math.min(0.06, shotKick * 0.05);
+  const isSniper = w.type === 'SR';
+  const scoped = isSniper && adsAmount > 0.82;
+  const reloadDuration = (w && w.reload) ? w.reload : 1;
+  const reloadT = (s && s.reloading) ? s.reloadT : -1;
+  CORE.reloadAnimationOffsets(reloadT, reloadDuration, _reloadAnimOut);
+  if (gunParts.mag) gunParts.mag.position.y = _reloadAnimOut.magY;
+  if (gunParts.bolt) gunParts.bolt.position.z = CORE.viewmodelBoltOffset(shotKick);
+
+  const stance = CORE.viewmodelStance(player.sprinting, player.tacT > 0, player.sliding, aimAds);
+  const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+
+  CORE.viewmodelPose(
+    adsAmount, stance, shotKick, swayX, swayY,
+    player.bobPhase, player.bobAmp, isSniper, gunSwitchT,
+    _reloadAnimOut.dip, _reloadAnimOut.rot, player.pitch,
+    camera.aspect || 1, isRedMotion, _viewmodelPoseOut
+  );
+  gunGroup.position.set(_viewmodelPoseOut.posX, _viewmodelPoseOut.posY, _viewmodelPoseOut.posZ);
+  gunGroup.rotation.set(_viewmodelPoseOut.rotX, _viewmodelPoseOut.rotY, _viewmodelPoseOut.rotZ);
+
   // muzzle flash decay
   if (muzzleFlash && muzzleFlash.visible) {
-    flashT -= dt * 12;
+    flashT = CORE.stepMuzzleFlash(flashT, dt, CORE.VIEWMODEL_MUZZLE_FLASH_DECAY);
     if (flashT <= 0) muzzleFlash.visible = false;
   }
-  // UI-01: camera.fov is VERTICAL. On a 9:16 phone held upright the horizontal
-  // FOV collapses and the gun, which sits at x = +0.22, leaves the frustum
-  // entirely — measured at NDC 13.1 on a 375x812 screen. Pull the viewmodel
-  // toward the centre as the viewport narrows so it stays framed.
-  const aspect = camera.aspect || 1;
-  const narrow = Math.max(0, Math.min(1, (1.2 - aspect) / 0.7));
-  gunGroup.position.x -= gunGroup.position.x * 0.75 * narrow;
-  gunGroup.position.y += 0.05 * narrow;
   // scope overlay for BR / SR
   const isSr = w.type === 'SR';
   const wantScope = CORE.isScopeOverlayActive(adsAmount, w.type);

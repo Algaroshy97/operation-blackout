@@ -4114,6 +4114,159 @@ const CORE = (function () {
     return 'player_revive';
   }
 
+  // ---- Viewmodel Procedural Dynamics & Tactical Stance Rules (v93) -----------
+  const VIEWMODEL_HIP_X = 0.22;
+  const VIEWMODEL_HIP_Y = -0.20;
+  const VIEWMODEL_HIP_Z = -0.05;
+  const VIEWMODEL_ADS_X = 0.0;
+  const VIEWMODEL_ADS_Y = -0.148;
+  const VIEWMODEL_ADS_Z = 0.02;
+  const VIEWMODEL_BOB_SCALE = 0.014;
+  const VIEWMODEL_KICK_Z_SCALE = 0.045;
+  const VIEWMODEL_KICK_Y_SCALE = 0.3;
+  const VIEWMODEL_BOLT_REST_Z = -0.02;
+  const VIEWMODEL_BOLT_KICK_SCALE = 0.05;
+  const VIEWMODEL_BOLT_KICK_MAX = 0.06;
+  const VIEWMODEL_MAG_REST_Y = -0.13;
+  const VIEWMODEL_MAG_DROP_SCALE = 0.3;
+  const VIEWMODEL_MAG_INSERT_SCALE = 0.45;
+  const VIEWMODEL_RELOAD_DIP = 0.09;
+  const VIEWMODEL_RELOAD_ROT = 0.5;
+  const VIEWMODEL_SWITCH_RAISE_DISTANCE = 0.25;
+  const VIEWMODEL_MUZZLE_FLASH_DECAY = 12;
+  const VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY = 3.2;
+  const VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE = 26;
+  const IMPACT_VFX_LIFETIME = 0.25;
+  const IMPACT_VFX_EXPANSION_RATE = 6;
+
+  const VIEWMODEL_STANCE_OFFSETS = {
+    idle: { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 },
+    ads: { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 },
+    sprint: { posX: 0.08, posY: -0.06, posZ: 0, rotX: 0, rotY: -0.35, rotZ: 0.30 },
+    tac_sprint: { posX: -0.04, posY: 0.06, posZ: -0.04, rotX: 0.28, rotY: -0.18, rotZ: 0.38 },
+    slide: { posX: 0.05, posY: -0.08, posZ: 0.02, rotX: -0.12, rotY: -0.20, rotZ: 0.22 }
+  };
+
+  function viewmodelStance(isSprinting, isTacSprint, isSliding, isAds) {
+    if (isAds) return 'ads';
+    if (isSliding) return 'slide';
+    if (isTacSprint) return 'tac_sprint';
+    if (isSprinting) return 'sprint';
+    return 'idle';
+  }
+
+  function viewmodelStanceOffsets(stance, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+    const src = VIEWMODEL_STANCE_OFFSETS[stance] || VIEWMODEL_STANCE_OFFSETS.idle;
+    o.posX = src.posX; o.posY = src.posY; o.posZ = src.posZ;
+    o.rotX = src.rotX; o.rotY = src.rotY; o.rotZ = src.rotZ;
+    return o;
+  }
+
+  function reloadAnimationOffsets(reloadT, reloadDuration, out) {
+    const o = out || { dip: 0, rot: 0, magY: VIEWMODEL_MAG_REST_Y };
+    const dur = typeof reloadDuration === 'number' && isFinite(reloadDuration) && reloadDuration > 0 ? reloadDuration : 1;
+    const t = typeof reloadT === 'number' && isFinite(reloadT) ? reloadT : -1;
+    if (t < 0 || t >= dur) {
+      o.dip = 0;
+      o.rot = 0;
+      o.magY = VIEWMODEL_MAG_REST_Y;
+      return o;
+    }
+    const p = Math.max(0, Math.min(1, t / dur));
+    const bump = Math.sin(p * Math.PI);
+    o.dip = bump * VIEWMODEL_RELOAD_DIP;
+    o.rot = bump * VIEWMODEL_RELOAD_ROT;
+    const magDrop = p < 0.4 ? p * VIEWMODEL_MAG_DROP_SCALE : Math.max(0, 0.55 - p) * VIEWMODEL_MAG_INSERT_SCALE;
+    o.magY = VIEWMODEL_MAG_REST_Y - magDrop;
+    return o;
+  }
+
+  function viewmodelBoltOffset(shotKick) {
+    const kick = typeof shotKick === 'number' && isFinite(shotKick) ? Math.max(0, shotKick) : 0;
+    return VIEWMODEL_BOLT_REST_Z + Math.min(VIEWMODEL_BOLT_KICK_MAX, kick * VIEWMODEL_BOLT_KICK_SCALE);
+  }
+
+  function viewmodelPose(adsAmount, stance, shotKick, swayX, swayY, bobPhase, bobAmp, isSniper, gunSwitchT, reloadDip, reloadRot, pitch, aspect, isReducedMotion, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const hipFactor = 1 - ads;
+
+    let px = VIEWMODEL_HIP_X + (VIEWMODEL_ADS_X - VIEWMODEL_HIP_X) * ads;
+    let py = VIEWMODEL_HIP_Y + (VIEWMODEL_ADS_Y - VIEWMODEL_HIP_Y) * ads;
+    let pz = VIEWMODEL_HIP_Z + (VIEWMODEL_ADS_Z - VIEWMODEL_HIP_Z) * ads;
+
+    const st = VIEWMODEL_STANCE_OFFSETS[stance] || VIEWMODEL_STANCE_OFFSETS.idle;
+    px += st.posX * hipFactor;
+    py += st.posY * hipFactor;
+    pz += st.posZ * hipFactor;
+
+    const kick = Math.max(0, typeof shotKick === 'number' && isFinite(shotKick) ? shotKick : 0) * VIEWMODEL_KICK_Z_SCALE;
+    pz += kick;
+    py += kick * VIEWMODEL_KICK_Y_SCALE;
+
+    if (isSniper) {
+      const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
+      const sy = typeof swayY === 'number' && isFinite(swayY) ? swayY : 0;
+      py += ads * 0.062;
+      pz += ads * 0.16;
+      px += sx * (1 - ads * 0.5);
+      py += sy * (1 - ads * 0.5);
+    }
+
+    const sw = typeof gunSwitchT === 'number' && isFinite(gunSwitchT) ? Math.max(0, Math.min(1, gunSwitchT)) : 1;
+    const raise = (1 - sw) * VIEWMODEL_SWITCH_RAISE_DISTANCE;
+    const dip = typeof reloadDip === 'number' && isFinite(reloadDip) ? reloadDip : 0;
+    py -= (dip + raise);
+
+    const motion = isReducedMotion ? 0 : 1;
+    const bAmp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
+    const bPhase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const bob = bAmp * VIEWMODEL_BOB_SCALE * motion;
+    const swayX2 = Math.sin(bPhase) * bob;
+    const swayY2 = Math.abs(Math.cos(bPhase)) * bob;
+    px += swayX2 * hipFactor;
+    py -= swayY2 * hipFactor;
+
+    const asp = typeof aspect === 'number' && isFinite(aspect) && aspect > 0 ? aspect : 1;
+    const narrow = Math.max(0, Math.min(1, (1.2 - asp) / 0.7));
+    px -= px * 0.75 * narrow;
+    py += 0.05 * narrow;
+
+    const rot = typeof reloadRot === 'number' && isFinite(reloadRot) ? reloadRot : 0;
+    const pAngle = typeof pitch === 'number' && isFinite(pitch) ? pitch : 0;
+    const rx = -rot * 0.6 - pAngle * 0.03 + st.rotX * hipFactor;
+    const ry = (0.06 + st.rotY) * hipFactor;
+    const rz = st.rotZ * hipFactor;
+
+    o.posX = px; o.posY = py; o.posZ = pz;
+    o.rotX = rx; o.rotY = ry; o.rotZ = rz;
+    return o;
+  }
+
+  function stepMuzzleFlash(flashT, dt, decayRate) {
+    const cur = typeof flashT === 'number' && isFinite(flashT) ? Math.max(0, flashT) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const rate = typeof decayRate === 'number' && isFinite(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_FLASH_DECAY;
+    return Math.max(0, cur - delta * rate);
+  }
+
+  function stepMuzzleLight(intensity, dt, decayRate, lightCompat) {
+    const cur = typeof intensity === 'number' && isFinite(intensity) ? Math.max(0, intensity) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const rate = typeof decayRate === 'number' && isFinite(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE;
+    const compat = typeof lightCompat === 'number' && isFinite(lightCompat) ? Math.max(0, lightCompat) : 1;
+    return Math.max(0, cur - delta * rate * compat * 4);
+  }
+
+  function impactVfxScale(life, maxLife) {
+    const maxL = typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0 ? maxLife : IMPACT_VFX_LIFETIME;
+    const curL = typeof life === 'number' && isFinite(life) ? Math.max(0, Math.min(maxL, life)) : 0;
+    if (curL <= 0) return 0.001;
+    const expansion = 1 + (maxL - curL) * IMPACT_VFX_EXPANSION_RATE;
+    return Math.max(0.001, expansion * (curL / maxL));
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4618,7 +4771,39 @@ const CORE = (function () {
     playerReviveSound: playerReviveSound,
     touchUseLabel: touchUseLabel,
     touchUseChanged: touchUseChanged,
-    syncTouchUseState: syncTouchUseState
+    syncTouchUseState: syncTouchUseState,
+    VIEWMODEL_HIP_X: VIEWMODEL_HIP_X,
+    VIEWMODEL_HIP_Y: VIEWMODEL_HIP_Y,
+    VIEWMODEL_HIP_Z: VIEWMODEL_HIP_Z,
+    VIEWMODEL_ADS_X: VIEWMODEL_ADS_X,
+    VIEWMODEL_ADS_Y: VIEWMODEL_ADS_Y,
+    VIEWMODEL_ADS_Z: VIEWMODEL_ADS_Z,
+    VIEWMODEL_BOB_SCALE: VIEWMODEL_BOB_SCALE,
+    VIEWMODEL_KICK_Z_SCALE: VIEWMODEL_KICK_Z_SCALE,
+    VIEWMODEL_KICK_Y_SCALE: VIEWMODEL_KICK_Y_SCALE,
+    VIEWMODEL_BOLT_REST_Z: VIEWMODEL_BOLT_REST_Z,
+    VIEWMODEL_BOLT_KICK_SCALE: VIEWMODEL_BOLT_KICK_SCALE,
+    VIEWMODEL_BOLT_KICK_MAX: VIEWMODEL_BOLT_KICK_MAX,
+    VIEWMODEL_MAG_REST_Y: VIEWMODEL_MAG_REST_Y,
+    VIEWMODEL_MAG_DROP_SCALE: VIEWMODEL_MAG_DROP_SCALE,
+    VIEWMODEL_MAG_INSERT_SCALE: VIEWMODEL_MAG_INSERT_SCALE,
+    VIEWMODEL_RELOAD_DIP: VIEWMODEL_RELOAD_DIP,
+    VIEWMODEL_RELOAD_ROT: VIEWMODEL_RELOAD_ROT,
+    VIEWMODEL_SWITCH_RAISE_DISTANCE: VIEWMODEL_SWITCH_RAISE_DISTANCE,
+    VIEWMODEL_MUZZLE_FLASH_DECAY: VIEWMODEL_MUZZLE_FLASH_DECAY,
+    VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY: VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY,
+    VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE: VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE,
+    IMPACT_VFX_LIFETIME: IMPACT_VFX_LIFETIME,
+    IMPACT_VFX_EXPANSION_RATE: IMPACT_VFX_EXPANSION_RATE,
+    VIEWMODEL_STANCE_OFFSETS: VIEWMODEL_STANCE_OFFSETS,
+    viewmodelStance: viewmodelStance,
+    viewmodelStanceOffsets: viewmodelStanceOffsets,
+    reloadAnimationOffsets: reloadAnimationOffsets,
+    viewmodelBoltOffset: viewmodelBoltOffset,
+    viewmodelPose: viewmodelPose,
+    stepMuzzleFlash: stepMuzzleFlash,
+    stepMuzzleLight: stepMuzzleLight,
+    impactVfxScale: impactVfxScale
   };
 })();
 

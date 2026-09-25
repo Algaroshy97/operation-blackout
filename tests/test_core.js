@@ -5366,3 +5366,112 @@ test('touchUseLabel, touchUseChanged, and syncTouchUseState govern contextual mo
   assert.strictEqual(cache.isHolding, true);
   assert.strictEqual(CORE.touchUseChanged(cache, true, true, true, 'armory', 'upgrade'), false);
 });
+
+test('viewmodelStance, viewmodelPose, reloadAnimationOffsets, viewmodelBoltOffset, and VFX scaling govern procedural weapon dynamics', () => {
+  // 1) viewmodelStance:
+  assert.strictEqual(CORE.viewmodelStance(false, false, false, true), 'ads');
+  assert.strictEqual(CORE.viewmodelStance(true, true, false, true), 'ads'); // ADS overrides all movement
+  assert.strictEqual(CORE.viewmodelStance(true, false, true, false), 'slide'); // Slide overrides sprint
+  assert.strictEqual(CORE.viewmodelStance(true, true, false, false), 'tac_sprint'); // Tac sprint overrides regular sprint
+  assert.strictEqual(CORE.viewmodelStance(true, false, false, false), 'sprint');
+  assert.strictEqual(CORE.viewmodelStance(false, false, false, false), 'idle');
+
+  // 2) viewmodelStanceOffsets:
+  const oIdle = CORE.viewmodelStanceOffsets('idle');
+  assert.strictEqual(oIdle.posX, 0);
+  assert.strictEqual(oIdle.posY, 0);
+  assert.strictEqual(oIdle.posZ, 0);
+  assert.strictEqual(oIdle.rotX, 0);
+  assert.strictEqual(oIdle.rotY, 0);
+  assert.strictEqual(oIdle.rotZ, 0);
+
+  const oSprint = CORE.viewmodelStanceOffsets('sprint');
+  assert.strictEqual(oSprint.posX, 0.08);
+  assert.strictEqual(oSprint.posY, -0.06);
+  assert.strictEqual(oSprint.rotY, -0.35);
+  assert.strictEqual(oSprint.rotZ, 0.30);
+
+  const oTac = CORE.viewmodelStanceOffsets('tac_sprint');
+  assert.strictEqual(oTac.posX, -0.04);
+  assert.strictEqual(oTac.posY, 0.06);
+  assert.strictEqual(oTac.rotX, 0.28);
+  assert.strictEqual(oTac.rotY, -0.18);
+  assert.strictEqual(oTac.rotZ, 0.38);
+
+  const oSlide = CORE.viewmodelStanceOffsets('slide');
+  assert.strictEqual(oSlide.posX, 0.05);
+  assert.strictEqual(oSlide.posY, -0.08);
+  assert.strictEqual(oSlide.rotX, -0.12);
+
+  // Zero-allocation out object reuse:
+  const outAlloc = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+  const resAlloc = CORE.viewmodelStanceOffsets('tac_sprint', outAlloc);
+  assert.strictEqual(resAlloc, outAlloc);
+  assert.strictEqual(outAlloc.posY, 0.06);
+
+  // 3) reloadAnimationOffsets:
+  const rInactive = CORE.reloadAnimationOffsets(-1, 2.5);
+  assert.strictEqual(rInactive.dip, 0);
+  assert.strictEqual(rInactive.rot, 0);
+  assert.strictEqual(rInactive.magY, CORE.VIEWMODEL_MAG_REST_Y);
+
+  const rMid = CORE.reloadAnimationOffsets(1.25, 2.5); // p = 0.5 (peak bump)
+  assert.ok(Math.abs(rMid.dip - CORE.VIEWMODEL_RELOAD_DIP) < 1e-4);
+  assert.ok(Math.abs(rMid.rot - CORE.VIEWMODEL_RELOAD_ROT) < 1e-4);
+  assert.ok(rMid.magY < CORE.VIEWMODEL_MAG_REST_Y);
+
+  const rDone = CORE.reloadAnimationOffsets(2.5, 2.5);
+  assert.strictEqual(rDone.dip, 0);
+  assert.strictEqual(rDone.rot, 0);
+  assert.strictEqual(rDone.magY, CORE.VIEWMODEL_MAG_REST_Y);
+
+  // 4) viewmodelBoltOffset:
+  assert.strictEqual(CORE.viewmodelBoltOffset(0), CORE.VIEWMODEL_BOLT_REST_Z);
+  assert.ok(Math.abs(CORE.viewmodelBoltOffset(0.5) - (CORE.VIEWMODEL_BOLT_REST_Z + 0.5 * CORE.VIEWMODEL_BOLT_KICK_SCALE)) < 1e-5);
+  assert.strictEqual(CORE.viewmodelBoltOffset(999), CORE.VIEWMODEL_BOLT_REST_Z + CORE.VIEWMODEL_BOLT_KICK_MAX);
+
+  // 5) viewmodelPose:
+  const poseOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+  // Hip idle:
+  CORE.viewmodelPose(0, 'idle', 0, 0, 0, 0, 0, false, 1, 0, 0, 0, 1.77, false, poseOut);
+  assert.ok(Math.abs(poseOut.posX - CORE.VIEWMODEL_HIP_X) < 1e-4);
+  assert.ok(Math.abs(poseOut.posY - CORE.VIEWMODEL_HIP_Y) < 1e-4);
+  assert.ok(Math.abs(poseOut.posZ - CORE.VIEWMODEL_HIP_Z) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotY - 0.06) < 1e-4);
+
+  // Full ADS: aligns to sight center regardless of stance offsets:
+  CORE.viewmodelPose(1, 'sprint', 0, 0, 0, 0, 0, false, 1, 0, 0, 0, 1.77, false, poseOut);
+  assert.ok(Math.abs(poseOut.posX - CORE.VIEWMODEL_ADS_X) < 1e-4);
+  assert.ok(Math.abs(poseOut.posY - CORE.VIEWMODEL_ADS_Y) < 1e-4);
+  assert.ok(Math.abs(poseOut.posZ - CORE.VIEWMODEL_ADS_Z) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotX) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotY) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotZ) < 1e-4);
+
+  // Tactical sprint hip pose:
+  CORE.viewmodelPose(0, 'tac_sprint', 0, 0, 0, 0, 0, false, 1, 0, 0, 0, 1.77, false, poseOut);
+  assert.ok(Math.abs(poseOut.posX - (CORE.VIEWMODEL_HIP_X - 0.04)) < 1e-4);
+  assert.ok(Math.abs(poseOut.posY - (CORE.VIEWMODEL_HIP_Y + 0.06)) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotX - 0.28) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotY - (0.06 - 0.18)) < 1e-4);
+  assert.ok(Math.abs(poseOut.rotZ - 0.38) < 1e-4);
+
+  // Reduced motion suppresses bobbing:
+  const poseBobNormal = CORE.viewmodelPose(0, 'idle', 0, 0, 0, Math.PI / 2, 1, false, 1, 0, 0, 0, 1.77, false);
+  const poseBobReduced = CORE.viewmodelPose(0, 'idle', 0, 0, 0, Math.PI / 2, 1, false, 1, 0, 0, 0, 1.77, true);
+  assert.ok(Math.abs(poseBobNormal.posX - (CORE.VIEWMODEL_HIP_X + CORE.VIEWMODEL_BOB_SCALE)) < 1e-4);
+  assert.ok(Math.abs(poseBobReduced.posX - CORE.VIEWMODEL_HIP_X) < 1e-4);
+
+  // 6) stepMuzzleFlash:
+  assert.ok(Math.abs(CORE.stepMuzzleFlash(1, 0.05, 12) - 0.4) < 1e-4);
+  assert.strictEqual(CORE.stepMuzzleFlash(0.2, 0.05, 12), 0);
+
+  // 7) stepMuzzleLight:
+  assert.ok(Math.abs(CORE.stepMuzzleLight(3.2 * 4, 0.05, 26, 1) - (12.8 - 0.05 * 26 * 4)) < 1e-4);
+  assert.strictEqual(CORE.stepMuzzleLight(1, 0.1, 26, 1), 0);
+
+  // 8) impactVfxScale:
+  assert.strictEqual(CORE.impactVfxScale(0.25, 0.25), 1.0);
+  assert.ok(Math.abs(CORE.impactVfxScale(0.125, 0.25) - (1 + (0.125) * 6) * 0.5) < 1e-4);
+  assert.strictEqual(CORE.impactVfxScale(0, 0.25), 0.001);
+});

@@ -284,11 +284,11 @@ function flashMuzzleLight() {
     scene.add(muzzleLight);
   }
   muzzleLight.position.copy(camera.position);
-  muzzleLight.intensity = 3.2 * LIGHT_COMPAT * 4;
+  muzzleLight.intensity = CORE.VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY * LIGHT_COMPAT * 4;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {
-    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 26 * LIGHT_COMPAT * 4);
+    muzzleLight.intensity = CORE.stepMuzzleLight(muzzleLight.intensity, dt, CORE.VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE, LIGHT_COMPAT);
   }
 }
 function updateVfx(dt) {
@@ -305,7 +305,7 @@ function updateVfx(dt) {
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
     im.life -= dt;
-    im.m.scale.setScalar(Math.max(0.001, (1 + (0.25 - Math.max(0, im.life)) * 6) * (im.life / 0.25)));
+    im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME));
     if (im.life <= 0) {
       scene.remove(im.m);
       im.m.visible = false;

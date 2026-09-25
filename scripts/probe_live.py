@@ -1861,7 +1861,67 @@ def main() -> int:
         }""")
         checks.append(("touch-station-use-feedback-and-contextual-rules", touch_use_check))
 
-        # 47) Clean console throughout gameplay.
+        # 47) Procedural viewmodel dynamics, tactical stance, and weapon animation rules.
+        viewmodel_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.viewmodelStance !== 'function' ||
+                typeof CORE.viewmodelStanceOffsets !== 'function' ||
+                typeof CORE.reloadAnimationOffsets !== 'function' ||
+                typeof CORE.viewmodelBoltOffset !== 'function' ||
+                typeof CORE.viewmodelPose !== 'function' ||
+                typeof CORE.stepMuzzleFlash !== 'function' ||
+                typeof CORE.stepMuzzleLight !== 'function' ||
+                typeof CORE.impactVfxScale !== 'function') return false;
+
+            const stAds = CORE.viewmodelStance(true, true, false, true) === 'ads';
+            const stSlide = CORE.viewmodelStance(true, false, true, false) === 'slide';
+            const stTac = CORE.viewmodelStance(true, true, false, false) === 'tac_sprint';
+            const stSprint = CORE.viewmodelStance(true, false, false, false) === 'sprint';
+            const stIdle = CORE.viewmodelStance(false, false, false, false) === 'idle';
+
+            const oIdle = CORE.viewmodelStanceOffsets('idle');
+            const oTac = CORE.viewmodelStanceOffsets('tac_sprint');
+            const oSlide = CORE.viewmodelStanceOffsets('slide');
+            const offsetsOk = oIdle.posX === 0 && oIdle.posY === 0 &&
+                              oTac.posX === -0.04 && oTac.posY === 0.06 && oTac.rotX === 0.28 &&
+                              oSlide.posX === 0.05 && oSlide.posY === -0.08 && oSlide.rotX === -0.12;
+
+            const rInactive = CORE.reloadAnimationOffsets(-1, 2.5);
+            const rMid = CORE.reloadAnimationOffsets(1.25, 2.5);
+            const reloadOk = rInactive.dip === 0 && rInactive.rot === 0 &&
+                             Math.abs(rMid.dip - CORE.VIEWMODEL_RELOAD_DIP) < 1e-4 &&
+                             Math.abs(rMid.rot - CORE.VIEWMODEL_RELOAD_ROT) < 1e-4 &&
+                             rMid.magY < CORE.VIEWMODEL_MAG_REST_Y;
+
+            const boltRest = CORE.viewmodelBoltOffset(0) === CORE.VIEWMODEL_BOLT_REST_Z;
+            const boltKick = Math.abs(CORE.viewmodelBoltOffset(0.5) - (CORE.VIEWMODEL_BOLT_REST_Z + 0.5 * CORE.VIEWMODEL_BOLT_KICK_SCALE)) < 1e-5;
+
+            const poseOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+            CORE.viewmodelPose(0, 'idle', 0, 0, 0, 0, 0, false, 1, 0, 0, 0, 1.77, false, poseOut);
+            const hipOk = Math.abs(poseOut.posX - CORE.VIEWMODEL_HIP_X) < 1e-4 &&
+                          Math.abs(poseOut.posY - CORE.VIEWMODEL_HIP_Y) < 1e-4 &&
+                          Math.abs(poseOut.posZ - CORE.VIEWMODEL_HIP_Z) < 1e-4;
+
+            CORE.viewmodelPose(1, 'sprint', 0, 0, 0, 0, 0, false, 1, 0, 0, 0, 1.77, false, poseOut);
+            const adsOk = Math.abs(poseOut.posX - CORE.VIEWMODEL_ADS_X) < 1e-4 &&
+                          Math.abs(poseOut.posY - CORE.VIEWMODEL_ADS_Y) < 1e-4 &&
+                          Math.abs(poseOut.posZ - CORE.VIEWMODEL_ADS_Z) < 1e-4 &&
+                          Math.abs(poseOut.rotX) < 1e-4 && Math.abs(poseOut.rotZ) < 1e-4;
+
+            const flashStep = Math.abs(CORE.stepMuzzleFlash(1, 0.05, 12) - 0.4) < 1e-4;
+            const flashFloor = CORE.stepMuzzleFlash(0.2, 0.05, 12) === 0;
+            const lightStep = Math.abs(CORE.stepMuzzleLight(3.2 * 4, 0.05, 26, 1) - (12.8 - 0.05 * 26 * 4)) < 1e-4;
+            const vfxScalePeak = CORE.impactVfxScale(0.25, 0.25) === 1.0;
+            const vfxScaleFloor = CORE.impactVfxScale(0, 0.25) === 0.001;
+
+            return stAds && stSlide && stTac && stSprint && stIdle &&
+                   offsetsOk && reloadOk && boltRest && boltKick &&
+                   hipOk && adsOk && flashStep && flashFloor && lightStep &&
+                   vfxScalePeak && vfxScaleFloor;
+        }""")
+        checks.append(("procedural-viewmodel-and-weapon-dynamics-rules", viewmodel_rules_check))
+
+        # 48) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
