@@ -551,6 +551,7 @@ function explodeGrenade(pos, scale) {
   vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
   // fireball, embers, smoke column, dust ring and debris (48_particles.js)
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
+  noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved
   if (player.pos.distanceTo(pos) < 18) postKick(0.7);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;

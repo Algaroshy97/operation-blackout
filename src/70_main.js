@@ -151,8 +151,9 @@ function resetGame() {
   casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
-  if (typeof clearDecals === 'function') clearDecals();
-  clearParticles();   // v41: bullet holes never persist into a new run
+  if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
+  clearParticles();
+  clearBloodPools();
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
@@ -851,10 +852,6 @@ function preloadGameAssets() {
   return loadEmbeddedAssets(function (name, loaded, total) {
     progress.textContent = loaded + ' / ' + total + ' · ' + name;
   }).then(function (results) {
-    if (GLB_PARSED.SOLDIER) {
-      probeSkinnedSoldier();
-      if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
-    }
     const n = scatterProps();
     const failed = results.filter(function (ok) { return !ok; }).length;
     progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';
