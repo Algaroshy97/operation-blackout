@@ -151,7 +151,8 @@ function resetGame() {
   casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
-  if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
+  if (typeof clearDecals === 'function') clearDecals();
+  clearParticles();   // v41: bullet holes never persist into a new run
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
@@ -745,6 +746,8 @@ function frame(now) {
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
+    updateParticles(dt);
+    updateFlashLights(dt);
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.

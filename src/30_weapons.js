@@ -138,6 +138,7 @@ let dryPlayed = false;
 const raycaster = new THREE.Raycaster();
 const _shootDir = new THREE.Vector3();
 const _from = new THREE.Vector3();
+const _muzzleW = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _aimTgt = new THREE.Vector3();
 
@@ -308,6 +309,12 @@ function fireShot(preserveSchedule) {
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
+  if (muzzleFlash) {
+    muzzleFlash.getWorldPosition(_muzzleW);
+    fxMuzzle(_muzzleW, _shootDir, w.type === 'SR' || w.type === 'BR');
+  }
+  // a heavy round leaves a hanging vapour trail you can read back to the shooter
+  if (w.type === 'SR') sniperTrail(_from, hit ? hit.point : _tracerMissEnd);
   updateHudAmmo();
 }
 // ---- Melee ----

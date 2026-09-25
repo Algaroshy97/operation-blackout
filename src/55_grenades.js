@@ -549,15 +549,9 @@ function explodeGrenade(pos, scale) {
   flash.position.copy(pos);
   scene.add(flash);
   vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
-  // smoke/spark debris
-  for (let i = 0; i < 14; i++) {
-    const s = new THREE.Mesh(sparkGeo, sparkMat);
-    s.position.copy(pos);
-    const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.4, (Math.random() - 0.5) * 2).multiplyScalar(3 + Math.random() * 5);
-    s.userData.vfx = true;
-    scene.add(s);
-    vfx.blood.push({ m: s, v: v, life: 0.7, grav: 10 });
-  }
+  // fireball, embers, smoke column, dust ring and debris (48_particles.js)
+  fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
+  if (player.pos.distanceTo(pos) < 18) postKick(0.7);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {
