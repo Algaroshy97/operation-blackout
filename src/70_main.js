@@ -727,6 +727,7 @@ function frame(now) {
 
   if (started && !paused) {
     gameT += dt;
+    SKY_UNIFORMS.time.value = gameT;
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
@@ -823,7 +824,7 @@ function frame(now) {
 
   // single-pass render: viewmodel is a camera child with depthTest:false materials
   renderer.autoClear = true;
-  renderer.render(scene, camera);
+  renderFrame(dt);
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
   }

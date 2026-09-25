@@ -100,6 +100,7 @@ function applyQuality() {
   renderer.shadowMap.enabled = plan.shadowEnabled;
   if (plan.shadowType) renderer.shadowMap.type = THREE[plan.shadowType];
   renderer.shadowMap.needsUpdate = true;
+  initPostfx();   // 65_postfx.js: bloom + grade on the presets that can afford it
 }
 
 // ---- Career stats -----------------------------------------------------------
