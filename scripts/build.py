@@ -10,6 +10,18 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+LF = "\n"
+CRLF = "\r\n"
+
+
+def read_lf(path: Path) -> str:
+    """Read a source file with newlines normalised to LF.
+
+    Without this, text-mode I/O translates to CRLF on Windows, so the same
+    commit produces byte-different artifacts depending on the build host.
+    """
+    return path.read_text(encoding="utf-8").replace(CRLF, LF)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -38,16 +50,17 @@ def main() -> None:
     if missing:
         parser.error("; ".join(missing))
 
-    parts = [head_path.read_text(), "\n"]
+    parts = [read_lf(head_path), "\n"]
     for library in libraries:
-        parts.extend(["<script>\n", library.read_text(), "\n</script>\n"])
+        parts.extend(["<script>\n", read_lf(library), "\n</script>\n"])
     parts.extend([
         "<script>\n",
-        "\n".join(module.read_text() for module in modules),
+        "\n".join(read_lf(module) for module in modules),
         "\n</script>\n</body>\n</html>\n",
     ])
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("".join(parts))
+    # newline="" prevents a second round of platform translation on write.
+    output.write_text("".join(parts), encoding="utf-8", newline="")
     print(f"built {output} ({output.stat().st_size} bytes; {len(modules)} modules, {len(libraries)} libraries)")
 
 

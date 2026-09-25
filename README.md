@@ -8,46 +8,32 @@ A single-file, offline, wave-defense FPS built with Three.js. One HTML file — 
 
 **Windows / desktop (tested best):** download `dist/Operation Blackout.html`, double-click, play. Right-click → *Save link as* works too if your browser opens it as text.
 
-**Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints). Mobile defaults to the *Low* graphics preset.
+**Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints). Landscape is required; the touch HUD and the end screens are laid out for viewports down to 800x360 and inset past display cutouts and the gesture bar.
 
-**Controller:** any standard-mapping gamepad (Xbox / PlayStation) works in game and in menus.
+Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · P/Esc pause.
 
-| Action | Keyboard / mouse | Gamepad |
-|---|---|---|
-| Move / look | WASD · mouse | LS · RS |
-| Fire / aim | Mouse1 · Mouse2 | RT · LT |
-| Sprint (steady scope when aimed) | Shift | L3 |
-| Crouch · slide (while sprinting) | C / Ctrl | B (hold) |
-| Jump · mantle · slide-jump | Space | A |
-| Lean | Q / E | D-pad ◀ ▶ |
-| Knife | V / F | RB / R3 |
-| Reload | R | X |
-| Grenade (hold to aim the arc) | G | LB |
-| Weapons (primary · sniper · pistol) | 1 / 2 / 3 / X / wheel | Y |
-| Scope zoom 4x ↔ 8x (while scoped) | Z / wheel | D-pad ▲ |
-| Pause | P / Esc | Start |
+SETTINGS on the main menu or the pause screen covers mouse sensitivity, invert-Y, field of view, master volume, mute, graphics quality, reduced camera motion, high-contrast enemy markers and the FPS counter. Everything is saved in the browser, along with your best score, best wave and best accuracy.
 
-Survive 15 waves. Kills drop ammo and medkits; supply drops every three waves offer a choice of upgrades.
+Pick a difficulty and both weapons at deploy, then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
 
-## What's in it
+Your run is **checkpointed after every wave**, so closing the tab does not cost you the session — RESUME RUN appears on the main menu.
 
-- **Graphics** — HDR rendering with MSAA, two-level bloom, ACES tone mapping and colour grading; dusk sky with drifting clouds and sun glow; image-based reflections; player-following texel-snapped sun shadows; procedural PBR textures (colour + normal maps generated on canvases at startup — zero asset bytes); GPU particle system for smoke, fire, sparks, dust and blood; travelling HDR tracers; bullet-hole, blood and scorch decals; set-dressing (cars, barriers, sandbags, lamps, power lines, rubble, puddles, skyline).
-- **Physics** — sphere-vs-AABB rigid bodies (grenades land on roofs and ledges; tumbling debris); explosive barrels with fuses, chain reactions, shrapnel and burning pools; blast knockback; enemy deaths topple as rigid bodies (or launch, if a blast killed them); casings bounce on whatever floor is below; bullet penetration through wood, glass and sheet metal.
-- **Movement** — smooth crouch, slide and slide-jump, lean around cover, mantle/vault onto anything up to ~2 m, fall damage and landing impact, camera shake.
-- **Sniper (always carried)** — the SV-98 rides in slot 2 whatever primary you pick: 4x/8x scope with mil-dot reticle, rangefinder, eye-box parallax and breath gauge; you stay scoped while working the bolt; breathing sway moves your real aim (hold Shift to steady); rounds punch through bodies and up to 0.95 m of concrete (wallbang and collateral bonuses); vapour trails and bullet-time on long headshots.
-- **Weapons** — M4A1, KRISS Vector, SCAR-H, M249, M870 plus the SV-98 and an M17 sidearm: patterned recoil with recovery, spread bloom, damage falloff, tactical vs empty reloads, shell-by-shell shotgun reloads, bolt and pump cycling, knife with lethal backstabs. Each viewmodel is built from primitives at runtime with animated parts, gloved hands and working optics.
-- **Enemy models & ragdolls** — articulated procedural soldiers (shaped torsos, rounded limbs, plate carriers, helmets with NVGs or visors, boots, rifles) with stride-synced walk/run cycles, aim and crouch poses, melee and throw animations and physical hit reactions. Deaths hand over to a 15-particle Verlet ragdoll with knee/elbow limits and world collisions; explosions and bullets keep pushing corpses.
-- **Enemies** — runners (zig-zag, lunge), riflemen (cover, crouch, bursts, suppression), heavies (armour, roar-and-charge) and grenadiers (ballistic grenade lobs). They navigate a flow field around the map, fire real hitscan rounds that cover blocks, and react to gunfire and incoming grenades.
-- **Systems** — supply-drop perks, three difficulties, best score per difficulty, settings menu (sensitivity, FOV, toggles, live graphics quality, volume), damage numbers, dynamic crosshair, minimap, compass, synthesized positional audio with reverb.
+Hostiles escalate by *behaviour*, not just by count: they fire on the move from wave 5, flank from wave 8, fire in bursts from wave 10, and start throwing grenades to flush you out of cover from wave 12.
+
+New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
+
+The soundtrack is synthesised in-browser and follows the fight: a drone between waves, a heartbeat that climbs from 46 to 132 bpm as enemies close in and your health drops. Every one-shot is rendered to a buffer once at deploy rather than re-synthesised per trigger, so firing costs a single buffer playback.
 
 ## Repository layout
 
-- `dist/Operation Blackout.html` — the shippable, self-contained game (all assets embedded; works from `file://`)
-- `src/` — modular source, concatenated in file-name order:
-  `00_head.html` (UI/CSS) · `05/06` embedded assets · `07_settings` · `08_textures` · `10_config_world` · `15_world_detail` · `20_player` · `25_touch` · `27_gamepad` · `30_weapons` · `32_viewmodels` · `34_scope` · `38_soldier` · `40_enemies` · `45_navigation` · `47_physics` · `48_particles` · `50_vfx_audio` · `55_grenades` · `57_destructibles` · `60_hud_waves` · `62_perks` · `64_settings_ui` · `65_postfx` · `70_main`
-- `vendor/` — vendored Three.js r128 + GLTFLoader (MIT)
+- `dist/Operation Blackout.html` — the shippable, self-contained game (all assets embedded as base64; works from `file://`)
+- `src/` — modular source: pure core logic, config/world, player, touch input, weapons, enemies/AI, VFX/audio, grenades, HUD/waves, main loop
+- `src/01_core.js` — engine-free gameplay rules (distances, sub-stepping, ballistics, wave scaling, AI navigation). No THREE, no DOM, so it runs unchanged in the browser build *and* under `node --test`.
+- `vendor/` — three.js **r186** + GLTFLoader, bundled to a single IIFE (MIT). See `vendor/README.md` to regenerate.
 - `scripts/build.py` — assembles head + vendor + src into the single file
-- `scripts/probe_live.py` — headless gameplay probe (Playwright + SwiftShader)
+- `scripts/probe_live.py` — drives the built file in headless Chromium and probes live gameplay state
+
+The `src/` tree is the readable code; the `dist/` file is what you run.
 
 ## Build
 
@@ -57,18 +43,55 @@ python3 scripts/build.py .   # or: python3 scripts/build.py <repo root>
 
 ## Testing
 
+Two suites. Both run in a couple of seconds and neither needs a GPU.
+
 ```bash
-python3 -m unittest tests/test_release_build.py -v   # fast static + build checks
-python3 scripts/probe_live.py [--quality low|medium|high] [--chromium /path/to/chrome]
+node --test tests/test_core.js              # gameplay rules, headless
+python -m unittest tests.test_release_build # build integrity (also drives the node suite)
 ```
 
-The probe boots the build, deploys through the real menus and checks enemies, navigation, firing, particles, a barrel explosion, a sniper wallbang, ragdoll settling, the perk menu, a live quality switch and a clean console. It runs on SwiftShader, so it verifies behaviour, not frame rate — playtest on real hardware (especially Android) for performance.
+`tests/test_core.js` executes the real rules from `src/01_core.js` — enemy pathfinding
+reachability, collision sub-stepping, damage falloff, spawn validity, wave scaling. Each
+regression test names the audit ID it guards, so reintroducing a fixed defect fails here.
+
+`tests/test_release_build.py` checks the artifact: that the build runs, that the output is
+genuinely self-contained (no external fetches), that the concatenated bundle parses, that
+every `src/` module reaches it, and that it stays under the size budget.
+
+### End-to-end browser probe
+
+One-time setup, then a full run through the real UI in headless Chromium:
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+python scripts/probe_live.py
+```
+
+Neither suite measures real-GPU frame rate or replaces playtesting on Android hardware.
+
+### Optional frame-time benchmark capture
+
+`CORE.createFrameTimeTelemetry()` is a pure, disabled-by-default helper for repeatable
+manual benchmarks. It records only when created with `{ enabled: true }`, keeps a
+bounded recent window (300 samples by default), and reports milliseconds as
+`min`, `max`, `p50`, and `p95` through `summary()`. It is not connected to the live
+frame loop, so normal gameplay has no capture allocation or sorting cost. A benchmark
+harness can create an enabled instance, call `record(frameTimeMs)` once per rendered
+frame, and export `samples()` plus `summary()` after a fixed scenario. This telemetry
+still does not make hardware-performance claims; compare results only from repeatable
+runs on explicitly identified devices and settings.
+
+## Project status
+
+See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
+phased plan. Phases 0-13 are complete, plus a physics pass (ragdoll deaths, fall damage).
 
 ## Credits
 
-- Three.js (MIT)
-- CC0 models from Kenney (trees, crates, columns, barrels) embedded as base64; soldiers and weapons are built procedurally
-- All textures generated procedurally; all sounds synthesized in-browser with WebAudio — no copyrighted assets
+- Three.js r186 (MIT), bundled with esbuild so the game can stay one classic script
+- CC0 models from Kenney (soldier, trees, crates, columns, barrels) embedded as base64
+- All sounds synthesized in-browser with WebAudio — no copyrighted assets
 
 ## License
 

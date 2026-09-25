@@ -1,22 +1,25 @@
 // ============ CONFIG, RENDERER & WORLD BUILD ============
 'use strict';
-// IS_TOUCH, SETTINGS and QUALITY are declared in 07_settings.js
+// ---- Engine-era colour compatibility (MUST run before any THREE.Color) -------
+// This scene's palette was authored against three r128, which had no colour
+// management: a hex colour went to the shader as-is and `outputEncoding` then
+// applied a linear->sRGB encode on the way out, which brightened everything.
+// r152+ converts hex from sRGB to linear on input and back on output, so the same
+// numbers round-trip correctly — and render roughly 75% darker than the art was
+// tuned for. Opting out keeps the original look with the current engine; the
+// alternative is re-authoring every colour and light in the game.
+THREE.ColorManagement.enabled = false;
+
+const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
 const CFG = {
   player: { height: 1.7, crouchHeight: 1.05, radius: 0.35, speed: 5.4, sprintMul: 1.65, crouchMul: 0.55, accel: 16, decel: 38, jumpVel: 5.6, gravity: 16, health: 100, armor: 50, regenDelay: 3.5, regenRate: 12, maxStamina: 3.2 },
-  world: { size: 90, fogColor: 0x5d5a6a, skyColor: 0x5a6a90 },
+  world: { size: 90, fogColor: 0x1a1f2b, skyColor: 0x8aa4c8 },
   wave: { baseCount: 5, growth: 2.5, maxActive: 14, spawnInterval: [1.2, 3.0], startDelay: 3.5, victoryWave: 15 },
-  // dmg per bullet (per pellet for SG) · rpm · mag · reload (tactical) / reloadEmpty · spread / adsSpread (rad)
-  // recoilV/H · falloff: full damage to r0, scaling to minMul at r1 · pen = surfaces a round can punch through
-  // heat = spread bloom per shot · adsZoom = FOV multiplier when aiming · sight: reddot | holo | acog | scope | iron
   weapons: [
-    { name: 'M4A1 Carbine', type: 'AR', dmg: 27, rpm: 760, mag: 30, reserveMax: 180, reload: 2.0, reloadEmpty: 2.55, spread: 0.013, adsSpread: 0.0035, recoilV: 0.013, recoilH: 0.0055, r0: 35, r1: 95, minMul: 0.7, range: 160, auto: true, pen: 1, heat: 0.16, headMul: 2.0, adsZoom: 0.7, sight: 'reddot', chamber: true },
-    { name: 'KRISS Vector', type: 'SMG', dmg: 20, rpm: 1050, mag: 30, reserveMax: 210, reload: 1.8, reloadEmpty: 2.2, spread: 0.019, adsSpread: 0.007, recoilV: 0.0085, recoilH: 0.0045, r0: 14, r1: 45, minMul: 0.55, range: 110, auto: true, pen: 0, heat: 0.11, headMul: 1.7, adsZoom: 0.8, sight: 'holo', chamber: true, suppressed: true },
-    { name: 'SCAR-H', type: 'BR', dmg: 43, rpm: 600, mag: 20, reserveMax: 120, reload: 2.3, reloadEmpty: 2.9, spread: 0.011, adsSpread: 0.0025, recoilV: 0.021, recoilH: 0.008, r0: 55, r1: 140, minMul: 0.8, range: 200, auto: true, pen: 1, heat: 0.22, headMul: 2.0, adsZoom: 0.5, sight: 'acog', chamber: true },
-    // SV-98: always carried in slot 2. wallPen = thickest concrete/brick (m) a round can punch through.
-    { name: 'SV-98 Marksman', type: 'SR', dmg: 150, rpm: 55, mag: 5, reserveMax: 45, reload: 2.9, reloadEmpty: 3.3, spread: 0.05, adsSpread: 0.0003, recoilV: 0.05, recoilH: 0.01, r0: 150, r1: 350, minMul: 0.9, range: 400, auto: false, pen: 5, wallPen: 0.95, heat: 0, headMul: 3.0, adsZoom: 0.25, zooms: [0.25, 0.125], sight: 'scope', bolt: 0.95, carried: true, impulse: 9 },
-    { name: 'M870 Breacher', type: 'SG', dmg: 14, pellets: 9, rpm: 75, mag: 7, reserveMax: 42, reload: 0.46, reloadEmpty: 0.46, spread: 0.06, adsSpread: 0.045, recoilV: 0.05, recoilH: 0.012, r0: 8, r1: 28, minMul: 0.25, range: 60, auto: false, pen: 0, heat: 0, headMul: 1.5, adsZoom: 0.85, sight: 'iron', pump: 0.62 },
-    { name: 'M249 SAW', type: 'LMG', dmg: 25, rpm: 820, mag: 100, reserveMax: 300, reload: 5.0, reloadEmpty: 5.4, spread: 0.022, adsSpread: 0.006, recoilV: 0.011, recoilH: 0.0075, r0: 40, r1: 110, minMul: 0.7, range: 180, auto: true, pen: 1, heat: 0.07, headMul: 1.8, adsZoom: 0.72, sight: 'reddot', moveMul: 0.9 },
-    { name: 'M17 Sidearm', type: 'PST', dmg: 32, rpm: 420, mag: 17, reserveMax: 85, reload: 1.45, reloadEmpty: 1.8, spread: 0.017, adsSpread: 0.006, recoilV: 0.02, recoilH: 0.007, r0: 18, r1: 50, minMul: 0.6, range: 90, auto: false, pen: 0, heat: 0.3, headMul: 2.0, adsZoom: 0.82, sight: 'iron', chamber: true, sidearm: true }
+    { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150, reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006, range: 120, auto: true },
+    { name: 'MK18 Mod1', type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160, reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005, range: 80, auto: true },
+    { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
+    { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false }
   ],
   ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
@@ -27,155 +30,171 @@ const $id = (i) => document.getElementById(i);
 
 // ---- Renderer / scene ----
 const canvas = $id('game-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !QUALITY.postfx, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.maxPR));
+// Every module is concatenated into ONE <script>, so an unguarded throw here kills
+// the entire remaining file: no menu, no message, just a black page and a console
+// error the player will never open. Fail loudly and legibly instead.
+function showFatalError(title, detail) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;inset:0;z-index:999;display:flex;align-items:center;' +
+    'justify-content:center;flex-direction:column;background:#0a0e0a;color:#e8ffe8;' +
+    'font-family:Segoe UI,Arial,sans-serif;text-align:center;padding:32px;box-sizing:border-box';
+  const h = document.createElement('h1');
+  h.style.cssText = 'color:#ffdf8a;font-size:26px;letter-spacing:4px;margin:0 0 14px';
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.style.cssText = 'max-width:520px;line-height:1.6;color:rgba(255,255,255,.75);font-size:14px;margin:0';
+  p.textContent = detail;
+  el.appendChild(h); el.appendChild(p);
+  document.body.appendChild(el);
+}
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  showFatalError('WEBGL UNAVAILABLE',
+    'This game needs WebGL, and your browser could not start it. Try Chrome or Edge, ' +
+    'enable hardware acceleration in your browser settings, or update your graphics driver. ' +
+    '(' + (err && err.message ? err.message : String(err)) + ')');
+  throw err;
+}
+// Mobile browsers drop WebGL contexts routinely on tab-switch. Without these the
+// game renders black forever with no way back.
+canvas.addEventListener('webglcontextlost', function (e) {
+  e.preventDefault();                       // required, or the context never restores
+  contextLost = true;
+  if (typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
+    if (typeof pauseGame === 'function') pauseGame();
+  }
+  showContextNotice(true);
+}, false);
+canvas.addEventListener('webglcontextrestored', function () {
+  contextLost = false;
+  showContextNotice(false);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.needsUpdate = true;
+}, false);
+let contextLost = false;
+let _ctxNotice = null;
+function showContextNotice(show) {
+  if (show && !_ctxNotice) {
+    _ctxNotice = document.createElement('div');
+    _ctxNotice.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'z-index:998;background:rgba(6,10,6,.92);color:#ffdf8a;padding:18px 26px;border-radius:6px;' +
+      'font-family:Segoe UI,Arial,sans-serif;font-size:14px;letter-spacing:2px;text-align:center';
+    _ctxNotice.textContent = 'GRAPHICS CONTEXT LOST — RESTORING…';
+    document.body.appendChild(_ctxNotice);
+  } else if (!show && _ctxNotice) {
+    _ctxNotice.remove(); _ctxNotice = null;
+  }
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
-renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+// r152 renamed the output transform and r165 removed the old spelling.
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-const MAX_ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = QUALITY.detail >= 1 ? MAX_ANISO : 2;
+renderer.toneMappingExposure = 0.9;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(CFG.world.skyColor);
-scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0125);
+scene.fog = new THREE.Fog(CFG.world.fogColor, 12, 150);
 
-const camera = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth / innerHeight, 0.05, 400);
-// The first-person viewmodel lives in its own scene, drawn after the world with a
-// cleared depth buffer and a tight near plane: the gun can never clip into walls
-// or be cut by the world camera's near plane.
-const gunScene = new THREE.Scene();
-const gunCamera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.01, 10);
-gunScene.add(gunCamera);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 400);
+const gunCamera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   gunCamera.aspect = innerWidth / innerHeight; gunCamera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  if (typeof postfxResize === 'function') postfxResize();
 });
 
-// ---- Lighting: low dusk sun, cool sky fill ----
-const SUN_DIR = new THREE.Vector3(-0.62, 0.36, -0.7).normalize();   // toward the sun
-const sun = new THREE.DirectionalLight(0xffb784, 2.6);
+// ---- Lighting ----
+// r155 made lighting physically correct and r165 removed `useLegacyLights`, the
+// switch that used to restore the old behaviour. The difference for ambient,
+// hemisphere and directional lights is exactly the pi factor legacy mode folded
+// in, so reapplying it here reproduces the original exposure on the current
+// engine. Verified against r128 screenshots at four fixed camera poses.
+const LIGHT_COMPAT = Math.PI;
+const sun = new THREE.DirectionalLight(0xffd9b0, 1.35 * LIGHT_COMPAT);
+sun.position.set(45, 55, -30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(QUALITY.shadowSize, QUALITY.shadowSize);
-// Shadow frustum follows the player (updateSunShadow) so texels stay dense.
-const SUN_SHADOW_EXTENT = 38;
-sun.shadow.camera.left = -SUN_SHADOW_EXTENT; sun.shadow.camera.right = SUN_SHADOW_EXTENT;
-sun.shadow.camera.top = SUN_SHADOW_EXTENT; sun.shadow.camera.bottom = -SUN_SHADOW_EXTENT;
-sun.shadow.camera.near = 1; sun.shadow.camera.far = 220;
-sun.shadow.bias = -0.0005;
-sun.shadow.normalBias = 0.02;
-sun.position.copy(SUN_DIR).multiplyScalar(100);
+sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
+// The shadow frustum used to span the whole 120x120 arena, so a 2048 map spent
+// most of its resolution on geometry nowhere near the player. Follow the player
+// with a tight box instead: same map, far sharper shadows, less to re-render.
+const SHADOW_EXTENT = IS_TOUCH ? 26 : 38;
+sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
+sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
-const hemi = new THREE.HemisphereLight(0x9aa6c8, 0x5a4a40, 1.15);
-scene.add(hemi);
-const _sunSnap = new THREE.Vector3();
-function updateSunShadow(focus) {
-  // snap the shadow camera to its texel grid so shadows do not shimmer while moving
-  const texel = (SUN_SHADOW_EXTENT * 2) / QUALITY.shadowSize;
-  _sunSnap.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
-  sun.target.position.copy(_sunSnap);
-  sun.position.copy(_sunSnap).addScaledVector(SUN_DIR, 100);
+const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
+// Snap to whole texels so the shadow map does not shimmer as the player walks.
+const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+let _lastSunSx = null, _lastSunSz = null;
+function updateSunShadow(targetX, targetZ) {
+  const sx = CORE.snapToTexel(targetX, SHADOW_TEXEL);
+  const sz = CORE.snapToTexel(targetZ, SHADOW_TEXEL);
+  if (sx === _lastSunSx && sz === _lastSunSz) return;
+  _lastSunSx = sx; _lastSunSz = sz;
+  sun.target.position.set(sx, 0, sz);
+  sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
   sun.target.updateMatrixWorld();
 }
-function setShadowQuality(size, soft) {
-  renderer.shadowMap.type = soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
-  sun.shadow.mapSize.set(size, size);
-  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
-  scene.traverse(function (o) { if (o.material && o.material.isMaterial) o.material.needsUpdate = true; });
-}
+scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55 * LIGHT_COMPAT));
+scene.add(new THREE.AmbientLight(0x606070, 0.35 * LIGHT_COMPAT));
 
-// ---- Sky: gradient dome, sun glow, procedural drifting clouds, faint stars ----
-// sky colours are authored in sRGB; the shader works in linear light
-const SKY_UNIFORMS = {
-  top: { value: new THREE.Color(0x1a2542).convertSRGBToLinear() }, mid: { value: new THREE.Color(0x56628c).convertSRGBToLinear() },
-  horizon: { value: new THREE.Color(0xe39463).convertSRGBToLinear() }, low: { value: new THREE.Color(0x3a3442).convertSRGBToLinear() },
-  sunDir: { value: SUN_DIR.clone() }, time: { value: 0 }
-};
-function makeSkyMaterial(withClouds) {
-  return new THREE.ShaderMaterial({
+// ---- Sky gradient dome + sun disc + horizon haze (graphics pass) ----
+(function makeSky() {
+  const skyGeo = new THREE.SphereGeometry(320, 24, 12);
+  const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    defines: withClouds ? { CLOUDS: 1 } : {},
-    uniforms: SKY_UNIFORMS,
-    vertexShader: 'varying vec3 vW; void main(){ vW = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }',
-    fragmentShader: [
-      'varying vec3 vW; uniform vec3 top, mid, horizon, low, sunDir; uniform float time;',
-      'float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }',
-      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
-      '  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }',
-      'float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }',
-      'void main(){',
-      '  vec3 d = normalize(vW); float h = d.y;',
-      '  vec3 c = h > 0.0 ? mix(horizon, mid, smoothstep(0.0, 0.22, h)) : mix(horizon, low, smoothstep(0.0, 0.12, -h));',
-      '  c = mix(c, top, smoothstep(0.2, 0.75, h));',
-      '  float sd = max(dot(d, sunDir), 0.0);',
-      '  c += vec3(1.0,0.62,0.35) * (pow(sd, 6.0) * 0.45 + pow(sd, 64.0) * 0.9);',
-      '  c += vec3(1.0,0.92,0.8) * smoothstep(0.9988, 0.9995, sd) * 6.0;',   // sun disc (HDR, blooms)
-      '#ifdef CLOUDS',
-      '  if (h > 0.0) {',
-      '    vec2 uv = d.xz / (h + 0.12) * 1.3 + vec2(time * 0.006, time * 0.002);',
-      '    float n = fbm(uv * 1.6);',
-      '    float cl = smoothstep(0.52, 0.8, n) * smoothstep(0.0, 0.15, h);',
-      '    vec3 cc = mix(vec3(0.22,0.2,0.26), vec3(1.0,0.66,0.45), pow(sd, 3.0) * 0.8 + 0.15 * (1.0 - h));',
-      '    c = mix(c, cc, cl * 0.85);',
-      '  }',
-      '#endif',
-      '  if (h > 0.3) { float st = step(0.9985, h21(floor(d.xz / h * 70.0))) * smoothstep(0.4, 0.85, h); c += vec3(st * 0.7); }',
-      '  gl_FragColor = vec4(c, 1.0);',
-      '  #include <tonemapping_fragment>',
-      '  #include <encodings_fragment>',
-      '}'
-    ].join('\n')
+    uniforms: { top: { value: new THREE.Color(0x4a76b0) }, mid: { value: new THREE.Color(0x8aa4c8) }, low: { value: new THREE.Color(0xd8956a) } },
+    vertexShader: 'varying vec3 vW; void main(){ vW = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vW; uniform vec3 top; uniform vec3 mid; uniform vec3 low; void main(){ float h = normalize(vW).y; vec3 c = h > 0.25 ? top : (h > 0.02 ? mix(mid, top, (h-0.02)/0.23) : mix(low, mid, max(0.0,(h+0.15)/0.17))); gl_FragColor = vec4(c, 1.0); }'
   });
-}
-const skyDome = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), makeSkyMaterial(QUALITY.clouds));
-skyDome.userData.sky = true;
-skyDome.frustumCulled = false;
-skyDome.renderOrder = -10;
-scene.add(skyDome);
-// horizon haze band: blends the arena walls / skyline into the sky gradient
+  const skyDome = new THREE.Mesh(skyGeo, skyMat);
+  skyDome.userData.sky = true;
+  scene.add(skyDome);
+  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(14, 24), new THREE.MeshBasicMaterial({ color: 0xfff2c8, fog: false }));
+  sunDisc.position.set(150, 170, -100);
+  sunDisc.lookAt(0, 0, 0);
+  sunDisc.userData.sky = true;
+  scene.add(sunDisc);
+  const sunGlow = new THREE.Mesh(new THREE.CircleGeometry(34, 24), new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.22, fog: false }));
+  sunGlow.position.copy(sunDisc.position).multiplyScalar(0.985);
+  sunGlow.lookAt(0, 0, 0);
+  sunGlow.userData.sky = true;
+  scene.add(sunGlow);
+})();
+// horizon haze band
 (function makeHaze() {
-  const hazeMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, fog: false, side: THREE.BackSide,
-    uniforms: { col: { value: new THREE.Color(0xb88068) } },
-    vertexShader: 'varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: 'varying float vY; uniform vec3 col; void main(){ gl_FragColor = vec4(col, (1.0 - vY) * 0.55 * smoothstep(0.0, 0.25, vY));\n#include <tonemapping_fragment>\n#include <encodings_fragment>\n}'
-  });
-  hazeMat.uniforms.col.value.convertSRGBToLinear();
-  const haze = new THREE.Mesh(new THREE.CylinderGeometry(200, 200, 40, 48, 1, true), hazeMat);
-  haze.position.y = 12; haze.userData.sky = true;
+  const haze = new THREE.Mesh(
+    new THREE.CylinderGeometry(200, 200, 30, 48, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xc9a37a, transparent: true, opacity: 0.28, side: THREE.BackSide, fog: false })
+  );
+  haze.position.y = 8; haze.userData.sky = true;
   scene.add(haze);
 })();
-// Image-based lighting from the sky (reflections on metal, glass, puddles).
-function buildEnvironment() {
-  if (!QUALITY.envMap) { scene.environment = null; gunScene.environment = null; return; }
-  try {
-    const envScene = new THREE.Scene();
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), makeSkyMaterial(false)));
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const rt = pmrem.fromScene(envScene, 0.04);
-    scene.environment = rt.texture;
-    gunScene.environment = rt.texture;
-    pmrem.dispose();
-  } catch (e) { console.warn('environment map unavailable', e); }
-}
-buildEnvironment();
 
-// ---- Ground: tiled asphalt with a world-space macro variation to hide tiling ----
+// ---- Ground ----
 const GROUND = 0;
-TEX.asphalt.map.repeat.set(55, 55); TEX.asphalt.normalMap.repeat.set(55, 55);
-const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: TEX.asphalt.map, normalMap: TEX.asphalt.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.92, envMapIntensity: 0.4 });
-groundMat.onBeforeCompile = function (shader) {
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;')
-    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;\nfloat gh(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\nfloat gn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(gh(i),gh(i+vec2(1,0)),f.x), mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x), f.y); }')
-    .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gv = gn(vGroundW.xz * 0.06) * 0.6 + gn(vGroundW.xz * 0.21) * 0.4;\ndiffuseColor.rgb *= mix(0.72, 1.18, gv);');
-};
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a47, roughness: 0.95 });
+(function makeGroundTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#39404e'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = 'rgba(' + (30 + Math.random() * 40 | 0) + ',' + (34 + Math.random() * 40 | 0) + ',' + (44 + Math.random() * 40 | 0) + ',0.6)';
+    g.fillRect(Math.random() * 256, Math.random() *256, 2 + Math.random() * 3, 2 + Math.random() * 3);
+  }
+  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1;
+  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(30, 30);
+  groundMat.map = tex; groundMat.needsUpdate = true;
+})();
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
 const raycastColliders = []; // world geometry meshes for scoped raycasting
@@ -186,64 +205,171 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 raycastColliders.push(ground);
-function addCollider(x, y, z, w, h, d, surface) {
-  colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2), surface: surface || 'concrete' });
+function addCollider(x, y, z, w, h, d, mat) {
+  colliders.push({
+    min: new THREE.Vector3(x - w/2, y - h/2, z - d/2),
+    max: new THREE.Vector3(x + w/2, y + h/2, z + d/2),
+    mat: mat || 'concrete'
+  });
 }
-// Highest collider top at (x, z) that is not above maxY (ground when none).
-function floorHeightAt(x, z, maxY) {
-  let f = GROUND;
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (x < c.min.x || x > c.max.x || z < c.min.z || z > c.max.z) continue;
-    if (c.max.y <= maxY + 0.05 && c.max.y > f) f = c.max.y;
-  }
-  return f;
+// Penetration class per collider. Derived from the RENDER material so no call site
+// has to carry it: plywood cover and a concrete pillar are the same addBox() call
+// today, and a round should not treat them the same (GUN-03). Populated just after
+// MAT is declared, which is before buildArena() runs.
+const PEN_MATERIAL = new Map();
+function penMaterialFor(mat) {
+  const m = PEN_MATERIAL.get(mat);
+  return m === undefined ? 'concrete' : m;
+}
+// ---- Static geometry batching ----------------------------------------------
+// addBox() used to create one Mesh + one BoxGeometry per box, which is why a
+// ~15k-triangle arena cost ~200 draw calls. Boxes are now queued and merged into
+// one mesh per (material x spatial region) by flushStaticBatches(); the AABB in
+// `colliders[]` is still added immediately, so collision is completely unaffected.
+const staticQueue = [];
+// 2x2 regions across the 90 m arena. Phase 2 chose region batching over a plain
+// merge-by-material so frustum culling and raycast bounding-sphere rejection keep
+// working, and 30 m was picked without measuring the trade. Measured now, at a
+// wave-15 load with six corpses:
+//               batches   draw calls (centre/spawn/corner)   AI LOS    fireShot
+//   30 m          70          219 / 137 / 136                0.0165 ms  0.267 ms
+//   45 m          49          194 / 120 / 118                0.0222 ms  0.267 ms
+//   90 m (one)    47          194 / 118 / 117                0.0228 ms  0.280 ms
+// 45 m buys 21 fewer batches and ~25 fewer draw calls for six microseconds of
+// extra line-of-sight work. Collapsing to a single region buys nothing beyond it
+// and costs more on both raycast paths, which is exactly the culling loss Phase 2
+// was protecting against.
+const STATIC_REGION_SIZE = 45;
+// Queue a piece of static world geometry. `geo` must already be baked into world
+// space (the batch mesh itself sits at the origin); x/z decide its region.
+function queueStatic(geo, x, z, mat, noShadow) {
+  staticQueue.push({ geo: geo, x: x, z: z, mat: mat, noShadow: !!noShadow });
 }
 function addBox(x, y, z, w, h, d, mat, opts) {
   opts = opts || {};
-  const geo = new THREE.BoxGeometry(w, h, d);
-  if (mat.userData.texSize) boxWorldUV(geo, w, h, d, mat.userData.texSize, (x * 73 + z * 131 + y * 17) | 0);
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  m.castShadow = opts.noShadow ? false : true;
-  m.receiveShadow = true;
-  scene.add(m);
-  raycastColliders.push(m);
-  if (!opts.noCollide) addCollider(x, y, z, w, h, d, mat.userData.surface);
-  return m;
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  queueStatic(g, x, z, mat, opts.noShadow);
+  if (!opts.noCollide) addCollider(x, y, z, w, h, d, opts.pen || penMaterialFor(mat));
+}
+
+// Concatenate several BufferGeometries that share an attribute layout.
+// r128's build does not actually ship BufferGeometryUtils (it is an examples
+// module), and BufferGeometry.merge() is lossy, so do it by hand.
+function mergeGeometries(geos) {
+  let vCount = 0, iCount = 0;
+  for (let i = 0; i < geos.length; i++) {
+    vCount += geos[i].attributes.position.count;
+    iCount += geos[i].index ? geos[i].index.count : geos[i].attributes.position.count;
+  }
+  const pos = new Float32Array(vCount * 3);
+  const nor = new Float32Array(vCount * 3);
+  const uv = new Float32Array(vCount * 2);
+  const idx = vCount > 65535 ? new Uint32Array(iCount) : new Uint16Array(iCount);
+  let vo = 0, io = 0;
+  for (let g = 0; g < geos.length; g++) {
+    const geo = geos[g];
+    const p = geo.attributes.position, n = geo.attributes.normal, u = geo.attributes.uv;
+    pos.set(p.array, vo * 3);
+    if (n) nor.set(n.array, vo * 3);
+    if (u) uv.set(u.array, vo * 2);
+    const gi = geo.index;
+    if (gi) { for (let i = 0; i < gi.count; i++) idx[io + i] = gi.array[i] + vo; io += gi.count; }
+    else { for (let i = 0; i < p.count; i++) idx[io + i] = i + vo; io += p.count; }
+    vo += p.count;
+    geo.dispose();   // the per-box source geometry never reaches the GPU
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeBoundingSphere();
+  out.computeBoundingBox();
+  return out;
+}
+
+function flushStaticBatches() {
+  if (!staticQueue.length) return 0;
+  // Shadow-casting and non-casting boxes cannot share a mesh, so fold that into
+  // the batch key alongside the material.
+  const items = staticQueue.map(function (b, i) {
+    return { x: b.x, z: b.z, mat: b.mat.uuid + (b.noShadow ? ':ns' : ':s') };
+  });
+  const plan = CORE.planStaticBatches(items, STATIC_REGION_SIZE);
+  let meshes = 0;
+  plan.forEach(function (indices) {
+    const first = staticQueue[indices[0]];
+    const geos = [];
+    for (let k = 0; k < indices.length; k++) geos.push(staticQueue[indices[k]].geo);
+    const merged = new THREE.Mesh(mergeGeometries(geos), first.mat);
+    merged.castShadow = !first.noShadow;
+    merged.receiveShadow = true;
+    merged.userData.staticBatch = true;
+    scene.add(merged);
+    raycastColliders.push(merged);
+    meshes++;
+  });
+  staticQueue.length = 0;
+  return meshes;
 }
 
 // ---- Materials ----
-// userData.surface drives impact effects, footsteps and bullet penetration;
-// userData.texSize is the world size (m) of one texture tile for boxWorldUV.
-function surfMat(params, surface, texSize) {
-  const m = new THREE.MeshStandardMaterial(params);
-  m.userData.surface = surface;
-  if (texSize) m.userData.texSize = texSize;
-  return m;
-}
 const MAT = {
-  concrete: surfMat({ color: 0xc9c7c4, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.9, envMapIntensity: 0.2 }, 'concrete', 4),
-  concrete2: surfMat({ color: 0xa4a6ac, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.93, envMapIntensity: 0.2 }, 'concrete', 3),
-  brick: surfMat({ color: 0xffffff, map: TEX.brick.map, normalMap: TEX.brick.normalMap, roughness: 0.92, envMapIntensity: 0.3 }, 'brick', 2.4),
-  metal: surfMat({ color: 0x9aa3ad, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.5, metalness: 0.7, envMapIntensity: 0.9 }, 'metal', 3),
-  wood: surfMat({ color: 0xffffff, map: TEX.wood.map, normalMap: TEX.wood.normalMap, roughness: 0.85, envMapIntensity: 0.25 }, 'wood', 1.5),
-  dark: surfMat({ color: 0x3a3e46, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75, envMapIntensity: 0.4 }, 'metal', 2),
-  accent: surfMat({ color: 0xc9a227, map: TEX.paint.map, roughness: 0.5, metalness: 0.3 }, 'metal', 2),
-  red: surfMat({ color: 0xa33a2c, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.55, metalness: 0.35, envMapIntensity: 0.8 }, 'metal', 3),
-  container: surfMat({ color: 0x46627a, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.55, metalness: 0.55, envMapIntensity: 0.8 }, 'metal', 2.5)
+  concrete: new THREE.MeshStandardMaterial({ color: 0x8f8f96, roughness: 0.9 }),
+  concrete2: new THREE.MeshStandardMaterial({ color: 0x6b6f78, roughness: 0.95 }),
+  brick: new THREE.MeshStandardMaterial({ color: 0x7a4f3a, roughness: 0.95 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.45, metalness: 0.75 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x7d5a36, roughness: 0.9 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x2f333c, roughness: 0.8 }),
+  accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
+  red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
 };
-// Surface lookup for a raycast hit (props and GLBs default by tag / name).
-function surfaceOf(obj) {
-  if (!obj) return 'concrete';
-  if (obj === ground) return 'ground';
-  const m = obj.material;
-  if (m && m.userData && m.userData.surface) return m.userData.surface;
-  if (obj.userData && obj.userData.surface) return obj.userData.surface;
-  let p = obj;
-  while (p) { if (p.userData && p.userData.surface) return p.userData.surface; p = p.parent; }
-  return 'concrete';
-}
+
+// One deliberately small district cue: reuse the existing canvas-texture and
+// static-geometry paths to make the NE entry legible at a glance. The backing is
+// non-colliding because this is a visual marker, not a new piece of cover.
+const DISTRICT_READABILITY = {
+  ne: { label: 'NORTH-EAST DISTRICT', panelColor: 0x1b2029, accentColor: 0xffd34d, emissiveIntensity: 0.85 }
+};
+window.__districtReadability = DISTRICT_READABILITY;
+const districtSignMat = new THREE.MeshStandardMaterial({
+  color: DISTRICT_READABILITY.ne.panelColor,
+  roughness: 0.72,
+  metalness: 0.15
+});
+const districtSignAccentMat = new THREE.MeshStandardMaterial({
+  color: DISTRICT_READABILITY.ne.accentColor,
+  emissive: DISTRICT_READABILITY.ne.accentColor,
+  emissiveIntensity: DISTRICT_READABILITY.ne.emissiveIntensity,
+  roughness: 0.4,
+  metalness: 0.2
+});
+(function makeNorthEastDistrictSign() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1b2029'; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#ffd34d'; g.fillRect(0, 0, c.width, 8); g.fillRect(0, c.height - 8, c.width, 8);
+  g.fillStyle = '#fff7d1';
+  g.font = 'bold 36px Segoe UI, Arial, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(DISTRICT_READABILITY.ne.label, c.width / 2, c.height / 2 + 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  districtSignMat.map = tex; districtSignMat.needsUpdate = true;
+  const sign = new THREE.PlaneGeometry(12, 3);
+  sign.rotateY(Math.PI);
+  sign.translate(28, 3.7, -14.30);
+  queueStatic(sign, 28, -14.30, districtSignMat, true);
+})();
+// Anything not listed is concrete, which is the conservative default: an untagged
+// surface stops a round exactly as it did before this feature existed.
+PEN_MATERIAL.set(MAT.wood, 'wood');
+PEN_MATERIAL.set(MAT.metal, 'metal');
+PEN_MATERIAL.set(MAT.dark, 'metal');
+PEN_MATERIAL.set(MAT.accent, 'metal');
+PEN_MATERIAL.set(MAT.red, 'metal');
 
 // ---- Build urban arena ----
 function buildArena() {
@@ -283,7 +409,11 @@ function buildArena() {
   addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);  // crates
   addBox(34, 3.3, -20.5, 2.2, 2.2, 2.2, MAT.wood, {noShadow:false});
   addBox(31.5, 1.1, -18, 2.2, 2.2, 2.2, MAT.wood);
-  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.container);   // container
+  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);   // container
+  // High-contrast entrance marker for the warehouse district. These slim bars
+  // frame the text panel and remain visual-only (no new collision surface).
+  addBox(28, 5.18, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
+  addBox(28, 2.22, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
 
   // NW district: ruins
   addBox(-28, 1.5, -28, 14, 3, 1, MAT.brick);
@@ -318,18 +448,23 @@ function buildArena() {
 
   // ---- Central building windows (dark glass, dusk reflection) ----
   (function makeWindows() {
-    const winMat = surfMat({ color: 0x31465f, roughness: 0.06, metalness: 0.9, emissive: 0x141c2a, emissiveIntensity: 0.6, envMapIntensity: 1.4 }, 'glass');
+    const winMat = new THREE.MeshStandardMaterial({ color: 0x2b3d55, roughness: 0.15, metalness: 0.6, emissive: 0x1a2436, emissiveIntensity: 0.5 });
     const winGeoE = new THREE.PlaneGeometry(1.6, 1.1);
     const winGeoS = new THREE.PlaneGeometry(1.3, 1.1);
+    const _winM = new THREE.Matrix4();
+    const _winE = new THREE.Euler();
+    const _winP = new THREE.Vector3();
     function winRow(x, z, ry, n, geo, y) {
       for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(geo, winMat);
-        m.position.set(x, y, z);
-        if (ry === 0) m.position.x = x + i * 3.1 - (n - 1) * 1.55;
-        else m.position.z = z + i * 3.1 - (n - 1) * 1.55;
-        m.rotation.y = ry;
-        scene.add(m);
-        raycastColliders.push(m);
+        let px = x, pz = z;
+        if (ry === 0) px = x + i * 3.1 - (n - 1) * 1.55;
+        else pz = z + i * 3.1 - (n - 1) * 1.55;
+        // Bake rotation + translation into the geometry so the windows batch too
+        // (32 planes sharing one material were 32 separate draw calls).
+        const g = geo.clone();
+        _winM.compose(_winP.set(px, y, pz), new THREE.Quaternion().setFromEuler(_winE.set(0, ry, 0)), new THREE.Vector3(1, 1, 1));
+        g.applyMatrix4(_winM);
+        queueStatic(g, px, pz, winMat, true);
       }
     }
     // east + west faces (two floors)
@@ -363,9 +498,23 @@ function buildArena() {
   addBox(-40, 0.75, 18, 1.5, 1.5, 1.5, MAT.wood);
   addBox(40, 0.75, -18, 1.5, 1.6, 1.5, MAT.wood);
   addBox(-40, 0.75, -18, 1.5, 1.5, 1.5, MAT.wood);
-  // explosive barrels are built by 57_destructibles.js
+  // barrels (procedural cylinders at build time; desktop swaps in the CC0 Kenney
+  // survival-kit GLB later in scatterProps(), once the async GLB parse is done)
+  function barrel(x, z) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.5, 12), MAT.red);
+    m.position.set(x, 0.75, z); m.castShadow = true; m.receiveShadow = true;
+    m.userData.oldBarrel = true;
+    scene.add(m);
+    raycastColliders.push(m);
+    addCollider(x, 0.75, z, 1.1, 1.5, 1.1, 'metal');
+  }
+  barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
+  barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
+  barrel(22, 12); barrel(-22, 12); barrel(22, -12); barrel(-22, -12);
+  barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
 }
 buildArena();
+console.log('static batches:', flushStaticBatches(), 'meshes');
 
 // ---- CC0 Kenney props (trees / crates / broken columns) scattered as cover ----
 // Uses embedded GLBs (embedded in 05_assets.js). Each prop gets an AABB collider
@@ -374,8 +523,8 @@ buildArena();
 // Lightweight mobile-safe stand-ins ensure cover remains visible even when a phone
 // cannot decode/render the embedded GLBs from a local file.
 const mobilePropMats = {
-  bark: new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 1 }),
-  leaf: new THREE.MeshStandardMaterial({ color: 0x22341e, roughness: 1 }),
+  bark: new THREE.MeshStandardMaterial({ color: 0x59452f, roughness: 1 }),
+  leaf: new THREE.MeshStandardMaterial({ color: 0x3f5a3c, roughness: 1 }),
   crate: new THREE.MeshStandardMaterial({ color: 0x806443, roughness: 0.9 }),
   stone: new THREE.MeshStandardMaterial({ color: 0x77756e, roughness: 1 })
 };
@@ -417,22 +566,18 @@ function scatterProps() {
     const useSimpleProp = mobileSafe || !gltf;
     const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
-    m.userData.surface = s[0] === 'COLUMN' ? 'concrete' : 'wood';
-    if (s[0] === 'TREE') {
-      // the Kenney palette is candy-bright; mute it to sit in the dusk grade
-      m.traverse(function (o) {
-        if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.color.setRGB(0.4, 0.46, 0.36); o.material.roughness = 0.95; }
-      });
-    }
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
+    // Crates and columns are knee-high; their shadows are barely visible but they
+    // cost a full extra draw call each in the shadow pass. Trees keep theirs.
+    const casts = s[0] === 'TREE';
     m.traverse(function (o) {
-      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
+      if (o.isMesh) { o.castShadow = casts; o.receiveShadow = true; o.userData.prop = true; }
     });
     scene.add(m);
     raycastColliders.push(m);
     const d = dims[s[0]];
-    addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2], s[0] === 'COLUMN' ? 'concrete' : 'wood');
+    addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
@@ -441,41 +586,171 @@ function scatterProps() {
   const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
   [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
       const m = useSimpleCrate ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
-      m.userData.surface = 'wood';
       m.position.set(c[0], c[2], c[1]);
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
       m.traverse(function (o) {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; }
+        if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.userData.prop = true; }
       });
       scene.add(m);
       raycastColliders.push(m);
-      addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1, 'wood');
+      addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
   });
   placed += 3;
-  // Kenney survival-kit barrels as inert decor clusters (the red hazard barrels are
-  // the explosive ones). Natural bounds ~0.24 x 0.34 m -> scale 3.2 ~ 0.77 x 1.1 m.
-  const decor = [[-41.5, 30.5], [-40.6, 31.3], [41.5, -30.5], [40.7, -29.6], [-12, -41.5], [-11.2, -40.7], [30, 41.5]];
-  for (let i = 0; i < decor.length; i++) {
-    const d = decor[i];
-    let b;
-    if (!mobileSafe && GLB_PARSED.BARREL) {
-      b = GLB_PARSED.BARREL.scene.clone(true);
-      b.scale.setScalar(3.2);
-    } else {
-      b = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.1, 12), MAT.dark);
-      b.position.y = 0.55;
-      const gw = new THREE.Group(); gw.add(b); b = gw;
+  // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
+  // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
+  // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
+  // Mobile keeps the lightweight cylinders (GPU/memory budget).
+  if (!IS_TOUCH && GLB_PARSED.BARREL) {
+    // collect first, THEN remove: mutating scene.children during traverse()
+    // shifts the live array and silently skips every other sibling
+    const oldBarrels = [];
+    scene.traverse(function (o) { if (o.userData && o.userData.oldBarrel) oldBarrels.push(o); });
+    for (let i = 0; i < oldBarrels.length; i++) {
+      const p = oldBarrels[i].position;
+      scene.remove(oldBarrels[i]);
+      const oldIdx = raycastColliders.indexOf(oldBarrels[i]);
+      if (oldIdx !== -1) raycastColliders.splice(oldIdx, 1);
+      const b = GLB_PARSED.BARREL.scene.clone(true);
+      b.scale.setScalar(4.4);
+      b.position.set(p.x, 0, p.z);
+      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);  // varied, deterministic
+      b.castShadow = true; b.receiveShadow = true;
+      b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
+      scene.add(b);
+      raycastColliders.push(b);
     }
-    b.position.set(d[0], 0, d[1]);
-    b.rotation.y = i * 1.7;
-    b.userData.surface = 'metal';
-    b.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; } });
-    scene.add(b);
-    raycastColliders.push(b);
-    addCollider(d[0], 0.55, d[1], 0.78, 1.1, 0.78, 'metal');
-    placed++;
+    if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
-  markNavDirty();
+  batchScatteredProps();   // 48 GLB clones -> a handful of merged meshes
+  rebuildNavGrid();        // props add colliders; the AI grid must see them
+  rebuildWorldRayGrid();   // props/barrels changed raycastColliders
   return placed;
 }
+
+// The scattered cover (trees, crates, columns, barrels) arrives as ~48 cloned GLB
+// scene graphs, each its own draw call, all sharing a handful of materials. They
+// never move, so bake their world transforms and merge them the same way the
+// arena boxes are merged. Collision is untouched — colliders[] is a separate
+// AABB list built when the props were placed.
+function batchScatteredProps() {
+  // Ancestors first. Object3D.updateMatrixWorld(force) composes matrixWorld from
+  // the PARENT's matrixWorld, so calling it on a leaf whose group has never been
+  // updated bakes an identity transform — which collapsed all 48 props onto the
+  // origin at local scale the first time this was written.
+  scene.updateMatrixWorld(true);
+  const byMat = new Map();
+  const roots = [];
+  scene.traverse(function (o) {
+    if (o.isMesh && o.userData && o.userData.prop) {
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (!mat || !o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
+      // Only merge the plain attribute layout the merge helper understands.
+      if (!o.geometry.attributes.normal || !o.geometry.attributes.uv) return;
+      let list = byMat.get(mat.uuid);
+      if (!list) { list = { mat: mat, meshes: [] }; byMat.set(mat.uuid, list); }
+      list.meshes.push(o);
+    }
+  });
+  if (!byMat.size) return 0;
+
+  // Remember which top-level objects the props belong to, so they can be removed
+  // from the scene and from raycastColliders once merged.
+  scene.children.forEach(function (c) {
+    let isProp = false;
+    c.traverse(function (o) { if (o.isMesh && o.userData && o.userData.prop) isProp = true; });
+    if (isProp) roots.push(c);
+  });
+
+  let made = 0;
+  byMat.forEach(function (entry) {
+    const geos = [];
+    let castShadow = false;
+    for (let i = 0; i < entry.meshes.length; i++) {
+      const m = entry.meshes[i];
+      m.updateMatrixWorld(true);
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrixWorld);
+      geos.push(g);
+      if (m.castShadow) castShadow = true;
+    }
+    if (!geos.length) return;
+    const merged = new THREE.Mesh(mergeGeometries(geos), entry.mat);
+    merged.castShadow = castShadow;
+    merged.receiveShadow = true;
+    merged.userData.prop = true;
+    merged.userData.staticBatch = true;
+    scene.add(merged);
+    raycastColliders.push(merged);
+    made++;
+  });
+
+  // Drop the originals.
+  for (let i = 0; i < roots.length; i++) {
+    scene.remove(roots[i]);
+    const idx = raycastColliders.indexOf(roots[i]);
+    if (idx !== -1) raycastColliders.splice(idx, 1);
+  }
+  console.log('prop batches:', made, 'from', roots.length, 'objects');
+  return made;
+}
+
+// ---- World ray broad-phase --------------------------------------------------
+// Bullets and AI line-of-sight both raycast the whole world. r128 has no BVH, so
+// intersectObjects() walks the triangles of every root whose bounding sphere the
+// ray touches. Narrow the root list to the meshes the ray's ground track actually
+// crosses first. Rebuilt whenever raycastColliders changes.
+let worldRayGrid = null;
+const _rayIds = [];
+const _rayTargets = [];
+const _rayBB = new THREE.Box3();
+function rebuildWorldRayGrid() {
+  worldRayGrid = CORE.buildRayGrid({ cell: 8, halfExtent: CFG.world.size / 2 + 14 });
+  for (let i = 0; i < raycastColliders.length; i++) {
+    const o = raycastColliders[i];
+    o.updateMatrixWorld(true);
+    _rayBB.setFromObject(o);
+    if (!isFinite(_rayBB.min.x) || !isFinite(_rayBB.max.x)) continue;
+    CORE.rayGridInsert(worldRayGrid, i, _rayBB.min.x, _rayBB.min.z, _rayBB.max.x, _rayBB.max.z);
+  }
+  return worldRayGrid;
+}
+// Candidate roots for a ray. Falls back to the full list if the grid is not built.
+function worldRayTargets(origin, dir, maxDist) {
+  if (!worldRayGrid) return raycastColliders;
+  CORE.rayGridQuery(worldRayGrid, origin.x, origin.z, dir.x, dir.z, maxDist, _rayIds);
+  _rayTargets.length = 0;
+  for (let i = 0; i < _rayIds.length; i++) {
+    const o = raycastColliders[_rayIds[i]];
+    if (o) _rayTargets.push(o);
+  }
+  return _rayTargets;
+}
+
+// ---- AI navigation grid ----------------------------------------------------
+// The arena is fully static, so walkability is baked once from `colliders[]` and
+// reused for the whole session. Enemies path with a shared flow field (one flood
+// per recompute, not one per agent) — see CORE.computeFlowField.
+//
+// Rebuild whenever static geometry changes: after buildArena(), and again after
+// scatterProps() drops in the async-loaded cover props.
+let navGrid = null;
+function rebuildNavGrid() {
+  navGrid = CORE.buildNavGrid(colliders, {
+    cell: 1,
+    halfExtent: CFG.world.size / 2 + 1,
+    stepH: STEP_H_AI,
+    walkerHeight: 1.8,
+    // Inflate obstacles by a body radius so routed cells keep a 0.4-0.56 m agent
+    // clear of the walls it is being sent past. Doorways here are 4 m, so 0.5 m
+    // of inflation still leaves 3 m of opening.
+    agentRadius: 0.5
+  });
+  return navGrid;
+}
+// Matches the enemy controller's step-up allowance. Anything taller is a wall to
+// the AI — which is also what keeps them off the external staircase, whose risers
+// are cumulative boxes climbing to 4 m with no way back down.
+const STEP_H_AI = 0.60;
+rebuildNavGrid();
+rebuildWorldRayGrid();

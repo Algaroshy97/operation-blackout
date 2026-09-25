@@ -1,36 +1,75 @@
-// ============ WEAPONS: STATE, BALLISTICS, RELOADS, MELEE ============
+// ============ WEAPONS, VIEWMODEL & SHOOTING ============
 'use strict';
 // ---- Weapon state ----
-const PISTOL = CFG.weapons.findIndex(function (w) { return !!w.sidearm; });
-const SNIPER = CFG.weapons.findIndex(function (w) { return !!w.carried; });
-// Loadout: [primary, SV-98 (always carried), sidearm (or an Armory primary)]
-const SIDE_SLOT = 2;
-const weaponsOwned = [0, SNIPER, PISTOL];
+const weaponsOwned = [0, -1];   // indices into CFG.weapons; -1 = empty slot
 let curWeapon = 0;              // 0 or 1 (slot)
-let wState = [];                // per owned slot
-function magSize(w) { return Math.round(w.mag * perkMul('mag')); }
-function newWeaponState(w) {
-  return { ammo: magSize(w), reserve: w.reserveMax, reloading: false, reloadT: 0, reloadDur: 0, reloadKind: '', sndStage: 0,
-    nextShot: 0, chambered: true, cycleT: 0, heat: 0, shotIdx: 0, lastShotT: -9, shellT: 0, pumpAfter: false };
-}
+let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
+const FIRE_CLOCK_MAX_STEP = 0.5;
+const MAX_FIRE_CATCHUP_SHOTS = 8;
+let fireClockT = 0;
 function initWeapons() {
   wState = [];
-  for (let i = 0; i < weaponsOwned.length; i++) {
+  for (let i = 0; i < 2; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0) { wState.push(null); continue; }
-    wState.push(newWeaponState(CFG.weapons[gi]));
+    const w = CFG.weapons[gi];
+    wState.push({ ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 });
+  }
+  refreshAllWeaponStats();
+  // Attachments can raise the magazine, and a fresh deploy should start full.
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || !wState[i].eff) continue;
+    wState[i].ammo = wState[i].eff.mag;
+    wState[i].reserve = wState[i].eff.reserveMax;
   }
 }
-function curW() { return CFG.weapons[weaponsOwned[curWeapon]]; }
+// Returns the EFFECTIVE weapon, so an armory upgrade reaches every one of the
+// ~30 call sites without touching any of them. `s.up` is a whole stat block built
+// by CORE.armoryUpgrade; CFG.weapons is never mutated, because it is shared across
+// runs and an in-place upgrade would leak into the next one.
+// Returns the EFFECTIVE weapon: base, then the armory upgrade, then attachments.
+// Cached on the slot rather than recomputed, because curW() is called many times a
+// frame and applyAttachments allocates.
+function curW() {
+  const s = wState[curWeapon];
+  if (s && s.eff) return s.eff;
+  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+}
+// Recompute a slot's effective stats. Must be called whenever the loadout, the
+// weapon or the armory upgrade changes — there is no other path that updates it.
+function refreshWeaponStats(slot) {
+  const s = wState[slot];
+  if (!s || weaponsOwned[slot] < 0) return;
+  const base = s.up || CFG.weapons[weaponsOwned[slot]];
+  s.eff = CORE.applyAttachments(base, getLoadout(weaponsOwned[slot]));
+  // An extended magazine must not leave the weapon holding more than it can.
+  if (s.ammo > s.eff.mag) s.ammo = s.eff.mag;
+  if (s.reserve > s.eff.reserveMax) s.reserve = s.eff.reserveMax;
+}
+function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
 function switchWeapon(slot) {
-  if (slot === curWeapon || meleeT > 0) return;
-  const n = weaponsOwned.length;
-  const s = ((slot % n) + n) % n;
+  if (slot === curWeapon) return;
+  const s = ((slot % 2) + 2) % 2;
   if (weaponsOwned[s] < 0) return;
-  if (curS()) { curS().reloading = false; }
+  // BUG-05: this used to drop `reloading` with no rollback, no cue and no HUD
+  // change, so a player who swapped mid-reload came back to an empty magazine
+  // believing they had reloaded. Remember the progress and resume it on return.
+  const prev = curS();
+  if (prev && prev.reloading) {
+    prev.reloading = false;
+    prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
+  }
+  if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
+  const next = curS();
+  if (next) next.nextShot = CORE.shotScheduleAfterInactive();
+  if (next && next.reloadPaused) {
+    next.reloadPaused = false;
+    next.reloading = true;           // resume where it left off
+    playSound('reload_out');
+  }
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
   updateHudAmmo();
@@ -38,101 +77,60 @@ function switchWeapon(slot) {
 }
 
 function tryReload() {
-  const s = curS(), w = curW();
-  if (!s || s.reloading || meleeT > 0 || s.reserve <= 0) return;
-  if (s.ammo >= magSize(w)) return;
-  s.reloading = true; s.reloadT = 0; s.sndStage = 0;
-  if (w.type === 'SG') {
-    s.reloadKind = 'shell';
-    s.shellT = 0.42;                    // lift + first shell
-    s.pumpAfter = s.ammo === 0;
-    s.reloadDur = 0;
-  } else {
-    s.reloadKind = s.ammo > 0 ? 'tac' : 'empty';
-    s.reloadDur = (s.reloadKind === 'empty' ? w.reloadEmpty : w.reload) * perkMul('reload');
-  }
+  const s = curS(); if (!s || s.reloading || s.ammo >= curW().mag || s.reserve <= 0) return;
+  s.reloading = true;
+  // Resume a reload that a weapon swap interrupted rather than restarting it.
+  if (!s.reloadPaused) s.reloadT = 0;
+  s.reloadPaused = false;
   updateHudAmmo();
   playSound('reload_out');
 }
-function finishReload(s) {
-  s.reloading = false;
-  s.reloadKind = '';
-  updateHudAmmo();
-}
-function updateReload(s, w, dt) {
-  s.reloadT += dt;
-  if (s.reloadKind === 'shell') {
-    s.shellT -= dt;
-    if (s.shellT <= 0) {
-      if (s.ammo < magSize(w) && s.reserve > 0) {
-        s.ammo++; s.reserve--;
-        playSound('shell_in');
-        updateHudAmmo();
-        s.shellT = w.reload * perkMul('reload');
-      }
-      if (s.ammo >= magSize(w) || s.reserve <= 0) {
-        if (s.pumpAfter && s.sndStage === 0) { s.sndStage = 1; s.shellT = 0.35; playSound('pump'); s.chambered = true; return; }
-        finishReload(s);
-      }
-    }
-    return;
-  }
-  const p = s.reloadT / s.reloadDur;
-  if (p > 0.55 && s.sndStage < 1) { s.sndStage = 1; playSound('reload_in'); }
-  if (s.reloadKind === 'empty' && p > 0.82 && s.sndStage < 2) { s.sndStage = 2; playSound(w.type === 'SR' ? 'bolt' : 'charge'); }
-  if (p >= 1) {
-    // tactical reloads keep the round in the chamber (+1)
-    const cap = magSize(w) + (s.reloadKind === 'tac' && w.chamber ? 1 : 0);
-    const take = Math.min(cap - s.ammo, s.reserve);
-    s.ammo += take; s.reserve -= take;
-    s.chambered = true; s.cycleT = 0;
-    finishReload(s);
-  }
-}
 
-let lastSprintT = -9;
-let fireSprintBlockUntil = 0;   // pressing fire cancels sprint (read by the player controller)
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
-  s.heat = Math.max(0, s.heat - dt * (w.type === 'LMG' ? 2.2 : 3.2));
-  if (s.cycleT > 0) {
-    const before = s.cycleT;
-    s.cycleT -= dt;
-    // eject the spent case mid-cycle (bolt / pump actions)
-    if (before > s.cycleT && s.cycleT <= (w.bolt || w.pump || 0) * 0.55 && before > (w.bolt || w.pump || 0) * 0.55) {
-      spawnCasing(camera.position, camera.quaternion, w.type === 'SG');
-      playSound(w.bolt ? 'bolt' : 'pump');
-    }
-    if (s.cycleT <= 0) { s.cycleT = 0; s.chambered = true; }
-  }
-  if (player.sprinting) lastSprintT = gameT;
-  if (mouse1Down && player.sprinting) fireSprintBlockUntil = gameT + 0.4;
+  const wasReloading = s.reloading;
   if (s.reloading) {
-    // shotgun: firing interrupts a shell-by-shell reload
-    if (mouse1Down && s.reloadKind === 'shell' && s.ammo > 0 && s.reloadT > 0.2 && s.chambered) finishReload(s);
-    else updateReload(s, w, dt);
+    s.reloadT += dt;
+    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
+      const need = w.mag - s.ammo;
+      const take = Math.min(need, s.reserve);
+      s.ammo += take; s.reserve -= take;
+      s.reloading = false; s.reloadPaused = false;
+      playSound('reload_in');
+      updateHudAmmo();
+    }
+    s.nextShot = CORE.shotScheduleAfterInactive();
   }
-  updateMelee(dt);
-  // fire
-  const ready = !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && meleeT <= 0 && !player.mantle && !player.sprinting && gameT - lastSprintT > 0.12;
-  if (mouse1Down && ready) {
-    if (gameT >= s.nextShot && s.ammo > 0 && s.chambered) {
-      if (!w.auto) mouse1Down = false;
-      fireShot();
-      if (typeof touchState !== 'undefined') touchState.tapFiring = false;
-    } else if (gameT >= s.nextShot && s.ammo === 0) {
+  // fire: consume every automatic-fire deadline that elapsed since the last
+  // render. The first shot keeps the existing immediate-fire behaviour.
+  if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
+    if (fireClockT >= s.nextShot && s.ammo > 0) {
+      let due = s.nextShot === 0 ? 1
+        : CORE.advanceShotSchedule(fireClockT, s.nextShot, 60 / w.rpm, MAX_FIRE_CATCHUP_SHOTS).shots;
+      if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
+      while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
+      if (s.ammo === 0 && s.reserve > 0) tryReload();
+    } else if (fireClockT >= s.nextShot && s.ammo === 0) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
-  } else if (!mouse1Down) { dryPlayed = false; }
+  } else {
+    dryPlayed = false;
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  }
+  // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
+  // hipfire number while scoped would recover an ADS bloom far too fast.
+  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
+  bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
+  if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
+  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+  // KeyF became USE when stations landed, which is where CoD players expect it.
+  if ((pressed['KeyV'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
-  if (pressed['KeyV'] || pressed['KeyF']) tryMelee();
-  if (pressed['Digit1'] && !perkMenuOpen()) switchWeapon(0);
-  if (pressed['Digit2'] && !perkMenuOpen()) switchWeapon(1);
-  if (pressed['Digit3'] && !perkMenuOpen()) switchWeapon(2);
-  if (pressed['KeyX']) switchWeapon(curWeapon + 1);
+  if (pressed['Digit1']) switchWeapon(0);
+  if (pressed['Digit2']) switchWeapon(1);
 }
 let dryPlayed = false;
 
@@ -142,29 +140,31 @@ const _shootDir = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _aimTgt = new THREE.Vector3();
-const _camRight = new THREE.Vector3(), _camUp = new THREE.Vector3(), _camFwd = new THREE.Vector3();
 
-function adsDown() { return !!keys['Mouse2'] && !player.sprinting && !player.dead && meleeT <= 0 && !player.mantle; }
+function adsDown() { return !!keys['Mouse2'] && !player.sprinting && !player.dead; }
 let adsAmount = 0;   // 0..1 smooth
 let gunSwitchT = 1;  // 1 = fully raised
 
 // ---- Sniper scope state ----
-const SWAY_USE = 5.5, STEADY_RECOVER = 1.4, STEADY_MAX = 3.5;
+const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.STEADY_MAX;
 let swayPhase = 0, swayX = 0, swayY = 0;
 let steadyT = STEADY_MAX; // remaining breath-hold time
 let steadyActive = false;
+const _swayOut = { x: 0, y: 0 };
 
 function updateSway(dt) {
   swayPhase += dt;
-  steadyActive = curW().type === 'SR' && adsAmount > 0.8 && !!keys['ShiftLeft'] && steadyT > 0;
-  if (steadyActive) steadyT = Math.max(0, steadyT - dt);
-  else steadyT = Math.min(STEADY_MAX, steadyT + dt * STEADY_RECOVER);
-  const amp = CFG.assist.swayAmp * (steadyActive ? CFG.assist.steadyMul : 1) * (player.crouching ? 0.6 : 1);
-  swayX = Math.sin(swayPhase * 1.7) * amp + Math.sin(swayPhase * 0.9) * amp * 0.6;
-  swayY = Math.sin(swayPhase * 1.3 + 1.2) * amp * 0.8;
+  const w = curW();
+  steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, !!keys['ShiftLeft'], steadyT);
+  steadyT = CORE.stepSteadyAim(steadyT, steadyActive, dt, STEADY_MAX, STEADY_RECOVER);
+  const amp = CORE.swayAmplitude(CFG.assist.swayAmp, steadyActive, CFG.assist.steadyMul, w ? w.sway : 1);
+  CORE.swayOffsets(swayPhase, amp, _swayOut);
+  swayX = _swayOut.x;
+  swayY = _swayOut.y;
 }
 function isScoped() {
-  return adsAmount > 0.82 && curW().type === 'SR';
+  const w = curW();
+  return CORE.isScoped(adsAmount, w ? w.type : '');
 }
 
 const _assistTo = new THREE.Vector3();
@@ -172,14 +172,14 @@ const _assistToH = new THREE.Vector3();
 const _assistBestTo = new THREE.Vector3();
 const _assistNudged = new THREE.Vector3();
 
-// ---- Aim assist (touch / gamepad): drift the crosshair gently onto the nearest enemy chest/head ----
+// ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
-  if (adsAmount < 0.8) return dir;
-  let hasBest = false, bestAng = CFG.assist.angle * (steadyActive ? 1.6 : 1);
+  if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
+  let hasBest = false, bestAng = CORE.aimAssistAngle(CFG.assist.angle, steadyActive, 1.6);
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.15, en.pos.z);   // chest
+    _aimTgt.set(en.pos.x, en.pos.y + 1.0, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
     if (ang < bestAng) {
@@ -188,7 +188,7 @@ function applyAimAssist(dir, from) {
       hasBest = true;
     }
     // head magnet (smaller box)
-    _aimTgt.set(en.pos.x, en.pos.y + 1.72, en.pos.z);
+    _aimTgt.set(en.pos.x, en.pos.y + 1.68, en.pos.z);   // head centre
     _assistToH.subVectors(_aimTgt, from).normalize();
     const angH = dir.angleTo(_assistToH);
     if (angH < bestAng * 0.55) {
@@ -198,265 +198,339 @@ function applyAimAssist(dir, from) {
     }
   }
   if (!hasBest) return dir;
-  const pull = Math.min(1, CFG.assist.strength * 0.25);
+  // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
+  const pull = CORE.aimAssistPull(CFG.assist.strength, 0.25);
   _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
   return _assistNudged;
 }
-// bullet magnetism (touch / gamepad): at fire time, snap within a small cone
+// bullet magnetism: at fire time, snap within a small cone
+// Scratch vectors, not per-enemy clones: this runs on every shot, and the SMG
+// fires 15 times a second.
 const _magTo = new THREE.Vector3();
+const _magBest = new THREE.Vector3();
 function magnetizeBullet(dir, from) {
   let bestAng = CFG.assist.bulletAngle, found = false;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.35, en.pos.z);
-    _magTo.copy(_aimTgt).sub(from).normalize();
+    _aimTgt.set(en.pos.x, en.pos.y + 1.1, en.pos.z);    // centre mass
+    _magTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_magTo);
-    if (ang < bestAng) { bestAng = ang; dir.copy(_magTo); found = true; }
+    if (ang < bestAng) { bestAng = ang; _magBest.copy(_magTo); found = true; }
   }
-  return dir;
+  return found ? _magBest : dir;
 }
 
-// Current cone half-angle (radians): base x bloom x movement/air/stance modifiers.
-function currentSpread() {
-  const w = curW(), s = curS();
-  const ads = adsAmount;
-  let sp = w.spread + (w.adsSpread - w.spread) * ads;
-  const moveK = Math.min(1, hSpeedForSpread / 5);
-  sp *= 1 + (s ? s.heat : 0) * (w.type === 'SR' ? 0 : 1);
-  sp *= 1 + moveK * (ads > 0.5 ? 0.6 : 1.1);
-  if (!player.onGround) sp *= 2.2;
-  if (player.crouching && player.onGround) sp *= 0.8;
-  if (w.type === 'SR' && ads > 0.8) sp = w.adsSpread * (steadyActive ? 0.5 : 1) * (1 + moveK * 8);
-  return sp * perkMul('spread');
-}
-function distanceFalloff(w, dist) {
-  if (dist <= w.r0) return 1;
-  if (dist >= w.r1) return w.minMul;
-  return 1 + (w.minMul - 1) * (dist - w.r0) / (w.r1 - w.r0);
-}
-// How much bullet energy survives passing through a surface (0 = stops it).
-// Concrete / brick can only be crossed by weapons with wallPen >= wall thickness.
-const PEN_MUL = { wood: 0.65, glass: 0.9, metal: 0.45, concrete: 0, brick: 0, ground: 0 };
-// Thickness of the solid the ray just entered, measured on the collider AABB that
-// contains the hit point (slab test from the entry point along the ray).
-const _exitP = new THREE.Vector3();
-function wallThickness(point, dir) {
-  let best = null;
-  for (let i = 0; i < colliders.length; i++) {
-    const c = colliders[i];
-    if (point.x < c.min.x - 0.03 || point.x > c.max.x + 0.03 || point.y < c.min.y - 0.03 || point.y > c.max.y + 0.03 || point.z < c.min.z - 0.03 || point.z > c.max.z + 0.03) continue;
-    let tExit = Infinity;
-    for (const ax of ['x', 'y', 'z']) {
-      const d = dir[ax];
-      if (Math.abs(d) < 1e-6) continue;
-      const t = ((d > 0 ? c.max[ax] : c.min[ax]) - point[ax]) / d;
-      if (t < tExit) tExit = t;
-    }
-    if (tExit > 0 && (!best || tExit < best)) best = tExit;
-  }
-  return best === null ? 0.06 : best;   // no collider: a thin decorative surface
-}
-// Per-shot context for scoring bonuses (wallbang, collateral).
-const bulletCtx = { wallbang: false, kills: 0 };
-const _tmpExitN = new THREE.Vector3();
-const _bulletTargets = [];
-const _muzzleW = new THREE.Vector3();
-const _tracerEnd = new THREE.Vector3();
-let shotHitThisTrigger = false;
-function traceBullet(from, dir, w, showTracer) {
-  raycaster.set(from, dir);
-  raycaster.far = w.range;
-  _bulletTargets.length = 0;
-  for (let i = 0; i < enemies.length; i++) {
-    if (enemies[i].dead) { if (enemies[i].ragdoll) _bulletTargets.push(enemies[i].ragdoll.container); continue; }
-    if (enemies[i].parts && enemies[i].parts.group) _bulletTargets.push(enemies[i].parts.group);
-  }
-  const worldHits = raycaster.intersectObjects(raycastColliders, true);
-  const enemyHits = _bulletTargets.length ? raycaster.intersectObjects(_bulletTargets, true) : [];
-  let power = 1, pens = w.pen, endDist = w.range, wi = 0, ei = 0, skipUntil = -1;
-  const seen = [];
-  bulletCtx.wallbang = false;
-  while (wi < worldHits.length || ei < enemyHits.length) {
-    const useEnemy = ei < enemyHits.length && (wi >= worldHits.length || enemyHits[ei].distance <= worldHits[wi].distance);
-    const h = useEnemy ? enemyHits[ei++] : worldHits[wi++];
-    if (!useEnemy && h.distance < skipUntil) continue;   // inner faces of a wall we already crossed
-    if (useEnemy) {
-      const en = h.object.userData.enemyRef;
-      if (en && en.dead && en.ragdoll && seen.indexOf(en) < 0) {
-        // shooting a corpse shoves the ragdoll; the round carries on
-        seen.push(en);
-        ragdollHit(en, h.point, dir, (w.impulse || 2.2) * 1.4 * power);
-        spawnBlood(h.point, false, dir);
-        continue;
-      }
-      if (!en || en.dead || seen.indexOf(en) >= 0) continue;
-      seen.push(en);
-      // headshot if any hit on this enemy within 0.35 m of the entry is the head box
-      let isHead = !!h.object.userData.isHead;
-      for (let k = ei; k < enemyHits.length && !isHead; k++) {
-        const o = enemyHits[k];
-        if (o.distance - h.distance > 0.35) break;
-        if (o.object.userData.enemyRef === en && o.object.userData.isHead) isHead = true;
-      }
-      const dmg = w.dmg * (isHead ? w.headMul : h.object.userData.isLegs ? 0.75 : 1) * distanceFalloff(w, h.distance) * power * perkMul('damage');
-      en.hitImpulse = (w.impulse || 2.2) * power;
-      damageEnemy(en, dmg, h.point, isHead, dir);
-      shotHitThisTrigger = true;
-      // the sniper round keeps going through heads and bodies alike
-      if (pens > 0 && (!isHead || w.type === 'SR')) { pens--; power *= w.type === 'SR' ? 0.8 : 0.55; continue; }
-      endDist = h.distance;
-      break;
-    }
-    if (h.object.userData.barrelRef) damageBarrel(h.object.userData.barrelRef, w.dmg * power);
-    const surf = surfaceOf(h.object);
-    spawnImpact(h.point, h.face ? h.face.normal : null, h.object);
-    if (h.face && h.face.normal && surf !== 'glass') spawnDecal(h.point, h.face.normal, h.object);
-    let pm = PEN_MUL[surf] || 0;
-    const thick = wallThickness(h.point, dir);
-    if (pm > 0 && thick > 1.3) pm = 0;
-    if (!pm && (surf === 'concrete' || surf === 'brick' || surf === 'metal') && thick <= (w.wallPen || 0)) pm = Math.max(0.35, 1 - thick * 0.55);
-    if (pens > 0 && pm > 0) {
-      pens--; power *= pm;
-      if (thick > 0.1) {
-        // exit wound on the far side
-        _exitP.copy(h.point).addScaledVector(dir, thick + 0.01);
-        _tmpExitN.copy(dir);
-        fxImpact(_exitP, _tmpExitN, surf);
-        placeDecal(DECAL, _exitP, _tmpExitN, 0.16);
-        bulletCtx.wallbang = true;
-      }
-      skipUntil = h.distance + thick + 0.02;
-      continue;
-    }
-    if (surf === 'metal' && Math.random() < 0.25) playSound3D('ricochet', h.point.x, h.point.y, h.point.z);
-    endDist = h.distance;
-    break;
-  }
-  _tracerEnd.copy(from).addScaledVector(dir, endDist);
-  if (showTracer) spawnTracer(muzzleWorldPos(_muzzleW), _tracerEnd, w.type === 'SR' ? 'sniper' : undefined);
-  if (w.type === 'SR') sniperTrail(muzzleWorldPos(_muzzleW), _tracerEnd);
-  if (typeof bulletNearMiss === 'function') bulletNearMiss(from, dir, endDist, w.suppressed);
-  bulletCtx.wallbang = false;
-}
+const _shotTargets = [];
+const _tracerMissEnd = new THREE.Vector3();
 
-function fireShot() {
+function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
   s.ammo--;
-  s.nextShot = gameT + 60 / w.rpm;
-  if (gameT - s.lastShotT > 0.35) s.shotIdx = 0;
-  s.shotIdx++; s.lastShotT = gameT;
-  if (w.bolt) { s.chambered = false; s.cycleT = w.bolt; }
-  if (w.pump) { s.chambered = false; s.cycleT = w.pump; }
-  camera.updateMatrixWorld();
+  const interval = 60 / w.rpm;
+  s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : fireClockT + interval;
+  // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
+  // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
+  // shot 30, so there was no reason to ever tap-fire and no cost to holding.
+  const ads = adsDown();
+  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  bp.cap *= CORE.perkBloomMul(perks);
+  const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
+    hSpeedForSpread, !player.onGround);
+  bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
-  _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
-  _camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
-  const spread = currentSpread();
-  const pellets = w.pellets || 1;
-  shotHitThisTrigger = false;
-  const killsBefore = kills;
-  for (let p = 0; p < pellets; p++) {
-    // uniform sample inside the spread cone
-    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * spread;
-    _shootDir.copy(_camFwd).addScaledVector(_camRight, Math.cos(a) * r).addScaledVector(_camUp, Math.sin(a) * r).normalize();
-    if (pellets === 1 && lastInputDevice !== 'mouse') magnetizeBullet(_shootDir, _from);
-    traceBullet(_from, _shootDir, w, pellets === 1 || p % 3 === 0);
+  // direction with random cone
+  _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _shootDir.x += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.y += (Math.random() - 0.5) * 2 * spreadNow;
+  _shootDir.z += (Math.random() - 0.5) * 2 * spreadNow * 0.3;
+  _shootDir.normalize();
+  // bullet magnetism (small snap onto enemy center-mass)
+  _shootDir.copy(magnetizeBullet(_shootDir, _from));
+  raycaster.set(_from, _shootDir);
+  raycaster.far = w.range;
+
+  // test enemies first (hitboxes + visible meshes)
+  _shotTargets.length = 0;
+  for (let i = 0; i < enemies.length; i++) {
+    if (enemies[i].dead) continue;
+    if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
   }
-  if (shotHitThisTrigger) shotsHit++;
-  const shotKills = kills - killsBefore;
-  if (shotKills >= 2 && pellets === 1) { addScore(75 * shotKills, 'COLLATERAL x' + shotKills); playSound('headshot'); }
-  s.heat = Math.min(1.6, s.heat + w.heat);
-  // recoil: vertical climb + S-shaped horizontal drift (learnable pattern + a little noise)
-  const rm = perkMul('recoil') * (adsAmount > 0.5 ? 0.8 : 1) * (player.crouching ? 0.85 : 1);
-  const seed = weaponsOwned[curWeapon] * 1.7;
-  // camera recoil feeds a target the view springs toward (smooth rise, smooth recovery)
-  player.recoilTP += w.recoilV * (0.85 + Math.random() * 0.3) * rm;
-  player.recoilTY += w.recoilH * (Math.sin(s.shotIdx * 0.55 + seed) * 0.8 + (Math.random() - 0.5) * 0.7) * rm;
-  player.pitch += w.recoilV * (w.type === 'SR' ? 0.08 : 0.22) * rm;   // part of the climb stays (you pull it down)
-  kickViewmodel(w);
-  shotKick = Math.min(shotKick + 0.5, 1.4);
-  // casing eject (bolt/pump weapons eject during their cycle)
-  if (!w.bolt && !w.pump) spawnCasing(camera.position, camera.quaternion, false);
+  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
+  const enemyHits = raycaster.intersectObjects(_shotTargets, true);
+  // Penetration is resolved against the collider AABBs rather than the rendered
+  // meshes, and deliberately: the static arena is merged into batched meshes, so a
+  // mesh raycast reports the entry AND exit faces of every box in a batch and
+  // cannot tell one wall from two. The colliders are one entry per box and carry
+  // the material tag.
+  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
+  const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
+    _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
+  let hit = null, isEnemy = false, isHead = false, penMul = 1;
+  if (enemyHits.length) {
+    const m = CORE.penetrationMulAt(penWalk, enemyHits[0].distance);
+    if (m > 0) {
+      hit = enemyHits[0]; isEnemy = true;
+      isHead = !!hit.object.userData.isHead;
+      penMul = m;
+    }
+  }
+  if (!isEnemy && worldHits.length) hit = worldHits[0];
+
+  if (hit && isEnemy) {
+    shotsHit++;
+    const en = hit.object.userData.enemyRef;
+    const dmg = CORE.playerBulletDamage(w.dmg, isHead, CFG.ai.headshotMul, hit.distance, w.range, penMul);
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
+  } else if (hit) {
+    spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
+  }
+  spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
+  // shell casing eject
+  spawnCasing(camera.position, camera.quaternion);
+  // sniper: brief unscope on shot (recoil re-chamber feel)
+  if (w.type === 'SR') { adsAmount = CORE.sniperUnscopeAds(adsAmount); }
+  // recoil
+  // Learnable pattern, not noise. The old model was +/-20% random vertical and a
+  // zero-mean random horizontal, so there was no shape to pull against and no
+  // amount of practice could improve a burst. The same burst now traces the same
+  // shape every time, with a few percent of jitter so it is not mechanical.
+  recoilShot = CORE.recoilShotIndex(recoilShot, gameT - lastShotT);
+  lastShotT = gameT;
+  const rk = CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
+    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
+  player.recoilP += w.recoilV * rk.y;
+  player.recoilY += w.recoilH * rk.x;
+  shotKick = CORE.applyShotKick(shotKick);
+  playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
-  muzzleWorldPos(_muzzleW);
-  if (!w.suppressed) fxMuzzle(_muzzleW, _camFwd, w.type === 'SG' || w.type === 'SR');
-  if (w.suppressed) playSound('shot_SMG'); else playSound('shot_' + w.type);
-  if (w.type === 'SR') { setTimeout(function () { playSound('sniper_echo'); }, 260); postKick('aberration', 0.25); }
-  if (typeof alertEnemiesTo === 'function') alertEnemiesTo(_from, w.suppressed ? 14 : 55);
-  addTrauma(w.type === 'SG' || w.type === 'SR' ? 0.12 : 0.025);
   updateHudAmmo();
 }
+// ---- Melee ----
+// A runner that had closed inside its 1.9 m stop distance had no counter but
+// backpedalling, which is exactly the situation a knife exists to solve. Targets
+// are filtered by a forward cone rather than taken nearest-first, so the swing
+// goes where the player is looking.
+function doMelee() {
+  meleeT = CORE.MELEE_COOLDOWN;
+  meleeSwing = 1;
+  playSound('melee');
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
+    dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
+  if (idx < 0) return;
+  const en = enemies[idx];
+  _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
+  damageEnemy(en, CORE.MELEE_DAMAGE, _meleePoint, false);
+}
+
+// Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
+// version was a binary step: an M4 did 26 damage at 71 m and 16.9 at 72 m, moving
+// shots-to-kill from 4 to 6 across a single metre with no feedback to the player.
+function distanceFalloff(dist, range) { return CORE.distanceFalloff(dist, range); }
 let hSpeedForSpread = 0;
 let shotKick = 0;
 
-// ---- Melee (V / F): knife slash, backstabs are lethal ----
-let meleeT = 0, meleeHitDone = false, meleeCd = 0;
-const MELEE_DUR = 0.5;
-function tryMelee() {
-  if (meleeT > 0 || meleeCd > 0 || player.dead || !started || paused) return;
-  const s = curS();
-  if (s && s.reloading) finishReloadCancel(s);
-  meleeT = MELEE_DUR; meleeHitDone = false; meleeCd = 0.75;
-  playSound('knife');
-}
-function finishReloadCancel(s) { s.reloading = false; s.reloadKind = ''; updateHudAmmo(); }
-const _meleeRay = new THREE.Raycaster();
-function updateMelee(dt) {
-  meleeCd = Math.max(0, meleeCd - dt);
-  if (meleeT <= 0) return;
-  meleeT -= dt;
-  if (!meleeHitDone && meleeT < MELEE_DUR - 0.14) {
-    meleeHitDone = true;
-    _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-    let best = null, bestD = 2.4;
-    for (let i = 0; i < enemies.length; i++) {
-      const en = enemies[i];
-      if (en.dead) continue;
-      const dx = en.pos.x - player.pos.x, dz = en.pos.z - player.pos.z, d = Math.hypot(dx, dz);
-      const feet = player.pos.y - eyeHeight();
-      if (d > bestD || Math.abs(en.pos.y - feet) > 1.6) continue;
-      if ((dx * _camFwd.x + dz * _camFwd.z) / (d || 1) < 0.55) continue;
-      best = en; bestD = d;
-    }
-    if (best) {
-      // behind the target? (enemy facing away from the player)
-      const fx = Math.sin(best.yaw), fz = Math.cos(best.yaw);
-      const tx = player.pos.x - best.pos.x, tz = player.pos.z - best.pos.z, tl = Math.hypot(tx, tz) || 1;
-      const backstab = (fx * tx + fz * tz) / tl < -0.2;
-      const pt = new THREE.Vector3(best.pos.x, best.pos.y + 1.2, best.pos.z);
-      best.blastImpulse = new THREE.Vector3(_camFwd.x * 4, 1.5, _camFwd.z * 4);
-      damageEnemy(best, backstab ? 400 : 115, pt, false, _camFwd);
-      playSound('knife_hit');
-      addTrauma(0.18);
-      if (backstab) addScore(40, 'BACKSTAB');
-    } else {
-      camera.getWorldPosition(_from);
-      _meleeRay.set(_from, _camFwd); _meleeRay.far = 1.7;
-      const hits = _meleeRay.intersectObjects(raycastColliders, true);
-      if (hits.length) {
-        spawnImpact(hits[0].point, hits[0].face ? hits[0].face.normal : null, hits[0].object);
-        if (hits[0].object.userData.barrelRef) damageBarrel(hits[0].object.userData.barrelRef, 20);
-        addTrauma(0.08);
+// ---- Recoil pattern + bloom state ----
+// recoilShot indexes the current weapon's pattern; it resets after a gap off the
+// trigger so shot 1 of every burst behaves like shot 1. bloom is carried in the
+// same units as the weapon's base spread and simply adds to it.
+let recoilShot = 0;
+let lastShotT = -99;
+let bloom = 0;
+let _lastChOp = -1, _lastChGap = -1;
+let _scopeOvEl = null, _chEl = null, _steadyIndEl = null;
+const _scopeOvState = { active: null, isSniper: null };
+const _steadyIndState = { visible: null, steadyActive: null, label: null };
+let meleeT = 0;        // cooldown / lockout
+let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
+const _meleeTargets = [];
+const _meleePoint = new THREE.Vector3();
+
+// ---- Viewmodel (procedural low-poly gun) ----
+// Rendered as a child of the camera in the MAIN render pass (single-pass, driver-proof).
+// All gun materials get depthTest:false + renderOrder 999 so the gun always draws on top.
+const gunMats = {
+  black: new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.55, metalness: 0.35, depthTest: false }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.6, metalness: 0.3, depthTest: false }),
+  metal: new THREE.MeshStandardMaterial({ color: 0x666c75, roughness: 0.35, metalness: 0.8, depthTest: false }),
+  tan: new THREE.MeshStandardMaterial({ color: 0x8f7d5a, roughness: 0.8, depthTest: false }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.85, depthTest: false }),
+  hand: new THREE.MeshStandardMaterial({ color: 0xb08d6a, roughness: 0.9, depthTest: false })
+};
+scene.add(camera);       // camera children render in the main pass
+let gunGroup = null;
+let muzzleFlash = null;
+let gunParts = { bolt: null, mag: null, handL: null, handR: null };
+
+function buildViewmodel() {
+  if (gunGroup) {
+    camera.remove(gunGroup);
+    gunGroup.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); });
+        else o.material.dispose();
       }
+    });
+  }
+  gunGroup = new THREE.Group();
+  const gi = weaponsOwned[curWeapon];
+  const type = CFG.weapons[gi].type;
+  const M = gunMats;
+
+  function part(w, h, d, x, y, z, mat) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.renderOrder = 999;   // always on top
+    m.userData.gun = true;
+    gunGroup.add(m);
+    return m;
+  }
+  // receiver
+  part(0.07, 0.09, 0.34, 0, 0, -0.12, M.black);
+  // barrel + handguard
+  if (type === 'BR') {
+    part(0.05, 0.05, 0.34, 0, 0.012, -0.44, M.dark);
+    part(0.065, 0.065, 0.2, 0, 0.012, -0.42, M.dark);
+  } else {
+    part(0.045, 0.045, 0.22, 0, 0.012, -0.38, M.dark);
+    part(0.06, 0.06, 0.16, 0, 0.005, -0.36, M.black);
+  }
+  // stock
+  part(0.06, 0.085, 0.16, 0, -0.008, 0.11, M.black);
+  part(0.055, 0.11, 0.05, 0, -0.02, 0.2, M.dark);
+  // grip
+  part(0.05, 0.13, 0.06, 0, -0.1, 0.02, M.black).rotation.x = 0.3;
+  // magazine
+  const mag = part(0.055, 0.16, 0.09, 0, -0.13, -0.1, M.dark);
+  mag.rotation.x = type === 'SMG' ? 0.12 : 0.05;
+  gunParts.mag = mag;
+  // optic / iron sights / sniper scope
+  if (type === 'SR') {
+    // big scope tube on top
+    part(0.052, 0.052, 0.34, 0, 0.085, -0.18, M.black);
+    part(0.075, 0.075, 0.06, 0, 0.085, -0.36, M.dark);    // objective bell
+    part(0.062, 0.062, 0.05, 0, 0.085, 0.0, M.dark);      // ocular
+    part(0.02, 0.05, 0.02, 0.035, 0.055, -0.1, M.metal);  // mount
+    part(0.02, 0.05, 0.02, 0.035, 0.055, -0.26, M.metal);
+    part(0.02, 0.03, 0.05, 0.036, 0.085, -0.14, M.metal); // turret
+    // bipod (folded)
+    part(0.012, 0.09, 0.012, -0.03, -0.03, -0.55, M.dark);
+    part(0.012, 0.09, 0.012, 0.03, -0.03, -0.55, M.dark);
+    // cheek rest
+    part(0.05, 0.04, 0.14, 0, 0.02, 0.14, M.dark);
+  } else if (type === 'BR') {
+    part(0.05, 0.05, 0.09, 0, 0.075, -0.2, M.dark);
+    part(0.035, 0.035, 0.035, 0, 0.105, -0.16, M.metal);
+  } else {
+    part(0.014, 0.05, 0.014, 0, 0.062, -0.5, M.metal);   // front post
+    part(0.05, 0.045, 0.02, 0, 0.062, -0.05, M.dark);   // rear sight
+  }
+  // charging handle / bolt (kicks on shots)
+  const bolt = part(0.02, 0.02, 0.1, 0.045, 0.03, -0.02, M.metal);
+  gunParts.bolt = bolt;
+  // hands (stylized)
+  const handR = part(0.075, 0.1, 0.12, 0.005, -0.075, 0.05, M.hand);
+  const handL = part(0.075, 0.1, 0.1, -0.005, -0.06, -0.32, M.hand);
+  handL.rotation.x = 0.4; handR.rotation.x = 0.25;
+  gunParts.handL = handL; gunParts.handR = handR;
+  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95, depthTest: false });
+  // muzzle flash position per type
+  const muzzleZ = type === 'SR' ? -0.72 : type === 'BR' ? -0.64 : -0.5;
+  muzzleFlash = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 6), flashMat);
+  muzzleFlash.rotation.x = Math.PI / 2;
+  muzzleFlash.position.set(0, 0.012, muzzleZ);
+  muzzleFlash.visible = false;
+  muzzleFlash.userData.gun = true;
+  muzzleFlash.renderOrder = 1000;
+  gunGroup.add(muzzleFlash);
+  gunGroup.traverse(function (o) { o.userData.gun = true; });
+  camera.add(gunGroup);
+}
+
+// per-frame viewmodel pose
+const _gunQ = new THREE.Quaternion();
+const _viewmodelPoseOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+const _reloadAnimOut = { dip: 0, rot: 0, magY: -0.13 };
+function updateViewmodel(dt) {
+  if (!gunGroup) return;
+  const w = curW();
+  const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
+  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), w ? w.adsSpeed : 1);
+  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt);
+
+  const s = curS();
+  const isSniper = w.type === 'SR';
+  const scoped = isSniper && adsAmount > 0.82;
+  const reloadDuration = (w && w.reload) ? w.reload : 1;
+  const reloadT = (s && s.reloading) ? s.reloadT : -1;
+  CORE.reloadAnimationOffsets(reloadT, reloadDuration, _reloadAnimOut);
+  if (gunParts.mag) gunParts.mag.position.y = _reloadAnimOut.magY;
+  if (gunParts.bolt) gunParts.bolt.position.z = CORE.viewmodelBoltOffset(shotKick);
+
+  const stance = CORE.viewmodelStance(player.sprinting, player.tacT > 0, player.sliding, aimAds);
+  const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+
+  CORE.viewmodelPose(
+    adsAmount, stance, shotKick, swayX, swayY,
+    player.bobPhase, player.bobAmp, isSniper, gunSwitchT,
+    _reloadAnimOut.dip, _reloadAnimOut.rot, player.pitch,
+    camera.aspect || 1, isRedMotion, _viewmodelPoseOut
+  );
+  gunGroup.position.set(_viewmodelPoseOut.posX, _viewmodelPoseOut.posY, _viewmodelPoseOut.posZ);
+  gunGroup.rotation.set(_viewmodelPoseOut.rotX, _viewmodelPoseOut.rotY, _viewmodelPoseOut.rotZ);
+
+  // muzzle flash decay
+  if (muzzleFlash && muzzleFlash.visible) {
+    flashT = CORE.stepMuzzleFlash(flashT, dt, CORE.VIEWMODEL_MUZZLE_FLASH_DECAY);
+    if (flashT <= 0) muzzleFlash.visible = false;
+  }
+  // scope overlay for BR / SR
+  const isSr = w.type === 'SR';
+  const wantScope = CORE.isScopeOverlayActive(adsAmount, w.type);
+  if (CORE.scopeOverlayChanged(_scopeOvState, wantScope, isSr)) {
+    CORE.syncScopeOverlayState(_scopeOvState, wantScope, isSr);
+    if (!_scopeOvEl) _scopeOvEl = $id('scoping-overlay');
+    if (_scopeOvEl) {
+      _scopeOvEl.style.opacity = wantScope ? '1' : '0';
+      _scopeOvEl.classList.toggle('scope-sniper', isSr);
+    }
+  }
+  // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
+  if (gunGroup) gunGroup.visible = !(scoped);
+  if (!_chEl) _chEl = $id('crosshair');
+  if (_chEl) {
+    const isScopedW = (w.type === 'BR' || w.type === 'SR');
+    const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
+    const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
+    const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
+    if (chOp !== _lastChOp) {
+      _lastChOp = chOp;
+      _chEl.style.opacity = String(chOp);
+    }
+    if (chGap !== _lastChGap) {
+      _lastChGap = chGap;
+      _chEl.style.setProperty('--ch-gap', chGap + 'px');
+    }
+  }
+  // steady indicator
+  const steadyVis = CORE.isSteadyIndicatorVisible(w.type, adsAmount);
+  const steadyLbl = steadyVis ? CORE.steadyIndicatorLabel(steadyActive, steadyT) : '';
+  if (CORE.steadyIndicatorChanged(_steadyIndState, steadyVis, steadyActive, steadyLbl)) {
+    CORE.syncSteadyIndicatorState(_steadyIndState, steadyVis, steadyActive, steadyLbl);
+    if (!_steadyIndEl) _steadyIndEl = $id('steady-ind');
+    if (_steadyIndEl) {
+      _steadyIndEl.style.opacity = steadyVis ? '1' : '0';
+      if (steadyVis) _steadyIndEl.textContent = steadyLbl;
+      _steadyIndEl.classList.toggle('steady-on', !!steadyActive);
     }
   }
 }
-
-// ---- Viewmodel disposal (models are built in 32_viewmodels.js) ----
-let gunGroup = null;
-function disposeViewmodel() {
-  if (!gunGroup) return;
-  gunCamera.remove(gunGroup);
-  gunGroup.traverse(function (o) {
-    if (o.geometry && !o.userData.sharedGeo) o.geometry.dispose();
-    if (o.material) {
-      if (Array.isArray(o.material)) o.material.forEach(function (m) { if (!m.userData.shared) m.dispose(); });
-      else if (!o.material.userData.shared) o.material.dispose();
-    }
-  });
-  gunGroup = null;
-}
+let flashT = 0;
+function triggerMuzzleFlash() { if (muzzleFlash) { muzzleFlash.visible = true; muzzleFlash.rotation.z = Math.random() * Math.PI; flashT = 1; } }

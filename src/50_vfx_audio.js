@@ -1,39 +1,122 @@
 // ============ VFX & AUDIO ============
 'use strict';
-// Sparks, dust, blood and smoke are GPU particles (48_particles.js). This module
-// owns the mesh-based effects: travelling tracers, decals, shell casings, muzzle light.
-const vfx = { tracers: [] };
-const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
-// HDR colours (>1) so tracers bloom in the post-FX pass.
-const tracerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe2a0).multiplyScalar(4), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-const tracerMatE = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a30).multiplyScalar(5), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-const tracerMatS = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4e0).multiplyScalar(9), transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-const casingGeo = new THREE.CylinderGeometry(0.0065, 0.0065, 0.032, 8);
-const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.3, metalness: 0.9 });
-const shellGeo = new THREE.CylinderGeometry(0.011, 0.011, 0.06, 8);
-const shellMat = new THREE.MeshStandardMaterial({ color: 0xa8231c, roughness: 0.5, metalness: 0.2 });
+// ---- Pooled VFX ----
+const vfx = { tracers: [], impacts: [], blood: [] };
+const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
+const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
+const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
+const impactGeo = new THREE.SphereGeometry(0.06, 6, 4);
+const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.85 });
+const sparkGeo = new THREE.BoxGeometry(0.02, 0.02, 0.02);
+const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+const bloodGeo = new THREE.SphereGeometry(0.05, 5, 4);
+const bloodMat = new THREE.MeshBasicMaterial({ color: 0xa11212 });
+const casingGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.03, 6);
+const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.35, metalness: 0.85 });
+// casings are 3 cm and there can be 24 of them; never worth a shadow-pass draw
+const dustGeo = new THREE.SphereGeometry(0.14, 6, 5);
+const dustMat = new THREE.MeshBasicMaterial({ color: 0xb9a98c, transparent: true, opacity: 0.5 });
 
-// Mesh pools
+// Mesh & particle pools
 const tracerPool = [];
+const impactPool = [];
+const sparkPool = [];
+const bloodPool = [];
 const casingPool = [];
+const dustPool = [];
+// Particle record pool: reuse wrapper objects and Vector3 instances to eliminate GC churn
+const particlePool = [];
+const _tmpSparkV = new THREE.Vector3();
+const _particleOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
+
 function warmupVfx() {
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 30; i++) {
     const m = new THREE.Mesh(tracerGeo, tracerMat);
-    m.userData.vfx = true; m.visible = false; m.renderOrder = 30;
+    m.userData.vfx = true; m.visible = false;
     tracerPool.push(m);
+  }
+  for (let i = 0; i < 25; i++) {
+    const m = new THREE.Mesh(impactGeo, impactMat);
+    m.userData.vfx = true; m.visible = false;
+    impactPool.push(m);
+  }
+  for (let i = 0; i < 60; i++) {
+    const m = new THREE.Mesh(sparkGeo, sparkMat);
+    m.userData.vfx = true; m.visible = false;
+    sparkPool.push(m);
+  }
+  for (let i = 0; i < 80; i++) {
+    const m = new THREE.Mesh(bloodGeo, bloodMat);
+    m.userData.vfx = true; m.visible = false;
+    bloodPool.push(m);
   }
   for (let i = 0; i < 30; i++) {
     const m = new THREE.Mesh(casingGeo, casingMat);
-    m.userData.vfx = true; m.visible = false; m.castShadow = false;
+    m.userData.vfx = true; m.visible = false;
     casingPool.push(m);
+  }
+  for (let i = 0; i < 30; i++) {
+    const m = new THREE.Mesh(dustGeo, dustMat);
+    m.userData.vfx = true; m.visible = false;
+    dustPool.push(m);
+  }
+  for (let i = 0; i < 80; i++) {
+    particlePool.push({
+      m: null, v: new THREE.Vector3(), life: 0, grav: 0,
+      isSpark: false, isBlood: false, isDust: false
+    });
   }
 }
 warmupVfx();
 
+function getParticleRecord(m, vx, vy, vz, life, grav, isSpark, isBlood, isDust) {
+  const p = particlePool.length > 0 ? particlePool.pop() : {
+    m: null, v: new THREE.Vector3(), life: 0, grav: 0,
+    isSpark: false, isBlood: false, isDust: false
+  };
+  p.m = m;
+  p.v.set(vx, vy, vz);
+  p.life = life;
+  p.grav = grav;
+  p.isSpark = !!isSpark;
+  p.isBlood = !!isBlood;
+  p.isDust = !!isDust;
+  return p;
+}
+
+function releaseParticleRecord(p) {
+  if (!p) return;
+  p.m = null;
+  p.isSpark = false;
+  p.isBlood = false;
+  p.isDust = false;
+  particlePool.push(p);
+}
+
 function getTracerMesh(mat) {
   const m = tracerPool.length > 0 ? tracerPool.pop() : new THREE.Mesh(tracerGeo, mat || tracerMat);
   m.material = mat || tracerMat;
-  m.userData.vfx = true; m.visible = true; m.renderOrder = 30;
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getImpactMesh() {
+  const m = impactPool.length > 0 ? impactPool.pop() : new THREE.Mesh(impactGeo, impactMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getSparkMesh() {
+  const m = sparkPool.length > 0 ? sparkPool.pop() : new THREE.Mesh(sparkGeo, sparkMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getBloodMesh() {
+  const m = bloodPool.length > 0 ? bloodPool.pop() : new THREE.Mesh(bloodGeo, bloodMat);
+  m.userData.vfx = true; m.visible = true;
+  return m;
+}
+function getDustMesh() {
+  const m = dustPool.length > 0 ? dustPool.pop() : new THREE.Mesh(dustGeo, dustMat);
+  m.userData.vfx = true; m.visible = true;
   return m;
 }
 function getCasingMesh() {
@@ -42,136 +125,115 @@ function getCasingMesh() {
   return m;
 }
 
-// Tracers travel from muzzle to impact (the hit itself is resolved instantly);
-// enemy tracers fly slower and glow red so incoming fire reads clearly.
-const _trDir = new THREE.Vector3();
 function spawnTracer(from, to, mat) {
-  const enemy = mat === 0xff8844 || mat === tracerMatE;
-  const sniper = mat === 'sniper';
-  const m = getTracerMesh(enemy ? tracerMatE : sniper ? tracerMatS : tracerMat);
+  const mMat = (mat === 0xff8844 || mat === tracerMatE) ? tracerMatE : (mat || tracerMat);
+  const m = getTracerMesh(mMat);
   const len = from.distanceTo(to);
-  if (len < 0.5) { m.visible = false; tracerPool.push(m); return; }
-  m.position.copy(from);
+  m.scale.set(1, 1, len);
+  m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push({
-    m: m, from: from.clone(), dir: _trDir.copy(to).sub(from).normalize().clone(), len: len,
-    d: 0, speed: enemy ? 140 : sniper ? 950 : 420, seg: enemy ? 3.5 : sniper ? 14 : 5, w: enemy ? 0.035 : sniper ? 0.03 : 0.022
-  });
+  vfx.tracers.push({ m: m, life: 0.06 });
 }
-function releaseTracer(t) { scene.remove(t.m); t.m.visible = false; tracerPool.push(t.m); }
 
-// ---- Decals: bullet holes, blood splats, blast scorch (pooled FIFO) ----
-// Decal meshes are not in raycastColliders, so AI LOS never sees them; vfx-tagged
-// so every scene-wide raycast skips them.
-function makeDecalPool(tex, max, color, opacity) {
-  const mat = new THREE.MeshBasicMaterial({
-    map: tex, color: color, transparent: true, opacity: opacity, depthWrite: false,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
-  });
-  return { max: max, live: [], pool: [], mat: mat, geo: new THREE.PlaneGeometry(1, 1) };
+const _tmpN = new THREE.Vector3();
+function spawnImpact(point, normal, obj) {
+  // flash sphere + spark lines + decal-ish quad
+  const m = getImpactMesh();
+  m.position.copy(point);
+  m.scale.set(1, 1, 1);
+  m.userData.isBulletImpact = true;
+  scene.add(m);
+  vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
+  // sparks: reuse static vector and pooled particle records
+  for (let i = 0; i < 4; i++) {
+    const s = getSparkMesh();
+    s.position.copy(point);
+    _tmpSparkV.set((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
+    if (normal) _tmpSparkV.add(_tmpN.copy(normal).multiplyScalar(2));
+    scene.add(s);
+    vfx.blood.push(getParticleRecord(s, _tmpSparkV.x, _tmpSparkV.y, _tmpSparkV.z, 0.35, 9, true, false, false));
+  }
+  playSound('impact');
 }
-const DECAL = makeDecalPool(TEX.bulletHole, 64, 0xffffff, 0.95);
-const BLOOD_DECAL = makeDecalPool(TEX.bloodSplat, 24, 0xffffff, 0.9);
-const SCORCH_DECAL = makeDecalPool(TEX.scorch, 10, 0xffffff, 0.92);
+
+// ---- Bullet-hole decals (v41): persistent marks on world hits ----
+// One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
+// zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
+// so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
+const decalGeo = new THREE.CircleGeometry(0.075, 8);   // 15 cm hole — reads at 15–40 m engagement range
+const decalMat = new THREE.MeshBasicMaterial({
+  color: 0x14161a, transparent: true, opacity: 0.9,
+  depthWrite: false,                                  // draw like a decal, not a solid
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
+});
+const DECAL = { max: 48, live: [], pool: [] };
 const _tmpD = new THREE.Vector3();
 const _tmpD2 = new THREE.Vector3();
-function placeDecal(P, point, worldNormal, size) {
+function spawnDecal(point, normal, obj) {
   let d;
-  if (P.pool.length) { d = P.pool.pop(); d.m.visible = true; }
-  else if (P.live.length >= P.max) { d = P.live.shift(); }
+  if (DECAL.pool.length) { d = DECAL.pool.pop(); d.m.visible = true; }
+  else if (DECAL.live.length >= DECAL.max) { d = DECAL.live.shift(); }
   else {
-    const m = new THREE.Mesh(P.geo, P.mat);
-    m.userData.vfx = true;
+    const m = new THREE.Mesh(decalGeo, decalMat);
+    m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
     m.userData.decal = true;
     m.renderOrder = 1;
     scene.add(m);
     d = { m: m };
   }
-  P.live.push(d);
-  d.m.position.copy(point).addScaledVector(worldNormal, 0.012);
-  _tmpD2.copy(d.m.position).add(worldNormal);
-  d.m.lookAt(_tmpD2);
-  d.m.rotateZ(Math.random() * Math.PI * 2);
-  d.m.scale.set(size, size, 1);
-  d.t = gameT;
-  return d;
-}
-// normal is the raycast face normal (object space); transformed here.
-function spawnDecal(point, normal, obj) {
+  DECAL.live.push(d);
   _tmpD.copy(normal);
   if (obj && obj.matrixWorld) _tmpD.transformDirection(obj.matrixWorld).normalize();
-  placeDecal(DECAL, point, _tmpD, 0.12 + Math.random() * 0.04);
+  d.m.position.copy(point).addScaledVector(_tmpD, 0.012);
+  _tmpD2.copy(point).add(_tmpD);
+  d.m.lookAt(_tmpD2);
+  d.t = gameT;
 }
-function spawnBloodDecal(point, worldNormal, size) { placeDecal(BLOOD_DECAL, point, worldNormal, size); }
-const _up = new THREE.Vector3(0, 1, 0);
-function spawnScorch(x, z, size) { _tmpD.set(x, 0.015, z); placeDecal(SCORCH_DECAL, _tmpD, _up, size); }
 function clearDecals() {
-  for (const P of [DECAL, BLOOD_DECAL, SCORCH_DECAL]) {
-    for (let i = 0; i < P.live.length; i++) { P.live[i].m.visible = false; P.pool.push(P.live[i]); }
-    P.live.length = 0;
+  for (let i = 0; i < DECAL.live.length; i++) { DECAL.live[i].m.visible = false; DECAL.pool.push(DECAL.live[i]); }
+  DECAL.live.length = 0;
+}
+
+function spawnBlood(point, isHead) {
+  const n = isHead ? 10 : 6;
+  for (let i = 0; i < n; i++) {
+    const b = getBloodMesh();
+    b.position.copy(point);
+    const spd = 1.5 + Math.random() * 2.5;
+    const vx = (Math.random() - 0.5) * 2 * spd;
+    const vy = Math.random() * 1.2 * spd;
+    const vz = (Math.random() - 0.5) * 2 * spd;
+    scene.add(b);
+    vfx.blood.push(getParticleRecord(b, vx, vy, vz, 0.5, 12, false, true, false));
   }
 }
 
-const _tmpN = new THREE.Vector3();
-function spawnImpact(point, normal, obj) {
-  _tmpN.set(0, 1, 0);
-  if (normal) { _tmpN.copy(normal); if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize(); }
-  const surf = surfaceOf(obj);
-  fxImpact(point, _tmpN, surf);
-  playSound(surf === 'metal' ? 'impact_metal' : surf === 'wood' ? 'impact_wood' : surf === 'glass' ? 'impact_glass' : 'impact');
-}
-
-// Blood: particles plus a splat on the wall behind the target or the ground below.
-const _bloodRay = new THREE.Raycaster();
-const _bloodDir = new THREE.Vector3();
-function spawnBlood(point, isHead, dir) {
-  if (dir) _bloodDir.copy(dir); else _bloodDir.copy(point).sub(camera.position).normalize();
-  fxBlood(point, _bloodDir, isHead);
-  if (Math.random() < (isHead ? 0.9 : 0.5)) {
-    _bloodRay.set(point, _bloodDir); _bloodRay.far = 2.6;
-    const hits = _bloodRay.intersectObjects(raycastColliders, true);
-    for (let i = 0; i < hits.length; i++) {
-      const h = hits[i];
-      if (h.object === ground || !h.face) continue;
-      _tmpD.copy(h.face.normal).transformDirection(h.object.matrixWorld).normalize();
-      spawnBloodDecal(h.point, _tmpD, 0.5 + Math.random() * 0.5);
-      return;
-    }
-    _tmpD.set(point.x + _bloodDir.x * 0.6, 0.012, point.z + _bloodDir.z * 0.6);
-    spawnBloodDecal(_tmpD, _up, 0.6 + Math.random() * 0.6);
-  }
-}
-
-// ---- Shell casings: eject on every shot, bounce on whatever floor is below ----
+// ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
 const casings = [];
 const _casingRight = new THREE.Vector3();
 const _casingUp = new THREE.Vector3();
 const _casingFwd = new THREE.Vector3();
-function spawnCasing(camPos, camQ, shotgun) {
-  if (casings.length > 24) {
+function spawnCasing(camPos, camQ) {
+  if (casings.length >= 24) {
     const old = casings.shift();
     scene.remove(old.m);
     old.m.visible = false;
     casingPool.push(old.m);
   }
   const m = getCasingMesh();
-  m.geometry = shotgun ? shellGeo : casingGeo;
-  m.material = shotgun ? shellMat : casingMat;
   m.position.copy(camPos);
   _casingRight.set(1, 0, 0).applyQuaternion(camQ);
   _casingUp.set(0, 1, 0).applyQuaternion(camQ);
   _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
-  m.position.addScaledVector(_casingRight, 0.18).addScaledVector(_casingUp, -0.1);
-  m.position.addScaledVector(_casingFwd, 0.35);
-  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(2.2 + Math.random() * 1.2);
-  v.addScaledVector(_casingFwd, 0.4 + Math.random() * 0.6);
-  v.y += 1.6 + Math.random();
-  const spin = new THREE.Vector3(Math.random() * 30 - 15, Math.random() * 30 - 15, Math.random() * 30 - 15);
+  m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
+  m.position.addScaledVector(_casingFwd, 0.3);
+  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(1.6 + Math.random());
+  v.y += 1.4 + Math.random();
+  const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
   scene.add(m);
-  const floor = floorHeightAt(m.position.x, m.position.z, m.position.y) + 0.008;
-  casings.push({ m: m, v: v, spin: spin, life: 3.5, rest: false, floor: floor, shotgun: !!shotgun });
+  casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
 }
 function updateCasings(dt) {
   for (let i = casings.length - 1; i >= 0; i--) {
@@ -188,284 +250,456 @@ function updateCasings(dt) {
       c.v.y -= 12 * dt;
       c.m.position.addScaledVector(c.v, dt);
       c.m.rotation.x += c.spin.x * dt; c.m.rotation.y += c.spin.y * dt; c.m.rotation.z += c.spin.z * dt;
-      if (c.m.position.y <= c.floor) {
-        c.m.position.y = c.floor;
+      if (c.m.position.y <= 0.02) {
+        c.m.position.y = 0.02;
         if (c.v.y < -0.5) {
           c.v.y = -c.v.y * 0.35; c.v.x *= 0.5; c.v.z *= 0.5; c.spin.multiplyScalar(0.4);
           const now = performance.now();
-          if (now - casingSndT > 90) { playSound3D(c.shotgun ? 'shell' : 'casing', c.m.position.x, c.m.position.y, c.m.position.z); casingSndT = now; }  // tink (max ~11/s)
+          if (now - casingSndT > 90) { playSound('casing'); casingSndT = now; }  // tink (max ~11/s)
           if (Math.abs(c.v.y) < 0.6) c.rest = true;
         }
         else c.rest = true;
-        if (c.rest) { c.m.rotation.x = Math.PI / 2; c.m.rotation.z = 0; }   // lie flat
       }
     }
   }
 }
 
-// ---- Slide / landing dust ----
-function spawnSlideDust(pos) { fxDust({ x: pos.x, z: pos.z }, 6, 1); }
-
-// ---- Muzzle light (point light flash at the gun) ----
-// Created up-front (a light appearing mid-game forces every material to recompile).
-let muzzleLight = null;
-if (QUALITY.pointLights) {
-  muzzleLight = new THREE.PointLight(0xffc080, 0, 10, 2);
-  muzzleLight.userData.vfx = true;
-  scene.add(muzzleLight);
+// ---- Slide dust ----
+function spawnSlideDust(pos) {
+  for (let i = 0; i < 6; i++) {
+    const m = getDustMesh();
+    m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
+    scene.add(m);
+    vfx.blood.push(getParticleRecord(m, (Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2, 0.55, 2.5, false, false, true));
+  }
 }
+
+// ---- Muzzle light (point light flash at gun) ----
+let muzzleLight = null;
 function flashMuzzleLight() {
-  if (!muzzleLight) return;
+  if (!muzzleLight) {
+    // Punctual lights are in candela since r155; decay 2 is now the default.
+    muzzleLight = new THREE.PointLight(0xffcc88, 0, 9, 2);
+    muzzleLight.userData.vfx = true;
+    scene.add(muzzleLight);
+  }
   muzzleLight.position.copy(camera.position);
-  _casingFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  muzzleLight.position.addScaledVector(_casingFwd, 0.8);
-  muzzleLight.intensity = 4;
+  muzzleLight.intensity = CORE.VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY * LIGHT_COMPAT * 4;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {
-    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 40);
+    muzzleLight.intensity = CORE.stepMuzzleLight(muzzleLight.intensity, dt, CORE.VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE, LIGHT_COMPAT);
   }
 }
 function updateVfx(dt) {
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
-    t.d += t.speed * dt;
-    const head = Math.min(t.d, t.len), tail = Math.max(0, t.d - t.seg);
-    if (tail >= t.len) { releaseTracer(t); vfx.tracers.splice(i, 1); continue; }
-    const mid = (head + tail) * 0.5;
-    t.m.position.copy(t.from).addScaledVector(t.dir, mid);
-    t.m.scale.set(t.w, t.w, Math.max(0.01, head - tail));
+    t.life -= dt;
+    if (t.life <= 0) {
+      scene.remove(t.m);
+      t.m.visible = false;
+      tracerPool.push(t.m);
+      vfx.tracers.splice(i, 1);
+    }
   }
-  updateParticles(dt);
-  updateFlashLights(dt);
+  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+    const im = vfx.impacts[i];
+    im.life -= dt;
+    im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME));
+    if (im.life <= 0) {
+      scene.remove(im.m);
+      im.m.visible = false;
+      if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+        impactPool.push(im.m);
+      } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+        releaseBlastFlash(im.m);   // shared geo/material: recycle, never dispose
+      } else {
+        if (im.m.geometry) im.m.geometry.dispose();
+        if (im.m.material) im.m.material.dispose();
+      }
+      vfx.impacts.splice(i, 1);
+    }
+  }
+  for (let i = vfx.blood.length - 1; i >= 0; i--) {
+    const b = vfx.blood[i];
+    b.life -= dt;
+    const stepped = CORE.stepParticlePhysics(
+      b.m.position.x, b.m.position.y, b.m.position.z,
+      b.v.x, b.v.y, b.v.z,
+      b.grav, dt, 0.02, _particleOut
+    );
+    b.m.position.set(stepped.x, stepped.y, stepped.z);
+    b.v.set(stepped.vx, stepped.vy, stepped.vz);
+    if (b.life <= 0) {
+      scene.remove(b.m);
+      b.m.visible = false;
+      if (b.isSpark) sparkPool.push(b.m);
+      else if (b.isBlood) bloodPool.push(b.m);
+      else if (b.isDust) dustPool.push(b.m);
+      releaseParticleRecord(b);
+      vfx.blood.splice(i, 1);
+    }
+  }
 }
 
 // ---- Audio (WebAudio, all synthesized — no assets) ----
-// Bus: sounds -> master gain (volume setting) -> compressor -> speakers,
-// with a convolution "outdoor slapback" reverb send for shots and blasts.
-let AC = null, masterGain = null, reverbSend = null, noiseBuf = null;
+let AC = null;
+let masterGain = null;
+// Every sound used to connect straight to ctx.destination, which meant there was
+// nowhere to put a volume control and no way to see how many voices were live.
+// One bus fixes both.
+function audioMaster() {
+  const ctx = audioCtx();
+  if (!ctx) return null;
+  if (!masterGain) {
+    masterGain = ctx.createGain();
+    masterGain.gain.value = AUDIO.master;
+    masterGain.connect(ctx.destination);
+  }
+  return masterGain;
+}
+const AUDIO = { master: 0.9, voices: 0, maxVoices: 24 };
+function setMasterVolume(v) {
+  AUDIO.master = Math.max(0, Math.min(1, v));
+  const g = audioMaster();
+  if (g) g.gain.value = AUDIO.master;
+}
+// Rate-limit per sound name. At 750 RPM the impact ping alone was building ~5
+// WebAudio nodes 12 times a second; measured, synthesised audio was the single
+// largest cost in fireShot — larger than both raycasts combined.
+const _sndLast = Object.create(null);
+const SND_MIN_GAP = { impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03 };
+function soundThrottled(name) {
+  const gap = SND_MIN_GAP[name];
+  if (gap === undefined) return false;
+  const now = performance.now() / 1000;
+  if (_sndLast[name] !== undefined && now - _sndLast[name] < gap) return true;
+  _sndLast[name] = now;
+  return false;
+}
 function audioCtx() {
   if (!AC) {
-    try {
-      AC = new (window.AudioContext || window.webkitAudioContext)();
-      const comp = AC.createDynamicsCompressor();
-      comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.18;
-      comp.connect(AC.destination);
-      masterGain = AC.createGain();
-      masterGain.gain.value = SETTINGS.volume;
-      masterGain.connect(comp);
-      // generated impulse response: decaying stereo noise with early reflections
-      const len = Math.floor(AC.sampleRate * 1.6);
-      const ir = AC.createBuffer(2, len, AC.sampleRate);
-      for (let ch = 0; ch < 2; ch++) {
-        const d = ir.getChannelData(ch);
-        for (let i = 0; i < len; i++) {
-          const t = i / AC.sampleRate;
-          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2) * (t < 0.09 && (i % 1500 < 40) ? 1.8 : 0.55);
-        }
-      }
-      const conv = AC.createConvolver();
-      conv.buffer = ir;
-      reverbSend = AC.createGain();
-      reverbSend.gain.value = 0.32;
-      reverbSend.connect(conv); conv.connect(masterGain);
-      const nlen = AC.sampleRate * 2;
-      noiseBuf = AC.createBuffer(1, nlen, AC.sampleRate);
-      const nd = noiseBuf.getChannelData(0);
-      for (let i = 0; i < nlen; i++) nd[i] = Math.random() * 2 - 1;
-    } catch (e) { AC = null; }
+    try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; }
   }
   if (AC && AC.state === 'suspended') AC.resume();
   return AC;
 }
-function setMasterVolume(v) { if (masterGain) masterGain.gain.value = v; }
-// Sounds that also feed the reverb bus
-const REVERB_SOUNDS = { sniper_echo: 1, shot_AR: 1, shot_SMG: 1, shot_BR: 1, shot_SR: 1, shot_SG: 1, shot_LMG: 1, shot_PST: 1, sniper: 1, eshot: 1, explosion: 1, barrel_boom: 1, thunder: 1 };
-function playSound(name, dest) {
-  const ctx = audioCtx();
-  if (!ctx || !masterGain) return;
-  const out = dest || masterGain;
-  const t = ctx.currentTime;
-  const wet = REVERB_SOUNDS[name] ? reverbSend : null;
-  function env(g0, dur, delay) {
+function noiseBuffer(ctx) {
+  const len = ctx.sampleRate * 0.5;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+let noiseBuf = null;
+
+// ---- Sound recipes ---------------------------------------------------------
+// Every sound is a short stack of two primitives, so the same description can be
+// synthesised live OR rendered once into an AudioBuffer and replayed. Layers:
+//   ['noise', dur, gain, freq, q]        band-passed white noise
+//   ['osc', type, f0, f1, dur, gain]     oscillator with an optional pitch ramp
+// Keeping these as data — rather than the switch that used to build nodes inline —
+// is what makes the pre-render below possible.
+const SOUND_RECIPES = {
+  shot:        [['noise', 0.09, 0.5, 900, 0.7], ['osc', 'square', 190, 70, 0.07, 0.28]],
+  smg:         [['noise', 0.065, 0.42, 1250, 0.85], ['osc', 'square', 260, 110, 0.05, 0.22]],
+  br:          [['noise', 0.12, 0.58, 650, 0.6], ['osc', 'square', 140, 50, 0.10, 0.32], ['osc', 'sine', 85, 30, 0.13, 0.22]],
+  sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
+  scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
+  slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
+  casing:      [['osc', 'square', 2400, 1800, 0.03, 0.04]],
+  eshot:       [['noise', 0.11, 0.24, 500, 0.8], ['osc', 'sawtooth', 140, 55, 0.09, 0.14]],
+  impact:      [['noise', 0.05, 0.18, 2400, 2]],
+  explosion:   [['noise', 0.6, 0.55, 180, 0.5], ['osc', 'sine', 120, 25, 0.5, 0.4], ['noise', 0.3, 0.3, 700, 0.6]],
+  bounce:      [['osc', 'sine', 500, 350, 0.04, 0.1]],
+  pin:         [['noise', 0.05, 0.15, 2000, 3]],
+  reload_out:  [['noise', 0.06, 0.2, 1300, 3], ['osc', 'square', 220, 140, 0.05, 0.06]],
+  reload_in:   [['noise', 0.05, 0.22, 1600, 3], ['osc', 'square', 300, 200, 0.04, 0.07]],
+  dry:         [['osc', 'square', 900, 700, 0.03, 0.1]],
+  draw:        [['noise', 0.05, 0.15, 1800, 2]],
+  melee:       [['noise', 0.12, 0.3, 300, 0.6], ['osc', 'sawtooth', 90, 45, 0.11, 0.2]],
+  hit:         [['osc', 'sine', 1150, 900, 0.05, 0.16]],
+  // Dull, low and short: a blocked round has to sound like nothing happened,
+  // because that is exactly the information the player needs.
+  block:       [['osc', 'square', 340, 260, 0.05, 0.10], ['noise', 0.05, 0.12, 500, 1.2]],
+  armor_break: [['osc', 'square', 780, 260, 0.07, 0.22], ['noise', 0.12, 0.35, 2200, 2], ['osc', 'sine', 200, 80, 0.10, 0.25]],
+  powerup:     [['osc', 'sine', 520, 1040, 0.22, 0.20], ['osc', 'sine', 780, 1560, 0.22, 0.10]],
+  headshot:    [['osc', 'sine', 1500, 1150, 0.07, 0.2], ['osc', 'sine', 750, 600, 0.07, 0.12]],
+  kill:        [['osc', 'sine', 600, 400, 0.09, 0.14]],
+  kill_headshot: [['osc', 'sine', 1600, 1100, 0.08, 0.22], ['noise', 0.05, 0.18, 2800, 2.5], ['osc', 'sine', 750, 420, 0.11, 0.16]],
+  kill_elite:    [['noise', 0.10, 0.35, 750, 1.8], ['osc', 'sawtooth', 280, 120, 0.14, 0.22], ['osc', 'sine', 140, 35, 0.22, 0.35]],
+  multikill:     [['osc', 'sine', 520, 780, 0.12, 0.20], ['osc', 'sine', 780, 1040, 0.14, 0.16], ['osc', 'triangle', 260, 520, 0.16, 0.12]],
+  hurt:        [['osc', 'sawtooth', 180, 90, 0.16, 0.22], ['noise', 0.14, 0.16, 400, 0.7]],
+  wave:        [['osc', 'sine', 220, 0, 0.5, 0.2], ['osc', 'sine', 330, 0, 0.5, 0.14], ['osc', 'sine', 440, 0, 0.7, 0.1]],
+  death:       [['osc', 'sawtooth', 200, 30, 1.2, 0.3], ['noise', 0.8, 0.2, 200, 0.5]],
+  victory:     [['osc', 'sine', 523, 0, 0.3, 0.18], ['osc', 'sine', 659, 0, 0.3, 0.18], ['osc', 'sine', 784, 0, 0.6, 0.2]],
+  step:        [['noise', 0.04, 0.05, 500, 1]],
+  jump:        [['noise', 0.06, 0.06, 700, 1]],
+  land:        [['noise', 0.08, 0.12, 300, 0.8]],
+  click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
+  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]], // bright medkit chime
+  streak_uav:        [['osc', 'sine', 880, 1760, 0.14, 0.22], ['osc', 'sine', 1760, 880, 0.12, 0.12], ['noise', 0.08, 0.12, 3200, 2]],
+  streak_airstrike:  [['noise', 0.55, 0.45, 280, 0.5], ['osc', 'sawtooth', 160, 65, 0.45, 0.26], ['noise', 0.35, 0.3, 850, 0.8]],
+  streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
+  sentry_shot:       [['noise', 0.07, 0.38, 1100, 1.2], ['osc', 'square', 240, 75, 0.06, 0.24], ['osc', 'sine', 110, 45, 0.08, 0.18]],
+  munitions:         [['osc', 'sine', 130, 40, 0.20, 0.35], ['noise', 0.12, 0.32, 450, 1.0], ['noise', 0.06, 0.25, 2200, 2.5]],
+  munitions_resupply:[['osc', 'sine', 587, 880, 0.12, 0.18], ['noise', 0.06, 0.16, 2600, 2.2], ['osc', 'square', 440, 660, 0.08, 0.10]],
+  mantle:            [['noise', 0.09, 0.22, 950, 1.2], ['osc', 'sine', 160, 70, 0.12, 0.20]],
+  step_crouch:       [['noise', 0.035, 0.022, 280, 0.8]],
+  armory_upgrade:    [['noise', 0.14, 0.32, 900, 1.5], ['osc', 'sawtooth', 220, 660, 0.22, 0.25], ['osc', 'sine', 330, 880, 0.25, 0.20]],
+  door_unlock:       [['noise', 0.35, 0.38, 240, 0.7], ['osc', 'sawtooth', 120, 40, 0.30, 0.28], ['osc', 'sine', 80, 30, 0.40, 0.32]],
+  weapon_buy:        [['noise', 0.08, 0.25, 1400, 2.2], ['osc', 'square', 320, 180, 0.06, 0.16], ['noise', 0.06, 0.22, 2200, 3]],
+  player_down:       [['osc', 'sawtooth', 140, 40, 0.35, 0.28], ['noise', 0.22, 0.26, 320, 0.8], ['osc', 'sine', 75, 25, 0.30, 0.35]],
+  player_revive:     [['osc', 'sine', 330, 660, 0.20, 0.22], ['osc', 'sine', 550, 1100, 0.22, 0.18], ['osc', 'triangle', 220, 440, 0.25, 0.15]]
+};
+
+// Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
+// every time, so these get a few percent of pitch jitter — which is more variation
+// than the old live synthesis had, since its parameters were fixed too.
+const SOUND_VARIED = {
+  shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
+  jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
+  block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
+  pickup_ammo: 1, pickup_med: 1,
+  streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1,
+  mantle: 1, step_crouch: 1,
+  armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1
+};
+
+function recipeDuration(recipe) {
+  let d = 0;
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    d = Math.max(d, L[0] === 'noise' ? L[1] : L[4]);
+  }
+  return d + 0.05;
+}
+
+// Build one recipe into `ctx` at time `t`, connected to `out`. Shared by the live
+// path and the offline render, so the two cannot drift apart.
+function buildSound(ctx, recipe, out, t, noise) {
+  function env(g0, dur) {
     const g = ctx.createGain();
-    const t0 = t + (delay || 0);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.setValueAtTime(g0, t0);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.gain.setValueAtTime(g0, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     g.connect(out);
-    if (wet) g.connect(wet);
     return g;
   }
-  function osc(type, f0, f1, dur, g0, delay) {
-    const o = ctx.createOscillator();
-    const t0 = t + (delay || 0);
-    o.type = type; o.frequency.setValueAtTime(f0, t0);
-    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
-    o.connect(env(g0, dur, delay));
-    o.start(t0); o.stop(t0 + dur + 0.02);
-    return o;
-  }
-  function noise(dur, g0, freq, q, type, freqEnd, delay) {
-    const src = ctx.createBufferSource();
-    const t0 = t + (delay || 0);
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = type || 'bandpass'; f.frequency.setValueAtTime(freq, t0); f.Q.value = q || 1;
-    if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t0 + dur);
-    src.connect(f); f.connect(env(g0, dur, delay));
-    src.start(t0, Math.random() * 1.2); src.stop(t0 + dur + 0.02);
-  }
-  // Layered gunshot: transient crack + mid body + low thump + filtered tail.
-  function gun(crack, body, bodyF, thump, thumpF, tail, tailDur) {
-    noise(0.018, crack, 3800, 0.7, 'highpass');
-    noise(0.07 + body * 0.1, body, bodyF, 0.8);
-    osc('sine', thumpF, 38, 0.12 + thump * 0.15, thump);
-    noise(tailDur, tail, 900, 0.5, 'lowpass', 180);
-  }
-  switch (name) {
-    case 'shot': case 'shot_AR': gun(0.5, 0.45, 1100, 0.45, 150, 0.2, 0.35); break;
-    case 'shot_SMG':  gun(0.4, 0.35, 1500, 0.3, 190, 0.14, 0.25); break;
-    case 'shot_BR':   gun(0.6, 0.55, 850, 0.6, 130, 0.26, 0.5); break;
-    case 'shot_LMG':  gun(0.55, 0.5, 950, 0.55, 140, 0.22, 0.45); break;
-    case 'shot_PST':  gun(0.45, 0.4, 1600, 0.3, 210, 0.12, 0.25); break;
-    case 'shot_SG':   gun(0.6, 0.7, 600, 0.8, 110, 0.35, 0.7); break;
-    case 'shot_SR': case 'sniper': gun(0.85, 0.7, 650, 1.0, 110, 0.5, 1.1); noise(0.03, 0.5, 5200, 0.8, 'highpass'); osc('sine', 55, 28, 0.5, 0.6); break;
-    case 'sniper_echo': noise(1.6, 0.16, 500, 0.6, 'lowpass', 90); noise(0.9, 0.08, 1200, 1, 'bandpass', 300, 0.35); break;
-    case 'scope_in':  osc('sine', 900, 1300, 0.09, 0.08); break;
-    case 'scope_out': osc('sine', 1300, 800, 0.09, 0.08); break;
-    case 'slide':     noise(0.25, 0.3, 420, 0.5); noise(0.18, 0.2, 150, 0.4); break;
-    case 'casing':    osc('triangle', 3200 + Math.random() * 800, 2600, 0.05, 0.05); osc('triangle', 4100, 3500, 0.04, 0.03, 0.06); break;
-    case 'shell':     osc('triangle', 900, 700, 0.06, 0.06); noise(0.03, 0.05, 1200, 2); break;
-    case 'eshot':     noise(0.015, 0.25, 3000, 0.7, 'highpass'); noise(0.11, 0.28, 650, 0.8); osc('sine', 140, 45, 0.12, 0.18); noise(0.35, 0.12, 700, 0.5, 'lowpass', 160); break;
-    case 'impact':    noise(0.05, 0.2, 2400, 2); noise(0.08, 0.12, 500, 1); break;
-    case 'impact_metal': osc('triangle', 1800 + Math.random() * 1200, 900, 0.12, 0.08); noise(0.04, 0.16, 4000, 3); break;
-    case 'impact_wood': noise(0.06, 0.22, 700, 1.5); osc('sine', 260, 140, 0.05, 0.1); break;
-    case 'impact_glass': noise(0.12, 0.2, 5200, 2); osc('sine', 3400, 2800, 0.1, 0.05); break;
-    case 'ricochet':  osc('sine', 2600 + Math.random() * 1400, 700, 0.28, 0.06); break;
-    case 'whizz':     noise(0.16, 0.22, 4200, 4, 'bandpass', 900); break;
-    case 'explosion': noise(1.4, 0.7, 1200, 0.5, 'lowpass', 90); osc('sine', 75, 22, 1.1, 0.8); noise(0.35, 0.35, 2600, 0.6); noise(0.9, 0.16, 3000, 1, 'bandpass', 1200, 0.25); break;
-    case 'barrel_boom': noise(1.6, 0.75, 1400, 0.5, 'lowpass', 80); osc('sine', 62, 20, 1.3, 0.85); noise(0.5, 0.3, 1800, 0.5); break;
-    case 'ignite':    noise(0.5, 0.28, 300, 0.6, 'bandpass', 1400); break;
-    case 'crackle':   for (let i = 0; i < 4; i++) noise(0.02, 0.1 + Math.random() * 0.1, 1500 + Math.random() * 2500, 3, 'bandpass', null, Math.random() * 0.3); break;
-    case 'bounce':    osc('sine', 500, 350, 0.04, 0.1); noise(0.03, 0.08, 2000, 2); break;
-    case 'pin':       noise(0.05, 0.15, 2000, 3); osc('triangle', 2400, 2200, 0.08, 0.05, 0.05); break;
-    case 'reload_out': noise(0.06, 0.2, 1300, 3); osc('square', 220, 140, 0.05, 0.06); break;
-    case 'reload_in': noise(0.05, 0.22, 1600, 3); osc('square', 300, 200, 0.04, 0.07); break;
-    case 'charge':    noise(0.05, 0.2, 2200, 3); noise(0.05, 0.22, 1400, 3, 'bandpass', null, 0.12); break;
-    case 'bolt':      noise(0.04, 0.2, 1800, 3); osc('square', 400, 260, 0.03, 0.05); noise(0.04, 0.22, 1300, 3, 'bandpass', null, 0.18); break;
-    case 'pump':      noise(0.06, 0.26, 900, 2); osc('square', 180, 120, 0.05, 0.06); noise(0.06, 0.3, 1200, 2, 'bandpass', null, 0.14); break;
-    case 'shell_in':  noise(0.04, 0.2, 1500, 3); osc('square', 330, 250, 0.03, 0.05); break;
-    case 'dry':       osc('square', 900, 700, 0.03, 0.1); break;
-    case 'draw':      noise(0.05, 0.15, 1800, 2); noise(0.08, 0.08, 600, 1, 'bandpass', null, 0.05); break;
-    case 'knife':     noise(0.16, 0.25, 1800, 1.5, 'bandpass', 5000); break;
-    case 'knife_hit': noise(0.08, 0.3, 500, 1); osc('sine', 160, 70, 0.1, 0.2); break;
-    case 'melee':     noise(0.12, 0.3, 300, 0.6); osc('sawtooth', 90, 45, 0.11, 0.2); break;
-    case 'hit':       osc('sine', 1150, 900, 0.05, 0.16); noise(0.02, 0.08, 3000, 2); break;
-    case 'headshot':  osc('sine', 1500, 1150, 0.07, 0.2); osc('sine', 750, 600, 0.07, 0.12); noise(0.03, 0.12, 4500, 2); break;
-    case 'kill':      osc('sine', 600, 400, 0.09, 0.14); osc('sine', 900, 700, 0.07, 0.08, 0.05); break;
-    case 'armor_break': noise(0.2, 0.3, 3000, 1, 'bandpass', 800); osc('triangle', 1200, 400, 0.2, 0.1); break;
-    case 'hurt':      osc('sawtooth', 180, 90, 0.16, 0.22); noise(0.14, 0.16, 400, 0.7); break;
-    case 'heartbeat': osc('sine', 60, 40, 0.12, 0.45); osc('sine', 55, 38, 0.12, 0.35, 0.22); break;
-    case 'wave':      osc('sine', 220, 0, 0.5, 0.2); osc('sine', 330, 0, 0.5, 0.14); osc('sine', 440, 0, 0.7, 0.1); break;
-    case 'death':     osc('sawtooth', 200, 30, 1.2, 0.3); noise(0.8, 0.2, 200, 0.5); break;
-    case 'victory':   osc('sine', 523, 0, 0.3, 0.18); osc('sine', 659, 0, 0.3, 0.18); osc('sine', 784, 0, 0.6, 0.2); break;
-    case 'perk':      osc('sine', 660, 990, 0.15, 0.12); osc('sine', 990, 1320, 0.2, 0.1, 0.08); osc('sine', 1320, 1760, 0.3, 0.08, 0.16); break;
-    case 'step':      noise(0.045, 0.06, 450 + Math.random() * 150, 1); break;
-    case 'step_metal': noise(0.04, 0.05, 1200, 2); osc('triangle', 500 + Math.random() * 200, 300, 0.05, 0.03); break;
-    case 'step_wood': noise(0.05, 0.07, 300, 1.2); break;
-    case 'jump':      noise(0.06, 0.06, 700, 1); break;
-    case 'land':      noise(0.08, 0.12, 300, 0.8); break;
-    case 'land_heavy': noise(0.14, 0.3, 200, 0.8); osc('sine', 90, 40, 0.15, 0.25); break;
-    case 'mantle':    noise(0.18, 0.12, 600, 0.8); noise(0.1, 0.1, 250, 0.8, 'bandpass', null, 0.15); break;
-    case 'click':     osc('square', 1000, 800, 0.02, 0.08); break;
-    case 'estep':     noise(0.05, 0.06, 320, 1); break;   // enemy footstep: deeper/thud-ier than player step
-    case 'grenade_warn': osc('square', 1800, 1800, 0.05, 0.05); osc('square', 1800, 1800, 0.05, 0.05, 0.12); break;
-    case 'roar':      osc('sawtooth', 110, 70, 0.6, 0.18); noise(0.6, 0.2, 350, 0.7, 'bandpass', 180); break;
-    case 'thunder':   noise(2.5, 0.22, 400, 0.5, 'lowpass', 60); osc('sine', 45, 25, 2.0, 0.2); break;
-    case 'pickup_ammo': osc('square', 520, 780, 0.09, 0.12); noise(0.04, 0.10, 2400, 2); break;  // metallic ammo-box rattle
-    case 'pickup_med':  osc('sine', 660, 990, 0.12, 0.12); osc('sine', 990, 1320, 0.14, 0.08); break;  // bright medkit chime
+  for (let i = 0; i < recipe.length; i++) {
+    const L = recipe[i];
+    if (L[0] === 'osc') {
+      const o = ctx.createOscillator();
+      o.type = L[1]; o.frequency.setValueAtTime(L[2], t);
+      if (L[3]) o.frequency.exponentialRampToValueAtTime(L[3], t + L[4]);
+      o.connect(env(L[5], L[4]));
+      o.start(t); o.stop(t + L[4] + 0.02);
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = L[3]; f.Q.value = L[4] || 1;
+      src.connect(f); f.connect(env(L[2], L[1]));
+      src.start(t); src.stop(t + L[1] + 0.02);
+    }
   }
 }
-// Positional audio: distance attenuation, air absorption (low-pass with distance),
-// optional occlusion muffling, and stereo pan relative to the player's facing.
-function playSound3D(name, x, y, z, occluded, maxDist) {
+
+// ---- Pre-rendered one-shots ------------------------------------------------
+// Synthesising a gunshot per trigger was the largest single cost in fireShot
+// (0.116 ms of a 0.263 ms budget), because every shot allocated and connected
+// five WebAudio nodes. Rendering each recipe once through an OfflineAudioContext
+// turns playback into a single BufferSource.
+const _sndBuffers = Object.create(null);
+const _sndRendering = Object.create(null);
+function renderSoundBuffer(name) {
+  if (_sndBuffers[name] || _sndRendering[name]) return;
   const ctx = audioCtx();
-  if (!ctx || !masterGain) return;
-  maxDist = maxDist || 55;
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!ctx || !OAC || !SOUND_RECIPES[name]) return;
+  _sndRendering[name] = true;
+  try {
+    const rate = ctx.sampleRate;
+    const off = new OAC(1, Math.ceil(recipeDuration(SOUND_RECIPES[name]) * rate), rate);
+    buildSound(off, SOUND_RECIPES[name], off.destination, 0, noiseBuffer(off));
+    const done = off.startRendering();
+    // Older Safari resolves through oncomplete rather than the returned promise.
+    if (done && done.then) {
+      done.then(function (buf) { _sndBuffers[name] = buf; },
+                function () { _sndRendering[name] = false; });
+    } else {
+      off.oncomplete = function (e) { _sndBuffers[name] = e.renderedBuffer; };
+    }
+  } catch (e) { _sndRendering[name] = false; }
+}
+// Called once the audio context exists, so even the first shot is already cheap.
+function prerenderSounds() {
+  for (const name in SOUND_RECIPES) renderSoundBuffer(name);
+}
+
+function playSound(name, dest) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  if (soundThrottled(name)) return;
+  const out = dest || audioMaster() || ctx.destination;
+  const buf = _sndBuffers[name];
+  if (buf) {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (SOUND_VARIED[name]) src.playbackRate.value = CORE.soundPlaybackRate(1, Math.random());
+    src.connect(out);
+    src.start(ctx.currentTime);
+    return;
+  }
+  const recipe = SOUND_RECIPES[name];
+  if (!recipe) return;
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
+  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+}
+
+// Positional enemy audio: distance attenuation + stereo pan relative to player facing.
+// maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
+function playSound3D(name, x, y, z, maxDist) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  if (!player || !player.pos) return;
   const dx = x - player.pos.x, dz = z - player.pos.z;
-  const dist = Math.hypot(dx, dz);
-  if (dist > maxDist) return;
-  const rx = Math.cos(player.yaw), rz = -Math.sin(player.yaw);
-  const pan = Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (dist || 1) * 1.2));
-  const vol = (0.15 + 0.85 * Math.pow(1 - dist / maxDist, 2)) * (occluded ? 0.55 : 1);
+  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
+  if (!spatial.audible) return;
   const g = ctx.createGain();
-  g.gain.value = vol;
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = (occluded ? 900 : 18000) * Math.pow(1 - dist / maxDist, 1.5) + 500;
-  g.connect(lp);
+  g.gain.value = spatial.vol;
   let p = null;
   if (ctx.createStereoPanner) {
     p = ctx.createStereoPanner();
-    p.pan.value = pan;
-    lp.connect(p); p.connect(masterGain);
-  } else lp.connect(masterGain);
+    p.pan.value = spatial.pan;
+    g.connect(p); p.connect(audioMaster() || ctx.destination);
+  } else g.connect(audioMaster() || ctx.destination);
   playSound(name, g);
   setTimeout(() => {
     try {
       if (p) p.disconnect();
-      lp.disconnect();
       g.disconnect();
     } catch (e) {}
-  }, 2600);
+  }, 800);
 }
 
-// ---- Ambient bed: wind + distant rumbles (the city is in blackout) ----
-let ambient = null;
-function startAmbient() {
-  const ctx = audioCtx();
-  if (!ctx || !masterGain || ambient) return;
-  const src = ctx.createBufferSource();
-  src.buffer = noiseBuf; src.loop = true;
-  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380; f.Q.value = 0.6;
-  const g = ctx.createGain(); g.gain.value = 0.05;
-  const lfo = ctx.createOscillator(); lfo.frequency.value = 0.09;
-  const lfoG = ctx.createGain(); lfoG.gain.value = 0.03;
-  lfo.connect(lfoG); lfoG.connect(g.gain);
-  src.connect(f); f.connect(g); g.connect(masterGain);
-  src.start(); lfo.start();
-  ambient = { src: src, lfo: lfo, g: g, nextRumble: 8 };
-}
-function updateAmbient(dt) {
-  if (!ambient) return;
-  ambient.nextRumble -= dt;
-  if (ambient.nextRumble <= 0) {
-    ambient.nextRumble = 14 + Math.random() * 22;
-    const a = Math.random() * Math.PI * 2;
-    playSound3D('thunder', player.pos.x + Math.cos(a) * 50, 0, player.pos.z + Math.sin(a) * 50, true, 60);
-  }
-}
-
-// footstep timing: steps are driven by the head-bob phase so sound matches camera motion
+// footstep timing
 let stepT = 0;
-let lastBobStep = 0;
 function updateFootsteps(dt) {
   const hs = Math.hypot(player.vel.x, player.vel.z);
-  if (player.onGround && hs > 1.5 && !player.sliding) {
-    const stepIdx = Math.floor(player.bobPhase / Math.PI);
-    if (stepIdx !== lastBobStep) {
-      lastBobStep = stepIdx;
-      const surf = player.groundSurface || 'concrete';
-      playSound(surf === 'metal' ? 'step_metal' : surf === 'wood' ? 'step_wood' : 'step');
+  if (CORE.shouldPlayFootstep(player.onGround, hs)) {
+    const isTac = !!(player.sprinting && player.tacT > 0);
+    const cadence = CORE.footstepCadence(player.sprinting, isTac, player.crouching);
+    stepT -= dt * cadence;
+    if (stepT <= 0) {
+      playSound(CORE.playerFootstepSound(player.crouching));
+      stepT = 1;
     }
   }
   // landing
-  if (player.onGround && !wasGround) {
-    const impact = player.lastLandSpeed || 0;
-    playSound(impact > 9 ? 'land_heavy' : 'land');
-    if (impact > 6) fxDust(player.pos, 5, 0.8);
-  }
+  if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true
   wasGround = player.onGround;
 }
 let wasGround = true;
+
+// ============ ADAPTIVE MUSIC & AMBIENCE ============
+// Everything here is synthesised, like the rest of the audio — no asset bytes.
+//
+// Built as ONE persistent graph rather than scheduled notes: continuous
+// oscillators whose gains and filter cutoff are modulated per frame. That keeps
+// the node count constant (a per-note scheduler would allocate forever, which is
+// exactly the cost that made fireShot expensive before it was throttled).
+const MUSIC = {
+  built: false, ctx: null, bus: null,
+  drone: null, tension: null, pulseGain: null, filter: null,
+  intensity: 0, pulsePhase: 0, running: false
+};
+
+function buildMusicGraph() {
+  const ctx = audioCtx();
+  if (!ctx || MUSIC.built) return MUSIC.built;
+  const master = audioMaster();
+  if (!master) return false;
+
+  MUSIC.ctx = ctx;
+  MUSIC.bus = ctx.createGain();
+  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  MUSIC.bus.connect(master);
+
+  // Low drone: two slightly detuned voices a fifth apart. Quiet, tense, endless.
+  MUSIC.filter = ctx.createBiquadFilter();
+  MUSIC.filter.type = 'lowpass';
+  MUSIC.filter.frequency.value = 240;
+  MUSIC.filter.Q.value = 4;
+  MUSIC.filter.connect(MUSIC.bus);
+
+  MUSIC.drone = ctx.createGain();
+  MUSIC.drone.gain.value = 0.5;
+  MUSIC.drone.connect(MUSIC.filter);
+  [55, 82.41, 55.4].forEach(function (f) {       // A1, E2, and a detuned A1 for beating
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    o.connect(MUSIC.drone);
+    o.start();
+  });
+
+  // Tension voice: a minor third that only appears when things get bad.
+  MUSIC.tension = ctx.createGain();
+  MUSIC.tension.gain.value = 0;
+  MUSIC.tension.connect(MUSIC.filter);
+  [98, 130.81].forEach(function (f) {             // G2, C3
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    o.connect(MUSIC.tension);
+    o.start();
+  });
+
+  // Pulse: filtered noise gated by a per-frame envelope — a heartbeat that
+  // speeds up with the fight.
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
+  MUSIC.pulseGain = ctx.createGain();
+  MUSIC.pulseGain.gain.value = 0;
+  const pf = ctx.createBiquadFilter();
+  pf.type = 'bandpass'; pf.frequency.value = 90; pf.Q.value = 1.2;
+  MUSIC.pulseGain.connect(pf); pf.connect(MUSIC.bus);
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true;
+  src.connect(MUSIC.pulseGain);
+  src.start();
+
+  MUSIC.built = true;
+  return true;
+}
+
+function startMusic() {
+  if (!buildMusicGraph()) return;
+  MUSIC.running = true;
+}
+function stopMusic() {
+  MUSIC.running = false;
+  if (MUSIC.bus) MUSIC.bus.gain.value = 0;
+  if (MUSIC.pulseGain) MUSIC.pulseGain.gain.value = 0;
+}
+
+// Called every frame while playing.
+function updateMusic(dt, state) {
+  if (!MUSIC.built || !MUSIC.running) return;
+  const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
+  const target = CORE.combatIntensity(state);
+  MUSIC.intensity = CORE.stepMusicIntensity(MUSIC.intensity, target, dt);
+  const i = MUSIC.intensity;
+
+  MUSIC.bus.gain.value = CORE.musicBusGain(vol, i);
+  MUSIC.tension.gain.value = CORE.musicTensionGain(i);
+  MUSIC.filter.frequency.value = CORE.musicFilterCutoff(i);
+
+  const bpm = CORE.musicPulseBpm(i);
+  MUSIC.pulsePhase = CORE.stepMusicPulsePhase(MUSIC.pulsePhase, dt, bpm);
+  const env = CORE.musicPulseEnvelope(MUSIC.pulsePhase);
+  MUSIC.pulseGain.gain.value = CORE.musicPulseGain(env, i);
+}

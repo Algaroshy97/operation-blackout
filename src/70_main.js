@@ -1,7 +1,32 @@
 // ============ GAME FLOW & MAIN LOOP ============
 'use strict';
+// A victory screen can transition into endless mode. Career stats are settled once
+// for the finite run, then only the incremental endless kills are settled on death.
+let settlementSnapshot = null;
+let runPhase = 'active';
+function markSettlement() {
+  settlementSnapshot = { score: score, kills: kills, headshots: headshots, streaks: runStreaksEarned };
+}
+function settlementDelta() {
+  const accounting = CORE.settlementAccounting(settlementSnapshot, {
+    score: score, wave: waveNum, accuracy: shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0,
+    kills: kills, headshots: headshots, streaks: runStreaksEarned
+  });
+  return Object.assign({}, accounting.rewards, {
+    recordScore: accounting.records.score,
+    recordWave: accounting.records.wave,
+    recordAccuracy: accounting.records.accuracy
+  });
+}
 // ---- Flow ----
 function pauseGame() {
+  // A charged grenade is a committed action: throw it rather than silently
+  // discarding the charge with no feedback.
+  if (typeof grenadeCharging !== 'undefined' && grenadeCharging && !player.dead) {
+    const spd = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+    cancelGrenadeCharge();
+    throwGrenade(spd);
+  }
   paused = true;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'flex';
@@ -11,18 +36,15 @@ function resumeGame() {
   paused = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'none';
-  lockPointer();
-}
-function endStats(prefix) {
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  const rec = recordBest(score, waveNum);
-  return prefix + 'Score: <b>' + score + '</b>' + (rec.isNew && score > 0 ? ' <span class="newbest">NEW BEST</span>' : ' · best <b>' + rec.best.score + '</b>') +
-    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
-    '<br>Difficulty: <b>' + diff().label + '</b>';
+  canvas.requestPointerLock();
 }
 function killPlayer() {
   player.dead = true;
+  // A second lethal hit while already down comes straight here, so the bleed-out
+  // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
+  // stays on screen behind the death screen until the next deploy.
+  if (typeof clearDowned === 'function') clearDowned();
+  stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
@@ -30,25 +52,49 @@ function killPlayer() {
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
   paused = false;
   $id('pause-menu').style.display = 'none';
-  $id('ds-stats').innerHTML = endStats('Waves survived: <b>' + Math.max(0, waveNum - 1) + '</b><br>');
-  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 1200);
+  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+  clearCheckpoint();   // a lost run is not resumable
+  const delta = settlementDelta();
+  const beat = recordRun({ score: delta.score, wave: delta.wave,
+    accuracy: delta.accuracy, recordScore: delta.recordScore,
+    recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
+    kills: delta.kills,
+    headshots: delta.headshots, streaks: delta.streaks,
+    countRun: !settlementSnapshot, victory: false });
+  $id('ds-stats').innerHTML =
+    'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
+  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
 }
 function victory() {
+  if (gameEnded) return;
   gameEnded = true;
+  runPhase = 'victory';
+  stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
-  $id('vs-stats').innerHTML = endStats('All ' + CFG.wave.victoryWave + ' waves survived<br>');
+  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+  const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
+    headshots: headshots, streaks: runStreaksEarned, victory: true });
+  markSettlement();
+  saveCheckpoint(captureRunState());
+  $id('vs-stats').innerHTML =
+    'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
   $id('victory-screen').style.display = 'flex';
-}
-function refreshBestLabel() {
-  const b = loadBest()[SETTINGS.difficulty];
-  const txt = b ? 'BEST · ' + diff().label + ' · ' + b.score + ' (WAVE ' + b.wave + ')' : '';
-  $id('start-best').textContent = txt;
-  hud.bestVal.textContent = b ? 'BEST ' + b.score : '';
 }
 
 function resetGame() {
+  settlementSnapshot = null;
+  runPhase = 'active';
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   // remove all enemies + pickups + grenades
@@ -72,7 +118,30 @@ function resetGame() {
     tracerPool.push(t.m);
   }
   vfx.tracers.length = 0;
-  clearParticles();
+  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+    const im = vfx.impacts[i];
+    scene.remove(im.m);
+    im.m.visible = false;
+    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+      impactPool.push(im.m);
+    } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+      releaseBlastFlash(im.m);
+    } else {
+      if (im.m.geometry) im.m.geometry.dispose();
+      if (im.m.material) im.m.material.dispose();
+    }
+  }
+  vfx.impacts.length = 0;
+  for (let i = vfx.blood.length - 1; i >= 0; i--) {
+    const b = vfx.blood[i];
+    scene.remove(b.m);
+    b.m.visible = false;
+    if (b.isSpark) sparkPool.push(b.m);
+    else if (b.isBlood) bloodPool.push(b.m);
+    else if (b.isDust) dustPool.push(b.m);
+    if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
+  }
+  vfx.blood.length = 0;
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     scene.remove(c.m);
@@ -80,83 +149,274 @@ function resetGame() {
     casingPool.push(c.m);
   }
   casings.length = 0;
-  resetPerks();
-  grenades.count = maxGrenades();
+  grenades.count = CFG.grenade.count;
   grenades.cd = 0;
-  resetBarrels();
-  clearDebris();
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
-  player.health = CFG.player.health; player.armor = maxArmor();
+  player.health = CFG.player.health; player.armor = CFG.player.armor;
+  player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
-  player.recoilP = 0; player.recoilY = 0; player.recoilTP = 0; player.recoilTY = 0; player.recoilVP = 0; player.recoilVY = 0;
-  player.eyeH = CFG.player.height; player.crouchLatch = false; player.lean = 0; player.leanTarget = 0;
-  player.leanOffset.set(0, 0, 0); player.mantle = null; player.landDip = 0; player.landVel = 0; player.lastLandSpeed = 0;
+  player.recoilP = 0; player.recoilY = 0;
+  player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
+  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
+  resetRagdolls();
+  player.airSpeedY = 0; player.landStunT = 0;
+  updateHudPlates(); updateHudPerks();
+  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
+  credits = 0;
+  powerUntil.double = -99; powerUntil.instakill = -99;
+  if (hud.credits) hud.credits.textContent = '0';
+  runId++;   // invalidate anything the previous run scheduled
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
-  adsAmount = 0; wasScoped = false; SCOPE.zoomIdx = 0; SCOPE.swayX = 0; SCOPE.swayY = 0; slowmoT = 0; shotKick = 0; slideFov = 0;
+  adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
+  if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
+  if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
+  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
+  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
+  if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
+  if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
+  if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
+  if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  weaponsOwned[1] = SNIPER; weaponsOwned[SIDE_SLOT] = PISTOL;
+  if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   curWeapon = 0;
+  fireClockT = 0;
   initWeapons();
   gunSwitchT = 1;
   buildViewmodel();
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
-  clearDamageNumbers();
-  ghostHp = CFG.player.health; lastHudHp = -1; lastHudArmor = -1;
-  POST.damage = 0; POST.lowHealth = 0; camTrauma = 0; meleeT = 0; meleeCd = 0;
-  refreshBestLabel();
   clearTimeout(hud.waveBanner._t);
   hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
-// gun select UI: stat bars normalised across the primary roster
-const GUN_TYPE_LABEL = { AR: 'ASSAULT RIFLE', SMG: 'SUBMACHINE GUN', BR: 'BATTLE RIFLE', SR: 'BOLT-ACTION SNIPER', SG: 'PUMP SHOTGUN', LMG: 'LIGHT MACHINE GUN', PST: 'PISTOL' };
-function gunStats(w) {
-  const dmg = w.dmg * (w.pellets || 1);
-  return {
-    Damage: Math.min(1, dmg / 130),
-    'Fire rate': Math.min(1, w.rpm / 1050),
-    Range: Math.min(1, (w.r0 + w.r1) / 380),
-    Control: Math.max(0.08, 1 - (w.recoilV * 30 + w.recoilH * 40)),
-    Mobility: Math.min(1, (w.moveMul || 1) * (w.type === 'LMG' ? 0.55 : w.type === 'SR' ? 0.6 : w.type === 'SMG' ? 1 : 0.8)),
-    Capacity: Math.min(1, w.mag / 60)
-  };
+// ---- Settings panel ---------------------------------------------------------
+// Built from CORE.SETTINGS_SCHEMA so a new setting needs one schema entry, not a
+// schema entry plus a hand-written row plus a hand-written validator.
+// ---- Gunsmith ----------------------------------------------------------------
+// Which weapon the screen is currently editing. Per-screen state, not per-run.
+let gunsmithWeapon = 0;
+
+function openGunsmith() {
+  $id('start-screen').style.display = 'none';
+  $id('gunsmith-screen').style.display = 'flex';
+  buildGunsmith();
 }
-function buildGunSelect() {
-  const wrap = $id('gun-cards');
+function closeGunsmith() {
+  $id('gunsmith-screen').style.display = 'none';
+  $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+}
+
+function buildGunsmith() {
+  const rank = playerRank();
+  const wrap = $id('gs-weapons');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
-    if (w.sidearm || w.carried) return;
+    const b = document.createElement('button');
+    const unlocked = CORE.weaponUnlocked(i, rank);
+    b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
+    b.className = i === gunsmithWeapon ? 'on' : '';
+    b.disabled = !unlocked;
+    if (unlocked) b.addEventListener('click', function () { gunsmithWeapon = i; buildGunsmith(); });
+    wrap.appendChild(b);
+  });
+  if (!CORE.weaponUnlocked(gunsmithWeapon, rank)) {
+    gunsmithWeapon = 0;
+  }
+  const slots = $id('gs-slots');
+  slots.innerHTML = '';
+  const loadout = getLoadout(gunsmithWeapon);
+  CORE.ATTACH_SLOTS.forEach(function (slot) {
+    const box = document.createElement('div');
+    box.className = 'gs-slot';
+    const title = document.createElement('b');
+    title.textContent = CORE.ATTACH_SLOT_NAME[slot];
+    box.appendChild(title);
+    // "None" is a real option, not an absence: an empty slot is often the right call
+    // once every attachment is a trade.
+    box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
+    CORE.attachmentsForSlot(slot).forEach(function (a) {
+      box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+    });
+    slots.appendChild(box);
+  });
+}
+
+function gunsmithOption(slot, a, current, rank) {
+  const btn = document.createElement('button');
+  btn.className = 'gs-opt' + ((a ? a.key : null) === (current || null) ? ' on' : '');
+  if (!a) {
+    btn.innerHTML = 'NONE<i>No attachment</i>';
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, null); buildGunsmith(); });
+    return btn;
+  }
+  const unlocked = CORE.attachmentUnlocked(a.key, rank);
+  const d = CORE.attachmentDelta(a);
+  // Show the trade, not just the name: an attachment nobody can read the cost of is
+  // a coin flip.
+  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
+  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
+  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i>';
+  btn.disabled = !unlocked;
+  if (unlocked) {
+    btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
+  }
+  return btn;
+}
+
+let settingsReturnTo = 'menu';
+function buildSettingsUI() {
+  const list = $id('settings-list');
+  list.innerHTML = '';
+  for (const key in CORE.SETTINGS_SCHEMA) {
+    const spec = CORE.SETTINGS_SCHEMA[key];
+    const row = document.createElement('div');
+    row.className = 'set-row';
+    const id = 'set-' + key;
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.textContent = spec.label;
+    row.appendChild(label);
+
+    const wrap = document.createElement('div');
+    if (spec.type === 'number') {
+      const input = document.createElement('input');
+      input.type = 'range'; input.id = id;
+      input.min = spec.min; input.max = spec.max; input.step = spec.step;
+      input.value = getSetting(key);
+      const val = document.createElement('span');
+      val.className = 'set-val';
+      const fmt = function (v) { return key === 'masterVolume' ? Math.round(v * 100) + '%' : (spec.step < 1 ? (+v).toFixed(2) : Math.round(v)); };
+      val.textContent = fmt(input.value);
+      input.addEventListener('input', function () { setSetting(key, input.value); val.textContent = fmt(input.value); });
+      wrap.appendChild(val); wrap.appendChild(input);
+    } else if (spec.type === 'bool') {
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.id = id;
+      input.checked = !!getSetting(key);
+      input.addEventListener('change', function () { setSetting(key, input.checked); });
+      wrap.appendChild(input);
+    } else {
+      const sel = document.createElement('select');
+      sel.id = id;
+      spec.values.forEach(function (v) {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v.toUpperCase();
+        sel.appendChild(o);
+      });
+      sel.value = getSetting(key);
+      sel.addEventListener('change', function () { setSetting(key, sel.value); });
+      wrap.appendChild(sel);
+    }
+    row.appendChild(wrap);
+    list.appendChild(row);
+  }
+  if (typeof openTouchLayoutEditor === 'function' && IS_TOUCH) {
+    const row = document.createElement('div');
+    row.className = 'set-row set-layout-action';
+    row.innerHTML = '<label>Button positions and sizes</label><button type="button" id="btn-edit-touch-layout">EDIT ON SCREEN</button>';
+    row.querySelector('button').addEventListener('click', openTouchLayoutEditor);
+    list.appendChild(row);
+  }
+}
+function openSettings(from) {
+  settingsReturnTo = from || 'menu';
+  buildSettingsUI();
+  $id('settings-screen').style.display = 'flex';
+}
+function closeSettings() {
+  $id('settings-screen').style.display = 'none';
+  if (settingsReturnTo === 'pause') $id('pause-menu').style.display = 'flex';
+}
+function refreshMenuStats() {
+  const el = $id('menu-stats');
+  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  const ch = $id('challenge-list');
+  if (ch) ch.innerHTML = challengesHtml();
+}
+
+// gun select UI
+// Two-step deploy: primary, then secondary. The secondary used to be forced to
+// (primary + 1) % 4 with no say in it, which made the SWAP key a coin toss the
+// player never called.
+let pickingSlot = 0;
+let pendingSecondary = -1;
+function buildGunSelect(slot) {
+  pickingSlot = slot || 0;
+  if (pickingSlot === 0) { pendingSecondary = -1; buildDifficultyRow(); }
+  $id('diff-row').style.display = pickingSlot === 0 ? 'flex' : 'none';
+  document.querySelector('#gun-select h2').textContent =
+    pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
+  const wrap = $id('gun-cards');
+  wrap.innerHTML = '';
+  const rank = playerRank();
+  CFG.weapons.forEach(function (w, i) {
+    if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
-    card.className = 'gun-card';
-    enableMenuKeyboard(card);
-    const st = gunStats(w);
-    let bars = '';
-    for (const k in st) bars += '<div class="gc-stat"><span>' + k.toUpperCase() + '</span><i><u style="width:' + Math.round(st[k] * 100) + '%"></u></i></div>';
-    card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div><div class="gc-type">' + GUN_TYPE_LABEL[w.type] + '</div>' + bars +
-      '<div class="gc-foot">' + (w.auto ? 'Full auto' : w.bolt ? 'Bolt action' : w.pump ? 'Pump action' : 'Semi auto') + ' · ' + w.mag + ' rds · ' + ({ reddot: 'Red dot', holo: 'Holographic', acog: '4x ACOG', scope: '8x scope', iron: 'Iron sights' })[w.sight] + (w.pen ? ' · penetrates cover' : '') + '</div>';
-    card.addEventListener('click', function () { pickGun(i); });
+    card.className = 'gun-card' + (unlocked ? '' : ' locked');
+    // A locked card is shown rather than hidden: knowing what is coming is most of
+    // what a progression system is for.
+    if (unlocked) enableMenuKeyboard(card);
+    const scoped = w.type === 'BR' || w.type === 'SR';
+    card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
+      '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
+      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
+    if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
-  const first = wrap.querySelector('.gun-card');
-  if (first && lastInputDevice === 'pad') first.focus();
+  if (pickingSlot === 1) {
+    const first = wrap.querySelector('.gun-card:not(.locked)');
+    if (first) first.focus({ preventScroll: true });
+  }
 }
+function buildDifficultyRow() {
+  const row = $id('diff-row');
+  row.innerHTML = '';
+  Object.keys(CORE.DIFFICULTIES).forEach(function (key) {
+    const d = CORE.DIFFICULTIES[key];
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (key === runDifficulty ? ' on' : '');
+    b.innerHTML = d.label + '<small>' + d.blurb + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      runDifficulty = key;
+      buildDifficultyRow();
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
 function pickGun(i) {
-  weaponsOwned[0] = i;
-  weaponsOwned[1] = SNIPER; weaponsOwned[SIDE_SLOT] = PISTOL;
+  if (pickingSlot === 0) {
+    weaponsOwned[0] = i;
+    weaponsOwned[1] = -1;
+    buildGunSelect(1);        // now choose what gets unlocked on the first wave clear
+    return;
+  }
+  pendingSecondary = i;
+  weaponsOwned[1] = i;
+  endlessMode = false;
+  clearCheckpoint();          // starting fresh invalidates any saved run
   $id('gun-select').style.display = 'none';
   paused = false;              // always start unpaused — fixes frozen redeploy
   $id('pause-menu').style.display = 'none';
@@ -169,8 +429,6 @@ let assetsReady = false;
 function setDeployReady(ready) {
   const deploy = $id('btn-start');
   deploy.classList.toggle('disabled', !ready);
-  deploy.setAttribute('aria-disabled', String(!ready));
-  deploy.tabIndex = ready ? 0 : -1;
   deploy.textContent = ready ? 'DEPLOY' : 'LOADING ASSETS…';
 }
 function startGame() {
@@ -180,8 +438,86 @@ function startGame() {
   resetGame();
   showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
-  startAmbient();
-  lockPointer();
+  document.body.classList.add('started');
+  startMusic();
+  canvas.requestPointerLock();
+}
+
+// Resume a saved run. Only ever written between waves, so the restored state is
+// always a clean wave boundary — no half-resolved combat to reconstruct.
+function resumeRun() {
+  const cp = loadCheckpoint();
+  if (!cp || !assetsReady) return;
+  started = true; paused = false;
+  resetGame();
+  runDifficulty = cp.difficulty;
+  endlessMode = cp.endless;
+  settlementSnapshot = cp.settlementSnapshot || null;
+  runPhase = cp.runPhase || (cp.endless ? 'endless' : 'active');
+  const resumeState = CORE.resumeCheckpointState(runPhase);
+  weaponsOwned[0] = cp.weapons[0].gi;
+  weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
+  initWeapons();
+  for (let i = 0; i < 2; i++) {
+    if (!wState[i] || !cp.weapons[i]) continue;
+    wState[i].up = cp.weapons[i].up ? Object.assign({}, cp.weapons[i].up) : null;
+    refreshWeaponStats(i);
+    const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
+    wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
+    wState[i].reserve = Math.min(eff.reserveMax, cp.weapons[i].reserve);
+  }
+  openDistricts = [];
+  for (let i = 0; i < (cp.openDistricts || []).length; i++) openDistrict(cp.openDistricts[i]);
+  equippedLethal = cp.equipment.lethal;
+  equippedTactical = cp.equipment.tactical;
+  tacticalCount = cp.equipment.tacticalCount;
+  fieldCharge = cp.equipment.fieldCharge;
+  streakBank.length = 0; cp.equipment.streakBank.forEach(function (k) { streakBank.push(k); });
+  streakKills = cp.streakKills || 0;
+  runStreaksEarned = cp.runStreaksEarned || 0;
+  curWeapon = 0; buildViewmodel();
+  score = cp.score; kills = cp.kills; headshots = cp.headshots;
+  shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
+  player.health = cp.health; player.armor = cp.armor;
+  credits = cp.credits || 0;
+  if (hud.credits) hud.credits.textContent = credits;
+  perks = (cp.perks || []).slice();
+  plates = cp.plates || 0;
+  updateHudPerks(); updateHudPlates();
+  grenades.count = cp.grenades;
+  waveNum = cp.wave;                  // next startWave() call is wave+1
+  waveActive = false; betweenWaveT = CFG.wave.startDelay;
+  hud.waveNum.textContent = waveNum;
+  hud.scoreVal.textContent = score;
+  updateHudHealth(); updateHudAmmo();
+  $id('start-screen').style.display = 'none';
+  document.body.classList.add('started');
+  if (resumeState.showVictory) {
+    // A victory checkpoint is already settled. Do not enter the next wave or call
+    // victory() again; let the player explicitly choose endless continuation.
+    gameEnded = resumeState.gameEnded;
+    stopMusic();
+    $id('victory-screen').style.display = 'flex';
+    return;
+  }
+  showWaveBanner(0);
+  startMusic();
+  canvas.requestPointerLock();
+}
+
+function refreshResumeButton() {
+  const cp = loadCheckpoint();
+  const btn = $id('btn-resume-run');
+  const note = $id('save-note');
+  if (cp) {
+    btn.style.display = '';
+    btn.textContent = 'RESUME — WAVE ' + (cp.wave + 1);
+    if (note) note.textContent = CORE.difficulty(cp.difficulty).label + (cp.endless ? ' · ENDLESS' : '') +
+      ' · score ' + cp.score;
+  } else {
+    btn.style.display = 'none';
+    if (note) note.textContent = '';
+  }
 }
 
 // Keyboard-operable menu controls, including dynamically created weapon cards.
@@ -196,74 +532,168 @@ document.querySelectorAll(".menu-btn").forEach(enableMenuKeyboard);
 // catches the dynamically built gun cards (and their inner stat divs) plus
 // keyboard Enter/Space activation, which dispatches a real el.click().
 document.addEventListener('click', function (e) {
-  const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card, .perk-card') : null;
+  const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card') : null;
   if (t) playSound('click');
 });
+// Fullscreen is opt-in because browsers only allow it from a user gesture. The
+// menu button is especially useful on phones, where browser chrome consumes a
+// large part of the already-short landscape viewport. Keep WebKit fallbacks for
+// older iOS Safari builds and reflect exits triggered by the OS/browser controls.
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+function fullscreenSupported() {
+  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+}
+function updateFullscreenButtons() {
+  const label = fullscreenElement() ? 'EXIT FULL SCREEN' : 'FULL SCREEN';
+  ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+    const el = $id(id);
+    if (el) el.textContent = label;
+  });
+}
+function toggleFullscreen() {
+  if (!fullscreenSupported()) {
+    ['btn-fullscreen-menu', 'btn-fullscreen-pause'].forEach(function (id) {
+      const el = $id(id);
+      if (el) { el.textContent = 'FULL SCREEN UNAVAILABLE'; setTimeout(updateFullscreenButtons, 1800); }
+    });
+    return;
+  }
+  const root = document.documentElement;
+  try {
+    const result = fullscreenElement()
+      ? (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen())
+      : (root.requestFullscreen ? root.requestFullscreen() : root.webkitRequestFullscreen());
+    if (result && typeof result.catch === 'function') result.catch(function () { updateFullscreenButtons(); });
+  } catch (e) { updateFullscreenButtons(); }
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtons);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
+updateFullscreenButtons();
 // buttons
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
-  buildGunSelect();
+  buildGunSelect(0);
+  $id('start-screen').style.display = 'none';   // was left visible, bleeding through
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
   audioCtx(); // unlock audio on user gesture
+  // Render every one-shot to a buffer while the player is still choosing a weapon,
+  // so the first trigger of each is already a single BufferSource rather than a
+  // freshly built node graph.
+  prerenderSounds();
 });
+$id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
+$id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audioCtx(); });
+$id('btn-fullscreen-menu').addEventListener('click', toggleFullscreen);
+$id('btn-fullscreen-pause').addEventListener('click', toggleFullscreen);
+$id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
+$id('btn-settings-pause').addEventListener('click', function () {
+  $id('pause-menu').style.display = 'none';
+  openSettings('pause');
+});
+$id('btn-settings-back').addEventListener('click', closeSettings);
+$id('btn-resume-run').addEventListener('click', function () { audioCtx(); prerenderSounds(); resumeRun(); });
+$id('btn-endless').addEventListener('click', function () {
+  // Victory is no longer a dead end: keep the run going with escalating waves.
+  $id('victory-screen').style.display = 'none';
+  endlessMode = true;
+  runPhase = 'endless';
+  gameEnded = false;
+  saveCheckpoint(captureRunState());
+  waveActive = false;
+  betweenWaveT = CFG.wave.startDelay;
+  paused = false;
+  showWaveBanner(0);
+  canvas.requestPointerLock();
+});
+$id('btn-settings-reset').addEventListener('click', function () { resetSettings(); buildSettingsUI(); });
 $id('btn-resume').addEventListener('click', resumeGame);
-$id('btn-settings').addEventListener('click', function () { audioCtx(); openSettings('start-screen'); });
-$id('btn-pause-settings').addEventListener('click', function () { openSettings('pause-menu'); });
-$id('btn-settings-back').addEventListener('click', function () { closeSettings(); refreshBestLabel(); });
-enableMenuKeyboard($id('btn-settings')); enableMenuKeyboard($id('btn-pause-settings')); enableMenuKeyboard($id('btn-settings-back'));
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
+  stopMusic();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+  refreshResumeButton();
   resetGame();
 });
 $id('btn-restart').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
-  buildGunSelect();
+  buildGunSelect(0);
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
+});
+// Esc backs out of the gun select / settings instead of trapping the player there.
+addEventListener('keydown', function (e) {
+  if (e.code !== 'Escape') return;
+  if ($id('settings-screen').style.display === 'flex') { closeSettings(); return; }
+  if ($id('gun-select').style.display === 'flex' && !started) {
+    $id('gun-select').style.display = 'none';
+    $id('start-screen').style.display = 'flex';
+  }
 });
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
+  refreshResumeButton();
   resetGame(); started = false;
 });
 $id('btn-v-restart').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
-  buildGunSelect();
+  buildGunSelect(0);
   $id('gun-select').style.display = 'flex';
+  $id('gun-select').scrollTop = 0;
+  $id('gun-cards').firstElementChild.focus({ preventScroll: true });
 });
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
   $id('start-screen').style.display = 'flex';
+  refreshMenuStats();
   resetGame(); started = false;
 });
+
+// Runtime telemetry is disabled unless a local probe explicitly enables it.
+const runtimeTelemetry = CORE.createRuntimeTelemetry();
+if (typeof window !== 'undefined') {
+  window.fpsGameTelemetry = Object.freeze({
+    enable: function () { runtimeTelemetry.setEnabled(true); return runtimeTelemetry.snapshot(); },
+    disable: function () { runtimeTelemetry.setEnabled(false); return runtimeTelemetry.snapshot(); },
+    snapshot: function () { return runtimeTelemetry.snapshot(); }
+  });
+}
 
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
 let qualityAdjustT = 0; // avoid resolution thrashing every half-second
+let upscaleStreak = 0;  // consecutive good samples before raising resolution again
 let wasScoped = false;
 let slideFov = 0;   // extra FOV kick while sliding
 let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
 let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
-let heartT = 0;
-let slowmoT = 0;
-function triggerSlowmo(sec) { slowmoT = Math.max(slowmoT, sec); }
-function updateHeartbeat(dt) {
-  if (player.health > 30 || player.dead) { heartT = 0; return; }
-  heartT -= dt;
-  if (heartT <= 0) { heartT = 0.55 + player.health / 60; playSound('heartbeat'); }
-}
+const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
+const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
+const _camPosOut = { x: 0, y: 0 };
+let _slideOvEl = null;
+let _slideVigOpacity = 0;
+let _lastSlideVigWritten = -1;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
   lastT = now;
+  const wallDt = Math.max(0, dt);
   if (dt > 0.1) dt = 0.1;
-  if (!(dt > 0)) dt = 0;   // the first rAF timestamp can precede lastT after a long startup
-  // brief bullet-time after long-range sniper headshot kills (real-time duration)
-  if (slowmoT > 0) { slowmoT -= dt; dt *= 0.3; }
+  // Nothing can be drawn until the driver hands the context back; rendering into a
+  // lost context throws every frame and buries the console.
+  if (contextLost) return;
   // Measure real frame time, not the clamped simulation timestep.
+  if (runtimeTelemetry.enabled) runtimeTelemetry.record(Math.max(0, now - (frame.previousNow || now)));
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;
@@ -271,17 +701,24 @@ function frame(now) {
     // Adapt deliberately, not every sample: frequent canvas reallocations cause
     // the camera to appear to hitch on slower GPUs.
     qualityAdjustT += fpsAcc;
-    if (qualityAdjustT >= 4.5) {
-      const maxPR = Math.min(window.devicePixelRatio, QUALITY.maxPR);
+    // An explicit quality preset means the player has decided; stop second-guessing.
+    if (qualityAdjustT >= 4.5 && qualityIsAuto()) {
+      const maxPR = Math.min(window.devicePixelRatio, 1.5);
       const currentPR = renderer.getPixelRatio();
       let desiredPR = currentPR;
       if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
       // Upscale threshold must be below 60 (58) because vsync on 60 Hz displays caps fps near 60,
       // which would make >62 unreachable and prevent resolution from recovering after a hitch.
-      else if (fps > 58 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
+      // Asymmetric on purpose: each change reallocates the drawing buffer, which is
+      // itself a hitch, so step down readily but require several consecutive good
+      // samples before stepping back up. Stops the oscillation near the threshold.
+      else if (fps > 58 && currentPR < maxPR) {
+        upscaleStreak++;
+        if (upscaleStreak >= 3) { desiredPR = Math.min(maxPR, currentPR + 0.1); upscaleStreak = 0; }
+      } else upscaleStreak = 0;
+      if (desiredPR < currentPR) upscaleStreak = 0;
       if (Math.abs(desiredPR - currentPR) >= 0.05) {
         renderer.setPixelRatio(desiredPR);
-        postfxResize();
       }
       qualityAdjustT = 0;
     }
@@ -290,9 +727,9 @@ function frame(now) {
 
   if (started && !paused) {
     gameT += dt;
+    fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
-    updateScopeSway(dt);
     updatePlayer(dt);
     updateWeapons(dt);
     updateEnemies(dt);
@@ -300,16 +737,24 @@ function frame(now) {
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);
+    updateAmmoRelief(dt);
+    updateStations(dt);
+    updateDowned(dt);
+    updateStreaks(dt);
+    updateRagdolls(dt);
     updateCasings(dt);
-    updateDestructibles(dt);
-    updateAmbient(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
+    updateSunShadow(player.pos.x, player.pos.z);
+    // Adaptive score: follows the fight rather than looping regardless of it.
+    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut);
+    _musicState.inCombat = waveActive && !player.dead;
+    _musicState.aliveEnemies = _combatEvalOut.aliveCount;
+    _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
+    _musicState.health = player.health;
+    updateMusic(dt, _musicState);
+    updateHitArcs();
     updateHudHealth();
-    updateHudTick(dt);
-    updateDamageNumbers(dt);
-    updateGrenadeWarning();
-    updateHeartbeat(dt);
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
     // frame: they cost significant CPU overhead on 2D contexts and the
     // human eye cannot track a rotating minimap at 60+ Hz. A fast flick
@@ -327,67 +772,70 @@ function frame(now) {
       if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }
       if (adsAmount < 0.5 && wasScoped) { playSound('scope_out'); wasScoped = false; }
     } else wasScoped = false;
-    // slide vignette + FOV kick
-    const slideOv = $id('slide-vignette');
-    if (slideOv) {
-      const wantSlide = player.sliding ? 1 : 0;
-      const cur = slideOv.style.opacity ? parseFloat(slideOv.style.opacity) : 0;
-      slideOv.style.opacity = String(Math.min(1, cur + (wantSlide - cur) * Math.min(1, 14 * dt)));
-      slideOv.style.boxShadow = 'inset 0 0 90px 30px rgba(0,0,0,' + (0.55 * parseFloat(slideOv.style.opacity)) + ')';
+    // slide vignette
+    const wantSlide = player.sliding ? 1 : 0;
+    if (_slideVigOpacity > 0 || wantSlide) {
+      _slideVigOpacity = CORE.stepSlideVignette(_slideVigOpacity, wantSlide, dt);
+      const roundedOp = Math.round(_slideVigOpacity * 100) / 100;
+      if (roundedOp !== _lastSlideVigWritten) {
+        _lastSlideVigWritten = roundedOp;
+        if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+        if (_slideOvEl) {
+          _slideOvEl.style.opacity = String(roundedOp);
+          _slideOvEl.style.boxShadow = roundedOp > 0 ? CORE.slideVignetteStyle(roundedOp) : 'none';
+        }
+      }
     }
   }
-  pollGamepadMenus(dt);
   // clear edge-trigger keys
   for (const k in pressed) delete pressed[k];
 
   // camera pose
   if (!player.dead) {
-    const bobY = Math.abs(Math.sin(player.bobPhase)) * player.bobAmp * 0.05;
-    const bobX = Math.sin(player.bobPhase) * player.bobAmp * 0.025;
-    // slide: lower camera + roll tilt + slight FOV widen
+    // GAP-08: reduced motion strips the bob and roll that make some players ill.
+    const motion = getSetting('reducedMotion') ? 0 : 1;
+    const isRedMotion = !motion;
     const slideBlend = player.sliding ? 1 : 0;
-    slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
-    // Ease toward one bounded FOV target. The old incremental update let FOV
-    // drift upward after a slide and looked like a camera rotation skip.
-    // ADS zoom scales the tangent of the half-angle (true optical magnification)
-    const adsFov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(SETTINGS.fov) / 2) * currentAdsZoom()));
-    const baseFov = SETTINGS.fov + (adsFov - SETTINGS.fov) * adsAmount;
-    const targetFov = baseFov + slideFov;
+    const isTac = player.tacT > 0;
+    const desiredMobilityFov = CORE.mobilityFovBoost(player.sliding, isTac, adsAmount, isRedMotion);
+    slideFov += (desiredMobilityFov - slideFov) * Math.min(1, 10 * dt);
+    const zoom = CORE.weaponAdsZoom(curW().type);
+    const targetFov = CORE.targetCameraFov(getSetting('fov'), adsAmount, zoom, slideFov);
     const previousFov = camera.fov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
-    updateLandSpring(dt);
-    camera.position.set(player.pos.x + bobX + player.leanOffset.x, player.pos.y + bobY + player.leanOffset.y + player.landDip, player.pos.z + player.leanOffset.z);
+
+    CORE.cameraPositionOffsets(player.bobPhase, player.bobAmp, slideBlend, isRedMotion, _camPosOut);
+    camera.position.set(player.pos.x + _camPosOut.x, player.pos.y + _camPosOut.y, player.pos.z);
     camera.rotation.order = 'YXZ';
-    updateCameraShake(dt, performance.now() / 1000);
-    camera.rotation.y = player.yaw + player.recoilY + camShake.yaw + SCOPE.swayX;
-    camera.rotation.x = player.pitch + player.recoilP + camShake.pitch + SCOPE.swayY;
-    // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + (slideFov / 6) * 0.12 + (adsAmount > 0.8 ? SCOPE.swayX * 0.3 : 0) + camShake.roll - player.lean * 0.13;
-    shotKick *= Math.pow(0.001, dt);
+    camera.rotation.y = player.yaw + player.recoilY;
+    camera.rotation.x = player.pitch + player.recoilP;
+
+    // roll: bob + slide lean + strafe banking + sway
+    const strafeDir = CORE.strafeDirection(!!keys['KeyA'], !!keys['KeyD'], window.__analogMove ? window.__analogMove.x : 0);
+    camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8);
+    shotKick = CORE.decayShotKick(shotKick, dt);
   } else {
     // death cam: fall to ground
     camera.position.y += (0.45 - camera.position.y) * Math.min(1, 3 * dt);
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
+  // single-pass render: viewmodel is a camera child with depthTest:false materials
+  renderer.autoClear = true;
+  renderer.render(scene, camera);
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
-    drawScope(dt);
-    updateGunLighting();
-  } else if (scopeCanvas.style.display !== 'none') scopeCanvas.style.display = 'none';
-  updateSunShadow(player.pos);
-  SKY_UNIFORMS.time.value += dt;
-  updateWorldDetail(performance.now() / 1000);
-  // world pass + viewmodel pass (own camera, cleared depth) + post-FX
-  renderFrame(dt, started && !player.dead && !!gunGroup && gunGroup.visible);
+  }
 }
+
+applyAllSettings();
+refreshMenuStats();
+refreshResumeButton();
 initWeapons();
 buildViewmodel();
 updateHudHealth();
 updateHudAmmo();
-updatePerkHud();
-refreshBestLabel();
 requestAnimationFrame(frame);
 // Parse every embedded GLB before deployment. This matters for file:// launches:
 // the previous asynchronous path could render the arena before desktop props were
@@ -399,8 +847,10 @@ function preloadGameAssets() {
   return loadEmbeddedAssets(function (name, loaded, total) {
     progress.textContent = loaded + ' / ' + total + ' · ' + name;
   }).then(function (results) {
-    // warm the soldier templates so the first wave does not hitch on building them
-    for (let k = 0; k < 4; k++) buildSoldier(k);
+    if (GLB_PARSED.SOLDIER) {
+      probeSkinnedSoldier();
+      if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
+    }
     const n = scatterProps();
     const failed = results.filter(function (ok) { return !ok; }).length;
     progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';

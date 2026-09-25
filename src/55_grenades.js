@@ -4,8 +4,13 @@ const grenades = { count: CFG.grenade.count, cd: 0 };
 const liveGrenades = [];
 const grenadeGeo = new THREE.SphereGeometry(0.11, 10, 8);
 const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2e, roughness: 0.5, metalness: 0.3 });
-const fuseLightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3020).multiplyScalar(3) });
-const fuseLightMatE = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff1000).multiplyScalar(5) });
+const fuseLightMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+const fuseBlinkGeo = new THREE.SphereGeometry(0.045, 6, 4);   // shared across all throws
+// Shared explosion-flash resources + a pool of the meshes that use them.
+const blastFlashGeo = new THREE.SphereGeometry(1, 12, 8);
+const blastFlashMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 });
+const blastFlashPool = [];
+function releaseBlastFlash(m) { m.visible = false; blastFlashPool.push(m); }
 
 // ---- Trajectory preview pool (zero per-frame allocation) ----
 const PREVIEW_DOT_COUNT = 28;
@@ -45,94 +50,188 @@ function releaseBlastRing(ring) {
 }
 
 // ---- Grenade hold-to-charge state ----
+// ---- Equipment selection ----
+// The grenade was the most reusable system here and the only thing mounted on it
+// was a single frag. Charge-throw, the preview, bounce and blast LOS are all
+// payload-agnostic, so a variant is a different payload rather than a new system.
+let equippedLethal = 'frag';
+let equippedTactical = null;
+let tacticalCount = 0;
+const TACTICAL_MAX = 2;
+const EQUIP_COLOR = {
+  frag: 0x2e4a2e, semtex: 0x2f7a3f, thermite: 0xb05a1f, claymore: 0x4a4a3a,
+  flash: 0xd8d8c0, stun: 0x6fa8ff, smoke: 0x9aa0a8
+};
+const equipMats = {};
+function equipMaterial(key) {
+  if (!equipMats[key]) {
+    equipMats[key] = new THREE.MeshStandardMaterial({
+      color: EQUIP_COLOR[key] || 0x2e4a2e, roughness: 0.5, metalness: 0.3
+    });
+  }
+  return equipMats[key];
+}
+function lethalDef() { return CORE.equipmentByKey(equippedLethal) || CORE.LETHALS[0]; }
+function tacticalDef() { return equippedTactical ? CORE.equipmentByKey(equippedTactical) : null; }
+
+// ---- Ground effects ----
+// Thermite leaves burning ground; smoke leaves a volume that blocks enemy LOS.
+// Both are plain data the update loop walks; neither needs a new subsystem.
+const burnPatches = [];
+const smokeClouds = [];
+const burnRingGeo = new THREE.RingGeometry(0.2, 3.2, 28);
+const burnRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+const smokeGeo = new THREE.SphereGeometry(1, 12, 10);
+const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62 });
+
 let grenadeCharging = false;
 let grenadeChargeT = 0;
-const GRENADE_MIN_SPEED = 6.0;
-const GRENADE_MAX_SPEED = 13.0;
-const GRENADE_RAMP_DURATION = 1.0;
-const GRENADE_TAP_THRESHOLD = 0.22;
 
 function getGrenadeSpeed() {
-  const ratio = Math.min(1, grenadeChargeT / GRENADE_RAMP_DURATION);
-  return GRENADE_MIN_SPEED + ratio * (GRENADE_MAX_SPEED - GRENADE_MIN_SPEED);
+  return CORE.grenadeChargedSpeed(grenadeChargeT);
 }
 
 const _prevDir = new THREE.Vector3();
+const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
+const _blastFrom = new THREE.Vector3();
+const _blastTarget = new THREE.Vector3();
+const _blastPlayerTarget = new THREE.Vector3();
+// Colliders within reach of the throw arc, refreshed once per preview frame
+// instead of scanning all of them at every one of the 28 sample points.
+const previewNear = [];
+const PREVIEW_REACH = 22;
+function refreshPreviewNear(ox, oz) {
+  previewNear.length = 0;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    if (c.min.x - PREVIEW_REACH > ox || c.max.x + PREVIEW_REACH < ox) continue;
+    if (c.min.z - PREVIEW_REACH > oz || c.max.z + PREVIEW_REACH < oz) continue;
+    previewNear.push(c);
+  }
+}
 function updateGrenadePreview(speed) {
   if (grenades.count <= 0 || player.dead || paused || !started) {
     hidePreviewDots();
     return;
   }
+  refreshPreviewNear(camera.position.x, camera.position.z);
   _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   _prevDir.y += 0.45;
   _prevDir.normalize();
 
-  _pvP.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
-  _pvV.copy(_prevDir).multiplyScalar(speed);
+  let px = camera.position.x;
+  let py = camera.position.y - 0.1;
+  let pz = camera.position.z;
+  let vx = _prevDir.x * speed;
+  let vy = _prevDir.y * speed;
+  let vz = _prevDir.z * speed;
   const dtStep = 0.04;
+
+  let bounces = 0;
   let fuse = CFG.grenade.fuse;
   let stopped = false;
-  // Same integrator + collision as updateGrenades, so the arc matches the throw.
   for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
     if (stopped) {
       previewDots[i].visible = false;
       continue;
     }
     fuse -= dtStep;
-    stepGrenadeBody(_pvP, _pvV, dtStep);
-    if (fuse <= 0 || (_pvV.lengthSq() < 0.04 && _pvRest)) stopped = true;
-    previewDots[i].position.copy(_pvP);
+    vy -= 14 * dtStep;
+    px += vx * dtStep;
+    py += vy * dtStep;
+    pz += vz * dtStep;
+
+    // ground bounce check (matches updateGrenades physics)
+    if (py < 0.11) {
+      py = 0.11;
+      vy = -vy * CFG.grenade.bounce;
+      vx *= 0.55;
+      vz *= 0.55;
+      bounces++;
+      if (bounces > 1) {
+        vx *= 0.3;
+        vz *= 0.3;
+      }
+      if (bounces >= 3) {
+        stopped = true;
+      }
+    }
+
+    // wall bounce (AABBs) (matches updateGrenades physics)
+    // Broad-phase first: the full arc used to test 28 points against all 129
+    // colliders every frame while the throw was charging (~3,600 AABB tests).
+    for (let c = 0; c < previewNear.length; c++) {
+      const col = previewNear[c];
+      if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
+          py > col.min.y && py < col.max.y &&
+          pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
+        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
+        const ox = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(px - cx);
+        const oz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(pz - cz);
+        if (ox < oz) { vx = -vx * 0.5; px += (px > cx ? ox : -ox); }
+        else { vz = -vz * 0.5; pz += (pz > cz ? oz : -oz); }
+        vy *= 0.8;
+      }
+    }
+
+    if (fuse <= 0) {
+      stopped = true;
+    }
+
+    previewDots[i].position.set(px, py, pz);
     previewDots[i].visible = true;
   }
 }
-const _pvP = new THREE.Vector3(), _pvV = new THREE.Vector3();
-let _pvRest = false;
-const GRENADE_R = 0.1;
-// One physics step for a grenade body. Returns the contact normal's up component.
-function stepGrenadeBody(p, v, dt) {
-  v.y -= 14 * dt;
-  p.addScaledVector(v, dt);
-  const g = sphereVsWorld(p, v, GRENADE_R, CFG.grenade.bounce, 0.28);
-  _pvRest = g > 0.6;
-  if (_pvRest) { const k = Math.exp(-2.8 * dt); v.x *= k; v.z *= k; }   // rolling resistance
-  return g;
-}
 
-function throwGrenade(customSpeed) {
-  if (grenades.count <= 0 || grenades.cd > 0 || player.dead) return;
-  grenades.count--;
+function throwGrenade(customSpeed, def) {
+  const d = def || lethalDef();
+  const tactical = d.mode === 'tactical';
+  if (tactical) {
+    if (tacticalCount <= 0) return;
+  } else if (grenades.count <= 0) return;
+  if (grenades.cd > 0 || player.dead) return;
+  if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = 0.8;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  dir.y += 0.45; dir.normalize();
-  const from = new THREE.Vector3(camera.position.x, camera.position.y - 0.1, camera.position.z);
-  // inherit some of the thrower's momentum
-  const vel = dir.multiplyScalar(speed).addScaledVector(player.vel, 0.5);
-  spawnLiveGrenade(from, vel, CFG.grenade.fuse, false);
-  playSound('pin');
-  playSound('draw');
-  if (typeof alertEnemiesTo === 'function') alertEnemiesTo(player.pos, 12);
-  updateHudAmmo();
-}
-// Shared by the player and enemy grenadiers (enemy = true marks hostile frags).
-function spawnLiveGrenade(from, vel, fuse, enemy) {
-  const m = new THREE.Mesh(grenadeGeo, grenadeMat);
-  const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), enemy ? fuseLightMatE : fuseLightMat);
+  const m = new THREE.Mesh(grenadeGeo, equipMaterial(d.key));
+  // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
+  // throw and explodeGrenade() only scene.remove()d the mesh, leaking ~1 GPU
+  // geometry per grenade for the life of the session.
+  const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1;
   m.add(blink);
   m.castShadow = true;
-  m.position.copy(from);
+  m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  dir.y += 0.45; dir.normalize();
+  // A claymore has no fuse at all: it arms where it lands and waits. Everything
+  // else counts down from its own value, not the frag's.
+  const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
+  // Capture the claymore's facing BEFORE the object literal below, because
+  // `vel: dir.multiplyScalar(speed)` mutates `dir` in place and a later
+  // `faceX: dir.x` would read the VELOCITY instead of a unit vector. With a
+  // magnitude of ~6.7 in it, the cone test `dot / d >= arc` was effectively
+  // comparing against 0.5/6.7 — an 86-degree half-angle instead of 60, which is
+  // most of a hemisphere and not a directional mine at all.
+  const faceLen = Math.hypot(dir.x, dir.z) || 1;
+  const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
   liveGrenades.push({
     m: m,
-    vel: vel.clone(),
+    vel: dir.multiplyScalar(speed),
     fuse: fuse,
     blink: blink,
     atRest: false,
     ring: null,
-    restFuse: fuse,
-    enemy: !!enemy
+    restFuse: isFinite(fuse) ? fuse : 1,
+    def: d,
+    stuck: false,
+    armT: 0,
+    faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
   });
   scene.add(m);
+  playSound('pin');
+  playSound('draw');
+  updateHudAmmo();
 }
 
 function cancelGrenadeCharge() {
@@ -144,6 +243,15 @@ function cancelGrenadeCharge() {
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+  // Tacticals are a separate slot on a separate key, thrown at a fixed speed —
+  // there is no reason to cook a flashbang, and a charge bar on one would just be
+  // a second thing to learn.
+  if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
+      && !player.dead && started && !paused) {
+    throwGrenade(CFG.grenade.speed * 1.15, tacticalDef());
+    updateHudAmmo();
+  }
+  updateEquipmentEffects(dt);
 
   // Charge / aim input handling
   const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
@@ -159,7 +267,7 @@ function updateGrenades(dt) {
         grenadeChargeT += dt;
         const curSpeed = getGrenadeSpeed();
         updateGrenadePreview(curSpeed);
-        const chargePct = Math.min(100, Math.round((grenadeChargeT / GRENADE_RAMP_DURATION) * 100));
+        const chargePct = Math.min(100, Math.round((grenadeChargeT / CORE.GRENADE_RAMP_DURATION) * 100));
         if (typeof updateHudGrenadeCharge === 'function') updateHudGrenadeCharge(true, chargePct, curSpeed);
       }
     } else {
@@ -170,7 +278,7 @@ function updateGrenades(dt) {
       if (player.dead || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
-        const throwSpeed = grenadeChargeT <= GRENADE_TAP_THRESHOLD ? CFG.grenade.speed : getGrenadeSpeed();
+        const throwSpeed = CORE.grenadeThrowSpeed(grenadeChargeT, CFG.grenade.speed);
         cancelGrenadeCharge();
         throwGrenade(throwSpeed);
       }
@@ -182,20 +290,47 @@ function updateGrenades(dt) {
 
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
-    g.fuse -= dt;
-    const vBefore = g.vel.length();
-    const contact = stepGrenadeBody(g.m.position, g.vel, dt);
-    if (contact > 0 && vBefore - g.vel.length() > 1.2) playSound3D('bounce', g.m.position.x, g.m.position.y, g.m.position.z);
-    if (contact > 0.6) g.grounded = (g.grounded || 0) + 1;
-    g.m.rotation.x += g.vel.z * dt * 8; g.m.rotation.z -= g.vel.x * dt * 8;
-    if (Math.random() < 0.5) pfxEmit(PFX_SMOKE, g.m.position.x, g.m.position.y + 0.05, g.m.position.z, 0, 0.3, 0, 0.6, 0.05, 0.25, 0x8a8a8a, 0x5a5a5a, 0.25, 1, -0.2, 0);
+    const def = g.def || CORE.LETHALS[0];
+    if (isFinite(g.fuse)) g.fuse -= dt;
+    // Semtex and thermite stick where they land; nothing moves them afterwards.
+    if (g.stuck) { stepLiveGrenade(g, dt, i, def); continue; }
+    g.vel.y -= 14 * dt;
+    _grenadeMotion.position.x = g.m.position.x;
+    _grenadeMotion.position.y = g.m.position.y;
+    _grenadeMotion.position.z = g.m.position.z;
+    _grenadeMotion.velocity = g.vel;
+    const motionResult = CORE.stepGrenadeMotion(_grenadeMotion, dt, colliders, {
+      bounce: def.bounce === undefined ? CFG.grenade.bounce : def.bounce,
+      maxContacts: 4,
+      radius: 0.11
+    });
+    g.m.position.set(_grenadeMotion.position.x, _grenadeMotion.position.y, _grenadeMotion.position.z);
+    // Sticky payloads stop at their first contact; bouncing payloads consume
+    // every leftover fraction of the frame, including chained contacts.
+    if (def.sticky && motionResult.contacts > 0) {
+      g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true;
+      const cs = CORE.grenadeContactSound(true, 0);
+      if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
+    }
+    // ground bounce
+    if (g.m.position.y < 0.11) {
+      g.m.position.y = 0.11;
+      const cs = CORE.grenadeContactSound(def.sticky, g.vel.y);
+      if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; }
+      if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
+      g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
+      g.vel.x *= 0.55; g.vel.z *= 0.55;
+      if (g.grounded === undefined) g.grounded = 0;
+      g.grounded++;
+      if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
+    }
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
-    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.4) {
+    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
       g.atRest = true;
       g.restFuse = Math.max(0.1, g.fuse);
       const ring = getBlastRing();
-      ring.position.set(g.m.position.x, g.m.position.y - GRENADE_R + 0.03, g.m.position.z);
+      ring.position.set(g.m.position.x, 0.03, g.m.position.z);
       ring.material.opacity = 0.32;
       scene.add(ring);
       g.ring = ring;
@@ -204,18 +339,167 @@ function updateGrenades(dt) {
       const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
       g.ring.material.opacity = 0.32 * fade;
     }
-    // blink faster as fuse burns
-    g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
-    if (g.fuse <= 0) {
-      explodeGrenade(g.m.position, g.enemy);
-      if (g.ring) {
-        releaseBlastRing(g.ring);
-        g.ring = null;
-      }
-      scene.remove(g.m);
-      liveGrenades.splice(i, 1);
+    stepLiveGrenade(g, dt, i, def);
+  }
+}
+
+// The per-payload half of the projectile loop, split out so the physics above
+// stays one path for every type.
+function stepLiveGrenade(g, dt, i, def) {
+  // blink faster as fuse burns; an armed claymore holds a steady light instead
+  g.blink.visible = isFinite(g.fuse)
+    ? Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0
+    : (g.armT >= (def.arm || 0));
+
+  if (def.mode === 'proximity') {
+    if (!g.atRest && !g.stuck) return;
+    g.armT += dt;
+    if (g.armT < (def.arm || 0)) return;
+    // Directional: a claymore facing away from an enemy does nothing, which is
+    // the whole reason to place one deliberately rather than lob it.
+    const p = g.m.position;
+    for (let e = 0; e < enemies.length; e++) {
+      const en = enemies[e];
+      if (en.dead) continue;
+      if (!CORE.coneHit(p.x, p.z, en.pos.x, en.pos.z, g.faceX, g.faceZ, def.trigger, def.arc)) continue;
+      detonate(g, i, def);
+      return;
+    }
+    return;
+  }
+  if (g.fuse <= 0) detonate(g, i, def);
+}
+
+function detonate(g, i, def) {
+  const p = g.m.position;
+  if (def.mode === 'tactical') {
+    applyTactical(def, p);
+  } else if (def.mode === 'burn') {
+    // Thermite trades burst damage for area denial: a smaller bang, then ground
+    // that stays lethal for six seconds.
+    explodeGrenade(p, 0.45);
+    addBurnPatch(p.x, p.z, def);
+  } else {
+    explodeGrenade(p);
+  }
+  if (g.ring) { releaseBlastRing(g.ring); g.ring = null; }
+  scene.remove(g.m);
+  liveGrenades.splice(i, 1);
+}
+
+// ---- Tactical payloads -------------------------------------------------------
+function applyTactical(def, pos) {
+  const snd = CORE.tacticalDetonationSound(def.effect);
+  if (def.effect === 'smoke') {
+    addSmokeCloud(pos.x, Math.max(1.2, pos.y), pos.z, def);
+    playSound3D(snd, pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
+    return;
+  }
+  playSound3D(snd, pos.x, pos.y, pos.z);
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    const d = CORE.horizDist(en.pos.x, en.pos.z, pos.x, pos.z);
+    if (d >= def.radius) continue;
+    // Behind cover means behind cover: a flash through a wall is the thing that
+    // makes tacticals feel arbitrary.
+    if (CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        en.pos.x, en.pos.y + 1.2, en.pos.z, colliders, 0.25)) continue;
+    if (def.effect === 'blind') {
+      const fx = Math.sin(en.yaw), fz = Math.cos(en.yaw);
+      const tx = (pos.x - en.pos.x) / (d || 1), tz = (pos.z - en.pos.z) / (d || 1);
+      const s = CORE.flashStrength(d, def.radius, tx * fx + tz * fz);
+      const dur = CORE.flashDuration(s, def.dur);
+      if (dur > en.blindT) en.blindT = dur;
+    } else {
+      en.stunT = Math.max(en.stunT || 0, def.dur);
     }
   }
+  // A flashbang the player is looking at blinds the player too. Anything else
+  // would make it a free win rather than a tool with a cost.
+  if (def.effect === 'blind') {
+    const pd = CORE.horizDist(player.pos.x, player.pos.z, pos.x, pos.z);
+    if (pd < def.radius && !CORE.segmentBlocked(pos.x, pos.y, pos.z,
+        player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) {
+      const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
+      const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
+      const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
+      playerFlashT = Math.max(playerFlashT, CORE.flashDuration(s, def.dur * 0.6));
+    }
+  }
+}
+
+let playerFlashT = 0;
+
+function addBurnPatch(x, z, def) {
+  const ring = new THREE.Mesh(burnRingGeo, burnRingMat.clone());
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.04, z);
+  ring.scale.setScalar(def.burnRadius / 3.2);
+  scene.add(ring);
+  burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
+                     r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
+}
+
+function addSmokeCloud(x, y, z, def) {
+  const m = new THREE.Mesh(smokeGeo, smokeMat.clone());
+  m.position.set(x, y, z);
+  m.scale.setScalar(0.2);
+  scene.add(m);
+  smokeClouds.push({ x: x, y: y, z: z, r: def.radius, t: def.dur, life: def.dur, m: m });
+}
+
+// Shared with enemy line-of-sight, which is why it is kept as plain data rather
+// than read off the meshes.
+function smokeVolumes() { return smokeClouds; }
+
+function updateEquipmentEffects(dt) {
+  if (playerFlashT > 0) {
+    playerFlashT = Math.max(0, playerFlashT - dt);
+    const el = $id('flash-overlay');
+    if (el) el.style.opacity = Math.min(0.92, playerFlashT / 1.5);
+  }
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    const b = burnPatches[i];
+    b.t -= dt;
+    b.tick -= dt;
+    b.m.material.opacity = 0.5 * Math.max(0, b.t / b.life);
+    if (b.tick <= 0) {
+      b.tick = 0.25;
+      for (let e = 0; e < enemies.length; e++) {
+        const en = enemies[e];
+        if (en.dead) continue;
+        if (CORE.horizDist(en.pos.x, en.pos.z, b.x, b.z) < b.r) {
+          damageEnemy(en, b.dps * 0.25, en.pos.clone().setY(en.pos.y + 1), false);
+        }
+      }
+    }
+    if (b.t <= 0) { scene.remove(b.m); b.m.material.dispose(); burnPatches.splice(i, 1); }
+  }
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    const c = smokeClouds[i];
+    c.t -= dt;
+    // Bloom out over the first second, then hold, then fade.
+    const grow = Math.min(1, (c.life - c.t) / 1.0);
+    c.m.scale.setScalar(c.r * (0.25 + 0.75 * grow));
+    c.m.material.opacity = 0.62 * Math.min(1, Math.max(0, c.t / 1.5));
+    if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
+  }
+}
+
+function resetEquipment() {
+  equippedLethal = 'frag';
+  equippedTactical = null;
+  tacticalCount = 0;
+  playerFlashT = 0;
+  for (let i = burnPatches.length - 1; i >= 0; i--) {
+    scene.remove(burnPatches[i].m); burnPatches[i].m.material.dispose();
+  }
+  burnPatches.length = 0;
+  for (let i = smokeClouds.length - 1; i >= 0; i--) {
+    scene.remove(smokeClouds[i].m); smokeClouds[i].m.material.dispose();
+  }
+  smokeClouds.length = 0;
 }
 
 const grenadeLosRay = new THREE.Raycaster();
@@ -228,15 +512,6 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  grenadeTargets.length = 0;
-  for (let i = 0; i < raycastColliders.length; i++) {
-    grenadeTargets.push(raycastColliders[i]);
-  }
-  for (let i = 0; i < enemies.length; i++) {
-    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
-      grenadeTargets.push(enemies[i].parts.group);
-    }
-  }
   const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
     return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
   })[0];
@@ -244,56 +519,69 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
 
-function explodeGrenade(pos, fromEnemy) {
-  applyExplosion(pos, { radius: CFG.grenade.radius, dmg: CFG.grenade.dmg, playerDmg: fromEnemy ? 70 : 55, scale: 1, sound: 'explosion', fromEnemy: !!fromEnemy });
+// One blast can query line of sight for every enemy in radius. Building the target
+// list per enemy meant up to 14 full-scene array copies plus 14 raycasts in a
+// single frame — a guaranteed hitch on a multi-kill grenade. Build it once.
+function refreshGrenadeTargets() {
+  grenadeTargets.length = 0;
+  for (let i = 0; i < raycastColliders.length; i++) grenadeTargets.push(raycastColliders[i]);
+  for (let i = 0; i < enemies.length; i++) {
+    if (!enemies[i].dead && enemies[i].parts && enemies[i].parts.group) {
+      grenadeTargets.push(enemies[i].parts.group);
+    }
+  }
 }
 
-// Shared blast: FX, falloff damage with cover occlusion, knockback impulse,
-// chain reactions (barrels), camera trauma. Used by grenades and explosive barrels.
-const _blastFrom = new THREE.Vector3(), _blastTarget = new THREE.Vector3(), _blastDir = new THREE.Vector3();
-function applyExplosion(pos, o) {
-  const R = o.radius;
-  playSound3D(o.sound || 'explosion', pos.x, pos.y, pos.z, false, 140);
-  fxExplosion(pos, o.scale || 1);
-  const floorY = floorHeightAt(pos.x, pos.z, pos.y + 0.2);
-  if (pos.y - floorY < 0.8) {
-    if (floorY <= GROUND + 0.01) spawnScorch(pos.x, pos.z, R * 0.5);
+function explodeGrenade(pos, scale) {
+  const dmgScale = scale === undefined ? 1 : scale;
+  playSound3D('explosion', pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
+  refreshGrenadeTargets();
+  // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
+  // material per explosion; anything that outlived a resetGame() leaked both.
+  const flash = blastFlashPool.length ? blastFlashPool.pop() : (function () {
+    const m = new THREE.Mesh(blastFlashGeo, blastFlashMat);
+    m.userData.vfx = true;
+    m.userData.isBulletImpact = false;
+    m.userData.blastFlash = true;
+    return m;
+  })();
+  flash.visible = true;
+  flash.position.copy(pos);
+  scene.add(flash);
+  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
+  // smoke/spark debris
+  for (let i = 0; i < 14; i++) {
+    const s = new THREE.Mesh(sparkGeo, sparkMat);
+    s.position.copy(pos);
+    const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.4, (Math.random() - 0.5) * 2).multiplyScalar(3 + Math.random() * 5);
+    s.userData.vfx = true;
+    scene.add(s);
+    vfx.blood.push({ m: s, v: v, life: 0.7, grav: 10 });
   }
-  _blastFrom.copy(pos); _blastFrom.y += 0.15;
+  // damage with distance falloff and real cover occlusion
+  _blastFrom.copy(pos); _blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _blastTarget.set(en.pos.x, en.pos.y + 1.0, en.pos.z);
-    const d = _blastTarget.distanceTo(pos);
-    if (d < R && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
-      const falloff = 1 - d / R;
-      const dmg = o.dmg * (0.35 + 0.65 * falloff);
-      _blastDir.copy(_blastTarget).sub(pos).normalize();
-      _blastDir.y = Math.max(0.35, _blastDir.y);
-      en.blastImpulse = _blastDir.clone().multiplyScalar(4 + 9 * falloff);
-      damageEnemy(en, dmg, _blastTarget.clone(), false, _blastDir, true);
+    const d = en.pos.distanceTo(pos);
+    _blastTarget.set(en.pos.x, 1.1, en.pos.z);
+    if (d < CFG.grenade.radius && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
+      const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
+      damageEnemy(en, dmg, _blastTarget, false);
     }
   }
-  if (typeof damageBarrelsInRadius === 'function') damageBarrelsInRadius(pos, R, o.dmg);
-  ragdollBlast(pos, R * 1.1, 14 * (o.scale || 1));
-  // player: cover blocks it; enemy grenades hurt more than your own
-  _blastTarget.copy(player.pos); _blastTarget.y -= 0.5;
-  const pd = _blastTarget.distanceTo(pos);
-  if (pd < R * 0.85 && grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
-    const falloff = 1 - pd / (R * 0.85);
-    const bearing = (Math.atan2(pos.x - player.pos.x, pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
-    damagePlayer(Math.round(o.playerDmg * falloff) * (o.fromEnemy ? diff().dmg : 1) * perkMul('blast'), bearing);
-    // blast pushes the player
-    _blastDir.copy(_blastTarget).sub(pos).normalize();
-    player.vel.x += _blastDir.x * 7 * falloff; player.vel.z += _blastDir.z * 7 * falloff;
-    player.vel.y = Math.max(player.vel.y, 2.5 * falloff);
+  // player self-damage (half, encourages careful use; solid cover blocks it)
+  const pd = player.pos.distanceTo(pos);
+  _blastPlayerTarget.set(player.pos.x, player.pos.y - 0.5, player.pos.z);
+  if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(_blastFrom, _blastPlayerTarget, null)) {
+    const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
+    if (selfDmg > 0) {
+      const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
+      damagePlayer(selfDmg, blastDeg);
+    }
   }
-  const shake = Math.max(0, 1 - pd / (R * 5));
-  addTrauma(shake * 0.95);
-  postKick('aberration', shake * 0.9);
-  if (pd < R * 1.3) postKick('flash', 0.35 * (1 - pd / (R * 1.3)));
-  shotKick = Math.min(2, shotKick + shake * 1.2);
-  if (typeof markNavDirty === 'function') markNavDirty();
+  // camera shake kick
+  shotKick = Math.min(2, shotKick + 1.2);
 }
 
 // ---- Pickups: ammo + medkit drops from enemies ----
@@ -310,11 +598,17 @@ const PICKUP_LIFE = 25;        // seconds before despawn
 const PICKUP_BLINK = 20;       // start blinking during the last 5s
 
 function dropPickup(pos) {
+  // Total rounds across everything the player is carrying.
+  let roundsLeft = 0, magSize = 30;
+  for (let i = 0; i < wState.length; i++) {
+    if (!wState[i] || weaponsOwned[i] < 0) continue;
+    roundsLeft += wState[i].ammo + wState[i].reserve;
+    if (i === curWeapon) magSize = CFG.weapons[weaponsOwned[i]].mag;
+  }
+  const ammoChance = CORE.ammoDropChance(roundsLeft, magSize);
+  const medChance = CORE.medDropChance(player.health, playerMaxHealth(), CORE.perkPickupMul(perks));
   const roll = Math.random();
-  let kind = null;
-  const k = perkMul('drops');
-  if (roll < 0.30 * k) kind = 'ammo';
-  else if (roll < 0.45 * k) kind = 'med';
+  const kind = CORE.pickupDropKind(roll, ammoChance, medChance);
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -330,32 +624,71 @@ function dropPickup(pos) {
   pickups.push({ m: g, kind: kind, t: 0 });
 }
 
+// ---- Power-up drops ----------------------------------------------------------
+// A new pickup KIND rather than a new system: spawn, bob, blink and despawn are
+// all already handled by updatePickups().
+const powerGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
+const POWER_COLOR = { maxammo: 0x6fa8ff, double: 0xffd24a, instakill: 0xff4030, nuke: 0x8fd66a };
+const powerMats = {};
+function powerMaterial(key) {
+  if (!powerMats[key]) {
+    powerMats[key] = new THREE.MeshBasicMaterial({ color: POWER_COLOR[key] || 0xffffff });
+  }
+  return powerMats[key];
+}
+function dropPowerUp(pos) {
+  const def = CORE.pickPowerUp(Math.random());
+  const g = new THREE.Mesh(powerGeo, powerMaterial(def.key));
+  g.position.set(pos.x, 0.55, pos.z);
+  g.userData.pickup = 'power';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'power', power: def, t: 0 });
+}
+
+// Drop an ammo box at a specific spot, bypassing the random roll.
+function forceAmmoPickup(x, z) {
+  const g = new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat);
+  g.position.set(x, 0.3, z);
+  g.castShadow = true;
+  g.userData.pickup = 'ammo';
+  scene.add(g);
+  pickups.push({ m: g, kind: 'ammo', t: 0 });
+}
+
 function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    p.m.rotation.y += dt * 2;
-    p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    p.m.rotation.y += dt * (p.kind === 'power' ? 4 : 2);
+    if (p.kind === 'power') {
+      p.m.rotation.x += dt * 1.6;
+      p.m.position.y = 0.55 + Math.sin(p.t * 3) * 0.12;
+    } else {
+      p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
+    }
     // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
     // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
     // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
     const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
     if (d < 1.3) {
+      if (p.kind === 'power') {
+        activatePowerUp(p.power);
+        scene.remove(p.m);
+        pickups.splice(i, 1);
+        continue;
+      }
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {
-          // tops up both weapons; the one in hand gets the bigger share
-          for (let si = 0; si < wState.length; si++) {
-            if (!wState[si]) continue;
-            const ww = CFG.weapons[weaponsOwned[si]];
-            wState[si].reserve = Math.min(ww.reserveMax, wState[si].reserve + Math.round(magSize(ww) * (si === curWeapon ? 1.5 : 0.75)));
-          }
+          const cw = curW();
+          s.reserve = CORE.ammoPickupRestore(s.reserve, cw.reserveMax, cw.mag, CORE.perkPickupMul(perks));
           updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
-        player.health = Math.min(CFG.player.health, player.health + 35);
-        player.armor = Math.min(maxArmor(), player.armor + 15);
+        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks));
+        player.health = restored.health;
+        player.armor = restored.armor;
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
