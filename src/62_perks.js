@@ -52,7 +52,7 @@ const perkEl = (function () {
 function openPerkMenu() {
   const pool = PERKS.filter(function (p) {
     if (ownedPerks[p.id]) return false;
-    if (p.id === 'armory' && weaponsOwned[1] >= 0 && !CFG.weapons[weaponsOwned[1]].sidearm) return false;
+    if (p.id === 'armory' && !CFG.weapons[weaponsOwned[SIDE_SLOT]].sidearm) return false;
     return true;
   });
   if (!pool.length) return false;
@@ -82,7 +82,7 @@ function openPerkMenu() {
 }
 function armoryWeapon() {
   const options = [];
-  for (let i = 0; i < CFG.weapons.length; i++) if (!CFG.weapons[i].sidearm && i !== weaponsOwned[0]) options.push(i);
+  for (let i = 0; i < CFG.weapons.length; i++) if (!CFG.weapons[i].sidearm && !CFG.weapons[i].carried && i !== weaponsOwned[0]) options.push(i);
   if (!options.length) return -1;
   if (armoryWeapon.pick === undefined || options.indexOf(armoryWeapon.pick) < 0) armoryWeapon.pick = options[Math.floor(Math.random() * options.length)];
   return armoryWeapon.pick;
@@ -96,9 +96,9 @@ function pickPerk(i) {
   if (p.id === 'armory') {
     const gi = armoryWeapon();
     if (gi >= 0) {
-      weaponsOwned[1] = gi;
-      wState[1] = { ammo: magSize(CFG.weapons[gi]), reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0, chambered: true };
-      if (curWeapon === 1) { buildViewmodel(); }
+      weaponsOwned[SIDE_SLOT] = gi;
+      wState[SIDE_SLOT] = newWeaponState(CFG.weapons[gi]);
+      if (curWeapon === SIDE_SLOT) { buildViewmodel(); }
     }
     armoryWeapon.pick = undefined;
   }

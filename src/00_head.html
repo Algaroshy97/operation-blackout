@@ -112,7 +112,7 @@
   #scoping-overlay .scope-cross .mil{position:absolute;left:50%;top:50%;width:3px;height:3px;background:rgba(200,20,10,.95);transform:translate(-50%,-50%);border-radius:50%}
   #scoping-overlay .scope-cross .tick{position:absolute;background:rgba(10,10,10,.85)}
   #scoping-overlay.scope-sniper .scope-cross{display:block}
-  #steady-ind{top:62%;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .2s}
+  #steady-ind{top:80%;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .2s}
   #steady-ind.steady-on{color:var(--good)}
   #grenade-charge{top:58%;left:50%;transform:translateX(-50%);color:var(--accent);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 4px #000;opacity:0;transition:opacity .15s;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
   #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
@@ -252,7 +252,7 @@
     <div class="menu-btn disabled" id="btn-start">LOADING ASSETS…</div>
     <div class="menu-btn small" id="btn-settings">SETTINGS</div>
     <div id="start-best"></div>
-    <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 5</span></div>
+    <div id="asset-loading" role="status" aria-live="polite">Preparing 3D assets: <span id="asset-load-progress">0 / 4</span></div>
     <div class="controls">
       <b>WASD</b><span>Move</span>
       <b>Mouse</b><span>Aim / Fire</span>
@@ -264,12 +264,12 @@
       <b>V / F</b><span>Knife</span>
       <b>R</b><span>Reload</span>
       <b>G</b><span>Grenade (hold to aim)</span>
-      <b>1 / 2 / X</b><span>Weapons</span>
+      <b>1 / 2 / 3 / X</b><span>Primary · Sniper · Pistol</span>
       <b>P / Esc</b><span>Pause</span>
     </div>
   </div>
 </div>
-<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="gun-sub">SIDEARM: M17 · SUPPLY DROPS EVERY 3 WAVES</div><div id="gun-cards"></div></div>
+<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="gun-sub">ALWAYS CARRIED: SV-98 SNIPER (2) · M17 SIDEARM (3) · SUPPLY DROPS EVERY 3 WAVES</div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-pause-settings">SETTINGS</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="settings-menu"><h2>SETTINGS</h2><div id="settings-panel"></div><div class="menu-btn" id="btn-settings-back">BACK</div></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>

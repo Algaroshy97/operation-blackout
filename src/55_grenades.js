@@ -275,6 +275,7 @@ function applyExplosion(pos, o) {
     }
   }
   if (typeof damageBarrelsInRadius === 'function') damageBarrelsInRadius(pos, R, o.dmg);
+  ragdollBlast(pos, R * 1.1, 14 * (o.scale || 1));
   // player: cover blocks it; enemy grenades hurt more than your own
   _blastTarget.copy(player.pos); _blastTarget.y -= 0.5;
   const pd = _blastTarget.distanceTo(pos);

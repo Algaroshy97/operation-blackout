@@ -95,18 +95,18 @@ function resetGame() {
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
-  player.recoilP = 0; player.recoilY = 0;
+  player.recoilP = 0; player.recoilY = 0; player.recoilTP = 0; player.recoilTY = 0; player.recoilVP = 0; player.recoilVY = 0;
   player.eyeH = CFG.player.height; player.crouchLatch = false; player.lean = 0; player.leanTarget = 0;
   player.leanOffset.set(0, 0, 0); player.mantle = null; player.landDip = 0; player.landVel = 0; player.lastLandSpeed = 0;
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
-  adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  adsAmount = 0; wasScoped = false; SCOPE.zoomIdx = 0; SCOPE.swayX = 0; SCOPE.swayY = 0; slowmoT = 0; shotKick = 0; slideFov = 0;
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  weaponsOwned[1] = PISTOL;
+  weaponsOwned[1] = SNIPER; weaponsOwned[SIDE_SLOT] = PISTOL;
   curWeapon = 0;
   initWeapons();
   gunSwitchT = 1;
@@ -139,7 +139,7 @@ function buildGunSelect() {
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
-    if (w.sidearm) return;
+    if (w.sidearm || w.carried) return;
     const card = document.createElement('div');
     card.className = 'gun-card';
     enableMenuKeyboard(card);
@@ -156,7 +156,7 @@ function buildGunSelect() {
 }
 function pickGun(i) {
   weaponsOwned[0] = i;
-  weaponsOwned[1] = PISTOL;
+  weaponsOwned[1] = SNIPER; weaponsOwned[SIDE_SLOT] = PISTOL;
   $id('gun-select').style.display = 'none';
   paused = false;              // always start unpaused — fixes frozen redeploy
   $id('pause-menu').style.display = 'none';
@@ -248,6 +248,8 @@ let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
 let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
 let heartT = 0;
+let slowmoT = 0;
+function triggerSlowmo(sec) { slowmoT = Math.max(slowmoT, sec); }
 function updateHeartbeat(dt) {
   if (player.health > 30 || player.dead) { heartT = 0; return; }
   heartT -= dt;
@@ -259,6 +261,8 @@ function frame(now) {
   lastT = now;
   if (dt > 0.1) dt = 0.1;
   if (!(dt > 0)) dt = 0;   // the first rAF timestamp can precede lastT after a long startup
+  // brief bullet-time after long-range sniper headshot kills (real-time duration)
+  if (slowmoT > 0) { slowmoT -= dt; dt *= 0.3; }
   // Measure real frame time, not the clamped simulation timestep.
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
@@ -288,6 +292,7 @@ function frame(now) {
     gameT += dt;
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
+    updateScopeSway(dt);
     updatePlayer(dt);
     updateWeapons(dt);
     updateEnemies(dt);
@@ -345,7 +350,7 @@ function frame(now) {
     // Ease toward one bounded FOV target. The old incremental update let FOV
     // drift upward after a slide and looked like a camera rotation skip.
     // ADS zoom scales the tangent of the half-angle (true optical magnification)
-    const adsFov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(SETTINGS.fov) / 2) * (curW().adsZoom || 0.75)));
+    const adsFov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(SETTINGS.fov) / 2) * currentAdsZoom()));
     const baseFov = SETTINGS.fov + (adsFov - SETTINGS.fov) * adsAmount;
     const targetFov = baseFov + slideFov;
     const previousFov = camera.fov;
@@ -355,10 +360,10 @@ function frame(now) {
     camera.position.set(player.pos.x + bobX + player.leanOffset.x, player.pos.y + bobY + player.leanOffset.y + player.landDip, player.pos.z + player.leanOffset.z);
     camera.rotation.order = 'YXZ';
     updateCameraShake(dt, performance.now() / 1000);
-    camera.rotation.y = player.yaw + player.recoilY + camShake.yaw;
-    camera.rotation.x = player.pitch + player.recoilP + camShake.pitch;
+    camera.rotation.y = player.yaw + player.recoilY + camShake.yaw + SCOPE.swayX;
+    camera.rotation.x = player.pitch + player.recoilP + camShake.pitch + SCOPE.swayY;
     // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + (slideFov / 6) * 0.12 + (adsAmount > 0.8 ? swayX * 0.5 : 0) + camShake.roll - player.lean * 0.13;
+    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + (slideFov / 6) * 0.12 + (adsAmount > 0.8 ? SCOPE.swayX * 0.3 : 0) + camShake.roll - player.lean * 0.13;
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground
@@ -368,8 +373,9 @@ function frame(now) {
 
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
+    drawScope(dt);
     updateGunLighting();
-  }
+  } else if (scopeCanvas.style.display !== 'none') scopeCanvas.style.display = 'none';
   updateSunShadow(player.pos);
   SKY_UNIFORMS.time.value += dt;
   updateWorldDetail(performance.now() / 1000);
@@ -393,10 +399,8 @@ function preloadGameAssets() {
   return loadEmbeddedAssets(function (name, loaded, total) {
     progress.textContent = loaded + ' / ' + total + ' · ' + name;
   }).then(function (results) {
-    if (GLB_PARSED.SOLDIER) {
-      probeSkinnedSoldier();
-      if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
-    }
+    // warm the soldier templates so the first wave does not hitch on building them
+    for (let k = 0; k < 4; k++) buildSoldier(k);
     const n = scatterProps();
     const failed = results.filter(function (ok) { return !ok; }).length;
     progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';

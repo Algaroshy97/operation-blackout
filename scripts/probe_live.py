@@ -83,11 +83,11 @@ def main() -> int:
         check("gun-select-opened", page.evaluate("() => document.getElementById('gun-select').style.display === 'flex'"))
         page.wait_for_timeout(300)
         cards = page.evaluate("() => document.querySelectorAll('#gun-select .gun-card').length")
-        check("primary-cards-exclude-sidearm", cards > 0 and cards == page.evaluate("() => CFG.weapons.filter(w => !w.sidearm).length"))
+        check("primary-cards-exclude-carried", cards > 0 and cards == page.evaluate("() => CFG.weapons.filter(w => !w.sidearm && !w.carried).length"))
         page.evaluate("() => document.querySelector('#gun-select .gun-card').click()")
         page.wait_for_timeout(500)
         check("start-screen-hidden", page.evaluate("() => document.getElementById('start-screen').style.display === 'none'"))
-        check("sidearm-in-slot-2", page.evaluate("() => CFG.weapons[weaponsOwned[1]].sidearm === true"))
+        check("sniper-and-sidearm-carried", page.evaluate("() => CFG.weapons[weaponsOwned[1]].type === 'SR' && CFG.weapons[weaponsOwned[2]].sidearm === true"))
 
         # 3) Waves spawn; enemies move, stay grounded, and navigation has a flow field.
         check("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 90))
@@ -117,6 +117,20 @@ def main() -> int:
         # 5) Explosive barrel: ignite -> explode -> collider removed -> respawn on reset.
         page.evaluate("() => { godMode = true; damageBarrel(barrels[0], 999); }")
         check("barrel-explodes", wait_until(page, "() => barrels[0].state === 'gone' && colliders.indexOf(barrels[0].collider) < 0", 60))
+
+        # 5b) Sniper: always carried, punches through a 0.8 m wall; the kill ragdolls and settles.
+        wall = page.evaluate("""() => {
+            switchWeapon(1);
+            const e = spawnEnemy(1, 3.5, 3); e.state = 'spawn'; e.stateT = -1e9;
+            animateEnemy(e, 0.016, 13); scene.updateMatrixWorld(true);
+            camera.position.set(3.5, 1.7, 16); camera.rotation.set(-0.02, 0, 0, 'YXZ'); camera.updateMatrixWorld();
+            adsAmount = 1; const s = curS(); s.chambered = true; s.cycleT = 0; s.nextShot = 0;
+            const hp = e.health; fireShot(); window.__probeE = e;
+            return curW().type === 'SR' && e.health < hp;
+        }""")
+        check("sniper-wallbang", wall)
+        page.evaluate("() => damageEnemy(__probeE, 9999, __probeE.pos.clone().setY(1.2), false, new THREE.Vector3(0, 0, -1))")
+        check("ragdoll-settles", wait_until(page, "() => __probeE.ragdoll && __probeE.ragdoll.asleep && __probeE.ragdoll.P[1] < 0.6", 60))
 
         # 6) Supply drop: open, pick with the keyboard, perk applied.
         page.evaluate("() => openPerkMenu()")

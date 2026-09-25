@@ -5,6 +5,7 @@
 // plus gloved hands and camo sleeves. Rendered in gunScene by gunCamera (own pass).
 function vmMat(params) {
   const m = new THREE.MeshStandardMaterial(params);
+  if (!params.map) m.color.convertSRGBToLinear();   // authored in sRGB (see smat in 38_soldier.js)
   m.userData.shared = true;
   return m;
 }
@@ -207,38 +208,77 @@ function buildBR(g, P) {
   return t;
 }
 function buildSR(g, P) {
-  // wooden-green sporting stock, long free-floated barrel, big scope, bolt handle
-  B(g, 0.05, 0.05, 0.28, 0, 0.02, -0.06, VMAT.metal);                       // action
-  B(g, 0.056, 0.07, 0.42, 0, -0.012, -0.28, VMAT.olive);                    // fore-end
-  B(g, 0.05, 0.1, 0.24, 0, -0.03, 0.17, VMAT.olive);                        // butt
-  B(g, 0.05, 0.04, 0.14, 0, 0.035, 0.14, VMAT.olive);                       // cheek riser
-  B(g, 0.054, 0.11, 0.02, 0, -0.035, 0.29, VMAT.knuckle);
+  // chassis stock: fore-end with M-LOK slots, grip, adjustable cheek riser, butt spacers
+  B(g, 0.056, 0.06, 0.42, 0, -0.008, -0.3, VMAT.olive);                     // fore-end
+  for (let i = 0; i < 5; i++) for (const sx of [-1, 1]) B(g, 0.003, 0.012, 0.035, sx * 0.0285, -0.01, -0.18 - i * 0.055, VMAT.knuckle);
+  B(g, 0.024, 0.008, 0.2, 0, -0.042, -0.33, VMAT.metal);                    // bottom accessory rail
+  B(g, 0.05, 0.04, 0.2, 0, -0.018, -0.02, VMAT.olive);                      // action bed
   B(g, 0.034, 0.1, 0.05, 0, -0.085, 0.05, VMAT.olive, 0.35);                // grip
-  C(g, 0.012, 0.42, 0, 0.03, -0.62, VMAT.metal, 12, 0.009);                 // barrel
-  C(g, 0.019, 0.07, 0, 0.03, -0.86, VMAT.metal, 10);                        // brake
-  P.mag = new THREE.Group(); P.mag.position.set(0, -0.045, -0.06); g.add(P.mag);
-  B(P.mag, 0.04, 0.05, 0.08, 0, -0.025, 0, VMAT.metal);
-  // bolt: handle rotates up and slides back
-  P.bolt = new THREE.Group(); P.bolt.position.set(0.03, 0.028, 0.02); g.add(P.bolt);
-  C(P.bolt, 0.006, 0.05, 0.02, 0, 0, VMAT.steel, 8, 0.006, 'x');
-  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), VMAT.steel); knob.position.set(0.045, -0.005, 0); P.bolt.add(knob);
+  for (let i = 0; i < 4; i++) B(g, 0.036, 0.004, 0.052, 0, -0.06 - i * 0.02, 0.058 + i * 0.006, VMAT.knuckle, 0.35);
+  B(g, 0.008, 0.006, 0.07, 0, -0.045, -0.005, VMAT.metal);                  // trigger guard
+  B(g, 0.004, 0.018, 0.006, 0, -0.032, -0.01, VMAT.steel, 0.3);             // trigger
+  B(g, 0.046, 0.075, 0.2, 0, -0.03, 0.18, VMAT.olive);                      // butt
+  B(g, 0.03, 0.03, 0.06, 0, -0.012, 0.08, VMAT.metal);                      // stock hinge block
+  B(g, 0.044, 0.028, 0.13, 0, 0.034, 0.17, VMAT.olive);                     // cheek riser
+  for (const z of [0.13, 0.21]) C(g, 0.005, 0.03, 0, 0.014, z, VMAT.steel, 8, undefined, 'y');   // riser posts
+  C(g, 0.007, 0.012, 0.026, 0.02, 0.17, VMAT.steel, 8, undefined, 'x');     // riser knob
+  B(g, 0.05, 0.1, 0.012, 0, -0.035, 0.286, VMAT.metal);                     // spacers
+  B(g, 0.052, 0.105, 0.02, 0, -0.035, 0.302, VMAT.knuckle);                 // recoil pad
+  C(g, 0.006, 0.01, 0, -0.07, 0.24, VMAT.steel, 8, undefined, 'x');         // sling swivels
+  C(g, 0.006, 0.01, 0, -0.045, -0.46, VMAT.steel, 8, undefined, 'x');
+  // round receiver + bolt shroud
+  C(g, 0.02, 0.22, 0, 0.03, -0.06, VMAT.metal, 18);
+  C(g, 0.017, 0.035, 0, 0.03, 0.065, VMAT.metal, 16);
+  B(g, 0.012, 0.022, 0.06, 0.02, 0.036, -0.05, VMAT.knuckle);               // ejection port
+  rail(g, 0.2, 0, 0.056, -0.07);
+  // fluted barrel + ported muzzle brake
+  C(g, 0.012, 0.46, 0, 0.03, -0.4, VMAT.metal, 16, 0.0095);
+  for (let i = 0; i < 6; i++) {
+    const a = i / 6 * Math.PI * 2;
+    B(g, 0.003, 0.003, 0.3, Math.cos(a) * 0.0105, 0.03 + Math.sin(a) * 0.0105, -0.44, VMAT.knuckle);
+  }
+  C(g, 0.017, 0.08, 0, 0.03, -0.67, VMAT.metal, 8);
+  for (let i = 0; i < 3; i++) for (const sx of [-1, 1]) B(g, 0.004, 0.012, 0.012, sx * 0.016, 0.03, -0.645 - i * 0.02, VMAT.knuckle);
+  // detachable magazine
+  P.mag = new THREE.Group(); P.mag.position.set(0, -0.04, -0.05); g.add(P.mag);
+  B(P.mag, 0.036, 0.05, 0.08, 0, -0.025, 0, VMAT.metal);
+  B(P.mag, 0.04, 0.008, 0.086, 0, -0.052, 0, VMAT.polymer);
+  // bolt: body slides in the receiver, handle rotates up
+  P.bolt = new THREE.Group(); P.bolt.position.set(0.02, 0.03, 0.02); g.add(P.bolt);
+  C(P.bolt, 0.006, 0.05, 0.022, 0, 0, VMAT.steel, 8, 0.006, 'x');
+  const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.018, 10), VMAT.polymer);
+  knob.rotation.z = Math.PI / 2; knob.position.set(0.048, -0.004, 0); P.bolt.add(knob);
+  C(P.bolt, 0.01, 0.05, -0.02, 0.0, -0.02, VMAT.steel, 12);                 // bolt body (visible in the port)
   P.boltRest = 0.02;
-  // scope
-  C(g, 0.019, 0.3, 0, 0.1, -0.1, VMAT.metal, 18);
-  C(g, 0.03, 0.08, 0, 0.1, -0.29, VMAT.metal, 18, 0.019);
-  C(g, 0.025, 0.05, 0, 0.1, 0.07, VMAT.metal, 18, 0.019);
-  const lensF = C(g, 0.028, 0.003, 0, 0.1, -0.332, VMAT.lens, 18); lensF.renderOrder = 4;
-  C(g, 0.012, 0.03, 0, 0.13, -0.1, VMAT.metal, 10, 0.012, 'y');             // elevation turret
-  C(g, 0.012, 0.03, 0.03, 0.1, -0.1, VMAT.metal, 10, 0.012, 'x');
-  B(g, 0.02, 0.05, 0.02, 0, 0.07, -0.02, VMAT.metal); B(g, 0.02, 0.05, 0.02, 0, 0.07, -0.19, VMAT.metal);
-  // folded bipod
-  B(g, 0.01, 0.01, 0.16, -0.02, -0.055, -0.52, VMAT.metal); B(g, 0.01, 0.01, 0.16, 0.02, -0.055, -0.52, VMAT.metal);
+  // scope: tube, objective bell + sunshade, eyepiece, turrets, parallax knob, rings, flip caps
+  C(g, 0.017, 0.26, 0, 0.1, -0.09, VMAT.metal, 20);
+  C(g, 0.03, 0.07, 0, 0.1, -0.265, VMAT.metal, 20, 0.017);
+  C(g, 0.03, 0.06, 0, 0.1, -0.33, VMAT.metal, 20);
+  const lensF = C(g, 0.027, 0.003, 0, 0.1, -0.36, VMAT.lens, 20); lensF.renderOrder = 4;
+  C(g, 0.021, 0.05, 0, 0.1, 0.06, VMAT.metal, 18, 0.017);
+  C(g, 0.024, 0.03, 0, 0.1, 0.095, VMAT.polymer, 18);                       // diopter ring
+  const lensR = C(g, 0.021, 0.002, 0, 0.1, 0.11, VMAT.lens, 18); lensR.renderOrder = 4;
+  C(g, 0.012, 0.032, 0, 0.132, -0.1, VMAT.metal, 16, undefined, 'y');       // elevation turret
+  C(g, 0.0125, 0.008, 0, 0.143, -0.1, VMAT.knuckle, 16, undefined, 'y');
+  C(g, 0.012, 0.032, 0.032, 0.1, -0.1, VMAT.metal, 16, undefined, 'x');     // windage
+  C(g, 0.011, 0.026, -0.03, 0.1, -0.1, VMAT.metal, 16, undefined, 'x');     // parallax knob
+  for (const z of [-0.02, -0.18]) {
+    C(g, 0.021, 0.018, 0, 0.1, z, VMAT.metal, 18);                          // ring
+    B(g, 0.02, 0.05, 0.018, 0, 0.068, z, VMAT.metal);                       // ring base
+    C(g, 0.003, 0.012, 0.024, 0.1, z, VMAT.steel, 6, undefined, 'x');       // ring screws
+  }
+  const capF = B(g, 0.06, 0.004, 0.06, 0, 0.132, -0.362, VMAT.polymer, 1.3); capF.position.y = 0.14;   // flip caps (open)
+  B(g, 0.045, 0.004, 0.045, 0.032, 0.12, 0.112, VMAT.polymer, 0, 0, 1.2);
+  // folded bipod on the front sling stud
+  B(g, 0.03, 0.02, 0.04, 0, -0.05, -0.48, VMAT.metal);
+  B(g, 0.01, 0.01, 0.18, -0.016, -0.058, -0.39, VMAT.metal); B(g, 0.01, 0.01, 0.18, 0.016, -0.058, -0.39, VMAT.metal);
+  B(g, 0.014, 0.01, 0.02, -0.016, -0.058, -0.3, VMAT.knuckle); B(g, 0.014, 0.01, 0.02, 0.016, -0.058, -0.3, VMAT.knuckle);
   P.handR = hand(g, 0, -0.082, 0.05, 1, 0.35);
   forearm(g, 0.02, -0.13, 0.08, 0.1, -0.25, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
-  hand(P.handL, 0, -0.045, -0.32, -1, 1.1, 0.05);
+  hand(P.handL, 0, -0.04, -0.32, -1, 1.1, 0.05);
   forearm(P.handL, -0.02, -0.08, -0.29, -0.13, -0.36, -0.03);
-  return { sightY: 0.1, sightZ: 0.07, muzzleZ: -0.9, muzzleY: 0.03, hip: [0.16, -0.15, -0.38], kick: 2.4 };
+  return { sightY: 0.1, sightZ: 0.11, muzzleZ: -0.72, muzzleY: 0.03, hip: [0.16, -0.15, -0.38], kick: 2.2 };
 }
 function buildSG(g, P) {
   B(g, 0.05, 0.065, 0.2, 0, 0.02, -0.04, VMAT.metal);                       // receiver
@@ -394,7 +434,8 @@ function updateGunLighting() {
 function updateViewmodel(dt) {
   if (!gunGroup || !vmTune) return;
   const w = curW(), s = curS(), P = gunParts;
-  const aimAds = adsDown() && gunSwitchT >= 1 && !(s && s.reloading) && !(s && s.cycleT > 0 && w.bolt);
+  // the bolt is worked without leaving the scope (see drawScope's bolt dip)
+  const aimAds = adsDown() && gunSwitchT >= 1 && !(s && s.reloading);
   const adsRate = w.type === 'LMG' ? 7 : w.type === 'SR' ? 9 : w.type === 'PST' ? 16 : 12;
   adsAmount += ((aimAds ? 1 : 0) - adsAmount) * Math.min(1, adsRate * dt);
   gunSwitchT = Math.min(1, gunSwitchT + dt * 3.5 * perkMul('swap'));
@@ -531,9 +572,9 @@ function updateViewmodel(dt) {
   // --- optics overlays ---
   const scoped = w.type === 'SR' && adsAmount > 0.82;
   const scopeOv = $id('scoping-overlay');
-  const wantScope = adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR');
+  // ACOG vignette; the sniper scope is drawn by 34_scope.js
+  const wantScope = adsAmount > 0.75 && w.type === 'BR';
   scopeOv.style.opacity = wantScope ? 1 : 0;
-  scopeOv.classList.toggle('scope-sniper', w.type === 'SR');
   gunGroup.visible = !scoped;
   updateCrosshair(adsAmount > 0.6 || meleeT > 0 || (s && s.reloading) || player.sprinting ? 0 : 1, currentSpread());
   // steady indicator

@@ -74,7 +74,7 @@ function updateHudAmmo() {
   hud.ammoPips.className = shown > 20 ? 'dense' : '';
   // weapon slots + grenades
   let slots = '';
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0) continue;
     slots += '<span class="' + (i === curWeapon ? 'on' : '') + '"><b>' + (i + 1) + '</b>' + CFG.weapons[gi].name.split(' ')[0] + '</span>';

@@ -72,10 +72,11 @@ function applyGamepadInput(dt) {
   if (padEdge(p, PAD_BTN.A)) pressed['Space'] = true;
   keys['KeyC'] = padBtn(p, PAD_BTN.B);
   if (padEdge(p, PAD_BTN.X)) pressed['KeyR'] = true;
-  if (padEdge(p, PAD_BTN.Y)) switchWeapon(curWeapon === 0 ? 1 : 0);
+  if (padEdge(p, PAD_BTN.Y)) switchWeapon(curWeapon + 1);
   keys['KeyG'] = padBtn(p, PAD_BTN.LB);
   if (padEdge(p, PAD_BTN.RB) || padEdge(p, PAD_BTN.R3)) pressed['KeyV'] = true;
   player.leanTarget = padBtn(p, PAD_BTN.LEFT) ? -1 : padBtn(p, PAD_BTN.RIGHT) ? 1 : 0;
+  if (padEdge(p, PAD_BTN.UP)) cycleScopeZoom();
   if (padEdge(p, PAD_BTN.START) && started && !paused) pauseGame();
   PAD.prev = p.buttons.map(function (b) { return b.pressed || b.value > 0.4; });
 }

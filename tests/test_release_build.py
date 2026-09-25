@@ -2,6 +2,7 @@
 """Regression checks for the offline release build and enemy visibility fallback."""
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,34 +27,35 @@ class ReleaseBuildTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
             self.assertTrue(output.is_file())
-            self.assertIn("GLB_SOLDIER_BROKEN", output.read_text())
+            self.assertIn("startRagdoll", output.read_text())
 
-    def test_desktop_enemy_path_has_a_visible_fallback(self) -> None:
+    def test_soldiers_are_shared_procedural_rigs(self) -> None:
+        rig = (ROOT / "src" / "38_soldier.js").read_text()
+        assets = (ROOT / "src" / "05_assets.js").read_text()
         enemy_source = ENEMIES.read_text()
-        main_source = MAIN.read_text()
-        self.assertIn("let GLB_SOLDIER_BROKEN = false", enemy_source)
-        self.assertIn("!GLB_SOLDIER_BROKEN", enemy_source)
-        self.assertIn("root.scale.setScalar(GLB_SOLDIER_SCALE)", enemy_source)
-        self.assertIn("if (o.isSkinnedMesh) o.frustumCulled = false", enemy_source)
-        self.assertIn("g.add(root); g.add(hitBody); g.add(hitHead)", enemy_source)
-        self.assertIn("probeSkinnedSoldier()", main_source)
+        self.assertIn("function buildSoldierTemplate(kind)", rig)
+        self.assertIn("SOLDIER_TEMPLATES[kind].clone(true)", rig)   # one template per kind, shared geometry
+        self.assertIn("mergeRigMeshes(root)", rig)                 # few draw calls per soldier
+        self.assertIn("const parts = buildSoldier(kind);", enemy_source)
+        self.assertNotIn("SOLDIER:", assets)                        # cartoon GLB soldier removed
+        self.assertNotIn("GLB_SOLDIER_BROKEN", enemy_source)
 
-    def test_soldier_probe_restores_live_player_and_camera_state(self) -> None:
+    def test_verlet_ragdoll_is_constrained_and_collides(self) -> None:
+        rig = (ROOT / "src" / "38_soldier.js").read_text()
+        for needle in ("const RD_BONES", "const RD_BRACES", "const RD_MIN", "function rdHinge", "function rdCollide",
+                       "R.asleep = true", "function ragdollBlast", "function ragdollHit"):
+            self.assertIn(needle, rig)
+        # fixed-step integration (stable at any frame rate)
+        self.assertIn("while (R.acc >= RD_H)", rig)
         enemy_source = ENEMIES.read_text()
-        self.assertIn("const playerState = {", enemy_source)
-        self.assertIn("const cameraState = {", enemy_source)
-        self.assertIn("finally {", enemy_source)
-        self.assertIn("player.pos.copy(playerState.pos)", enemy_source)
-        self.assertIn("player.vel.copy(playerState.vel)", enemy_source)
-        self.assertIn("camera.position.copy(cameraState.position)", enemy_source)
-        self.assertIn("camera.rotation.copy(cameraState.rotation)", enemy_source)
+        self.assertIn("startRagdoll(en, dir,", enemy_source)
+        self.assertIn("ragdollBlast(pos,", (ROOT / "src" / "55_grenades.js").read_text())
 
-    def test_soldier_probe_uses_a_before_after_pixel_comparison(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        self.assertIn("function readProbePixels", enemy_source)
-        self.assertIn("const before = readProbePixels", enemy_source)
-        self.assertIn("const after = readProbePixels", enemy_source)
-        self.assertIn("painted > before.length / 16", enemy_source)
+    def test_untextured_colours_are_linearised(self) -> None:
+        # Regression: hex colours are linear in this renderer; dark kit rendered near-white.
+        self.assertIn("if (!map) m.color.convertSRGBToLinear();", (ROOT / "src" / "38_soldier.js").read_text())
+        self.assertIn("if (!params.map) m.color.convertSRGBToLinear();", (ROOT / "src" / "32_viewmodels.js").read_text())
+
     def test_performance_and_visibility_guards_exist(self) -> None:
         player_source = (ROOT / "src" / "20_player.js").read_text()
         world_source = (ROOT / "src" / "10_config_world.js").read_text()
@@ -125,7 +127,7 @@ class ReleaseBuildTests(unittest.TestCase):
 
         # 9) Secondary weapon reset across runs (slot 2 is the sidearm again,
         #    so an Armory swap from a previous run never persists)
-        self.assertIn("weaponsOwned[1] = PISTOL;\n  curWeapon = 0;\n  initWeapons();", main_src)
+        self.assertIn("weaponsOwned[1] = SNIPER; weaponsOwned[SIDE_SLOT] = PISTOL;\n  curWeapon = 0;\n  initWeapons();", main_src)
 
         # 10) Audio node disconnect in playSound3D
         self.assertIn("p.disconnect()", vfx_src)
@@ -145,25 +147,19 @@ class ReleaseBuildTests(unittest.TestCase):
         # 14) Weapon raise blocks firing
         self.assertIn("gunSwitchT >= 1", weapons_src)
 
-    def test_box_man_hitbox_invariant(self) -> None:
-        import re
-        enemy_source = ENEMIES.read_text()
-        body_match = re.search(r"hitBody\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);\s*hitBody\.position\.y\s*=\s*([\d.]+);", enemy_source)
-        self.assertIsNotNone(body_match, "Could not find box-man hitBody definition")
-        body_h = float(body_match.group(1))
-        body_y = float(body_match.group(2))
-        body_top = body_y + body_h / 2
-
-        head_match = re.search(r"hitHead\s*=\s*new\s+THREE\.Mesh\(new\s+THREE\.BoxGeometry\([\d.]+\s*,\s*([\d.]+)\s*,\s*[\d.]+\),\s*hbMat\);", enemy_source)
-        self.assertIsNotNone(head_match, "Could not find box-man hitHead definition")
-        head_h = float(head_match.group(1))
-
-        pelvis_h = float(re.search(r"pelvisH:\s*([\d.]+)", enemy_source).group(1))
-        body_dim_h = float(re.search(r"bodyH:\s*([\d.]+)", enemy_source).group(1))
-        head_y = pelvis_h + body_dim_h + 0.16
-        head_bottom = head_y - head_h / 2
-
-        self.assertLess(body_top, head_bottom, f"hitBody top ({body_top}) must be below hitHead bottom ({head_bottom})")
+    def test_soldier_hitbox_invariant(self) -> None:
+        # head hitbox (on the head joint) must sit above the torso hitbox (on the spine joint)
+        rig = (ROOT / "src" / "38_soldier.js").read_text()
+        num = r"(-?[\d.]+)"
+        hips = float(re.search(r"joint\(root, 'hips', 0, " + num + ", 0\)", rig).group(1))
+        spine = float(re.search(r"joint\(hips, 'spine', 0, " + num + ", 0\)", rig).group(1))
+        neck = float(re.search(r"joint\(spine, 'neck', 0, " + num, rig).group(1))
+        head = float(re.search(r"joint\(neck, 'head', 0, " + num, rig).group(1))
+        m = re.search(r"piece\(spine, boxG\([\d.]+, " + num + r", [\d.]+\), hbMat, 0, " + num, rig)
+        body_top = hips + spine + float(m.group(2)) + float(m.group(1)) / 2
+        m = re.search(r"piece\(head, boxG\([\d.]+, " + num + r", [\d.]+\), hbMat, 0, " + num, rig)
+        head_bottom = hips + spine + neck + head + float(m.group(2)) - float(m.group(1)) / 2
+        self.assertLess(body_top, head_bottom, f"body top {body_top} must be below head bottom {head_bottom}")
 
     def test_ground_mesh_in_raycast_colliders(self) -> None:
         world_source = (ROOT / "src" / "10_config_world.js").read_text()
@@ -171,11 +167,17 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertNotIn("colliders.push(ground)", world_source)
         self.assertIn("scene.add(ground);\nraycastColliders.push(ground);", world_source)
 
-    def test_skinned_soldier_rebind_helper(self) -> None:
-        enemy_source = ENEMIES.read_text()
-        self.assertIn("function skClone(source)", enemy_source)
-        self.assertIn("skClone(gltf.scene)", enemy_source)
-        self.assertIn("node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix)", enemy_source)
+    def test_sniper_is_always_carried_and_penetrates_walls(self) -> None:
+        world = (ROOT / "src" / "10_config_world.js").read_text()
+        weapons = (ROOT / "src" / "30_weapons.js").read_text()
+        vm = (ROOT / "src" / "32_viewmodels.js").read_text()
+        self.assertIn("carried: true", world)
+        self.assertIn("wallPen: 0.95", world)
+        self.assertIn("const weaponsOwned = [0, SNIPER, PISTOL];", weapons)
+        self.assertIn("function wallThickness(point, dir)", weapons)
+        self.assertNotIn("adsAmount *= 0.45", weapons)            # no forced unscope after a shot
+        self.assertNotIn("s.cycleT > 0 && w.bolt);", vm)          # stays scoped through the bolt cycle
+        self.assertIn("function drawScope(dt)", (ROOT / "src" / "34_scope.js").read_text())
 
     def test_settings_are_persisted_defensively(self) -> None:
         src = (ROOT / "src" / "07_settings.js").read_text()

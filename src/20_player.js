@@ -53,7 +53,9 @@ addEventListener('blur', clearInputState);
 document.addEventListener('visibilitychange', function () { if (document.hidden) clearInputState(); });
 addEventListener('contextmenu', function (e) { e.preventDefault(); });
 canvas.addEventListener('wheel', function (e) {
-  if (started && !paused && !player.dead) switchWeapon(curWeapon + (e.deltaY > 0 ? 1 : -1));
+  if (!started || paused || player.dead) return;
+  if (curW().zooms && adsAmount > 0.6) { cycleScopeZoom(); return; }   // wheel zooms the scope
+  switchWeapon(curWeapon + (e.deltaY > 0 ? 1 : -1));
 }, { passive: true });
 
 document.addEventListener('pointerlockchange', function () {
@@ -77,7 +79,8 @@ const player = {
   stamina: CFG.player.maxStamina,
   lastDamageT: -99, dead: false,
   bobPhase: 0, bobAmp: 0,
-  recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
+  recoilP: 0, recoilY: 0,   // camera recoil offsets (springs toward recoilTP/TY)
+  recoilTP: 0, recoilTY: 0, recoilVP: 0, recoilVY: 0,
   // slide state
   sliding: false, slideT: 0, slideDir: new THREE.Vector3(),
   // jump feel
@@ -270,7 +273,7 @@ function updatePlayer(dt) {
   player.lookDX = dYaw; player.lookDY = dPitch;
   mouseX = 0; mouseY = 0;
   // recoil decay
-  player.recoilP *= Math.pow(0.02, dt); player.recoilY *= Math.pow(0.02, dt);
+  updateRecoilSpring(dt);
 
   if (player.mantle) {
     updateMantle(dt);
@@ -470,6 +473,20 @@ function updatePlayer(dt) {
   if (player.pos.y < -5) { player.pos.set(0, CFG.player.height, 24); player.vel.set(0, 0, 0); }
 }
 
+// Camera recoil: the kick target decays (recovery) while the view follows it on a
+// near-critically damped spring, so shots rise and settle smoothly instead of snapping.
+function updateRecoilSpring(dt) {
+  const w = curW();
+  const recover = w && w.type === 'SR' ? 3.2 : 7;
+  const k = Math.exp(-recover * dt);
+  player.recoilTP *= k; player.recoilTY *= k;
+  const n = Math.max(1, Math.ceil(dt * 240)), h = dt / n, om = 38, c = 2 * 0.82 * om;
+  for (let i = 0; i < n; i++) {
+    player.recoilVP += ((player.recoilTP - player.recoilP) * om * om - player.recoilVP * c) * h;
+    player.recoilVY += ((player.recoilTY - player.recoilY) * om * om - player.recoilVY * c) * h;
+    player.recoilP += player.recoilVP * h; player.recoilY += player.recoilVY * h;
+  }
+}
 // Landing: camera dip spring, dust, and fall damage past ~2.5 m drops.
 function onLanded(speed) {
   player.landVel -= Math.min(2.2, speed * 0.14);

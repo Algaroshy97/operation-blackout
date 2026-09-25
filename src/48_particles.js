@@ -283,6 +283,17 @@ function fxExplosion(p, scale) {
   }
   flashLight(p, 0xff9040, 14 * scale, 22 * scale, 0.45);
 }
+// Sniper vapour trail: a thin line of slow-fading haze along the bullet path.
+function sniperTrail(from, to) {
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+  const len = Math.hypot(dx, dy, dz);
+  const n = Math.min(45, Math.floor(len / 1.4));
+  for (let i = 1; i <= n; i++) {
+    const t = i / (n + 1);
+    pfxEmit(PFX_SMOKE, from.x + dx * t, from.y + dy * t, from.z + dz * t, rnd(-0.08, 0.08), rnd(0.05, 0.2), rnd(-0.08, 0.08),
+      rnd(1.2, 2.2), 0.05, 0.35 + t * 0.2, 0xc8ccd0, 0x8a8e94, 0.16, 1.2, -0.05, 0);
+  }
+}
 // Continuous fire (called per frame by burning props / barrels)
 function fxFire(p, strength, dt) {
   const rate = 40 * strength * dt;

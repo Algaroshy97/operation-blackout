@@ -7,6 +7,7 @@ const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
 // HDR colours (>1) so tracers bloom in the post-FX pass.
 const tracerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe2a0).multiplyScalar(4), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const tracerMatE = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a30).multiplyScalar(5), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+const tracerMatS = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4e0).multiplyScalar(9), transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const casingGeo = new THREE.CylinderGeometry(0.0065, 0.0065, 0.032, 8);
 const casingMat = new THREE.MeshStandardMaterial({ color: 0xd9a94a, roughness: 0.3, metalness: 0.9 });
 const shellGeo = new THREE.CylinderGeometry(0.011, 0.011, 0.06, 8);
@@ -46,7 +47,8 @@ function getCasingMesh() {
 const _trDir = new THREE.Vector3();
 function spawnTracer(from, to, mat) {
   const enemy = mat === 0xff8844 || mat === tracerMatE;
-  const m = getTracerMesh(enemy ? tracerMatE : tracerMat);
+  const sniper = mat === 'sniper';
+  const m = getTracerMesh(enemy ? tracerMatE : sniper ? tracerMatS : tracerMat);
   const len = from.distanceTo(to);
   if (len < 0.5) { m.visible = false; tracerPool.push(m); return; }
   m.position.copy(from);
@@ -54,7 +56,7 @@ function spawnTracer(from, to, mat) {
   scene.add(m);
   vfx.tracers.push({
     m: m, from: from.clone(), dir: _trDir.copy(to).sub(from).normalize().clone(), len: len,
-    d: 0, speed: enemy ? 140 : 420, seg: enemy ? 3.5 : 5, w: enemy ? 0.035 : 0.022
+    d: 0, speed: enemy ? 140 : sniper ? 950 : 420, seg: enemy ? 3.5 : sniper ? 14 : 5, w: enemy ? 0.035 : sniper ? 0.03 : 0.022
   });
 }
 function releaseTracer(t) { scene.remove(t.m); t.m.visible = false; tracerPool.push(t.m); }
@@ -278,7 +280,7 @@ function audioCtx() {
 }
 function setMasterVolume(v) { if (masterGain) masterGain.gain.value = v; }
 // Sounds that also feed the reverb bus
-const REVERB_SOUNDS = { shot_AR: 1, shot_SMG: 1, shot_BR: 1, shot_SR: 1, shot_SG: 1, shot_LMG: 1, shot_PST: 1, sniper: 1, eshot: 1, explosion: 1, barrel_boom: 1, thunder: 1 };
+const REVERB_SOUNDS = { sniper_echo: 1, shot_AR: 1, shot_SMG: 1, shot_BR: 1, shot_SR: 1, shot_SG: 1, shot_LMG: 1, shot_PST: 1, sniper: 1, eshot: 1, explosion: 1, barrel_boom: 1, thunder: 1 };
 function playSound(name, dest) {
   const ctx = audioCtx();
   if (!ctx || !masterGain) return;
@@ -328,7 +330,8 @@ function playSound(name, dest) {
     case 'shot_LMG':  gun(0.55, 0.5, 950, 0.55, 140, 0.22, 0.45); break;
     case 'shot_PST':  gun(0.45, 0.4, 1600, 0.3, 210, 0.12, 0.25); break;
     case 'shot_SG':   gun(0.6, 0.7, 600, 0.8, 110, 0.35, 0.7); break;
-    case 'shot_SR': case 'sniper': gun(0.7, 0.6, 700, 0.8, 120, 0.4, 0.9); break;
+    case 'shot_SR': case 'sniper': gun(0.85, 0.7, 650, 1.0, 110, 0.5, 1.1); noise(0.03, 0.5, 5200, 0.8, 'highpass'); osc('sine', 55, 28, 0.5, 0.6); break;
+    case 'sniper_echo': noise(1.6, 0.16, 500, 0.6, 'lowpass', 90); noise(0.9, 0.08, 1200, 1, 'bandpass', 300, 0.35); break;
     case 'scope_in':  osc('sine', 900, 1300, 0.09, 0.08); break;
     case 'scope_out': osc('sine', 1300, 800, 0.09, 0.08); break;
     case 'slide':     noise(0.25, 0.3, 420, 0.5); noise(0.18, 0.2, 150, 0.4); break;
