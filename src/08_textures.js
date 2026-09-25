@@ -279,10 +279,10 @@ TEX.camo = makeSurface(256, 101, 2.0, function (g, h, S, rnd) {
 // ---- City skyline windows (mostly dark: it is a blackout) ----
 TEX.skyline = (function () {
   const W = 256, H = 256, cv = texCanvas(W, H), g = cv.g, rnd = texRng(113);
-  g.fillStyle = '#15171c'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#17191e'; g.fillRect(0, 0, W, H);
   for (let y = 6; y < H - 4; y += 12) for (let x = 5; x < W - 4; x += 10) {
     const r = rnd();
-    g.fillStyle = r < 0.06 ? 'rgb(255,196,120)' : r < 0.1 ? 'rgb(170,200,255)' : 'rgb(28,31,38)';
+    g.fillStyle = r < 0.035 ? 'rgb(255,196,120)' : r < 0.05 ? 'rgb(170,200,255)' : 'rgb(20,22,27)';
     g.fillRect(x, y, 6, 7);
   }
   return toTex(cv.c, true);

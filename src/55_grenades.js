@@ -66,66 +66,35 @@ function updateGrenadePreview(speed) {
   _prevDir.y += 0.45;
   _prevDir.normalize();
 
-  let px = camera.position.x;
-  let py = camera.position.y - 0.1;
-  let pz = camera.position.z;
-  let vx = _prevDir.x * speed;
-  let vy = _prevDir.y * speed;
-  let vz = _prevDir.z * speed;
+  _pvP.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
+  _pvV.copy(_prevDir).multiplyScalar(speed);
   const dtStep = 0.04;
-
-  let bounces = 0;
   let fuse = CFG.grenade.fuse;
   let stopped = false;
+  // Same integrator + collision as updateGrenades, so the arc matches the throw.
   for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
     if (stopped) {
       previewDots[i].visible = false;
       continue;
     }
     fuse -= dtStep;
-    vy -= 14 * dtStep;
-    px += vx * dtStep;
-    py += vy * dtStep;
-    pz += vz * dtStep;
-
-    // ground bounce check (matches updateGrenades physics)
-    if (py < 0.11) {
-      py = 0.11;
-      vy = -vy * CFG.grenade.bounce;
-      vx *= 0.55;
-      vz *= 0.55;
-      bounces++;
-      if (bounces > 1) {
-        vx *= 0.3;
-        vz *= 0.3;
-      }
-      if (bounces >= 3) {
-        stopped = true;
-      }
-    }
-
-    // wall bounce (AABBs) (matches updateGrenades physics)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
-          py > col.min.y && py < col.max.y &&
-          pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const ox = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(px - cx);
-        const oz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(pz - cz);
-        if (ox < oz) { vx = -vx * 0.5; px += (px > cx ? ox : -ox); }
-        else { vz = -vz * 0.5; pz += (pz > cz ? oz : -oz); }
-        vy *= 0.8;
-      }
-    }
-
-    if (fuse <= 0) {
-      stopped = true;
-    }
-
-    previewDots[i].position.set(px, py, pz);
+    stepGrenadeBody(_pvP, _pvV, dtStep);
+    if (fuse <= 0 || (_pvV.lengthSq() < 0.04 && _pvRest)) stopped = true;
+    previewDots[i].position.copy(_pvP);
     previewDots[i].visible = true;
   }
+}
+const _pvP = new THREE.Vector3(), _pvV = new THREE.Vector3();
+let _pvRest = false;
+const GRENADE_R = 0.1;
+// One physics step for a grenade body. Returns the contact normal's up component.
+function stepGrenadeBody(p, v, dt) {
+  v.y -= 14 * dt;
+  p.addScaledVector(v, dt);
+  const g = sphereVsWorld(p, v, GRENADE_R, CFG.grenade.bounce, 0.28);
+  _pvRest = g > 0.6;
+  if (_pvRest) { const k = Math.exp(-2.8 * dt); v.x *= k; v.z *= k; }   // rolling resistance
+  return g;
 }
 
 function throwGrenade(customSpeed) {
@@ -204,39 +173,19 @@ function updateGrenades(dt) {
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
     g.fuse -= dt;
-    g.vel.y -= 14 * dt;
-    g.m.position.addScaledVector(g.vel, dt);
-    // ground bounce
-    if (g.m.position.y < 0.11) {
-      g.m.position.y = 0.11;
-      if (Math.abs(g.vel.y) > 1) playSound('bounce');
-      g.vel.y = -g.vel.y * CFG.grenade.bounce;
-      g.vel.x *= 0.55; g.vel.z *= 0.55;
-      if (g.grounded === undefined) g.grounded = 0;
-      g.grounded++;
-      if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
-    }
-    // wall bounce (AABBs)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      const p = g.m.position;
-      if (p.x > col.min.x - 0.1 && p.x < col.max.x + 0.1 && p.y > col.min.y && p.y < col.max.y && p.z > col.min.z - 0.1 && p.z < col.max.z + 0.1) {
-        // push out along smallest axis and reflect
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const px = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(p.x - cx);
-        const pz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(p.z - cz);
-        if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
-        else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
-        g.vel.y *= 0.8;
-      }
-    }
+    const vBefore = g.vel.length();
+    const contact = stepGrenadeBody(g.m.position, g.vel, dt);
+    if (contact > 0 && vBefore - g.vel.length() > 1.2) playSound3D('bounce', g.m.position.x, g.m.position.y, g.m.position.z);
+    if (contact > 0.6) g.grounded = (g.grounded || 0) + 1;
+    g.m.rotation.x += g.vel.z * dt * 8; g.m.rotation.z -= g.vel.x * dt * 8;
+    if (Math.random() < 0.5) pfxEmit(PFX_SMOKE, g.m.position.x, g.m.position.y + 0.05, g.m.position.z, 0, 0.3, 0, 0.6, 0.05, 0.25, 0x8a8a8a, 0x5a5a5a, 0.25, 1, -0.2, 0);
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
-    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.4) {
       g.atRest = true;
       g.restFuse = Math.max(0.1, g.fuse);
       const ring = getBlastRing();
-      ring.position.set(g.m.position.x, 0.03, g.m.position.z);
+      ring.position.set(g.m.position.x, g.m.position.y - GRENADE_R + 0.03, g.m.position.z);
       ring.material.opacity = 0.32;
       scene.add(ring);
       g.ring = ring;
@@ -285,32 +234,55 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
 
-function explodeGrenade(pos) {
-  playSound('explosion');
-  fxExplosion(pos, 1);
-  spawnScorch(pos.x, pos.z, 3.2);
-  // damage with distance falloff and real cover occlusion
-  const blastFrom = pos.clone(); blastFrom.y += 0.12;
+function explodeGrenade(pos, fromEnemy) {
+  applyExplosion(pos, { radius: CFG.grenade.radius, dmg: CFG.grenade.dmg, playerDmg: fromEnemy ? 70 : 55, scale: 1, sound: 'explosion', fromEnemy: !!fromEnemy });
+}
+
+// Shared blast: FX, falloff damage with cover occlusion, knockback impulse,
+// chain reactions (barrels), camera trauma. Used by grenades and explosive barrels.
+const _blastFrom = new THREE.Vector3(), _blastTarget = new THREE.Vector3(), _blastDir = new THREE.Vector3();
+function applyExplosion(pos, o) {
+  const R = o.radius;
+  playSound3D(o.sound || 'explosion', pos.x, pos.y, pos.z, false, 140);
+  fxExplosion(pos, o.scale || 1);
+  const floorY = floorHeightAt(pos.x, pos.z, pos.y + 0.2);
+  if (pos.y - floorY < 0.8) {
+    if (floorY <= GROUND + 0.01) spawnScorch(pos.x, pos.z, R * 0.5);
+  }
+  _blastFrom.copy(pos); _blastFrom.y += 0.15;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    const d = en.pos.distanceTo(pos);
-    const target = en.pos.clone().setY(1.1);
-    if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
-      const falloff = 1 - d / CFG.grenade.radius;
-      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff);
-      damageEnemy(en, dmg, target, false);
+    _blastTarget.set(en.pos.x, en.pos.y + 1.0, en.pos.z);
+    const d = _blastTarget.distanceTo(pos);
+    if (d < R && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
+      const falloff = 1 - d / R;
+      const dmg = o.dmg * (0.35 + 0.65 * falloff);
+      _blastDir.copy(_blastTarget).sub(pos).normalize();
+      _blastDir.y = Math.max(0.35, _blastDir.y);
+      en.blastImpulse = _blastDir.clone().multiplyScalar(4 + 9 * falloff);
+      damageEnemy(en, dmg, _blastTarget.clone(), false, _blastDir, true);
     }
   }
-  // player self-damage (half, encourages careful use; solid cover blocks it)
-  const pd = player.pos.distanceTo(pos);
-  const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
-  if (pd < CFG.grenade.radius * 0.8 && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
-    const falloff = 1 - pd / (CFG.grenade.radius * 0.8);
-    damagePlayer(Math.round(55 * falloff), undefined);
+  if (typeof damageBarrelsInRadius === 'function') damageBarrelsInRadius(pos, R, o.dmg);
+  // player: cover blocks it; enemy grenades hurt more than your own
+  _blastTarget.copy(player.pos); _blastTarget.y -= 0.5;
+  const pd = _blastTarget.distanceTo(pos);
+  if (pd < R * 0.85 && grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
+    const falloff = 1 - pd / (R * 0.85);
+    const bearing = (Math.atan2(pos.x - player.pos.x, pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
+    damagePlayer(Math.round(o.playerDmg * falloff) * (o.fromEnemy ? diff().dmg : 1), bearing);
+    // blast pushes the player
+    _blastDir.copy(_blastTarget).sub(pos).normalize();
+    player.vel.x += _blastDir.x * 7 * falloff; player.vel.z += _blastDir.z * 7 * falloff;
+    player.vel.y = Math.max(player.vel.y, 2.5 * falloff);
   }
-  // camera shake kick
-  shotKick = Math.min(2, shotKick + 1.2);
+  const shake = Math.max(0, 1 - pd / (R * 5));
+  addTrauma(shake * 0.95);
+  postKick('aberration', shake * 0.9);
+  if (pd < R * 1.3) postKick('flash', 0.35 * (1 - pd / (R * 1.3)));
+  shotKick = Math.min(2, shotKick + shake * 1.2);
+  if (typeof markNavDirty === 'function') markNavDirty();
 }
 
 // ---- Pickups: ammo + medkit drops from enemies ----

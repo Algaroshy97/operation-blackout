@@ -195,6 +195,7 @@ function fireShot() {
     const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(w.dmg, hit.distance, w.range);
     damageEnemy(en, dmg, hit.point, isHead);
   } else if (hit) {
+    if (hit.object.userData.barrelRef) damageBarrel(hit.object.userData.barrelRef, w.dmg);
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
   }

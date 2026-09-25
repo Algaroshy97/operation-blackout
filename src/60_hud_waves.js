@@ -160,6 +160,7 @@ function updateWaves(dt) {
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       unlockSecondary();
       resupply();
+      respawnBarrels();
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
       showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }

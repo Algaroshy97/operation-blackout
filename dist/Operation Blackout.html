@@ -4267,10 +4267,10 @@ TEX.camo = makeSurface(256, 101, 2.0, function (g, h, S, rnd) {
 // ---- City skyline windows (mostly dark: it is a blackout) ----
 TEX.skyline = (function () {
   const W = 256, H = 256, cv = texCanvas(W, H), g = cv.g, rnd = texRng(113);
-  g.fillStyle = '#15171c'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#17191e'; g.fillRect(0, 0, W, H);
   for (let y = 6; y < H - 4; y += 12) for (let x = 5; x < W - 4; x += 10) {
     const r = rnd();
-    g.fillStyle = r < 0.06 ? 'rgb(255,196,120)' : r < 0.1 ? 'rgb(170,200,255)' : 'rgb(28,31,38)';
+    g.fillStyle = r < 0.035 ? 'rgb(255,196,120)' : r < 0.05 ? 'rgb(170,200,255)' : 'rgb(20,22,27)';
     g.fillRect(x, y, 6, 7);
   }
   return toTex(cv.c, true);
@@ -4395,7 +4395,7 @@ for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = QUALITY.detail 
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(CFG.world.skyColor);
-scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0115);
+scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0125);
 
 const camera = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth / innerHeight, 0.05, 400);
 // The first-person viewmodel lives in its own scene, drawn after the world with a
@@ -4718,20 +4718,7 @@ function buildArena() {
   addBox(-40, 0.75, 18, 1.5, 1.5, 1.5, MAT.wood);
   addBox(40, 0.75, -18, 1.5, 1.6, 1.5, MAT.wood);
   addBox(-40, 0.75, -18, 1.5, 1.5, 1.5, MAT.wood);
-  // barrels (procedural cylinders at build time; desktop swaps in the CC0 Kenney
-  // survival-kit GLB later in scatterProps(), once the async GLB parse is done)
-  function barrel(x, z) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.5, 12), MAT.red);
-    m.position.set(x, 0.75, z); m.castShadow = true; m.receiveShadow = true;
-    m.userData.oldBarrel = true;
-    scene.add(m);
-    raycastColliders.push(m);
-    addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
-  }
-  barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
-  barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
-  barrel(22, 12); barrel(-22, 12); barrel(22, -12); barrel(-22, -12);
-  barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
+  // explosive barrels are built by 57_destructibles.js
 }
 buildArena();
 
@@ -4786,6 +4773,12 @@ function scatterProps() {
     const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
     m.userData.surface = s[0] === 'COLUMN' ? 'concrete' : 'wood';
+    if (s[0] === 'TREE') {
+      // the Kenney palette is candy-bright; mute it to sit in the dusk grade
+      m.traverse(function (o) {
+        if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.color.setRGB(0.4, 0.46, 0.36); o.material.roughness = 0.95; }
+      });
+    }
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
     m.traverse(function (o) {
@@ -4815,32 +4808,328 @@ function scatterProps() {
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
   });
   placed += 3;
-  // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
-  // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
-  // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
-  // Mobile keeps the lightweight cylinders (GPU/memory budget).
-  if (!IS_TOUCH && GLB_PARSED.BARREL) {
-    // collect first, THEN remove: mutating scene.children during traverse()
-    // shifts the live array and silently skips every other sibling
-    const oldBarrels = [];
-    scene.traverse(function (o) { if (o.userData && o.userData.oldBarrel) oldBarrels.push(o); });
-    for (let i = 0; i < oldBarrels.length; i++) {
-      const p = oldBarrels[i].position;
-      scene.remove(oldBarrels[i]);
-      const oldIdx = raycastColliders.indexOf(oldBarrels[i]);
-      if (oldIdx !== -1) raycastColliders.splice(oldIdx, 1);
-      const b = GLB_PARSED.BARREL.scene.clone(true);
-      b.scale.setScalar(4.4);
-      b.position.set(p.x, 0, p.z);
-      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);  // varied, deterministic
-      b.castShadow = true; b.receiveShadow = true;
-      b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
-      scene.add(b);
-      raycastColliders.push(b);
-    }
-    if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
-  }
   return placed;
+}
+
+// ============ WORLD DETAIL: SET DRESSING, COVER, SKYLINE ============
+'use strict';
+// Static geometry sharing a material is merged into one mesh (one draw call).
+// Anything that acts as cover gets an AABB collider + raycast mesh.
+const _mm = new THREE.Matrix4(), _mq = new THREE.Quaternion(), _ms = new THREE.Vector3(), _mp = new THREE.Vector3(), _me = new THREE.Euler();
+function xform(x, y, z, rx, ry, rz, sx, sy, sz) {
+  _mp.set(x, y, z); _me.set(rx || 0, ry || 0, rz || 0); _mq.setFromEuler(_me); _ms.set(sx || 1, sy || 1, sz || 1);
+  return new THREE.Matrix4().compose(_mp, _mq, _ms);
+}
+// Merge [{geo, m}] into a single non-indexed BufferGeometry (position/normal/uv).
+function mergeGeos(parts) {
+  let count = 0;
+  const flat = parts.map(function (p) {
+    const g = (p.geo.index ? p.geo.toNonIndexed() : p.geo.clone());
+    g.applyMatrix4(p.m);
+    count += g.attributes.position.count;
+    return g;
+  });
+  const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2);
+  let o = 0;
+  for (const g of flat) {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    if (g.attributes.uv) uv.set(g.attributes.uv.array, o * 2);
+    o += n;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  out.computeBoundingSphere();
+  return out;
+}
+function addMerged(parts, mat, opts) {
+  if (!parts.length) return null;
+  opts = opts || {};
+  const m = new THREE.Mesh(mergeGeos(parts), mat);
+  m.castShadow = opts.shadow !== false; m.receiveShadow = true;
+  scene.add(m);
+  if (opts.raycast) raycastColliders.push(m);
+  return m;
+}
+// UV-scaled box piece for merging
+function boxPart(w, h, d, x, y, z, ry, texSize) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  if (texSize) boxWorldUV(g, w, h, d, texSize, (x * 31 + z * 17) | 0);
+  return { geo: g, m: xform(x, y, z, 0, ry || 0, 0) };
+}
+
+const DETAIL = { lamps: [], wires: null };
+(function buildWorldDetail() {
+  const S = CFG.world.size;
+  const concreteParts = [], darkMetal = [], railParts = [];
+
+  // ---- Perimeter walls: concrete coping and pilasters ----
+  for (const sgn of [-1, 1]) {
+    concreteParts.push(boxPart(S + 4.4, 0.3, 1.4, 0, 6.15, sgn * S / 2, 0, 3));
+    concreteParts.push(boxPart(1.4, 0.3, S + 4.4, sgn * S / 2, 6.15, 0, 0, 3));
+    for (let k = -4; k <= 4; k++) {
+      const t = k * 10;
+      concreteParts.push(boxPart(1.1, 6, 0.5, t, 3, sgn * (S / 2 - 0.7), 0, 3));
+      concreteParts.push(boxPart(0.5, 6, 1.1, sgn * (S / 2 - 0.7), 3, t, 0, 3));
+    }
+  }
+  // ---- Central building: roof clutter (silhouette only; roof is not reachable) ----
+  concreteParts.push(boxPart(18.4, 0.5, 0.4, 0, 7.15, -7.1, 0, 3), boxPart(18.4, 0.5, 0.4, 0, 7.15, 7.1, 0, 3));
+  concreteParts.push(boxPart(0.4, 0.5, 14.2, -9.1, 7.15, 0, 0, 3), boxPart(0.4, 0.5, 14.2, 9.1, 7.15, 0, 0, 3));
+  darkMetal.push(boxPart(1.8, 1.0, 1.3, -4, 7.4, -2.5), boxPart(1.8, 1.0, 1.3, 3.5, 7.4, 3), boxPart(1.2, 0.8, 1.2, 6, 7.3, -4.5));
+  darkMetal.push(boxPart(0.08, 4.5, 0.08, 7, 9.1, 4.8), boxPart(1.2, 0.05, 0.05, 7, 10.8, 4.8), boxPart(0.9, 0.05, 0.05, 7, 11.2, 4.8));
+  {
+    const tank = new THREE.CylinderGeometry(1.0, 1.0, 1.7, 16);
+    darkMetal.push({ geo: tank, m: xform(-6, 8.35, 4, 0, 0, 0) });
+    for (const o of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) darkMetal.push(boxPart(0.1, 0.8, 0.1, -6 + o[0], 7.3, 4 + o[1]));
+  }
+  // ---- Stair railings (visual; rise 4.0 m over 8 m of run) ----
+  for (const dir of [-1, 1]) {
+    for (const side of [-1.72, 1.72]) {
+      const z0 = dir * 14.0, z1 = dir * 6.4;
+      const len = Math.hypot(z0 - z1, 4.0);
+      const ang = Math.atan2(4.0, Math.abs(z0 - z1)) * dir;
+      railParts.push({ geo: new THREE.BoxGeometry(0.06, 0.06, len), m: xform(side, 2.0 + 1.0, (z0 + z1) / 2, ang, 0, 0) });
+      for (let i = 0; i <= 5; i++) {
+        const z = z0 + (z1 - z0) * i / 5, y = 4.0 * i / 5;
+        railParts.push(boxPart(0.05, 1.0, 0.05, side, y + 0.5, z));
+      }
+    }
+  }
+  // ---- Power poles + sagging cables along the north and west walls ----
+  const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 9, 8);
+  const polePts = [];
+  for (let k = -3; k <= 3; k++) { polePts.push([-42.2, k * 13]); }
+  const poleParts = [];
+  for (const p of polePts) {
+    poleParts.push({ geo: poleGeo, m: xform(p[0], 4.5, p[1]) });
+    poleParts.push(boxPart(2.2, 0.14, 0.16, p[0], 8.4, p[1]));
+    addCollider(p[0], 4.5, p[1], 0.32, 9, 0.32);
+  }
+  addMerged(poleParts, MAT.wood, { raycast: true });
+  {
+    const pts = [];
+    for (let i = 0; i < polePts.length - 1; i++) {
+      for (const off of [-0.9, 0, 0.9]) {
+        const a = polePts[i], b = polePts[i + 1];
+        for (let s = 0; s < 12; s++) {
+          const t0 = s / 12, t1 = (s + 1) / 12;
+          const sag0 = Math.sin(t0 * Math.PI) * 1.1, sag1 = Math.sin(t1 * Math.PI) * 1.1;
+          pts.push(a[0] + off, 8.45 - sag0, a[1] + (b[1] - a[1]) * t0, a[0] + off, 8.45 - sag1, a[1] + (b[1] - a[1]) * t1);
+        }
+      }
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+    const wires = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x0c0c0e }));
+    wires.userData.vfx = true;
+    scene.add(wires);
+    DETAIL.wires = wires;
+  }
+  // ---- Street lamps (the grid is down: dead heads, one flickering) ----
+  const lampSpots = [[-12, 27, 0], [12, 27, Math.PI], [-26.5, -3, -Math.PI / 2], [26.5, 3, Math.PI / 2], [12, -27, Math.PI], [-12, -27, 0]];
+  const lampParts = [];
+  const lampHeadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.4 });
+  for (let i = 0; i < lampSpots.length; i++) {
+    const L = lampSpots[i];
+    lampParts.push({ geo: new THREE.CylinderGeometry(0.07, 0.11, 6, 8), m: xform(L[0], 3, L[1]) });
+    const ax = Math.cos(L[2]) * 0.9, az = -Math.sin(L[2]) * 0.9;
+    lampParts.push({ geo: new THREE.BoxGeometry(1.8, 0.07, 0.07), m: xform(L[0] + ax * 0.5, 5.95, L[1] + az * 0.5, 0, L[2], 0) });
+    addCollider(L[0], 3, L[1], 0.24, 6, 0.24);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.3), lampHeadMat.clone());
+    head.position.set(L[0] + ax, 5.88, L[1] + az); head.rotation.y = L[2];
+    head.castShadow = true;
+    scene.add(head);
+    DETAIL.lamps.push({ head: head, live: i === 1 || i === 4, phase: i * 1.7 });
+  }
+  addMerged(lampParts, MAT.dark, { raycast: true });
+
+  addMerged(concreteParts, MAT.concrete2, { raycast: true });
+  addMerged(darkMetal, MAT.dark, {});
+  addMerged(railParts, MAT.dark, { shadow: false });
+
+  // ---- Jersey barriers: extruded profile, low cover ----
+  {
+    const sh = new THREE.Shape();
+    sh.moveTo(-0.3, 0); sh.lineTo(0.3, 0); sh.lineTo(0.3, 0.08); sh.lineTo(0.12, 0.3); sh.lineTo(0.08, 0.82); sh.lineTo(-0.08, 0.82); sh.lineTo(-0.12, 0.3); sh.lineTo(-0.3, 0.08); sh.closePath();
+    const jg = new THREE.ExtrudeGeometry(sh, { depth: 3.0, bevelEnabled: false });
+    jg.translate(0, 0, -1.5);
+    // extrude UVs are in shape units; scale for the concrete tile
+    const uv = jg.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 0.35, uv.getY(i) * 0.35);
+    const spots = [[-4, 16.5, 0], [4, 16.5, 0], [-4, -16.5, 0], [4, -16.5, 0], [21.5, 4.5, 1], [21.5, -4.5, 1], [-21.5, 4.5, 1], [-21.5, -4.5, 1]];
+    const parts = [];
+    for (const s of spots) {
+      // extruded along z: rotate 90° for barriers that should run along x
+      parts.push({ geo: jg, m: xform(s[0], 0, s[1], 0, s[2] ? 0 : Math.PI / 2, 0) });
+      if (s[2]) addCollider(s[0], 0.41, s[1], 0.6, 0.82, 3.0);
+      else addCollider(s[0], 0.41, s[1], 3.0, 0.82, 0.6);
+    }
+    addMerged(parts, MAT.concrete, { raycast: true });
+  }
+  // ---- Sandbag nests flanking the central building ----
+  {
+    const bag = new THREE.SphereGeometry(1, 10, 6);
+    const bagMat = surfMat({ color: 0xd8ccb0, map: TEX.sandbag.map, normalMap: TEX.sandbag.normalMap, roughness: 1 }, 'ground');
+    const parts = [];
+    for (const nest of [[-14.5, 0, 1], [14.5, 0, -1]]) {
+      const cx = nest[0], cz = nest[1], face = nest[2];   // opening faces the building
+      for (let row = 0; row < 3; row++) {
+        const n = 7 - (row === 2 ? 1 : 0);
+        for (let i = 0; i < n; i++) {
+          const a = (-0.5 + (i + (row % 2) * 0.5) / (n - 0.5)) * Math.PI * 0.95;
+          const r = 1.9;
+          const x = cx - face * Math.cos(a) * r, z = cz + Math.sin(a) * r;
+          parts.push({ geo: bag, m: xform(x, 0.16 + row * 0.27, z, 0, -a * face, 0, 0.2, 0.15, 0.36) });
+        }
+      }
+      // three AABBs approximate the arc
+      addCollider(cx - face * 1.85, 0.43, cz, 0.55, 0.86, 2.2);
+      addCollider(cx - face * 1.05, 0.43, cz - 1.55, 1.3, 0.86, 0.55);
+      addCollider(cx - face * 1.05, 0.43, cz + 1.55, 1.3, 0.86, 0.55);
+    }
+    const m = addMerged(parts, bagMat, { raycast: true });
+    if (m) m.userData.surface = 'ground';
+  }
+  // ---- Burnt-out cars ----
+  {
+    const bodyMats = [0x3a3430, 0x4a2a24, 0x2e3438, 0x45402c].map(function (c) { return surfMat({ color: c, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75, metalness: 0.5, envMapIntensity: 0.6 }, 'metal'); });
+    const glassMat = surfMat({ color: 0x0c1016, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.2 }, 'glass');
+    const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.95 });
+    const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 14);
+    const cars = [[9, 37, 0, 0], [-9, 38.5, 0, 1], [38.5, -4, 1, 2], [-38.5, 3, 1, 3]];
+    for (const c of cars) {
+      const g = new THREE.Group();
+      const rot = c[2] ? Math.PI / 2 : 0;
+      const body = new THREE.Mesh(boxWorldUV(new THREE.BoxGeometry(4.3, 0.75, 1.85), 4.3, 0.75, 1.85, 2, 5), bodyMats[c[3]]);
+      body.position.y = 0.72;
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 1.8), bodyMats[c[3]]);
+      hood.position.set(1.55, 1.12, 0); hood.rotation.z = -0.08;
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.55, 1.7), bodyMats[c[3]]);
+      cabin.position.set(-0.3, 1.36, 0);
+      const winF = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.45, 1.6), glassMat);
+      winF.position.set(0.82, 1.36, 0); winF.rotation.z = 0.45;
+      const winS = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.36, 1.72), glassMat);
+      winS.position.set(-0.3, 1.4, 0);
+      g.add(body, hood, cabin, winF, winS);
+      for (const w of [[1.35, 0.93], [-1.35, 0.93], [1.35, -0.93], [-1.35, -0.93]]) {
+        if (c[3] === 2 && w[0] < 0 && w[1] > 0) continue;   // one car sits on its rim
+        const wh = new THREE.Mesh(wheelGeo, tyreMat);
+        wh.rotation.x = Math.PI / 2; wh.position.set(w[0], 0.36, w[1]);
+        g.add(wh);
+      }
+      if (c[3] === 2) g.rotation.x = 0.04;
+      g.position.set(c[0], 0, c[1]); g.rotation.y = rot + (c[3] === 1 ? 0.06 : 0);
+      g.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.userData.surface = 'metal';
+      scene.add(g);
+      raycastColliders.push(g);
+      const w = c[2] ? 1.9 : 4.3, d = c[2] ? 4.3 : 1.9;
+      addCollider(c[0], 0.55, c[1], w, 1.1, d);
+      addCollider(c[0], 1.4, c[1], c[2] ? 1.7 : 2.4, 0.6, c[2] ? 2.4 : 1.7);
+    }
+  }
+  // ---- Rubble in the NW ruins and at the construction site ----
+  {
+    const rng = texRng(907);
+    const rock = new THREE.DodecahedronGeometry(1, 0);
+    const parts = [];
+    const piles = [[-25, -25, 3.5, 26], [-31, -24, 2.5, 14], [24, 33, 2.5, 14], [-20, -30.8, 2, 10]];
+    for (const p of piles) {
+      for (let i = 0; i < p[3]; i++) {
+        const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * p[2], s = 0.12 + rng() * 0.35 * (1 - r / p[2] * 0.6);
+        parts.push({ geo: rock, m: xform(p[0] + Math.cos(a) * r, s * 0.5, p[1] + Math.sin(a) * r, rng() * 3, rng() * 3, rng() * 3, s, s * 0.7, s * 1.2) });
+      }
+    }
+    // tilted slabs
+    parts.push(boxPart(2.6, 0.25, 1.6, -29.5, 0.45, -26, 0.3));
+    parts[parts.length - 1].m = xform(-29.5, 0.45, -26, 0.35, 0.3, 0.1);
+    addMerged(parts, MAT.concrete2, { raycast: false });
+  }
+  // ---- Puddles (mirror the dusk sky via the environment map) ----
+  {
+    const pm = surfMat({ color: 0x14161c, roughness: 0.04, metalness: 1.0, envMapIntensity: 1.3, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, 'ground');
+    const rng = texRng(311);
+    const parts = [];
+    const spots = [[3, 20], [-6, 26], [16, -2], [-17, 10], [8, -24], [-3, -33], [30, 12], [-30, -12], [20, 30], [-26, 20]];
+    for (const s of spots) {
+      const circ = new THREE.CircleGeometry(1, 20);
+      const pa = circ.attributes.position;
+      for (let i = 1; i < pa.count; i++) {   // wobble the rim
+        const k = 0.75 + rng() * 0.4;
+        pa.setXY(i, pa.getX(i) * k, pa.getY(i) * k);
+      }
+      parts.push({ geo: circ, m: xform(s[0], 0.012, s[1], -Math.PI / 2, 0, rng() * 3, 1.1 + rng() * 1.6, 0.7 + rng() * 0.8, 1) });
+    }
+    addMerged(parts, pm, { shadow: false }).renderOrder = 2;
+  }
+  // ---- Road markings on the east-west avenue ----
+  {
+    const paintY = surfMat({ color: 0xb8942c, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }, 'ground');
+    const paintW = surfMat({ color: 0xb0b0aa, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }, 'ground');
+    const plane = new THREE.PlaneGeometry(1, 1);
+    const yel = [], wht = [];
+    for (const sgn of [-1, 1]) {
+      for (let x = 12; x < 43; x += 3) yel.push({ geo: plane, m: xform(sgn * (x + 0.6), 0.008, 0, -Math.PI / 2, 0, 0, 1.3, 0.14, 1) });
+      wht.push({ geo: plane, m: xform(sgn * 27.5, 0.008, 4.6, -Math.PI / 2, 0, 0, 31, 0.12, 1) });
+      wht.push({ geo: plane, m: xform(sgn * 27.5, 0.008, -4.6, -Math.PI / 2, 0, 0, 31, 0.12, 1) });
+      for (let i = 0; i < 7; i++) wht.push({ geo: plane, m: xform(sgn * 11, 0.008, -3.6 + i * 1.2, -Math.PI / 2, 0, 0, 2.2, 0.5, 1) });   // crosswalk
+    }
+    addMerged(yel, paintY, { shadow: false });
+    addMerged(wht, paintW, { shadow: false });
+  }
+  // ---- Stencilled signage on the perimeter walls ----
+  {
+    function signTex(lines, bg, fg) {
+      const cv = texCanvas(256, 128), g = cv.g;
+      g.fillStyle = bg; g.fillRect(0, 0, 256, 128);
+      g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(8, 8, 240, 112);
+      g.fillStyle = fg; g.textAlign = 'center'; g.font = 'bold 34px Arial';
+      lines.forEach(function (l, i) { g.fillText(l, 128, 56 + i * 40 - (lines.length - 1) * 14); });
+      const t = new THREE.CanvasTexture(cv.c); t.encoding = THREE.sRGBEncoding; return t;
+    }
+    const signs = [
+      [['RESTRICTED', 'AREA'], '#c9a227', '#141414', 0, 2.6, -44.45, 0],
+      [['BLACKOUT', 'CURFEW 1900'], '#a8261c', '#f0e8d8', 44.45, 2.4, 10, -Math.PI / 2],
+      [['NO ENTRY'], '#d8d4c8', '#a8261c', -44.45, 2.2, -20, Math.PI / 2],
+      [['SECTOR 7', 'EVAC ROUTE'], '#2a4a7a', '#f0f0f0', -10, 2.5, 44.45, Math.PI]
+    ];
+    for (const s of signs) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshStandardMaterial({ map: signTex(s[0], s[1], s[2]), roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      m.position.set(s[3], s[4], s[5]); m.rotation.y = s[6];
+      m.userData.vfx = true;
+      scene.add(m);
+    }
+  }
+  // ---- Distant skyline: dark towers with scattered lit windows ----
+  {
+    const rng = texRng(1201);
+    const parts = [];
+    for (let i = 0; i < 46; i++) {
+      const a = (i / 46) * Math.PI * 2 + rng() * 0.08;
+      const r = 105 + rng() * 60;
+      const w = 12 + rng() * 16, d = 12 + rng() * 16, h = 14 + rng() * (BUILD_DETAIL >= 1 ? 50 : 32);
+      const g = new THREE.BoxGeometry(w, h, d);
+      boxWorldUV(g, w, h, d, 24, i * 7);
+      parts.push({ geo: g, m: xform(Math.cos(a) * r, h / 2 - 0.5, Math.sin(a) * r, 0, rng() * Math.PI, 0) });
+    }
+    const skyMat = new THREE.MeshStandardMaterial({ color: 0x2a2c34, map: TEX.skyline, emissiveMap: TEX.skyline, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.9, fog: true });
+    addMerged(parts, skyMat, { shadow: false });
+  }
+})();
+
+function updateWorldDetail(t) {
+  for (let i = 0; i < DETAIL.lamps.length; i++) {
+    const L = DETAIL.lamps[i];
+    if (!L.live) continue;
+    // failing ballast: mostly on, with irregular stutters
+    const f = Math.sin(t * 2.3 + L.phase) + Math.sin(t * 7.9 + L.phase * 3) * 0.6;
+    L.head.material.emissiveIntensity = f > 0.9 ? 0.2 : 3.2;
+  }
 }
 
 // ============ PLAYER CONTROLLER ============
@@ -5173,6 +5462,19 @@ function damagePlayer(amount, dirDeg) {
 }
 
 let godMode = false;
+
+// ---- Camera shake (trauma model: offset = trauma^2 * smooth noise) ----
+let camTrauma = 0;
+function addTrauma(a) { camTrauma = Math.min(1, camTrauma + a); }
+const camShake = { yaw: 0, pitch: 0, roll: 0 };
+function updateCameraShake(dt, t) {
+  camTrauma = Math.max(0, camTrauma - dt * 1.3);
+  const s = camTrauma * camTrauma;
+  // sum of incommensurate sines = cheap, smooth, non-repeating noise
+  camShake.yaw = s * 0.05 * (Math.sin(t * 37.1) * 0.6 + Math.sin(t * 23.7 + 1.3) * 0.4);
+  camShake.pitch = s * 0.05 * (Math.sin(t * 31.3 + 2.1) * 0.6 + Math.sin(t * 19.9 + 0.7) * 0.4);
+  camShake.roll = s * 0.08 * (Math.sin(t * 27.9 + 4.2) * 0.6 + Math.sin(t * 15.1 + 2.9) * 0.4);
+}
 
 // ---- Slide helpers ----
 function startSlide() {
@@ -5557,6 +5859,7 @@ function fireShot() {
     const dmg = w.dmg * (isHead ? CFG.ai.headshotMul : 1) * distanceFalloff(w.dmg, hit.distance, w.range);
     damageEnemy(en, dmg, hit.point, isHead);
   } else if (hit) {
+    if (hit.object.userData.barrelRef) damageBarrel(hit.object.userData.barrelRef, w.dmg);
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
   }
@@ -6360,6 +6663,104 @@ function animateEnemy(en, dt, dist) {
   // idle bob
   p.body.position.y = moving ? Math.abs(Math.cos(en.walkPhase)) * 0.03 : 0;
 }
+
+// ============ LIGHTWEIGHT RIGID-BODY PHYSICS ============
+'use strict';
+// Sphere-vs-world collision (ground plane + every static AABB) with restitution
+// and Coulomb-style friction. Shared by grenades, their trajectory preview, and
+// debris chunks so everything that bounces obeys the same rules — and lands on
+// roofs and ledges instead of only on the ground plane.
+const _phN = new THREE.Vector3();
+// Returns the largest upward contact-normal component this step (0 = airborne),
+// so callers can tell "resting on something" from "bouncing off a wall".
+function sphereVsWorld(p, v, r, restitution, friction) {
+  let groundN = 0;
+  if (p.y < GROUND + r) {
+    p.y = GROUND + r;
+    if (v.y < 0) {
+      v.y = -v.y * restitution;
+      v.x *= 1 - friction; v.z *= 1 - friction;
+    }
+    groundN = 1;
+  }
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    if (p.x < c.min.x - r || p.x > c.max.x + r || p.y < c.min.y - r || p.y > c.max.y + r || p.z < c.min.z - r || p.z > c.max.z + r) continue;
+    const qx = Math.max(c.min.x, Math.min(c.max.x, p.x));
+    const qy = Math.max(c.min.y, Math.min(c.max.y, p.y));
+    const qz = Math.max(c.min.z, Math.min(c.max.z, p.z));
+    let dx = p.x - qx, dy = p.y - qy, dz = p.z - qz;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > r * r) continue;
+    let pen;
+    if (d2 < 1e-10) {
+      // centre inside the box: exit through the nearest face
+      const pens = [p.x - c.min.x, c.max.x - p.x, p.y - c.min.y, c.max.y - p.y, p.z - c.min.z, c.max.z - p.z];
+      let k = 0;
+      for (let j = 1; j < 6; j++) if (pens[j] < pens[k]) k = j;
+      _phN.set(k === 0 ? -1 : k === 1 ? 1 : 0, k === 2 ? -1 : k === 3 ? 1 : 0, k === 4 ? -1 : k === 5 ? 1 : 0);
+      pen = pens[k] + r;
+    } else {
+      const d = Math.sqrt(d2);
+      _phN.set(dx / d, dy / d, dz / d);
+      pen = r - d;
+    }
+    p.addScaledVector(_phN, pen);
+    const vn = v.dot(_phN);
+    if (vn < 0) {
+      // split into normal + tangential parts: bounce the first, rub the second
+      v.addScaledVector(_phN, -vn);               // tangential only
+      v.multiplyScalar(1 - friction);
+      v.addScaledVector(_phN, -vn * restitution);  // reflected normal
+    }
+    if (_phN.y > groundN) groundN = _phN.y;
+  }
+  return groundN;
+}
+
+// ---- Debris: short-lived tumbling chunks (barrel shrapnel, lids, rubble) ----
+const debris = [];
+const DEBRIS_MAX = 36;
+const _dbAxis = new THREE.Vector3();
+const _dbQ = new THREE.Quaternion();
+function spawnDebris(mesh, pos, vel, radius, life) {
+  if (debris.length >= DEBRIS_MAX) removeDebris(0);
+  mesh.position.copy(pos);
+  mesh.castShadow = true;
+  mesh.userData.vfx = true;
+  scene.add(mesh);
+  debris.push({
+    m: mesh, v: vel.clone(), r: radius || 0.12, life: life || 7, sleep: false,
+    w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16)
+  });
+}
+function removeDebris(i) {
+  const d = debris[i];
+  scene.remove(d.m);
+  if (d.m.userData.ownsGeometry && d.m.geometry) d.m.geometry.dispose();
+  debris.splice(i, 1);
+}
+function updateDebris(dt) {
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i];
+    d.life -= dt;
+    if (d.life <= 0) { removeDebris(i); continue; }
+    if (d.life < 1) d.m.position.y -= dt * 0.25;   // sink out instead of popping
+    if (d.sleep) continue;
+    d.v.y -= 15 * dt;
+    d.m.position.addScaledVector(d.v, dt);
+    const g = sphereVsWorld(d.m.position, d.v, d.r, 0.3, 0.25);
+    if (g > 0.6) d.w.multiplyScalar(Math.exp(-6 * dt));
+    const wl = d.w.length();
+    if (wl > 1e-3) {
+      _dbAxis.copy(d.w).multiplyScalar(1 / wl);
+      _dbQ.setFromAxisAngle(_dbAxis, wl * dt);
+      d.m.quaternion.premultiply(_dbQ);
+    }
+    if (g > 0.6 && d.v.lengthSq() < 0.05 && wl < 0.5) d.sleep = true;
+  }
+}
+function clearDebris() { while (debris.length) removeDebris(debris.length - 1); }
 
 // ============ GPU PARTICLES & DYNAMIC LIGHTS ============
 'use strict';
@@ -7198,66 +7599,35 @@ function updateGrenadePreview(speed) {
   _prevDir.y += 0.45;
   _prevDir.normalize();
 
-  let px = camera.position.x;
-  let py = camera.position.y - 0.1;
-  let pz = camera.position.z;
-  let vx = _prevDir.x * speed;
-  let vy = _prevDir.y * speed;
-  let vz = _prevDir.z * speed;
+  _pvP.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
+  _pvV.copy(_prevDir).multiplyScalar(speed);
   const dtStep = 0.04;
-
-  let bounces = 0;
   let fuse = CFG.grenade.fuse;
   let stopped = false;
+  // Same integrator + collision as updateGrenades, so the arc matches the throw.
   for (let i = 0; i < PREVIEW_DOT_COUNT; i++) {
     if (stopped) {
       previewDots[i].visible = false;
       continue;
     }
     fuse -= dtStep;
-    vy -= 14 * dtStep;
-    px += vx * dtStep;
-    py += vy * dtStep;
-    pz += vz * dtStep;
-
-    // ground bounce check (matches updateGrenades physics)
-    if (py < 0.11) {
-      py = 0.11;
-      vy = -vy * CFG.grenade.bounce;
-      vx *= 0.55;
-      vz *= 0.55;
-      bounces++;
-      if (bounces > 1) {
-        vx *= 0.3;
-        vz *= 0.3;
-      }
-      if (bounces >= 3) {
-        stopped = true;
-      }
-    }
-
-    // wall bounce (AABBs) (matches updateGrenades physics)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      if (px > col.min.x - 0.1 && px < col.max.x + 0.1 &&
-          py > col.min.y && py < col.max.y &&
-          pz > col.min.z - 0.1 && pz < col.max.z + 0.1) {
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const ox = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(px - cx);
-        const oz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(pz - cz);
-        if (ox < oz) { vx = -vx * 0.5; px += (px > cx ? ox : -ox); }
-        else { vz = -vz * 0.5; pz += (pz > cz ? oz : -oz); }
-        vy *= 0.8;
-      }
-    }
-
-    if (fuse <= 0) {
-      stopped = true;
-    }
-
-    previewDots[i].position.set(px, py, pz);
+    stepGrenadeBody(_pvP, _pvV, dtStep);
+    if (fuse <= 0 || (_pvV.lengthSq() < 0.04 && _pvRest)) stopped = true;
+    previewDots[i].position.copy(_pvP);
     previewDots[i].visible = true;
   }
+}
+const _pvP = new THREE.Vector3(), _pvV = new THREE.Vector3();
+let _pvRest = false;
+const GRENADE_R = 0.1;
+// One physics step for a grenade body. Returns the contact normal's up component.
+function stepGrenadeBody(p, v, dt) {
+  v.y -= 14 * dt;
+  p.addScaledVector(v, dt);
+  const g = sphereVsWorld(p, v, GRENADE_R, CFG.grenade.bounce, 0.28);
+  _pvRest = g > 0.6;
+  if (_pvRest) { const k = Math.exp(-2.8 * dt); v.x *= k; v.z *= k; }   // rolling resistance
+  return g;
 }
 
 function throwGrenade(customSpeed) {
@@ -7336,39 +7706,19 @@ function updateGrenades(dt) {
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
     const g = liveGrenades[i];
     g.fuse -= dt;
-    g.vel.y -= 14 * dt;
-    g.m.position.addScaledVector(g.vel, dt);
-    // ground bounce
-    if (g.m.position.y < 0.11) {
-      g.m.position.y = 0.11;
-      if (Math.abs(g.vel.y) > 1) playSound('bounce');
-      g.vel.y = -g.vel.y * CFG.grenade.bounce;
-      g.vel.x *= 0.55; g.vel.z *= 0.55;
-      if (g.grounded === undefined) g.grounded = 0;
-      g.grounded++;
-      if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
-    }
-    // wall bounce (AABBs)
-    for (let c = 0; c < colliders.length; c++) {
-      const col = colliders[c];
-      const p = g.m.position;
-      if (p.x > col.min.x - 0.1 && p.x < col.max.x + 0.1 && p.y > col.min.y && p.y < col.max.y && p.z > col.min.z - 0.1 && p.z < col.max.z + 0.1) {
-        // push out along smallest axis and reflect
-        const cx = (col.min.x + col.max.x) / 2, cz = (col.min.z + col.max.z) / 2;
-        const px = (col.max.x - col.min.x) / 2 + 0.1 - Math.abs(p.x - cx);
-        const pz = (col.max.z - col.min.z) / 2 + 0.1 - Math.abs(p.z - cz);
-        if (px < pz) { g.vel.x = -g.vel.x * 0.5; p.x += (p.x > cx ? px : -px); }
-        else { g.vel.z = -g.vel.z * 0.5; p.z += (p.z > cz ? pz : -pz); }
-        g.vel.y *= 0.8;
-      }
-    }
+    const vBefore = g.vel.length();
+    const contact = stepGrenadeBody(g.m.position, g.vel, dt);
+    if (contact > 0 && vBefore - g.vel.length() > 1.2) playSound3D('bounce', g.m.position.x, g.m.position.y, g.m.position.z);
+    if (contact > 0.6) g.grounded = (g.grounded || 0) + 1;
+    g.m.rotation.x += g.vel.z * dt * 8; g.m.rotation.z -= g.vel.x * dt * 8;
+    if (Math.random() < 0.5) pfxEmit(PFX_SMOKE, g.m.position.x, g.m.position.y + 0.05, g.m.position.z, 0, 0.3, 0, 0.6, 0.05, 0.25, 0x8a8a8a, 0x5a5a5a, 0.25, 1, -0.2, 0);
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
-    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.4) {
       g.atRest = true;
       g.restFuse = Math.max(0.1, g.fuse);
       const ring = getBlastRing();
-      ring.position.set(g.m.position.x, 0.03, g.m.position.z);
+      ring.position.set(g.m.position.x, g.m.position.y - GRENADE_R + 0.03, g.m.position.z);
       ring.material.opacity = 0.32;
       scene.add(ring);
       g.ring = ring;
@@ -7417,32 +7767,55 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
 
-function explodeGrenade(pos) {
-  playSound('explosion');
-  fxExplosion(pos, 1);
-  spawnScorch(pos.x, pos.z, 3.2);
-  // damage with distance falloff and real cover occlusion
-  const blastFrom = pos.clone(); blastFrom.y += 0.12;
+function explodeGrenade(pos, fromEnemy) {
+  applyExplosion(pos, { radius: CFG.grenade.radius, dmg: CFG.grenade.dmg, playerDmg: fromEnemy ? 70 : 55, scale: 1, sound: 'explosion', fromEnemy: !!fromEnemy });
+}
+
+// Shared blast: FX, falloff damage with cover occlusion, knockback impulse,
+// chain reactions (barrels), camera trauma. Used by grenades and explosive barrels.
+const _blastFrom = new THREE.Vector3(), _blastTarget = new THREE.Vector3(), _blastDir = new THREE.Vector3();
+function applyExplosion(pos, o) {
+  const R = o.radius;
+  playSound3D(o.sound || 'explosion', pos.x, pos.y, pos.z, false, 140);
+  fxExplosion(pos, o.scale || 1);
+  const floorY = floorHeightAt(pos.x, pos.z, pos.y + 0.2);
+  if (pos.y - floorY < 0.8) {
+    if (floorY <= GROUND + 0.01) spawnScorch(pos.x, pos.z, R * 0.5);
+  }
+  _blastFrom.copy(pos); _blastFrom.y += 0.15;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    const d = en.pos.distanceTo(pos);
-    const target = en.pos.clone().setY(1.1);
-    if (d < CFG.grenade.radius && grenadeHasLineOfSight(blastFrom, target, en)) {
-      const falloff = 1 - d / CFG.grenade.radius;
-      const dmg = CFG.grenade.dmg * (0.35 + 0.65 * falloff);
-      damageEnemy(en, dmg, target, false);
+    _blastTarget.set(en.pos.x, en.pos.y + 1.0, en.pos.z);
+    const d = _blastTarget.distanceTo(pos);
+    if (d < R && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
+      const falloff = 1 - d / R;
+      const dmg = o.dmg * (0.35 + 0.65 * falloff);
+      _blastDir.copy(_blastTarget).sub(pos).normalize();
+      _blastDir.y = Math.max(0.35, _blastDir.y);
+      en.blastImpulse = _blastDir.clone().multiplyScalar(4 + 9 * falloff);
+      damageEnemy(en, dmg, _blastTarget.clone(), false, _blastDir, true);
     }
   }
-  // player self-damage (half, encourages careful use; solid cover blocks it)
-  const pd = player.pos.distanceTo(pos);
-  const playerTarget = player.pos.clone(); playerTarget.y -= 0.5;
-  if (pd < CFG.grenade.radius * 0.8 && grenadeHasLineOfSight(blastFrom, playerTarget, null)) {
-    const falloff = 1 - pd / (CFG.grenade.radius * 0.8);
-    damagePlayer(Math.round(55 * falloff), undefined);
+  if (typeof damageBarrelsInRadius === 'function') damageBarrelsInRadius(pos, R, o.dmg);
+  // player: cover blocks it; enemy grenades hurt more than your own
+  _blastTarget.copy(player.pos); _blastTarget.y -= 0.5;
+  const pd = _blastTarget.distanceTo(pos);
+  if (pd < R * 0.85 && grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
+    const falloff = 1 - pd / (R * 0.85);
+    const bearing = (Math.atan2(pos.x - player.pos.x, pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
+    damagePlayer(Math.round(o.playerDmg * falloff) * (o.fromEnemy ? diff().dmg : 1), bearing);
+    // blast pushes the player
+    _blastDir.copy(_blastTarget).sub(pos).normalize();
+    player.vel.x += _blastDir.x * 7 * falloff; player.vel.z += _blastDir.z * 7 * falloff;
+    player.vel.y = Math.max(player.vel.y, 2.5 * falloff);
   }
-  // camera shake kick
-  shotKick = Math.min(2, shotKick + 1.2);
+  const shake = Math.max(0, 1 - pd / (R * 5));
+  addTrauma(shake * 0.95);
+  postKick('aberration', shake * 0.9);
+  if (pd < R * 1.3) postKick('flash', 0.35 * (1 - pd / (R * 1.3)));
+  shotKick = Math.min(2, shotKick + shake * 1.2);
+  if (typeof markNavDirty === 'function') markNavDirty();
 }
 
 // ---- Pickups: ammo + medkit drops from enemies ----
@@ -7513,6 +7886,213 @@ function updatePickups(dt) {
     // despawn after PICKUP_LIFE seconds
     if (p.t > PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
+}
+
+// ============ DESTRUCTIBLES: EXPLOSIVE BARRELS, FIRES ============
+'use strict';
+// Red hazard barrels take bullet / blast damage. At 0 HP they ignite, hiss for a
+// short fuse (shoot again to cut it short), then explode: blast damage + knockback,
+// debris, a scorch mark and a burning pool that damages anyone standing in it.
+// Nearby barrels chain-react. Destroyed barrels respawn when a wave is cleared.
+const BARREL_R = 0.42, BARREL_H = 1.25, BARREL_HP = 45;
+const barrelSideMat = surfMat({ map: TEX.barrel.map, normalMap: TEX.barrel.normalMap, roughness: 0.5, metalness: 0.45, envMapIntensity: 0.8 }, 'metal');
+const barrelCapMat = surfMat({ color: 0x6a2018, map: TEX.paint.map, roughness: 0.55, metalness: 0.5 }, 'metal');
+const barrelGeo = new THREE.CylinderGeometry(BARREL_R, BARREL_R, BARREL_H, 22, 1);
+const barrelRimGeo = new THREE.TorusGeometry(BARREL_R - 0.01, 0.018, 6, 22);
+const barrels = [];
+const BARREL_SPOTS = [
+  [11, 22], [12.2, 22.6], [-11, 22], [-12.2, 22.6], [11, -22], [12.2, -22.6], [-11, -22], [-12.2, -22.6],
+  [22, 12], [-22, 12], [22, -12], [-22, -12], [35, 18], [-35, 18], [35, -18], [-35, -18]
+];
+function makeBarrelMesh() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(barrelGeo, [barrelSideMat, barrelCapMat, barrelCapMat]);
+  body.position.y = BARREL_H / 2;
+  g.add(body);
+  for (const y of [0.02, BARREL_H - 0.02]) {
+    const rim = new THREE.Mesh(barrelRimGeo, barrelCapMat);
+    rim.rotation.x = Math.PI / 2; rim.position.y = y;
+    g.add(rim);
+  }
+  g.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+function placeBarrel(b) {
+  b.mesh = makeBarrelMesh();
+  b.mesh.position.set(b.x, 0, b.z);
+  b.mesh.rotation.y = (b.x * 3.7 + b.z * 1.3) % (Math.PI * 2);
+  b.mesh.traverse(function (o) { if (o.isMesh) { o.userData.barrelRef = b; o.userData.surface = 'metal'; } });
+  scene.add(b.mesh);
+  raycastColliders.push(b.mesh);
+  b.collider = { min: new THREE.Vector3(b.x - BARREL_R, 0, b.z - BARREL_R), max: new THREE.Vector3(b.x + BARREL_R, BARREL_H, b.z + BARREL_R), barrel: true };
+  colliders.push(b.collider);
+  b.hp = BARREL_HP; b.state = 'ok'; b.fuse = 0; b.hiss = 0;
+}
+function removeBarrelWorld(b) {
+  scene.remove(b.mesh);
+  const ri = raycastColliders.indexOf(b.mesh); if (ri >= 0) raycastColliders.splice(ri, 1);
+  const ci = colliders.indexOf(b.collider); if (ci >= 0) colliders.splice(ci, 1);
+  b.mesh = null; b.collider = null;
+}
+(function buildBarrels() {
+  for (const s of BARREL_SPOTS) {
+    const b = { x: s[0], z: s[1] };
+    placeBarrel(b);
+    barrels.push(b);
+  }
+})();
+const _barrelPos = new THREE.Vector3();
+function igniteBarrel(b, fuse) {
+  if (b.state === 'gone') return;
+  if (b.state === 'ok') {
+    b.state = 'burning';
+    b.fuse = fuse;
+    playSound3D('ignite', b.x, 1, b.z);
+  } else b.fuse = Math.min(b.fuse, fuse);
+}
+function damageBarrel(b, dmg) {
+  if (!b || b.state === 'gone') return;
+  b.hp -= dmg;
+  if (b.state === 'burning') { b.fuse -= dmg * 0.012; return; }   // shooting a lit barrel speeds it up
+  if (b.hp <= 0) igniteBarrel(b, 1.1 + Math.random() * 0.6);
+}
+function damageBarrelsInRadius(pos, R, dmg) {
+  for (let i = 0; i < barrels.length; i++) {
+    const b = barrels[i];
+    if (b.state === 'gone') continue;
+    const d = Math.hypot(b.x - pos.x, 0.6 - pos.y, b.z - pos.z);
+    if (d < 0.2 || d > R) continue;
+    const hit = dmg * (1 - d / R);
+    if (hit > 35) igniteBarrel(b, 0.12 + d * 0.05);   // chain reaction ripple
+    else damageBarrel(b, hit);
+  }
+}
+const firePools = [];
+const shrapnelMat = new THREE.MeshStandardMaterial({ color: 0x7a2418, roughness: 0.6, metalness: 0.5 });
+const shrapnelGeo = new THREE.BoxGeometry(0.22, 0.03, 0.16);
+const lidGeo = new THREE.CylinderGeometry(BARREL_R, BARREL_R, 0.04, 16);
+function explodeBarrel(b) {
+  _barrelPos.set(b.x, 0.6, b.z);
+  removeBarrelWorld(b);
+  b.state = 'gone';
+  applyExplosion(_barrelPos, { radius: 6.5, dmg: 170, playerDmg: 75, scale: 1.35, sound: 'barrel_boom' });
+  // lid rockets upward, shrapnel scatters
+  spawnDebris(new THREE.Mesh(lidGeo, barrelCapMat), _barrelPos, new THREE.Vector3((Math.random() - 0.5) * 3, 13 + Math.random() * 4, (Math.random() - 0.5) * 3), 0.2, 8);
+  for (let i = 0; i < 6; i++) {
+    const a = Math.random() * Math.PI * 2, s = 5 + Math.random() * 6;
+    spawnDebris(new THREE.Mesh(shrapnelGeo, shrapnelMat), _barrelPos, new THREE.Vector3(Math.cos(a) * s, 3 + Math.random() * 6, Math.sin(a) * s), 0.1, 6 + Math.random() * 2);
+  }
+  firePools.push({ x: b.x, z: b.z, t: 7, r: 1.7 });
+}
+function updateBarrels(dt) {
+  for (let i = 0; i < barrels.length; i++) {
+    const b = barrels[i];
+    if (b.state !== 'burning') continue;
+    b.fuse -= dt;
+    _barrelPos.set(b.x, BARREL_H, b.z);
+    fxFire(_barrelPos, 0.8, dt);
+    b.hiss -= dt;
+    if (b.hiss <= 0) { b.hiss = 0.35; playSound3D('crackle', b.x, 1, b.z); }
+    if (b.fuse <= 0) explodeBarrel(b);
+  }
+  // burning pools: area denial for a few seconds
+  for (let i = firePools.length - 1; i >= 0; i--) {
+    const f = firePools[i];
+    f.t -= dt;
+    if (f.t <= 0) { firePools.splice(i, 1); continue; }
+    const k = Math.min(1, f.t / 3);
+    _barrelPos.set(f.x + (Math.random() - 0.5) * f.r, 0.05, f.z + (Math.random() - 0.5) * f.r);
+    fxFire(_barrelPos, 0.9 * k, dt);
+    if (Math.hypot(player.pos.x - f.x, player.pos.z - f.z) < f.r && player.pos.y - eyeHeight() < 0.4) {
+      f.hurtT = (f.hurtT || 0) - dt;
+      if (f.hurtT <= 0) { f.hurtT = 0.35; damagePlayer(5 * k, undefined); }
+    }
+    for (let j = 0; j < enemies.length; j++) {
+      const en = enemies[j];
+      if (!en.dead && Math.hypot(en.pos.x - f.x, en.pos.z - f.z) < f.r && en.pos.y < 0.4) {
+        en.burnT = (en.burnT || 0) - dt;
+        if (en.burnT <= 0) { en.burnT = 0.35; damageEnemy(en, 9 * k, en.pos.clone().setY(en.pos.y + 1), false, null, true); }
+      }
+    }
+  }
+}
+function respawnBarrels() {
+  for (let i = 0; i < barrels.length; i++) {
+    const b = barrels[i];
+    if (b.state !== 'gone') continue;
+    if (Math.hypot(player.pos.x - b.x, player.pos.z - b.z) < 3) continue;
+    placeBarrel(b);
+  }
+  if (typeof markNavDirty === 'function') markNavDirty();
+}
+function resetBarrels() {
+  for (let i = 0; i < barrels.length; i++) {
+    const b = barrels[i];
+    if (b.state === 'gone') placeBarrel(b);
+    else { b.hp = BARREL_HP; b.state = 'ok'; b.fuse = 0; }
+  }
+  firePools.length = 0;
+}
+
+// ---- Burning oil drums (permanent light sources) + distant city fires ----
+const fireDrums = [];
+const drumMat = surfMat({ color: 0x4a3a30, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.8, metalness: 0.5 }, 'metal');
+const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff7a2a).multiplyScalar(3), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+(function buildFireDrums() {
+  const spots = [[5.5, 28.5], [-25, 1.5], [25.5, -12.5], [-31, -30.5], [38.5, 35]];
+  const drumGeo = new THREE.CylinderGeometry(0.34, 0.3, 0.9, 16, 1, true);
+  const glowGeo = new THREE.CircleGeometry(0.3, 16);
+  for (let i = 0; i < spots.length; i++) {
+    const s = spots[i];
+    const m = new THREE.Mesh(drumGeo, drumMat);
+    m.material.side = THREE.DoubleSide;
+    m.position.set(s[0], 0.45, s[1]); m.castShadow = true; m.receiveShadow = true;
+    scene.add(m); raycastColliders.push(m);
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.rotation.x = -Math.PI / 2; glow.position.set(s[0], 0.82, s[1]);
+    glow.userData.vfx = true;
+    scene.add(glow);
+    addCollider(s[0], 0.45, s[1], 0.68, 0.9, 0.68);
+    let light = null;
+    if (QUALITY.pointLights && i < 2) {
+      light = new THREE.PointLight(0xff8a3a, 2.2, 11, 2);
+      light.position.set(s[0], 1.5, s[1]);
+      light.userData.vfx = true;
+      scene.add(light);
+    }
+    fireDrums.push({ x: s[0], z: s[1], light: light, glow: glow, crackT: Math.random() * 2, phase: Math.random() * 10 });
+  }
+})();
+const CITY_FIRES = [[-75, -95], [110, -40], [60, 105]];
+const _fdPos = new THREE.Vector3();
+let cityFireT = 0;
+function updateFires(dt, t) {
+  for (let i = 0; i < fireDrums.length; i++) {
+    const f = fireDrums[i];
+    const flick = 0.75 + Math.sin(t * 13 + f.phase) * 0.12 + Math.sin(t * 29.7 + f.phase * 2) * 0.08 + Math.random() * 0.08;
+    if (f.light) f.light.intensity = 2.2 * flick;
+    f.glow.material.opacity = 0.7 + flick * 0.25;
+    const d = Math.hypot(player.pos.x - f.x, player.pos.z - f.z);
+    if (d < 60) { _fdPos.set(f.x, 0.85, f.z); fxFire(_fdPos, 0.55, dt); }
+    f.crackT -= dt;
+    if (f.crackT <= 0) { f.crackT = 0.6 + Math.random() * 1.2; if (d < 14) playSound3D('crackle', f.x, 1, f.z, false, 14); }
+  }
+  // huge slow smoke plumes from burning blocks beyond the walls
+  cityFireT -= dt;
+  if (cityFireT <= 0) {
+    cityFireT = 0.35;
+    for (const c of CITY_FIRES) {
+      pfxEmit(PFX_SMOKE, c[0] + (Math.random() - 0.5) * 6, 18, c[1] + (Math.random() - 0.5) * 6,
+        1.5 + Math.random(), 4 + Math.random() * 2, 0.5, 16, 8, 26, 0x2a2626, 0x3a3434, 0.55, 0.05, -0.05, 0);
+      pfxEmit(PFX_ADD, c[0] + (Math.random() - 0.5) * 5, 14, c[1] + (Math.random() - 0.5) * 5,
+        0, 3, 0, 1.4, 6, 3, 0xff8a3a, 0x801800, 0.9, 0.2, 0, 0);
+    }
+  }
+}
+function updateDestructibles(dt) {
+  updateBarrels(dt);
+  updateFires(dt, gameT);
+  updateDebris(dt);
 }
 
 // ============ HUD & WAVES ============
@@ -7677,6 +8257,7 @@ function updateWaves(dt) {
       addScore(CFG.score.waveClear + waveNum * 50, 'Wave ' + waveNum + ' cleared');
       unlockSecondary();
       resupply();
+      respawnBarrels();
       if (waveNum >= CFG.wave.victoryWave) { victory(); return; }
       showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
     }
@@ -8135,6 +8716,8 @@ function resetGame() {
   casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
+  resetBarrels();
+  clearDebris();
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
@@ -8312,6 +8895,8 @@ function frame(now) {
     updateGrenades(dt);
     updatePickups(dt);
     updateCasings(dt);
+    updateDestructibles(dt);
+    updateAmbient(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateHudHealth();
@@ -8361,10 +8946,11 @@ function frame(now) {
     const slideDip = slideBlend * 0.45;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';
-    camera.rotation.y = player.yaw + player.recoilY;
-    camera.rotation.x = player.pitch + player.recoilP;
+    updateCameraShake(dt, performance.now() / 1000);
+    camera.rotation.y = player.yaw + player.recoilY + camShake.yaw;
+    camera.rotation.x = player.pitch + player.recoilP + camShake.pitch;
     // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0);
+    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0) + camShake.roll;
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground
@@ -8378,6 +8964,7 @@ function frame(now) {
   }
   updateSunShadow(player.pos);
   SKY_UNIFORMS.time.value += dt;
+  updateWorldDetail(performance.now() / 1000);
   // world pass + viewmodel pass (own camera, cleared depth) + post-FX
   renderFrame(dt, started && !player.dead && !!gunGroup && gunGroup.visible);
 }

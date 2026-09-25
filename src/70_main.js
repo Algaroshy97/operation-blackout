@@ -74,6 +74,8 @@ function resetGame() {
   casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
+  resetBarrels();
+  clearDebris();
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
@@ -251,6 +253,8 @@ function frame(now) {
     updateGrenades(dt);
     updatePickups(dt);
     updateCasings(dt);
+    updateDestructibles(dt);
+    updateAmbient(dt);
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateHudHealth();
@@ -300,10 +304,11 @@ function frame(now) {
     const slideDip = slideBlend * 0.45;
     camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
     camera.rotation.order = 'YXZ';
-    camera.rotation.y = player.yaw + player.recoilY;
-    camera.rotation.x = player.pitch + player.recoilP;
+    updateCameraShake(dt, performance.now() / 1000);
+    camera.rotation.y = player.yaw + player.recoilY + camShake.yaw;
+    camera.rotation.x = player.pitch + player.recoilP + camShake.pitch;
     // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0);
+    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0) + camShake.roll;
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground
@@ -317,6 +322,7 @@ function frame(now) {
   }
   updateSunShadow(player.pos);
   SKY_UNIFORMS.time.value += dt;
+  updateWorldDetail(performance.now() / 1000);
   // world pass + viewmodel pass (own camera, cleared depth) + post-FX
   renderFrame(dt, started && !player.dead && !!gunGroup && gunGroup.visible);
 }

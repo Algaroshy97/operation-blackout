@@ -33,7 +33,7 @@ for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = QUALITY.detail 
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(CFG.world.skyColor);
-scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0115);
+scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0125);
 
 const camera = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth / innerHeight, 0.05, 400);
 // The first-person viewmodel lives in its own scene, drawn after the world with a
@@ -356,20 +356,7 @@ function buildArena() {
   addBox(-40, 0.75, 18, 1.5, 1.5, 1.5, MAT.wood);
   addBox(40, 0.75, -18, 1.5, 1.6, 1.5, MAT.wood);
   addBox(-40, 0.75, -18, 1.5, 1.5, 1.5, MAT.wood);
-  // barrels (procedural cylinders at build time; desktop swaps in the CC0 Kenney
-  // survival-kit GLB later in scatterProps(), once the async GLB parse is done)
-  function barrel(x, z) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.5, 12), MAT.red);
-    m.position.set(x, 0.75, z); m.castShadow = true; m.receiveShadow = true;
-    m.userData.oldBarrel = true;
-    scene.add(m);
-    raycastColliders.push(m);
-    addCollider(x, 0.75, z, 1.1, 1.5, 1.1);
-  }
-  barrel(11, 22); barrel(12.2, 22.6); barrel(-11, 22); barrel(-12.2, 22.6);
-  barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
-  barrel(22, 12); barrel(-22, 12); barrel(22, -12); barrel(-22, -12);
-  barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
+  // explosive barrels are built by 57_destructibles.js
 }
 buildArena();
 
@@ -424,6 +411,12 @@ function scatterProps() {
     const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
     m.userData.surface = s[0] === 'COLUMN' ? 'concrete' : 'wood';
+    if (s[0] === 'TREE') {
+      // the Kenney palette is candy-bright; mute it to sit in the dusk grade
+      m.traverse(function (o) {
+        if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.color.setRGB(0.4, 0.46, 0.36); o.material.roughness = 0.95; }
+      });
+    }
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
     m.traverse(function (o) {
@@ -453,30 +446,5 @@ function scatterProps() {
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
   });
   placed += 3;
-  // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
-  // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
-  // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
-  // Mobile keeps the lightweight cylinders (GPU/memory budget).
-  if (!IS_TOUCH && GLB_PARSED.BARREL) {
-    // collect first, THEN remove: mutating scene.children during traverse()
-    // shifts the live array and silently skips every other sibling
-    const oldBarrels = [];
-    scene.traverse(function (o) { if (o.userData && o.userData.oldBarrel) oldBarrels.push(o); });
-    for (let i = 0; i < oldBarrels.length; i++) {
-      const p = oldBarrels[i].position;
-      scene.remove(oldBarrels[i]);
-      const oldIdx = raycastColliders.indexOf(oldBarrels[i]);
-      if (oldIdx !== -1) raycastColliders.splice(oldIdx, 1);
-      const b = GLB_PARSED.BARREL.scene.clone(true);
-      b.scale.setScalar(4.4);
-      b.position.set(p.x, 0, p.z);
-      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);  // varied, deterministic
-      b.castShadow = true; b.receiveShadow = true;
-      b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
-      scene.add(b);
-      raycastColliders.push(b);
-    }
-    if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
-  }
   return placed;
 }

@@ -329,6 +329,19 @@ function damagePlayer(amount, dirDeg) {
 
 let godMode = false;
 
+// ---- Camera shake (trauma model: offset = trauma^2 * smooth noise) ----
+let camTrauma = 0;
+function addTrauma(a) { camTrauma = Math.min(1, camTrauma + a); }
+const camShake = { yaw: 0, pitch: 0, roll: 0 };
+function updateCameraShake(dt, t) {
+  camTrauma = Math.max(0, camTrauma - dt * 1.3);
+  const s = camTrauma * camTrauma;
+  // sum of incommensurate sines = cheap, smooth, non-repeating noise
+  camShake.yaw = s * 0.05 * (Math.sin(t * 37.1) * 0.6 + Math.sin(t * 23.7 + 1.3) * 0.4);
+  camShake.pitch = s * 0.05 * (Math.sin(t * 31.3 + 2.1) * 0.6 + Math.sin(t * 19.9 + 0.7) * 0.4);
+  camShake.roll = s * 0.08 * (Math.sin(t * 27.9 + 4.2) * 0.6 + Math.sin(t * 15.1 + 2.9) * 0.4);
+}
+
 // ---- Slide helpers ----
 function startSlide() {
   player.sliding = true;
