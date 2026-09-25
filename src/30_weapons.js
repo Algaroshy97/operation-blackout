@@ -261,7 +261,7 @@ function traceBullet(from, dir, w, showTracer) {
         if (o.distance - h.distance > 0.35) break;
         if (o.object.userData.enemyRef === en && o.object.userData.isHead) isHead = true;
       }
-      const dmg = w.dmg * (isHead ? w.headMul : 1) * distanceFalloff(w, h.distance) * power * perkMul('damage');
+      const dmg = w.dmg * (isHead ? w.headMul : h.object.userData.isLegs ? 0.75 : 1) * distanceFalloff(w, h.distance) * power * perkMul('damage');
       damageEnemy(en, dmg, h.point, isHead, dir);
       shotHitThisTrigger = true;
       if (pens > 0 && !isHead) { pens--; power *= 0.55; continue; }

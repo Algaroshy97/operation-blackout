@@ -115,7 +115,7 @@ function updateBarrels(dt) {
     fxFire(_barrelPos, 0.9 * k, dt);
     if (Math.hypot(player.pos.x - f.x, player.pos.z - f.z) < f.r && player.pos.y - eyeHeight() < 0.4) {
       f.hurtT = (f.hurtT || 0) - dt;
-      if (f.hurtT <= 0) { f.hurtT = 0.35; damagePlayer(5 * k, undefined); }
+      if (f.hurtT <= 0) { f.hurtT = 0.35; damagePlayer(5 * k * perkMul('blast'), undefined, true); }
     }
     for (let j = 0; j < enemies.length; j++) {
       const en = enemies[j];

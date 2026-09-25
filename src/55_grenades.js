@@ -4,7 +4,8 @@ const grenades = { count: CFG.grenade.count, cd: 0 };
 const liveGrenades = [];
 const grenadeGeo = new THREE.SphereGeometry(0.11, 10, 8);
 const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2e, roughness: 0.5, metalness: 0.3 });
-const fuseLightMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+const fuseLightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3020).multiplyScalar(3) });
+const fuseLightMatE = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff1000).multiplyScalar(5) });
 
 // ---- Trajectory preview pool (zero per-frame allocation) ----
 const PREVIEW_DOT_COUNT = 28;
@@ -102,27 +103,36 @@ function throwGrenade(customSpeed) {
   grenades.count--;
   grenades.cd = 0.8;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  dir.y += 0.45; dir.normalize();
+  const from = new THREE.Vector3(camera.position.x, camera.position.y - 0.1, camera.position.z);
+  // inherit some of the thrower's momentum
+  const vel = dir.multiplyScalar(speed).addScaledVector(player.vel, 0.5);
+  spawnLiveGrenade(from, vel, CFG.grenade.fuse, false);
+  playSound('pin');
+  playSound('draw');
+  if (typeof alertEnemiesTo === 'function') alertEnemiesTo(player.pos, 12);
+  updateHudAmmo();
+}
+// Shared by the player and enemy grenadiers (enemy = true marks hostile frags).
+function spawnLiveGrenade(from, vel, fuse, enemy) {
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
-  const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), fuseLightMat);
+  const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), enemy ? fuseLightMatE : fuseLightMat);
   blink.position.y = 0.1;
   m.add(blink);
   m.castShadow = true;
-  m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  dir.y += 0.45; dir.normalize();
+  m.position.copy(from);
   liveGrenades.push({
     m: m,
-    vel: dir.multiplyScalar(speed),
-    fuse: CFG.grenade.fuse,
+    vel: vel.clone(),
+    fuse: fuse,
     blink: blink,
     atRest: false,
     ring: null,
-    restFuse: CFG.grenade.fuse
+    restFuse: fuse,
+    enemy: !!enemy
   });
   scene.add(m);
-  playSound('pin');
-  playSound('draw');
-  updateHudAmmo();
 }
 
 function cancelGrenadeCharge() {
@@ -197,7 +207,7 @@ function updateGrenades(dt) {
     // blink faster as fuse burns
     g.blink.visible = Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0;
     if (g.fuse <= 0) {
-      explodeGrenade(g.m.position);
+      explodeGrenade(g.m.position, g.enemy);
       if (g.ring) {
         releaseBlastRing(g.ring);
         g.ring = null;
@@ -271,7 +281,7 @@ function applyExplosion(pos, o) {
   if (pd < R * 0.85 && grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
     const falloff = 1 - pd / (R * 0.85);
     const bearing = (Math.atan2(pos.x - player.pos.x, pos.z - player.pos.z) * 180 / Math.PI + 360) % 360;
-    damagePlayer(Math.round(o.playerDmg * falloff) * (o.fromEnemy ? diff().dmg : 1), bearing);
+    damagePlayer(Math.round(o.playerDmg * falloff) * (o.fromEnemy ? diff().dmg : 1) * perkMul('blast'), bearing);
     // blast pushes the player
     _blastDir.copy(_blastTarget).sub(pos).normalize();
     player.vel.x += _blastDir.x * 7 * falloff; player.vel.z += _blastDir.z * 7 * falloff;
