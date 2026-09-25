@@ -279,13 +279,16 @@ function purchase(st) {
       showCenterMsg('+ AMMO');
     } else {
       // Replace the weapon in the CURRENT slot. Replacing the other one would
-      // silently discard whatever the player was holding.
+      // silently discard whatever the player was holding. The marksman slot is
+      // not for trading: holding it, the buy lands in slot 1 (or 2 if empty).
       const w = CFG.weapons[st.weapon];
+      if (curWeapon === MARKSMAN_SLOT) curWeapon = weaponsOwned[1] < 0 ? 1 : 0;
       weaponsOwned[curWeapon] = st.weapon;
       wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
       refreshWeaponStats(curWeapon);
       wState[curWeapon].ammo = curW().mag;
       wState[curWeapon].reserve = curW().reserveMax;
+      syncMarksmanSlot();
       buildViewmodel();
       showCenterMsg(w.name.toUpperCase() + ' ACQUIRED');
     }

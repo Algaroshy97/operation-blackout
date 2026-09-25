@@ -173,6 +173,18 @@
   #scoping-overlay .scope-cross .v{position:absolute;left:50%;top:0;height:100%;width:1px;background:rgba(10,10,10,.85)}
   #scoping-overlay .scope-cross .mil{position:absolute;left:50%;top:50%;width:3px;height:3px;background:rgba(10,10,10,.9);transform:translate(-50%,-50%);border-radius:50%}
   #scoping-overlay.scope-sniper .scope-cross{display:block}
+  /* Marksman scope: the eyebox shadow drifts against the breath sway (parallax),
+     a duplex reticle with mil hash marks, a faint lens tint and a rangefinder. */
+  #scoping-overlay.scope-sniper{--sx:0px;--sy:0px;background:radial-gradient(circle at calc(50% + var(--sx)) calc(50% + var(--sy)), transparent 0, transparent 29vmin, rgba(0,0,0,.6) 30.2vmin, rgba(0,0,0,.97) 31vmin)}
+  #scoping-overlay.scope-sniper .scope-cross{background:radial-gradient(circle, rgba(120,170,160,.05) 55%, rgba(20,40,40,.28) 100%)}
+  #scoping-overlay .scope-cross .h{background:repeating-linear-gradient(90deg,transparent 0 calc(3vmin - 1px),rgba(10,10,10,.9) calc(3vmin - 1px) 3vmin) center/100% 5px no-repeat,linear-gradient(rgba(10,10,10,.85),rgba(10,10,10,.85)) center/100% 1px no-repeat;height:5px;margin-top:-2px}
+  #scoping-overlay .scope-cross .v{background:repeating-linear-gradient(180deg,transparent 0 calc(3vmin - 1px),rgba(10,10,10,.9) calc(3vmin - 1px) 3vmin) center/5px 100% no-repeat,linear-gradient(rgba(10,10,10,.85),rgba(10,10,10,.85)) center/1px 100% no-repeat;width:5px;margin-left:-2px}
+  #scoping-overlay .scope-cross .post{position:absolute;background:rgba(8,8,8,.95)}
+  #scoping-overlay .scope-cross .pl{left:0;top:50%;width:18%;height:5px;transform:translateY(-50%)}
+  #scoping-overlay .scope-cross .pr{right:0;top:50%;width:18%;height:5px;transform:translateY(-50%)}
+  #scoping-overlay .scope-cross .pb{bottom:0;left:50%;height:18%;width:5px;transform:translateX(-50%)}
+  #scoping-overlay .scope-range{position:absolute;left:58%;top:55%;color:rgba(255,120,90,.9);font:700 11px/1 Consolas,monospace;letter-spacing:2px;text-shadow:0 0 4px rgba(0,0,0,.8);white-space:nowrap}
+  #scoping-overlay .scope-range.tgt{color:#ff5a3c}
   #steady-ind{top:62%;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.6);font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .2s}
   #steady-ind.steady-on{color:#7ee08a}
   #grenade-charge{top:58%;left:50%;transform:translateX(-50%);color:#ffd24a;font-size:11px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 4px #000;opacity:0;transition:opacity .15s;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
@@ -366,7 +378,7 @@
 </head>
 <body>
 <canvas id="game-canvas"></canvas>
-<div id="scoping-overlay" class="hud"><div class="scope-cross"><div class="h"></div><div class="v"></div><div class="mil"></div></div></div>
+<div id="scoping-overlay" class="hud"><div class="scope-cross"><div class="h"></div><div class="v"></div><div class="post pl"></div><div class="post pr"></div><div class="post pb"></div><div class="mil"></div><div class="scope-range" id="scope-range"></div></div></div>
 <div id="slide-vignette" class="hud"></div>
 <div id="critical-vignette" class="hud"></div>
 <div id="steady-ind" class="hud"></div>

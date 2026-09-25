@@ -460,8 +460,8 @@ function resumeRun() {
   weaponsOwned[0] = cp.weapons[0].gi;
   weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
   initWeapons();
-  for (let i = 0; i < 2; i++) {
-    if (!wState[i] || !cp.weapons[i]) continue;
+  for (let i = 0; i < Math.min(weaponsOwned.length, cp.weapons.length); i++) {
+    if (!wState[i] || !cp.weapons[i] || cp.weapons[i].gi !== weaponsOwned[i]) continue;
     wState[i].up = cp.weapons[i].up ? Object.assign({}, cp.weapons[i].up) : null;
     refreshWeaponStats(i);
     const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];

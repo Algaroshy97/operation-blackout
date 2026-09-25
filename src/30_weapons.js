@@ -1,15 +1,45 @@
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
 'use strict';
 // ---- Weapon state ----
-const weaponsOwned = [0, -1];   // indices into CFG.weapons; -1 = empty slot
-let curWeapon = 0;              // 0 or 1 (slot)
+// indices into CFG.weapons; -1 = empty slot. Slots 0 and 1 are the deploy picks;
+// slot 2 is the marksman rifle, carried on every run (key 3) unless it is
+// already one of the picks.
+const weaponsOwned = [0, -1, -1];
+const MARKSMAN_SLOT = 2;
+let curWeapon = 0;              // 0..2 (slot)
 let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
+function marksmanIndex() {
+  for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
+  return -1;
+}
+function freshWeaponState(slot) {
+  const w = CFG.weapons[weaponsOwned[slot]];
+  wState[slot] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  refreshWeaponStats(slot);
+  wState[slot].ammo = wState[slot].eff.mag;
+  wState[slot].reserve = wState[slot].eff.reserveMax;
+}
+// Keep slot 2 holding the marksman rifle exactly when the picks do not. Called
+// whenever slot 0 or 1 changes (deploy, resume, secondary unlock, wall buy).
+function syncMarksmanSlot() {
+  const sr = marksmanIndex();
+  const want = (sr < 0 || weaponsOwned[0] === sr || weaponsOwned[1] === sr) ? -1 : sr;
+  if (weaponsOwned[MARKSMAN_SLOT] === want) return;
+  weaponsOwned[MARKSMAN_SLOT] = want;
+  if (want < 0) {
+    wState[MARKSMAN_SLOT] = null;
+    if (curWeapon === MARKSMAN_SLOT) { curWeapon = 0; if (gunGroup) buildViewmodel(); }
+  } else if (wState.length) {
+    freshWeaponState(MARKSMAN_SLOT);
+  }
+}
 function initWeapons() {
+  syncMarksmanSlot();
   wState = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0) { wState.push(null); continue; }
     const w = CFG.weapons[gi];
@@ -49,9 +79,18 @@ function refreshWeaponStats(slot) {
 function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
+// Next owned slot in a direction (mouse wheel, touch SWAP), skipping empties.
+function cycleWeapon(dir) {
+  const n = weaponsOwned.length;
+  for (let k = 1; k < n; k++) {
+    const s = (((curWeapon + dir * k) % n) + n) % n;
+    if (weaponsOwned[s] >= 0) { switchWeapon(s); return; }
+  }
+}
 function switchWeapon(slot) {
   if (slot === curWeapon) return;
-  const s = ((slot % 2) + 2) % 2;
+  const n = weaponsOwned.length;
+  const s = ((slot % n) + n) % n;
   if (weaponsOwned[s] < 0) return;
   // BUG-05: this used to drop `reloading` with no rollback, no cue and no HUD
   // change, so a player who swapped mid-reload came back to an empty magazine
@@ -131,6 +170,7 @@ function updateWeapons(dt) {
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
+  if (pressed['Digit3']) switchWeapon(MARKSMAN_SLOT);
 }
 let dryPlayed = false;
 
@@ -427,6 +467,7 @@ function updateViewmodel(dt) {
       _chEl.style.setProperty('--ch-gap', chGap + 'px');
     }
   }
+  if (isSr && wantScope) updateMarksmanScope(dt);
   // steady indicator
   const steadyVis = CORE.isSteadyIndicatorVisible(w.type, adsAmount);
   const steadyLbl = steadyVis ? CORE.steadyIndicatorLabel(steadyActive, steadyT) : '';
@@ -439,6 +480,40 @@ function updateViewmodel(dt) {
       _steadyIndEl.classList.toggle('steady-on', !!steadyActive);
     }
   }
+}
+// Marksman scope extras: the eyebox shadow slides against the breath sway (so a
+// steadied scope visibly settles), and a rangefinder reads the distance to
+// whatever sits under the reticle, flagging a hostile. The ray is cheap but not
+// free, so it runs at 10 Hz.
+let _scopeRangeEl = null, _scopeRangeT = 0;
+const _rfRay = new THREE.Raycaster();
+const _rfFrom = new THREE.Vector3(), _rfDir = new THREE.Vector3();
+const _rfTargets = [];
+function updateMarksmanScope(dt) {
+  if (!_scopeOvEl) return;
+  const k = getSetting('reducedMotion') ? 0 : 1;
+  const px = Math.max(-40, Math.min(40, -swayX * 900 * k));
+  const py = Math.max(-40, Math.min(40, swayY * 900 * k));
+  _scopeOvEl.style.setProperty('--sx', px.toFixed(1) + 'px');
+  _scopeOvEl.style.setProperty('--sy', py.toFixed(1) + 'px');
+  _scopeRangeT -= dt;
+  if (_scopeRangeT > 0) return;
+  _scopeRangeT = 0.1;
+  if (!_scopeRangeEl) _scopeRangeEl = $id('scope-range');
+  if (!_scopeRangeEl) return;
+  camera.getWorldPosition(_rfFrom);
+  _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = 400;
+  let best = Infinity, hostile = false;
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, 400), true);
+  if (wh.length) best = wh[0].distance;
+  _rfTargets.length = 0;
+  for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
+  const eh = _rfRay.intersectObjects(_rfTargets, true);
+  if (eh.length && eh[0].distance < best + 0.5) { best = eh[0].distance; hostile = true; }
+  const txt = isFinite(best) ? (hostile ? 'TGT ' : 'RNG ') + Math.round(best) + 'm' : 'RNG ---';
+  if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
+  _scopeRangeEl.classList.toggle('tgt', hostile);
 }
 let flashT = 0;
 function triggerMuzzleFlash() {
