@@ -12335,7 +12335,7 @@ function vmMat(params) {
   // Hex goes to the shader as-is, like every other colour in the game (colour
   // management is off; see 10_config_world.js).
   const m = new THREE.MeshStandardMaterial(params);
-  if (SKY_ENV) { m.envMap = SKY_ENV; if (params.envMapIntensity === undefined) m.envMapIntensity = 0.7; }
+  if (SKY_ENV) { m.envMap = SKY_ENV; if (params.envMapIntensity === undefined) m.envMapIntensity = 0.45; }
   return m;
 }
 const VMAT = {
@@ -12361,7 +12361,7 @@ const VM_FLASH = new THREE.MeshBasicMaterial({ map: TEX.flash, color: new THREE.
 // ---- the gun's own little world ----
 const gunScene = new THREE.Scene();
 gunScene.add(gunCamera);
-const gunKey = new THREE.DirectionalLight(0xffc49a, 1.5 * LIGHT_COMPAT);
+const gunKey = new THREE.DirectionalLight(0xffc49a, 1.2 * LIGHT_COMPAT);
 const gunFill = new THREE.HemisphereLight(0x8a9ac0, 0x2a2420, 0.55 * LIGHT_COMPAT);
 gunScene.add(gunKey); gunScene.add(gunKey.target); gunScene.add(gunFill);
 const _gunInvQ = new THREE.Quaternion();
