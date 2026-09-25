@@ -152,6 +152,8 @@ function resetGame() {
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
+  clearParticles();
+  clearBloodPools();
   clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
@@ -458,8 +460,8 @@ function resumeRun() {
   weaponsOwned[0] = cp.weapons[0].gi;
   weaponsOwned[1] = cp.weapons[1] ? cp.weapons[1].gi : -1;
   initWeapons();
-  for (let i = 0; i < 2; i++) {
-    if (!wState[i] || !cp.weapons[i]) continue;
+  for (let i = 0; i < Math.min(weaponsOwned.length, cp.weapons.length); i++) {
+    if (!wState[i] || !cp.weapons[i] || cp.weapons[i].gi !== weaponsOwned[i]) continue;
     wState[i].up = cp.weapons[i].up ? Object.assign({}, cp.weapons[i].up) : null;
     refreshWeaponStats(i);
     const eff = wState[i].eff || CFG.weapons[weaponsOwned[i]];
@@ -727,6 +729,7 @@ function frame(now) {
 
   if (started && !paused) {
     gameT += dt;
+    SKY_UNIFORMS.time.value = gameT;
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
@@ -744,6 +747,8 @@ function frame(now) {
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);
+    updateParticles(dt);
+    updateFlashLights(dt);
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
@@ -821,12 +826,12 @@ function frame(now) {
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
-  // single-pass render: viewmodel is a camera child with depthTest:false materials
-  renderer.autoClear = true;
-  renderer.render(scene, camera);
+  // pose the viewmodel for THIS frame, then draw world + gun (65_postfx.js)
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
   }
+  renderer.autoClear = true;
+  renderFrame(dt);
 }
 
 applyAllSettings();
@@ -847,10 +852,6 @@ function preloadGameAssets() {
   return loadEmbeddedAssets(function (name, loaded, total) {
     progress.textContent = loaded + ' / ' + total + ' · ' + name;
   }).then(function (results) {
-    if (GLB_PARSED.SOLDIER) {
-      probeSkinnedSoldier();
-      if (!GLB_SOLDIER_BROKEN) console.log('soldier asset ready');
-    }
     const n = scatterProps();
     const failed = results.filter(function (ok) { return !ok; }).length;
     progress.textContent = failed ? 'Ready with ' + failed + ' fallback' + (failed === 1 ? '' : 's') : 'All 3D assets ready';

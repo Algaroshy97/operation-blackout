@@ -95,6 +95,11 @@ renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
+// Procedural surfaces (08_textures.js) are painted before the renderer exists.
+(function () {
+  const aniso = Math.min(IS_TOUCH ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
+  for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = aniso;
+})();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(CFG.world.skyColor);
@@ -144,29 +149,79 @@ function updateSunShadow(targetX, targetZ) {
 scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55 * LIGHT_COMPAT));
 scene.add(new THREE.AmbientLight(0x606070, 0.35 * LIGHT_COMPAT));
 
-// ---- Sky gradient dome + sun disc + horizon haze (graphics pass) ----
-(function makeSky() {
-  const skyGeo = new THREE.SphereGeometry(320, 24, 12);
-  const skyMat = new THREE.ShaderMaterial({
+// ---- Sky: gradient dome, sun glow, drifting fbm clouds (graphics pass) ----
+// The shader runs the output chunks itself so the dome looks the same whether the
+// frame goes straight to the canvas or through the post-FX target (where the
+// tone map and sRGB encode move into the composite pass instead).
+const SUN_SKY_DIR = new THREE.Vector3(150, 170, -100).normalize();
+const SKY_UNIFORMS = {
+  // authored as display colours; the shader works in linear light before the tone map
+  top: { value: new THREE.Color(0x3d6cb0).convertSRGBToLinear() }, mid: { value: new THREE.Color(0x8fa9d2).convertSRGBToLinear() },
+  horizon: { value: new THREE.Color(0xf0b088).convertSRGBToLinear() }, low: { value: new THREE.Color(0x4a4452).convertSRGBToLinear() },
+  sunDir: { value: SUN_SKY_DIR }, time: { value: 0 }
+};
+function makeSkyMaterial(withClouds) {
+  return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { top: { value: new THREE.Color(0x4a76b0) }, mid: { value: new THREE.Color(0x8aa4c8) }, low: { value: new THREE.Color(0xd8956a) } },
+    defines: withClouds ? { CLOUDS: 1 } : {},
+    uniforms: SKY_UNIFORMS,
     vertexShader: 'varying vec3 vW; void main(){ vW = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: 'varying vec3 vW; uniform vec3 top; uniform vec3 mid; uniform vec3 low; void main(){ float h = normalize(vW).y; vec3 c = h > 0.25 ? top : (h > 0.02 ? mix(mid, top, (h-0.02)/0.23) : mix(low, mid, max(0.0,(h+0.15)/0.17))); gl_FragColor = vec4(c, 1.0); }'
+    fragmentShader: [
+      'varying vec3 vW; uniform vec3 top, mid, horizon, low, sunDir; uniform float time;',
+      'float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }',
+      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+      '  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }',
+      'float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }',
+      'void main(){',
+      '  vec3 d = normalize(vW); float h = d.y;',
+      '  vec3 c = h > 0.0 ? mix(horizon, mid, smoothstep(0.0, 0.25, h)) : mix(horizon, low, smoothstep(0.0, 0.12, -h));',
+      '  c = mix(c, top, smoothstep(0.22, 0.8, h));',
+      '  float sd = max(dot(d, sunDir), 0.0);',
+      '  c += vec3(1.0,0.72,0.45) * (pow(sd, 8.0) * 0.35 + pow(sd, 80.0) * 0.7);',
+      '  c += vec3(1.0,0.95,0.85) * smoothstep(0.9975, 0.999, sd) * 3.0;',
+      '#ifdef CLOUDS',
+      '  if (h > 0.0) {',
+      '    vec2 uv = d.xz / (h + 0.12) * 1.3 + vec2(time * 0.006, time * 0.002);',
+      '    float n = fbm(uv * 1.6);',
+      '    float cl = smoothstep(0.5, 0.8, n) * smoothstep(0.0, 0.15, h);',
+      '    vec3 cc = mix(vec3(0.42,0.44,0.52), vec3(1.0,0.72,0.5), pow(sd, 3.0) * 0.7 + 0.25 * (1.0 - h));',
+      '    c = mix(c, cc, cl * 0.8);',
+      '  }',
+      '#endif',
+      '  gl_FragColor = vec4(c, 1.0);',
+      '  #include <tonemapping_fragment>',
+      '  #include <colorspace_fragment>',
+      '}'
+    ].join('\n')
   });
-  const skyDome = new THREE.Mesh(skyGeo, skyMat);
+}
+(function makeSky() {
+  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), makeSkyMaterial(true));
   skyDome.userData.sky = true;
+  skyDome.renderOrder = -10;
   scene.add(skyDome);
-  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(14, 24), new THREE.MeshBasicMaterial({ color: 0xfff2c8, fog: false }));
-  sunDisc.position.set(150, 170, -100);
-  sunDisc.lookAt(0, 0, 0);
-  sunDisc.userData.sky = true;
-  scene.add(sunDisc);
-  const sunGlow = new THREE.Mesh(new THREE.CircleGeometry(34, 24), new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.22, fog: false }));
-  sunGlow.position.copy(sunDisc.position).multiplyScalar(0.985);
-  sunGlow.lookAt(0, 0, 0);
-  sunGlow.userData.sky = true;
-  scene.add(sunGlow);
 })();
+// Image-based reflections from the same sky, for the surfaces that should show
+// them (metal, glass, painted steel, the viewmodel). Assigned per material rather
+// than as scene.environment: IBL on every rough wall would add a second ambient
+// term on top of the tuned hemisphere + ambient pair and wash the arena out.
+let SKY_ENV = null;
+(function buildSkyEnvironment() {
+  try {
+    const envScene = new THREE.Scene();
+    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), makeSkyMaterial(false)));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 24), new THREE.MeshBasicMaterial({ color: 0x3a3d44 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
+    envScene.add(ground);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    SKY_ENV = pmrem.fromScene(envScene, 0.04).texture;
+    pmrem.dispose();
+  } catch (e) { console.warn('environment map unavailable', e); }
+})();
+function withSkyEnv(mat, intensity) {
+  if (SKY_ENV) { mat.envMap = SKY_ENV; mat.envMapIntensity = intensity; }
+  return mat;
+}
 // horizon haze band
 (function makeHaze() {
   const haze = new THREE.Mesh(
@@ -179,22 +234,20 @@ scene.add(new THREE.AmbientLight(0x606070, 0.35 * LIGHT_COMPAT));
 
 // ---- Ground ----
 const GROUND = 0;
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a47, roughness: 0.95 });
-(function makeGroundTex() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#39404e'; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 900; i++) {
-    g.fillStyle = 'rgba(' + (30 + Math.random() * 40 | 0) + ',' + (34 + Math.random() * 40 | 0) + ',' + (44 + Math.random() * 40 | 0) + ',0.6)';
-    g.fillRect(Math.random() * 256, Math.random() *256, 2 + Math.random() * 3, 2 + Math.random() * 3);
-  }
-  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1;
-  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(30, 30);
-  groundMat.map = tex; groundMat.needsUpdate = true;
-})();
+TEX.asphalt.map.repeat.set(55, 55); TEX.asphalt.normalMap.repeat.set(55, 55);
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x767c8e, map: TEX.asphalt.map, normalMap: TEX.asphalt.normalMap,
+  normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.92
+});
+// Macro variation in world space so the 4 m asphalt tile never reads as a grid.
+groundMat.onBeforeCompile = function (shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;')
+    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;\nfloat gh(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\nfloat gn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(gh(i),gh(i+vec2(1,0)),f.x), mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x), f.y); }')
+    .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gv = gn(vGroundW.xz * 0.06) * 0.6 + gn(vGroundW.xz * 0.21) * 0.4;\ndiffuseColor.rgb *= mix(0.74, 1.16, gv);');
+};
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
 const raycastColliders = []; // world geometry meshes for scoped raycasting
@@ -248,6 +301,8 @@ function queueStatic(geo, x, z, mat, noShadow) {
 function addBox(x, y, z, w, h, d, mat, opts) {
   opts = opts || {};
   const g = new THREE.BoxGeometry(w, h, d);
+  // Keep texels a constant world size so bricks do not stretch along long walls.
+  if (mat.userData.texSize) boxWorldUV(g, w, h, d, mat.userData.texSize, (x * 73 + z * 131 + y * 17) | 0);
   g.translate(x, y, z);
   queueStatic(g, x, z, mat, opts.noShadow);
   if (!opts.noCollide) addCollider(x, y, z, w, h, d, opts.pen || penMaterialFor(mat));
@@ -315,15 +370,23 @@ function flushStaticBatches() {
 }
 
 // ---- Materials ----
+// userData.texSize is the world size (m) of one texture tile for boxWorldUV().
+// Colours are tints over the procedural maps, picked so each surface averages out
+// close to the flat colour it replaced.
+function surfMat(params, texSize) {
+  const m = new THREE.MeshStandardMaterial(params);
+  if (texSize) m.userData.texSize = texSize;
+  return m;
+}
 const MAT = {
-  concrete: new THREE.MeshStandardMaterial({ color: 0x8f8f96, roughness: 0.9 }),
-  concrete2: new THREE.MeshStandardMaterial({ color: 0x6b6f78, roughness: 0.95 }),
-  brick: new THREE.MeshStandardMaterial({ color: 0x7a4f3a, roughness: 0.95 }),
-  metal: new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.45, metalness: 0.75 }),
-  wood: new THREE.MeshStandardMaterial({ color: 0x7d5a36, roughness: 0.9 }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x2f333c, roughness: 0.8 }),
-  accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
-  red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
+  concrete: surfMat({ color: 0xe6e6ec, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.9 }, 4),
+  concrete2: surfMat({ color: 0xb4b8c2, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.93 }, 3),
+  brick: surfMat({ color: 0xf2e6e0, map: TEX.brick.map, normalMap: TEX.brick.normalMap, roughness: 0.92 }, 2.4),
+  metal: withSkyEnv(surfMat({ color: 0xa6adb6, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.5, metalness: 0.7 }, 3), 0.9),
+  wood: surfMat({ color: 0xf0e8e0, map: TEX.wood.map, normalMap: TEX.wood.normalMap, roughness: 0.85 }, 1.5),
+  dark: withSkyEnv(surfMat({ color: 0x3a3e48, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75 }, 2), 0.4),
+  accent: withSkyEnv(surfMat({ color: 0xd9ae2a, map: TEX.paint.map, roughness: 0.5, metalness: 0.3 }, 2), 0.5),
+  red: withSkyEnv(surfMat({ color: 0xa33a30, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.55, metalness: 0.35 }, 3), 0.7)
 };
 
 // One deliberately small district cue: reuse the existing canvas-texture and
@@ -448,7 +511,7 @@ function buildArena() {
 
   // ---- Central building windows (dark glass, dusk reflection) ----
   (function makeWindows() {
-    const winMat = new THREE.MeshStandardMaterial({ color: 0x2b3d55, roughness: 0.15, metalness: 0.6, emissive: 0x1a2436, emissiveIntensity: 0.5 });
+    const winMat = withSkyEnv(new THREE.MeshStandardMaterial({ color: 0x2b3d55, roughness: 0.08, metalness: 0.85, emissive: 0x1a2436, emissiveIntensity: 0.5 }), 1.2);
     const winGeoE = new THREE.PlaneGeometry(1.6, 1.1);
     const winGeoS = new THREE.PlaneGeometry(1.3, 1.1);
     const _winM = new THREE.Matrix4();

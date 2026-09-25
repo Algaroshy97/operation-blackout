@@ -38,7 +38,7 @@ addEventListener('blur', clearInputState);
 document.addEventListener('visibilitychange', function () { if (document.hidden) clearInputState(); });
 addEventListener('contextmenu', function (e) { e.preventDefault(); });
 canvas.addEventListener('wheel', function (e) {
-  if (started && !paused && !player.dead) switchWeapon(curWeapon + (e.deltaY > 0 ? 1 : -1));
+  if (started && !paused && !player.dead) cycleWeapon(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
 
 document.addEventListener('pointerlockchange', function () {
