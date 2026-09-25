@@ -1,15 +1,45 @@
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
 'use strict';
 // ---- Weapon state ----
-const weaponsOwned = [0, -1];   // indices into CFG.weapons; -1 = empty slot
-let curWeapon = 0;              // 0 or 1 (slot)
+// indices into CFG.weapons; -1 = empty slot. Slots 0 and 1 are the deploy picks;
+// slot 2 is the marksman rifle, carried on every run (key 3) unless it is
+// already one of the picks.
+const weaponsOwned = [0, -1, -1];
+const MARKSMAN_SLOT = 2;
+let curWeapon = 0;              // 0..2 (slot)
 let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
+function marksmanIndex() {
+  for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
+  return -1;
+}
+function freshWeaponState(slot) {
+  const w = CFG.weapons[weaponsOwned[slot]];
+  wState[slot] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
+  refreshWeaponStats(slot);
+  wState[slot].ammo = wState[slot].eff.mag;
+  wState[slot].reserve = wState[slot].eff.reserveMax;
+}
+// Keep slot 2 holding the marksman rifle exactly when the picks do not. Called
+// whenever slot 0 or 1 changes (deploy, resume, secondary unlock, wall buy).
+function syncMarksmanSlot() {
+  const sr = marksmanIndex();
+  const want = (sr < 0 || weaponsOwned[0] === sr || weaponsOwned[1] === sr) ? -1 : sr;
+  if (weaponsOwned[MARKSMAN_SLOT] === want) return;
+  weaponsOwned[MARKSMAN_SLOT] = want;
+  if (want < 0) {
+    wState[MARKSMAN_SLOT] = null;
+    if (curWeapon === MARKSMAN_SLOT) { curWeapon = 0; if (gunGroup) buildViewmodel(); }
+  } else if (wState.length) {
+    freshWeaponState(MARKSMAN_SLOT);
+  }
+}
 function initWeapons() {
+  syncMarksmanSlot();
   wState = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0) { wState.push(null); continue; }
     const w = CFG.weapons[gi];
@@ -49,9 +79,18 @@ function refreshWeaponStats(slot) {
 function refreshAllWeaponStats() { for (let i = 0; i < wState.length; i++) refreshWeaponStats(i); }
 function curS() { return wState[curWeapon]; }
 
+// Next owned slot in a direction (mouse wheel, touch SWAP), skipping empties.
+function cycleWeapon(dir) {
+  const n = weaponsOwned.length;
+  for (let k = 1; k < n; k++) {
+    const s = (((curWeapon + dir * k) % n) + n) % n;
+    if (weaponsOwned[s] >= 0) { switchWeapon(s); return; }
+  }
+}
 function switchWeapon(slot) {
   if (slot === curWeapon) return;
-  const s = ((slot % 2) + 2) % 2;
+  const n = weaponsOwned.length;
+  const s = ((slot % n) + n) % n;
   if (weaponsOwned[s] < 0) return;
   // BUG-05: this used to drop `reloading` with no rollback, no cue and no HUD
   // change, so a player who swapped mid-reload came back to an empty magazine
@@ -131,6 +170,7 @@ function updateWeapons(dt) {
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
+  if (pressed['Digit3']) switchWeapon(MARKSMAN_SLOT);
 }
 let dryPlayed = false;
 
@@ -138,6 +178,7 @@ let dryPlayed = false;
 const raycaster = new THREE.Raycaster();
 const _shootDir = new THREE.Vector3();
 const _from = new THREE.Vector3();
+const _muzzleW = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _aimTgt = new THREE.Vector3();
 
@@ -308,6 +349,10 @@ function fireShot(preserveSchedule) {
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   triggerMuzzleFlash();
   flashMuzzleLight();
+  kickViewmodel(w, vmTune);
+  if (muzzleFlash) fxMuzzle(muzzleWorldPos(_muzzleW), _shootDir, w.type === 'SR' || w.type === 'BR');
+  // a heavy round leaves a hanging vapour trail you can read back to the shooter
+  if (w.type === 'SR') sniperTrail(_from, hit ? hit.point : _tracerMissEnd);
   updateHudAmmo();
 }
 // ---- Melee ----
@@ -351,112 +396,30 @@ let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
 
-// ---- Viewmodel (procedural low-poly gun) ----
-// Rendered as a child of the camera in the MAIN render pass (single-pass, driver-proof).
-// All gun materials get depthTest:false + renderOrder 999 so the gun always draws on top.
-const gunMats = {
-  black: new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.55, metalness: 0.35, depthTest: false }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.6, metalness: 0.3, depthTest: false }),
-  metal: new THREE.MeshStandardMaterial({ color: 0x666c75, roughness: 0.35, metalness: 0.8, depthTest: false }),
-  tan: new THREE.MeshStandardMaterial({ color: 0x8f7d5a, roughness: 0.8, depthTest: false }),
-  wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.85, depthTest: false }),
-  hand: new THREE.MeshStandardMaterial({ color: 0xb08d6a, roughness: 0.9, depthTest: false })
-};
-scene.add(camera);       // camera children render in the main pass
+// ---- Viewmodel ----
+// The models, materials, springs and animation live in 32_viewmodels.js. The gun
+// is a child of gunCamera and renders in its own depth-tested pass after the world.
 let gunGroup = null;
 let muzzleFlash = null;
 let gunParts = { bolt: null, mag: null, handL: null, handR: null };
+let vmTune = null;
 
 function buildViewmodel() {
   if (gunGroup) {
-    camera.remove(gunGroup);
-    gunGroup.traverse(function (o) {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); });
-        else o.material.dispose();
-      }
-    });
+    gunCamera.remove(gunGroup);
+    disposeGunModel(gunGroup);
   }
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];
-  const type = CFG.weapons[gi].type;
-  const M = gunMats;
-
-  function part(w, h, d, x, y, z, mat) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    m.renderOrder = 999;   // always on top
-    m.userData.gun = true;
-    gunGroup.add(m);
-    return m;
-  }
-  // receiver
-  part(0.07, 0.09, 0.34, 0, 0, -0.12, M.black);
-  // barrel + handguard
-  if (type === 'BR') {
-    part(0.05, 0.05, 0.34, 0, 0.012, -0.44, M.dark);
-    part(0.065, 0.065, 0.2, 0, 0.012, -0.42, M.dark);
-  } else {
-    part(0.045, 0.045, 0.22, 0, 0.012, -0.38, M.dark);
-    part(0.06, 0.06, 0.16, 0, 0.005, -0.36, M.black);
-  }
-  // stock
-  part(0.06, 0.085, 0.16, 0, -0.008, 0.11, M.black);
-  part(0.055, 0.11, 0.05, 0, -0.02, 0.2, M.dark);
-  // grip
-  part(0.05, 0.13, 0.06, 0, -0.1, 0.02, M.black).rotation.x = 0.3;
-  // magazine
-  const mag = part(0.055, 0.16, 0.09, 0, -0.13, -0.1, M.dark);
-  mag.rotation.x = type === 'SMG' ? 0.12 : 0.05;
-  gunParts.mag = mag;
-  // optic / iron sights / sniper scope
-  if (type === 'SR') {
-    // big scope tube on top
-    part(0.052, 0.052, 0.34, 0, 0.085, -0.18, M.black);
-    part(0.075, 0.075, 0.06, 0, 0.085, -0.36, M.dark);    // objective bell
-    part(0.062, 0.062, 0.05, 0, 0.085, 0.0, M.dark);      // ocular
-    part(0.02, 0.05, 0.02, 0.035, 0.055, -0.1, M.metal);  // mount
-    part(0.02, 0.05, 0.02, 0.035, 0.055, -0.26, M.metal);
-    part(0.02, 0.03, 0.05, 0.036, 0.085, -0.14, M.metal); // turret
-    // bipod (folded)
-    part(0.012, 0.09, 0.012, -0.03, -0.03, -0.55, M.dark);
-    part(0.012, 0.09, 0.012, 0.03, -0.03, -0.55, M.dark);
-    // cheek rest
-    part(0.05, 0.04, 0.14, 0, 0.02, 0.14, M.dark);
-  } else if (type === 'BR') {
-    part(0.05, 0.05, 0.09, 0, 0.075, -0.2, M.dark);
-    part(0.035, 0.035, 0.035, 0, 0.105, -0.16, M.metal);
-  } else {
-    part(0.014, 0.05, 0.014, 0, 0.062, -0.5, M.metal);   // front post
-    part(0.05, 0.045, 0.02, 0, 0.062, -0.05, M.dark);   // rear sight
-  }
-  // charging handle / bolt (kicks on shots)
-  const bolt = part(0.02, 0.02, 0.1, 0.045, 0.03, -0.02, M.metal);
-  gunParts.bolt = bolt;
-  // hands (stylized)
-  const handR = part(0.075, 0.1, 0.12, 0.005, -0.075, 0.05, M.hand);
-  const handL = part(0.075, 0.1, 0.1, -0.005, -0.06, -0.32, M.hand);
-  handL.rotation.x = 0.4; handR.rotation.x = 0.25;
-  gunParts.handL = handL; gunParts.handR = handR;
-  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95, depthTest: false });
-  // muzzle flash position per type
-  const muzzleZ = type === 'SR' ? -0.72 : type === 'BR' ? -0.64 : -0.5;
-  muzzleFlash = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 6), flashMat);
-  muzzleFlash.rotation.x = Math.PI / 2;
-  muzzleFlash.position.set(0, 0.012, muzzleZ);
-  muzzleFlash.visible = false;
-  muzzleFlash.userData.gun = true;
-  muzzleFlash.renderOrder = 1000;
-  gunGroup.add(muzzleFlash);
+  const P = { bolt: null, mag: null, handL: null, handR: null };
+  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].type, getLoadout(gi));
+  gunParts = P;
+  muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });
-  camera.add(gunGroup);
+  gunCamera.add(gunGroup);
 }
 
 // per-frame viewmodel pose
-const _gunQ = new THREE.Quaternion();
-const _viewmodelPoseOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
-const _reloadAnimOut = { dip: 0, rot: 0, magY: -0.13 };
 function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
@@ -467,23 +430,8 @@ function updateViewmodel(dt) {
   const s = curS();
   const isSniper = w.type === 'SR';
   const scoped = isSniper && adsAmount > 0.82;
-  const reloadDuration = (w && w.reload) ? w.reload : 1;
-  const reloadT = (s && s.reloading) ? s.reloadT : -1;
-  CORE.reloadAnimationOffsets(reloadT, reloadDuration, _reloadAnimOut);
-  if (gunParts.mag) gunParts.mag.position.y = _reloadAnimOut.magY;
-  if (gunParts.bolt) gunParts.bolt.position.z = CORE.viewmodelBoltOffset(shotKick);
-
-  const stance = CORE.viewmodelStance(player.sprinting, player.tacT > 0, player.sliding, aimAds);
   const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
-
-  CORE.viewmodelPose(
-    adsAmount, stance, shotKick, swayX, swayY,
-    player.bobPhase, player.bobAmp, isSniper, gunSwitchT,
-    _reloadAnimOut.dip, _reloadAnimOut.rot, player.pitch,
-    camera.aspect || 1, isRedMotion, _viewmodelPoseOut
-  );
-  gunGroup.position.set(_viewmodelPoseOut.posX, _viewmodelPoseOut.posY, _viewmodelPoseOut.posZ);
-  gunGroup.rotation.set(_viewmodelPoseOut.rotX, _viewmodelPoseOut.rotY, _viewmodelPoseOut.rotZ);
+  poseViewmodel(dt, gunGroup, gunParts, vmTune, w, s, isRedMotion);
 
   // muzzle flash decay
   if (muzzleFlash && muzzleFlash.visible) {
@@ -519,6 +467,7 @@ function updateViewmodel(dt) {
       _chEl.style.setProperty('--ch-gap', chGap + 'px');
     }
   }
+  if (isSr && wantScope) updateMarksmanScope(dt);
   // steady indicator
   const steadyVis = CORE.isSteadyIndicatorVisible(w.type, adsAmount);
   const steadyLbl = steadyVis ? CORE.steadyIndicatorLabel(steadyActive, steadyT) : '';
@@ -532,5 +481,46 @@ function updateViewmodel(dt) {
     }
   }
 }
+// Marksman scope extras: the eyebox shadow slides against the breath sway (so a
+// steadied scope visibly settles), and a rangefinder reads the distance to
+// whatever sits under the reticle, flagging a hostile. The ray is cheap but not
+// free, so it runs at 10 Hz.
+let _scopeRangeEl = null, _scopeRangeT = 0;
+const _rfRay = new THREE.Raycaster();
+const _rfFrom = new THREE.Vector3(), _rfDir = new THREE.Vector3();
+const _rfTargets = [];
+function updateMarksmanScope(dt) {
+  if (!_scopeOvEl) return;
+  const k = getSetting('reducedMotion') ? 0 : 1;
+  const px = Math.max(-40, Math.min(40, -swayX * 900 * k));
+  const py = Math.max(-40, Math.min(40, swayY * 900 * k));
+  _scopeOvEl.style.setProperty('--sx', px.toFixed(1) + 'px');
+  _scopeOvEl.style.setProperty('--sy', py.toFixed(1) + 'px');
+  _scopeRangeT -= dt;
+  if (_scopeRangeT > 0) return;
+  _scopeRangeT = 0.1;
+  if (!_scopeRangeEl) _scopeRangeEl = $id('scope-range');
+  if (!_scopeRangeEl) return;
+  camera.getWorldPosition(_rfFrom);
+  _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = 400;
+  let best = Infinity, hostile = false;
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, 400), true);
+  if (wh.length) best = wh[0].distance;
+  _rfTargets.length = 0;
+  for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
+  const eh = _rfRay.intersectObjects(_rfTargets, true);
+  if (eh.length && eh[0].distance < best + 0.5) { best = eh[0].distance; hostile = true; }
+  const txt = isFinite(best) ? (hostile ? 'TGT ' : 'RNG ') + Math.round(best) + 'm' : 'RNG ---';
+  if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
+  _scopeRangeEl.classList.toggle('tgt', hostile);
+}
 let flashT = 0;
-function triggerMuzzleFlash() { if (muzzleFlash) { muzzleFlash.visible = true; muzzleFlash.rotation.z = Math.random() * Math.PI; flashT = 1; } }
+function triggerMuzzleFlash() {
+  if (!muzzleFlash) return;
+  muzzleFlash.visible = true;
+  muzzleFlash.rotation.z = Math.random() * Math.PI;
+  const k = 0.8 + Math.random() * 0.5;
+  muzzleFlash.scale.set(k, k, 0.8 + Math.random() * 0.6);
+  flashT = 1;
+}

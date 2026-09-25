@@ -3,8 +3,9 @@
 // ---- Pooled VFX ----
 const vfx = { tracers: [], impacts: [], blood: [] };
 const tracerGeo = new THREE.BoxGeometry(0.025, 0.025, 1);
-const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
-const tracerMatE = new THREE.MeshBasicMaterial({ color: 0xff8844 });
+// Over-bright on purpose so the post-FX bloom gives tracers a hot core and glow.
+const tracerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe9a0).multiplyScalar(3) });
+const tracerMatE = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8844).multiplyScalar(3) });
 const impactGeo = new THREE.SphereGeometry(0.06, 6, 4);
 const impactMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.85 });
 const sparkGeo = new THREE.BoxGeometry(0.02, 0.02, 0.02);
@@ -145,15 +146,13 @@ function spawnImpact(point, normal, obj) {
   m.userData.isBulletImpact = true;
   scene.add(m);
   vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
-  // sparks: reuse static vector and pooled particle records
-  for (let i = 0; i < 4; i++) {
-    const s = getSparkMesh();
-    s.position.copy(point);
-    _tmpSparkV.set((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5)).normalize().multiplyScalar(2 + Math.random() * 3);
-    if (normal) _tmpSparkV.add(_tmpN.copy(normal).multiplyScalar(2));
-    scene.add(s);
-    vfx.blood.push(getParticleRecord(s, _tmpSparkV.x, _tmpSparkV.y, _tmpSparkV.z, 0.35, 9, true, false, false));
-  }
+  // dust, chips and sparks per surface (48_particles.js). The raycast normal is
+  // in the hit object's space; the static batches sit at the origin, props do not.
+  if (normal) {
+    _tmpN.copy(normal);
+    if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize();
+  } else _tmpN.set(0, 1, 0);
+  fxImpact(point, _tmpN, fxSurfaceFor(obj));
   playSound('impact');
 }
 
@@ -195,18 +194,13 @@ function clearDecals() {
   DECAL.live.length = 0;
 }
 
+const _bloodDir = new THREE.Vector3();
 function spawnBlood(point, isHead) {
-  const n = isHead ? 10 : 6;
-  for (let i = 0; i < n; i++) {
-    const b = getBloodMesh();
-    b.position.copy(point);
-    const spd = 1.5 + Math.random() * 2.5;
-    const vx = (Math.random() - 0.5) * 2 * spd;
-    const vy = Math.random() * 1.2 * spd;
-    const vz = (Math.random() - 0.5) * 2 * spd;
-    scene.add(b);
-    vfx.blood.push(getParticleRecord(b, vx, vy, vz, 0.5, 12, false, true, false));
-  }
+  // spray away from the shooter: exit spatter reads as the hit direction
+  _bloodDir.copy(point).sub(camera.position).setY(0);
+  if (_bloodDir.lengthSq() < 1e-6) _bloodDir.set(0, 0, -1);
+  _bloodDir.normalize();
+  fxBlood(point, _bloodDir, isHead);
 }
 
 // ---- Shell casings (eject on every shot) ----
@@ -265,14 +259,7 @@ function updateCasings(dt) {
 }
 
 // ---- Slide dust ----
-function spawnSlideDust(pos) {
-  for (let i = 0; i < 6; i++) {
-    const m = getDustMesh();
-    m.position.set(pos.x + (Math.random() - 0.5) * 0.7, 0.15 + Math.random() * 0.15, pos.z + (Math.random() - 0.5) * 0.7);
-    scene.add(m);
-    vfx.blood.push(getParticleRecord(m, (Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2, 0.55, 2.5, false, false, true));
-  }
-}
+function spawnSlideDust(pos) { fxDust(pos, 6, 1); }
 
 // ---- Muzzle light (point light flash at gun) ----
 let muzzleLight = null;

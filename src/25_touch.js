@@ -175,7 +175,7 @@ let joyBaseEl = null;
   }, function () { keys['KeyC'] = false; });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
-  holdBtn('tbtn-swap', function () { switchWeapon(curWeapon === 0 ? 1 : 0); }, function () {});
+  holdBtn('tbtn-swap', function () { cycleWeapon(1); }, function () {});
   holdBtn('tbtn-melee', function () { pressed['__melee'] = true; }, function () {});
   // USE is a HOLD, matching the keyboard: a purchase must never fire from a stray tap.
   holdBtn('tbtn-use', function () { keys['__use'] = true; }, function () { keys['__use'] = false; });

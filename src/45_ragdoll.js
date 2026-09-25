@@ -15,6 +15,9 @@
 //                 the body still tumbles from the root, which is the graceful
 //                 degradation a hard-coded bone list would not give.
 //   box-man     - the same seven points drive the existing part groups directly.
+//   soldier     - the articulated desktop soldier (38_soldier.js) brings its own
+//                 15-point Verlet body with elbow and knee hinges; this module
+//                 only budgets, sinks and retires it like any other corpse.
 //
 // Corpses are simulated only while they still have energy. A settled body stops
 // costing anything, which is what makes running a dozen of them free.
@@ -45,11 +48,35 @@ const BONE_TARGET = {
   'leg-right': 'legR'
 };
 
+// The most recent explosion, so a kill it caused throws the body away from it.
+const lastBlast = { x: 0, y: 0, z: 0, t: -99 };
+const _rdBlastPos = new THREE.Vector3();
+const _rdShotDir = new THREE.Vector3();
+function noteBlast(pos) {
+  lastBlast.x = pos.x; lastBlast.y = pos.y; lastBlast.z = pos.z; lastBlast.t = gameT;
+  sdRagdollBlast(pos, CFG.grenade.radius, 40);   // and shove the bodies already down
+}
+function spawnSoldierRagdoll(en) {
+  en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
+  const blast = gameT - lastBlast.t < 0.05;
+  let R;
+  if (blast) {
+    R = sdStartRagdoll(en, null, 0, null, _rdBlastPos.set(lastBlast.x, lastBlast.y, lastBlast.z));
+  } else {
+    // along the killing round's path, harder for heavier hits
+    _rdShotDir.set(en.pos.x - player.pos.x, 0, en.pos.z - player.pos.z).normalize();
+    _rdShotDir.y = 0.12;
+    const speed = Math.min(6.5, 1.8 + (en._lastHitForce || 20) * 0.035);
+    const hy = en._lastHitNode === 'head' ? 1.65 : 1.2;
+    R = sdStartRagdoll(en, _rdShotDir, speed, _rdV.set(en.pos.x, en.pos.y + hy, en.pos.z), null);
+  }
+  const entry = { en: en, rag: R, sd: R, t: 0, sunk: 0 };
+  ragdolls.push(entry);
+  while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
+  return entry;
+}
 function spawnRagdoll(en, impulse) {
-  // Stop the animation system dead. A mixer still ticking would fight every bone
-  // the ragdoll writes, and the result is a corpse that twitches.
-  if (en.mixer) { en.mixer.stopAllAction(); en.mixer = null; }
-  en.actions = null;
+  if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
   // only walks the live roster, and the agent leaves that list the moment it dies. So
@@ -126,6 +153,15 @@ function updateRagdolls(dt) {
     // Budget: the nearest few keep simulating, the rest freeze where they are.
     // A settled corpse costs nothing either way.
     const live = !e.rag.settled && simulating < RAGDOLL_BUDGET;
+    if (e.sd) {
+      if (live) { simulating++; sdUpdateRagdoll(e.sd, dt); }
+      if (e.sd.settled && e.t > 3.5) {
+        e.sunk += dt * 0.6;
+        e.sd.container.position.y -= e.sunk * 0.02;
+        if (e.sunk > 1.6) { removeRagdoll(e); ragdolls.splice(i, 1); }
+      }
+      continue;
+    }
     if (live) { simulating++; CORE.ragdollStep(e.rag, Math.min(dt, 1 / 45), colliders, 0); }
 
     const n = e.rag.nodes;
@@ -171,6 +207,7 @@ function updateRagdolls(dt) {
 }
 
 function removeRagdoll(e) {
+  if (e.sd) scene.remove(e.sd.container);
   if (e.boxParts) {
     for (let k = 0; k < e.boxParts.length; k++) scene.remove(e.boxParts[k].obj);
   }

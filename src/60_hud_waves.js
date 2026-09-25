@@ -194,10 +194,17 @@ function updateHudAmmo(force) {
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {
-      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
+      // SWAP cycles every owned slot (the marksman rifle rides in slot 3), so the
+      // state and label follow the weapon it will actually bring up.
+      let nextSlot = -1;
+      for (let k = 1; k < weaponsOwned.length; k++) {
+        const ns = (curWeapon + k) % weaponsOwned.length;
+        if (weaponsOwned[ns] >= 0) { nextSlot = ns; break; }
+      }
+      const swapState = nextSlot >= 0 ? 'ready' : 'empty';
       tbtnSwap.classList.toggle('empty', swapState === 'empty');
       tbtnSwap.classList.toggle('ready', swapState === 'ready');
-      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, CFG.weapons);
+      const swapLabel = nextSlot >= 0 ? CFG.weapons[weaponsOwned[nextSlot]].type : 'SWAP';
       if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
     }
   }
@@ -398,7 +405,7 @@ function getWaveNum() { return waveNum; }
 // Snapshot of everything a resumed run needs. Only ever called between waves.
 function captureRunState() {
   const weapons = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
     if (gi < 0 || !wState[i]) { weapons.push(null); continue; }
     weapons.push({ gi: gi, ammo: wState[i].ammo, reserve: wState[i].reserve,
@@ -726,6 +733,7 @@ function unlockSecondary() {
   refreshWeaponStats(1);
   wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
   wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
+  syncMarksmanSlot();   // a marksman secondary frees slot 3
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound('draw');

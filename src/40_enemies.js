@@ -3,9 +3,6 @@
 // Simple humanoid: body box + head box + limbs, tinted materials, ragdoll-lite death.
 const enemies = [];
 let meleeHits = [];   // timestamps of landed melee hits (global damage cap)
-// Set true by a runtime probe when the GPU/driver fails to paint skinned meshes
-// (world renders, soldiers don't). Once true, all enemies use the simple mesh.
-let GLB_SOLDIER_BROKEN = false;
 
 const EMAT = {
   skin: new THREE.MeshStandardMaterial({ color: 0x9c7a5e, roughness: 0.9 }),
@@ -78,160 +75,16 @@ function makeEnemyMesh(kind) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
-// Read a centered sample from an off-screen render target.
-//
-// This used to read the DEFAULT framebuffer, which is undefined to sample once the
-// browser has composited the frame (the drawing buffer is cleared unless
-// preserveDrawingBuffer is set). At startup, when compositing is busiest, both
-// samples came back identical — a difference of exactly 0 — so a perfectly good
-// GPU was reported as broken and every desktop player was silently downgraded to
-// the fallback box-man. An FBO has well-defined read semantics.
-const PROBE_SIZE = 32;
-function readProbePixels(target, size) {
-  const pixels = new Uint8Array(size * size * 4);
-  const x = Math.max(0, Math.floor(target.width / 2 - size / 2));
-  const y = Math.max(0, Math.floor(target.height / 2 - size / 2));
-  renderer.readRenderTargetPixels(target, x, y, size, size, pixels);
-  return pixels;
-}
-
-// One-time GPU probe: some desktop drivers render static meshes fine but
-// silently drop skinned ones. Compare the same rendered pixels with and without
-// a soldier; if it does not paint enough pixels, use the simple mesh everywhere.
-function probeSkinnedSoldier() {
-  if (!GLB_PARSED.SOLDIER) return;
-  // Asset decoding is asynchronous and can finish after a player has begun a wave.
-  // Snapshot state so the invisible diagnostic never changes the live match.
-  const playerState = {
-    pos: player.pos.clone(), vel: player.vel.clone(), yaw: player.yaw, pitch: player.pitch,
-    recoilP: player.recoilP, recoilY: player.recoilY
-  };
-  const cameraState = {
-    position: camera.position.clone(), rotation: camera.rotation.clone(),
-    fov: camera.fov, aspect: camera.aspect
-  };
-  const gunVisible = typeof gunGroup !== 'undefined' ? gunGroup.visible : true;
-  let probe = null;
-  let probeTarget = null;
-  try {
-    if (typeof gunGroup !== 'undefined') gunGroup.visible = false;
-    camera.position.set(0, 1.7, -31);
-    camera.lookAt(0, 1.0, -35);
-    camera.updateMatrixWorld(true);
-    camera.aspect = renderer.domElement.width / renderer.domElement.height;
-    camera.updateProjectionMatrix();
-    probeTarget = new THREE.WebGLRenderTarget(256, 256);
-    camera.aspect = 1;
-    camera.updateProjectionMatrix();
-    // Warm the renderer first: this runs on the session's very first frames, when
-    // every material still needs compiling.
-    renderer.setRenderTarget(probeTarget);
-    renderer.render(scene, camera);
-    const before = readProbePixels(probeTarget, PROBE_SIZE);
-
-    probe = spawnEnemy(0, 0, -35);
-    renderer.render(scene, camera);
-    const after = readProbePixels(probeTarget, PROBE_SIZE);
-    renderer.setRenderTarget(null);
-
-    let painted = 0;
-    for (let i = 0; i < after.length; i += 4) {
-      const difference = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
-      if (difference > 30) painted++;
-    }
-    const threshold = before.length / 16;
-    GLB_SOLDIER_BROKEN = !(painted > threshold);
-    if (GLB_SOLDIER_BROKEN) console.warn('Skinned soldier failed GPU paint test — using simple enemy models. (painted ' + painted + ' / need >' + threshold + ')');
-    else console.log('soldier paint probe OK (' + painted + ' px)');
-  } catch (err) {
-    GLB_SOLDIER_BROKEN = true;
-    console.warn('Soldier probe threw, using simple enemy models.', err);
-  } finally {
-    renderer.setRenderTarget(null);
-    if (probeTarget) probeTarget.dispose();
-    if (typeof gunGroup !== 'undefined') gunGroup.visible = gunVisible;
-    if (probe) {
-      scene.remove(probe.parts.group);
-      const idx = enemies.indexOf(probe);
-      if (idx >= 0) enemies.splice(idx, 1);
-      disposeEnemyGeometry(probe);
-    }
-    player.pos.copy(playerState.pos);
-    player.vel.copy(playerState.vel);
-    player.yaw = playerState.yaw; player.pitch = playerState.pitch;
-    player.recoilP = playerState.recoilP; player.recoilY = playerState.recoilY;
-    camera.position.copy(cameraState.position);
-    camera.rotation.copy(cameraState.rotation);
-    camera.fov = cameraState.fov; camera.aspect = cameraState.aspect;
-    camera.updateProjectionMatrix();
-    camera.updateMatrixWorld(true);
-  }
-}
-
-function skClone(source) {
-  const lookup = new Map();
-  const clone = source.clone(true);
-  const skeletons = [];
-  (function parallel(a, b) {
-    lookup.set(a, b);
-    for (let i = 0; i < a.children.length; i++) parallel(a.children[i], b.children[i]);
-  })(source, clone);
-  clone.traverse(function (node) {
-    if (node.isSkinnedMesh && node.skeleton) {
-      const bones = node.skeleton.bones.map(function (b) { return lookup.get(b) || b; });
-      node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix);
-      skeletons.push(node.skeleton);
-    }
-  });
-  clone.userData.skeletons = skeletons;
-  return clone;
-}
-
 function spawnEnemy(kind, x, z, opts) {
   const spawnOpts = opts || {};
   let parts = null;
-  let mixer = null;
-  let actions = null;
-  let glbSkeletons = [];
-  // Animated GLB soldier on desktop. Mobile uses the reliable lightweight mesh to
-  // avoid skinned-model/WebGL memory failures when an HTML file is opened locally.
+  // Articulated procedural soldier on desktop (38_soldier.js). Phones keep the
+  // lightweight box-man: a soldier is a few dozen draw calls, and a full wave of
+  // them is more than a mobile GPU should be asked to carry.
   const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  // Kenney mini-soldier GLB raw height is ~0.84 m — scale it to human height.
-  // Hitboxes remain outside the scaled root so their world dimensions stay stable.
-  const GLB_SOLDIER_SCALE = 1.85 / 0.84;
-  if (GLB_PARSED.SOLDIER && !mobileSafe && !GLB_SOLDIER_BROKEN) {
-    const gltf = GLB_PARSED.SOLDIER;
-    const root = skClone(gltf.scene);
-    if (root.userData.skeletons) glbSkeletons = root.userData.skeletons.slice();
-    root.scale.setScalar(GLB_SOLDIER_SCALE);
-    // Animated skinned bounds can become stale on some GPUs, causing false culling.
-    root.traverse(function (o) { if (o.isSkinnedMesh) o.frustumCulled = false; });
-    // procedural hitboxes for consistent aim behavior
-    // Calibrated against the scaled model: total height 1.84 m. The head box used
-    // to span 1.68-2.02, floating 0.18 m of hittable air above the soldier's head
-    // while leaving a 0.21 m gap over the body box. Chest 0.45-1.52, head 1.52-1.84.
-    const hbMat = new THREE.MeshBasicMaterial({ visible: false });
-    const hitBody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.07, 0.5), hbMat);
-    hitBody.position.y = 0.985;
-    const hitHead = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.32, 0.30), hbMat);
-    hitHead.position.y = 1.68;
-    const g = new THREE.Group();
-    g.add(root); g.add(hitBody); g.add(hitHead);
-    parts = { group: g, body: root, torso: root, head: root, armL: root, armR: root, legL: root, legR: root, hitBody: hitBody, hitHead: hitHead, glb: true };
-    // mark every visible mesh as enemy-flesh so bullets treat them as body hits (not walls)
-    g.traverse(function (o) {
-      if (o.isMesh) {
-        o.castShadow = true; o.receiveShadow = true;
-        o.userData.vfx = false;
-        o.userData.gun = false;
-        o.userData.sky = false;
-      }
-    });
-    if (gltf.animations && gltf.animations.length) {
-      mixer = new THREE.AnimationMixer(root);
-      actions = {};
-      gltf.animations.forEach(function (clip) { actions[clip.name] = mixer.clipAction(clip); });
-    }
+  if (!mobileSafe) {
+    const sd = buildSoldier(kind);
+    parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
   } else {
     parts = makeEnemyMesh(kind);
   }
@@ -255,10 +108,6 @@ function spawnEnemy(kind, x, z, opts) {
     health: hp, maxHealth: hp,
     dead: false, deathT: 0,
     parts: parts,
-    glbSkeletons: glbSkeletons,
-    mixer: mixer,
-    actions: actions,
-    animCur: '',
     state: 'spawn',
     stateT: 0,
     nextShot: 0,
@@ -284,8 +133,9 @@ function spawnEnemy(kind, x, z, opts) {
   };
   // Visual tell: the shielded unit is steel-blue and slightly larger, so a player
   // knows to flank before they have wasted a magazine on the plate.
+  // (The soldiers carry the same tells in their kit colours.)
   const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a };
-  if (KIND_TINT[kind] !== undefined) {
+  if (KIND_TINT[kind] !== undefined && !parts.soldier) {
     const tint = new THREE.Color(KIND_TINT[kind]);
     parts.group.traverse(function (o) {
       if (o.isMesh && o !== parts.hitBody && o !== parts.hitHead && o.material) {
@@ -297,15 +147,19 @@ function spawnEnemy(kind, x, z, opts) {
   }
   parts.hitBody.userData = { enemyRef: en, isHead: false };
   parts.hitHead.userData = { enemyRef: en, isHead: true };
-  // tag ALL visible meshes with the enemy ref too, so raycast world-hits resolve as enemy body hits
+  // tag ALL visible meshes with the enemy ref too, so raycast world-hits resolve as
+  // enemy body hits. Anything on a soldier's head joint (helmet, NVGs) is the head.
+  const headJ = parts.J ? parts.J.head : null;
   parts.group.traverse(function (o) {
     if (o.isMesh && o !== parts.hitBody && o !== parts.hitHead) {
-      o.userData = { enemyRef: en, isHead: false, enemyFlesh: true };
+      let onHead = false;
+      for (let q = o.parent; headJ && q; q = q.parent) if (q === headJ) { onHead = true; break; }
+      o.userData = { enemyRef: en, isHead: onHead, enemyFlesh: true };
     }
   });
   // Place the mesh immediately; otherwise it renders and raycasts at the world origin for its first frame.
   parts.group.position.set(x, 0, z);
-  parts.group.rotation.y = parts.glb ? initYaw : (initYaw + Math.PI);
+  parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
   scene.add(parts.group);
   enemies.push(en);
   return en;
@@ -313,22 +167,18 @@ function spawnEnemy(kind, x, z, opts) {
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
-  if (en.glbSkeletons && en.glbSkeletons.length) {
-    for (let i = 0; i < en.glbSkeletons.length; i++) {
-      if (en.glbSkeletons[i] && typeof en.glbSkeletons[i].dispose === 'function') {
-        en.glbSkeletons[i].dispose();
-      }
-    }
-    en.glbSkeletons.length = 0;
+  // Soldier geometry is shared by every clone of its template; only the per-clone
+  // skeleton (its bone texture) is freed.
+  if (en.parts.soldier) {
+    const sk = en.parts.group.userData.skeletons || [];
+    for (let i = 0; i < sk.length; i++) sk[i].dispose();
+    return;
   }
   // Tinted shielded units own cloned materials; everything else shares them.
   en.parts.group.traverse(function (o) {
     if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
   });
-  if (en.parts.glb) {
-    // GLB model geometry is shared, but each enemy owns its two hitboxes.
-    en.hitBody.geometry.dispose(); en.hitHead.geometry.dispose();
-  } else en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
 }
 
 // Shielded advancers (kind 3) carry a frontal plate: shots into the front arc are
@@ -339,6 +189,7 @@ function shieldMultiplier(en, point) {
   return CORE.shieldMultiplier(en.kind, en.pos.x, en.pos.z, en.yaw, point.x, point.z);
 }
 
+const _hitDir = new THREE.Vector3();
 function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
   // Remember where this shot came from and what it struck. If it turns out to be
@@ -363,6 +214,11 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
+  if (en.parts.soldier && point) {
+    // flinch: the torso (or head) springs away from the round
+    _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
+    soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
+  }
   if (isKill) killEnemy(en, isHead);
   else {
     // flinch + alert
@@ -827,6 +683,7 @@ function relocateStuckEnemy(en) {
 // the existing pickup/HUD accounting is untouched.
 function throwEnemyGrenade(en) {
   if (typeof liveGrenades === 'undefined' || liveGrenades.length > 6) return;
+  en.throwT = 0.5;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1; m.add(blink);
@@ -853,11 +710,18 @@ function showCenterMsgThrottled(txt) {
 
 const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
+const _eshotDir = new THREE.Vector3();
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
+  en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
+  if (en.parts.soldier && en.parts.J.gun) {
+    // out of the actual muzzle, with a flash the player can read the shooter by
+    en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
+    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
+  }
   const to = _eshotTo.copy(player.pos);
   to.y -= 0.2;
   spawnTracer(from, to, 0xff8844);
@@ -895,46 +759,11 @@ function dirToDeg(en) {
   return CORE.worldBearing(player.pos.x, player.pos.z, en.pos.x, en.pos.z);
 }
 
-// pick + drive the right GLB clip; fall back to procedural limb swing for the box-man
-function setEnemyAnim(en, name, fade) {
-  if (!en.actions || !en.actions[name] || en.animCur === name) return;
-  const next = en.actions[name];
-  if (en.animCur && en.actions[en.animCur]) en.actions[en.animCur].fadeOut(fade || 0.15);
-  next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(fade || 0.15).play();
-  en.animCur = name;
-}
 function animateEnemy(en, dt, dist) {
   const p = en.parts;
+  if (p.soldier) { if (!en.dead) animateSoldier(en, dt, dist); return; }
   p.group.position.set(en.pos.x, en.pos.y, en.pos.z);
-  p.group.rotation.y = p.glb ? en.yaw : (en.yaw + Math.PI);
-  if (en.mixer) en.mixer.update(dt);
-  if (en.dead) {
-    if (en.actions) setEnemyAnim(en, 'die', 0.1);
-    return;
-  }
-  if (en.actions) {
-    // GLB soldier: pick clip by state
-    const moving = Math.hypot(en.vel.x, en.vel.z);
-    let clip = 'idle';
-    if (en.swinging !== undefined && en.swinging > 0) clip = en.kind === 1 ? 'holding-right-shoot' : 'attack-melee-right';
-    else if (moving > 4.5) clip = 'sprint';
-    else if (moving > 0.5) clip = 'walk';
-    else if (en.state === 'strafe') clip = 'walk';
-    if (en.kind === 1 && en.state === 'strafe') clip = moving > 0.5 ? 'holding-right-shoot' : 'holding-right';
-    if (en.kind === 1) clip = en.swinging !== undefined && en.swinging > 0 ? 'holding-right-shoot' : (moving > 0.5 ? 'holding-right' : 'idle');
-    setEnemyAnim(en, clip, 0.12);
-    if (en.actions[en.animCur]) {
-      const isMove = en.animCur === 'walk' || en.animCur === 'sprint' || en.animCur === 'holding-right' || en.animCur === 'holding-right-shoot';
-      if (isMove && moving > 0.1) {
-        const refSpeed = 3.2; // reference speed matching walk stride
-        const timeScale = moving / refSpeed;
-        en.actions[en.animCur].setEffectiveTimeScale(timeScale);
-      } else {
-        en.actions[en.animCur].setEffectiveTimeScale(1.0);
-      }
-    }
-    return;
-  }
+  p.group.rotation.y = en.yaw + Math.PI;
   // ---- procedural fallback (box-man) ----
   if (en.dead) return;
   const moveSpd = Math.hypot(en.vel.x, en.vel.z);
