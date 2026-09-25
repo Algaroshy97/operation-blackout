@@ -218,22 +218,32 @@ let shotKick = 0;
 // Rendered as a child of the camera in the MAIN render pass (single-pass, driver-proof).
 // All gun materials get depthTest:false + renderOrder 999 so the gun always draws on top.
 const gunMats = {
-  black: new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.55, metalness: 0.35, depthTest: false }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.6, metalness: 0.3, depthTest: false }),
-  metal: new THREE.MeshStandardMaterial({ color: 0x666c75, roughness: 0.35, metalness: 0.8, depthTest: false }),
-  tan: new THREE.MeshStandardMaterial({ color: 0x8f7d5a, roughness: 0.8, depthTest: false }),
-  wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.85, depthTest: false }),
-  hand: new THREE.MeshStandardMaterial({ color: 0xb08d6a, roughness: 0.9, depthTest: false })
+  black: new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.55, metalness: 0.35 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.6, metalness: 0.3 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0x666c75, roughness: 0.35, metalness: 0.8 }),
+  tan: new THREE.MeshStandardMaterial({ color: 0x8f7d5a, roughness: 0.8 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.85 }),
+  hand: new THREE.MeshStandardMaterial({ color: 0xb08d6a, roughness: 0.9 })
 };
-const gunScene = null;   // legacy: viewmodel now lives on the camera
-scene.add(camera);       // camera children render in the main pass
+scene.add(camera);
+// Viewmodel lighting: fixed fill + a key light that tracks the real sun direction
+// in view space, so the gun is lit consistently with the world as you turn.
+const gunKey = new THREE.DirectionalLight(0xffc49a, 2.2);
+const gunFill = new THREE.HemisphereLight(0x9aaad0, 0x3a3028, 0.9);
+gunScene.add(gunKey); gunScene.add(gunKey.target); gunScene.add(gunFill);
+const _gunInvQ = new THREE.Quaternion();
+function updateGunLighting() {
+  _gunInvQ.copy(camera.quaternion).invert();
+  gunKey.position.copy(SUN_DIR).applyQuaternion(_gunInvQ).multiplyScalar(5);
+  gunKey.target.position.set(0, 0, 0);
+}
 let gunGroup = null;
 let muzzleFlash = null;
 let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 
 function buildViewmodel() {
   if (gunGroup) {
-    camera.remove(gunGroup);
+    gunCamera.remove(gunGroup);
     gunGroup.traverse(function (o) {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
@@ -303,7 +313,7 @@ function buildViewmodel() {
   const handL = part(0.075, 0.1, 0.1, -0.005, -0.06, -0.32, M.hand);
   handL.rotation.x = 0.4; handR.rotation.x = 0.25;
   gunParts.handL = handL; gunParts.handR = handR;
-  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95, depthTest: false });
+  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95 });
   // muzzle flash position per type
   const muzzleZ = type === 'SR' ? -0.72 : type === 'BR' ? -0.64 : -0.5;
   muzzleFlash = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 6), flashMat);
@@ -314,7 +324,7 @@ function buildViewmodel() {
   muzzleFlash.renderOrder = 1000;
   gunGroup.add(muzzleFlash);
   gunGroup.traverse(function (o) { o.userData.gun = true; });
-  camera.add(gunGroup);
+  gunCamera.add(gunGroup);
 }
 
 // per-frame viewmodel pose
@@ -369,10 +379,6 @@ function updateViewmodel(dt) {
     flashT -= dt * 12;
     if (flashT <= 0) muzzleFlash.visible = false;
   }
-  // camera FOV: ads zoom (sniper much tighter)
-  const sniperZoom = w.type === 'SR' ? 52 : 24;
-  const targetFov = 72 - adsAmount * sniperZoom;
-  if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, 10 * dt); camera.updateProjectionMatrix(); }
   // scope overlay for BR / SR
   const scopeOv = $id('scoping-overlay');
   const wantScope = adsAmount > 0.75 && (w.type === 'BR' || w.type === 'SR');

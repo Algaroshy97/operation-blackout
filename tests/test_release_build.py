@@ -80,13 +80,14 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn('id="asset-load-progress"', head_source)
 
     def test_review_findings_fixes(self) -> None:
-        # 1) Grenade-flash pool pollution
+        # 1) Grenade-flash pool pollution: explosions now use the GPU particle
+        #    system (no per-blast meshes to pool or dispose)
         vfx_src = (ROOT / "src" / "50_vfx_audio.js").read_text()
         grenades_src = (ROOT / "src" / "55_grenades.js").read_text()
-        self.assertIn("isBulletImpact: true", vfx_src)
-        self.assertIn("impactPool.push(im.m)", vfx_src)
-        self.assertIn("im.m.geometry.dispose()", vfx_src)
-        self.assertIn("isBulletImpact: false", grenades_src)
+        particles_src = (ROOT / "src" / "48_particles.js").read_text()
+        self.assertIn("fxExplosion(pos", grenades_src)
+        self.assertNotIn("new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8)", grenades_src)
+        self.assertIn("function clearParticles()", particles_src)
 
         # 2) East parapet climb
         world_src = (ROOT / "src" / "10_config_world.js").read_text()
@@ -111,7 +112,7 @@ class ReleaseBuildTests(unittest.TestCase):
         # 6) Restart pool leak
         main_src = (ROOT / "src" / "70_main.js").read_text()
         self.assertIn("tracerPool.push(t.m)", main_src)
-        self.assertIn("impactPool.push(im.m)", main_src)
+        self.assertIn("clearParticles();", main_src)
         self.assertIn("casingPool.push(c.m)", main_src)
         self.assertIn("casings.length = 0", main_src)
 
@@ -129,10 +130,10 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("p.disconnect()", vfx_src)
         self.assertIn("g.disconnect()", vfx_src)
 
-        # 11) Slide dust pooling
-        self.assertIn("dustPool.push(m)", vfx_src)
-        self.assertIn("getDustMesh()", vfx_src)
-        self.assertIn("dustPool.push(b.m)", main_src)
+        # 11) Slide dust pooling: dust is emitted into the fixed-size particle ring
+        self.assertIn("fxDust(", vfx_src)
+        self.assertIn("function pfxEmit(", particles_src)
+        self.assertIn("L.cursor = (L.cursor + 1) % L.cap", particles_src)
 
         # 12) Uncached LOS defaults to false
         self.assertIn("if (en._losCache === undefined) return false;", enemies_src)

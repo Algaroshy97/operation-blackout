@@ -64,27 +64,7 @@ function resetGame() {
     tracerPool.push(t.m);
   }
   vfx.tracers.length = 0;
-  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
-    const im = vfx.impacts[i];
-    scene.remove(im.m);
-    im.m.visible = false;
-    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
-      impactPool.push(im.m);
-    } else {
-      if (im.m.geometry) im.m.geometry.dispose();
-      if (im.m.material) im.m.material.dispose();
-    }
-  }
-  vfx.impacts.length = 0;
-  for (let i = vfx.blood.length - 1; i >= 0; i--) {
-    const b = vfx.blood[i];
-    scene.remove(b.m);
-    b.m.visible = false;
-    if (b.isSpark) sparkPool.push(b.m);
-    else if (b.isBlood) bloodPool.push(b.m);
-    else if (b.isDust) dustPool.push(b.m);
-  }
-  vfx.blood.length = 0;
+  clearParticles();
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     scene.remove(c.m);
@@ -234,6 +214,7 @@ function frame(now) {
   let dt = (now - lastT) / 1000;
   lastT = now;
   if (dt > 0.1) dt = 0.1;
+  if (!(dt > 0)) dt = 0;   // the first rAF timestamp can precede lastT after a long startup
   // Measure real frame time, not the clamped simulation timestep.
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
@@ -311,7 +292,7 @@ function frame(now) {
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
     // Ease toward one bounded FOV target. The old incremental update let FOV
     // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = 72 - adsAmount * (curW().type === 'SR' ? 52 : 24);
+    const baseFov = SETTINGS.fov - adsAmount * (curW().type === 'SR' ? 52 : 24);
     const targetFov = baseFov + slideFov;
     const previousFov = camera.fov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
@@ -330,12 +311,14 @@ function frame(now) {
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
-  // single-pass render: viewmodel is a camera child with depthTest:false materials
-  renderer.autoClear = true;
-  renderer.render(scene, camera);
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
+    updateGunLighting();
   }
+  updateSunShadow(player.pos);
+  SKY_UNIFORMS.time.value += dt;
+  // world pass + viewmodel pass (own camera, cleared depth) + post-FX
+  renderFrame(dt, started && !player.dead && !!gunGroup && gunGroup.visible);
 }
 function triggerMuzzleFlashIdle() { /* flash triggered in fireShot via flashT */ }
 

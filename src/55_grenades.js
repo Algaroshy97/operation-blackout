@@ -287,22 +287,8 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
 
 function explodeGrenade(pos) {
   playSound('explosion');
-  // flash sphere vfx
-  const flash = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.9 }));
-  flash.position.copy(pos);
-  flash.userData.vfx = true;
-  flash.userData.isBulletImpact = false;
-  scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false });
-  // smoke/spark debris
-  for (let i = 0; i < 14; i++) {
-    const s = new THREE.Mesh(sparkGeo, sparkMat);
-    s.position.copy(pos);
-    const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.4, (Math.random() - 0.5) * 2).multiplyScalar(3 + Math.random() * 5);
-    s.userData.vfx = true;
-    scene.add(s);
-    vfx.blood.push({ m: s, v: v, life: 0.7, grav: 10 });
-  }
+  fxExplosion(pos, 1);
+  spawnScorch(pos.x, pos.z, 3.2);
   // damage with distance falloff and real cover occlusion
   const blastFrom = pos.clone(); blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {

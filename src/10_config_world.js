@@ -1,9 +1,9 @@
 // ============ CONFIG, RENDERER & WORLD BUILD ============
 'use strict';
-const IS_TOUCH = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && matchMedia('(pointer: coarse)').matches;
+// IS_TOUCH, SETTINGS and QUALITY are declared in 07_settings.js
 const CFG = {
   player: { height: 1.7, crouchHeight: 1.05, radius: 0.35, speed: 5.4, sprintMul: 1.65, crouchMul: 0.55, accel: 16, decel: 38, jumpVel: 5.6, gravity: 16, health: 100, armor: 50, regenDelay: 3.5, regenRate: 12, maxStamina: 3.2 },
-  world: { size: 90, fogColor: 0x1a1f2b, skyColor: 0x8aa4c8 },
+  world: { size: 90, fogColor: 0x5d5a6a, skyColor: 0x5a6a90 },
   wave: { baseCount: 5, growth: 2.5, maxActive: 14, spawnInterval: [1.2, 3.0], startDelay: 3.5, victoryWave: 15 },
   weapons: [
     { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150, reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006, range: 120, auto: true },
@@ -20,91 +20,155 @@ const $id = (i) => document.getElementById(i);
 
 // ---- Renderer / scene ----
 const canvas = $id('game-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !QUALITY.postfx, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.maxPR));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.0;
+const MAX_ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = QUALITY.detail >= 1 ? MAX_ANISO : 2;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(CFG.world.skyColor);
-scene.fog = new THREE.Fog(CFG.world.fogColor, 12, 150);
+scene.fog = new THREE.FogExp2(CFG.world.fogColor, 0.0115);
 
-const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 400);
-const gunCamera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10);
+const camera = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth / innerHeight, 0.05, 400);
+// The first-person viewmodel lives in its own scene, drawn after the world with a
+// cleared depth buffer and a tight near plane: the gun can never clip into walls
+// or be cut by the world camera's near plane.
+const gunScene = new THREE.Scene();
+const gunCamera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.01, 10);
+gunScene.add(gunCamera);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   gunCamera.aspect = innerWidth / innerHeight; gunCamera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  if (typeof postfxResize === 'function') postfxResize();
 });
 
-// ---- Lighting ----
-const sun = new THREE.DirectionalLight(0xffd9b0, 1.35);
-sun.position.set(45, 55, -30);
+// ---- Lighting: low dusk sun, cool sky fill ----
+const SUN_DIR = new THREE.Vector3(-0.62, 0.36, -0.7).normalize();   // toward the sun
+const sun = new THREE.DirectionalLight(0xffb784, 2.6);
 sun.castShadow = true;
-sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
-sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
-sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
-sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
-sun.shadow.bias = -0.0004;
+sun.shadow.mapSize.set(QUALITY.shadowSize, QUALITY.shadowSize);
+// Shadow frustum follows the player (updateSunShadow) so texels stay dense.
+const SUN_SHADOW_EXTENT = 38;
+sun.shadow.camera.left = -SUN_SHADOW_EXTENT; sun.shadow.camera.right = SUN_SHADOW_EXTENT;
+sun.shadow.camera.top = SUN_SHADOW_EXTENT; sun.shadow.camera.bottom = -SUN_SHADOW_EXTENT;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 220;
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.02;
+sun.position.copy(SUN_DIR).multiplyScalar(100);
 scene.add(sun); scene.add(sun.target);
-scene.add(new THREE.HemisphereLight(0x99b3d6, 0x3a3a46, 0.55));
-scene.add(new THREE.AmbientLight(0x606070, 0.35));
+const hemi = new THREE.HemisphereLight(0x9aa6c8, 0x5a4a40, 1.15);
+scene.add(hemi);
+const _sunSnap = new THREE.Vector3();
+function updateSunShadow(focus) {
+  // snap the shadow camera to its texel grid so shadows do not shimmer while moving
+  const texel = (SUN_SHADOW_EXTENT * 2) / QUALITY.shadowSize;
+  _sunSnap.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
+  sun.target.position.copy(_sunSnap);
+  sun.position.copy(_sunSnap).addScaledVector(SUN_DIR, 100);
+  sun.target.updateMatrixWorld();
+}
+function setShadowQuality(size, soft) {
+  renderer.shadowMap.type = soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  sun.shadow.mapSize.set(size, size);
+  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  scene.traverse(function (o) { if (o.material && o.material.isMaterial) o.material.needsUpdate = true; });
+}
 
-// ---- Sky gradient dome + sun disc + horizon haze (graphics pass) ----
-(function makeSky() {
-  const skyGeo = new THREE.SphereGeometry(320, 24, 12);
-  const skyMat = new THREE.ShaderMaterial({
+// ---- Sky: gradient dome, sun glow, procedural drifting clouds, faint stars ----
+// sky colours are authored in sRGB; the shader works in linear light
+const SKY_UNIFORMS = {
+  top: { value: new THREE.Color(0x1a2542).convertSRGBToLinear() }, mid: { value: new THREE.Color(0x56628c).convertSRGBToLinear() },
+  horizon: { value: new THREE.Color(0xe39463).convertSRGBToLinear() }, low: { value: new THREE.Color(0x3a3442).convertSRGBToLinear() },
+  sunDir: { value: SUN_DIR.clone() }, time: { value: 0 }
+};
+function makeSkyMaterial(withClouds) {
+  return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { top: { value: new THREE.Color(0x4a76b0) }, mid: { value: new THREE.Color(0x8aa4c8) }, low: { value: new THREE.Color(0xd8956a) } },
-    vertexShader: 'varying vec3 vW; void main(){ vW = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: 'varying vec3 vW; uniform vec3 top; uniform vec3 mid; uniform vec3 low; void main(){ float h = normalize(vW).y; vec3 c = h > 0.25 ? top : (h > 0.02 ? mix(mid, top, (h-0.02)/0.23) : mix(low, mid, max(0.0,(h+0.15)/0.17))); gl_FragColor = vec4(c, 1.0); }'
+    defines: withClouds ? { CLOUDS: 1 } : {},
+    uniforms: SKY_UNIFORMS,
+    vertexShader: 'varying vec3 vW; void main(){ vW = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }',
+    fragmentShader: [
+      'varying vec3 vW; uniform vec3 top, mid, horizon, low, sunDir; uniform float time;',
+      'float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }',
+      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+      '  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }',
+      'float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }',
+      'void main(){',
+      '  vec3 d = normalize(vW); float h = d.y;',
+      '  vec3 c = h > 0.0 ? mix(horizon, mid, smoothstep(0.0, 0.22, h)) : mix(horizon, low, smoothstep(0.0, 0.12, -h));',
+      '  c = mix(c, top, smoothstep(0.2, 0.75, h));',
+      '  float sd = max(dot(d, sunDir), 0.0);',
+      '  c += vec3(1.0,0.62,0.35) * (pow(sd, 6.0) * 0.45 + pow(sd, 64.0) * 0.9);',
+      '  c += vec3(1.0,0.92,0.8) * smoothstep(0.9988, 0.9995, sd) * 6.0;',   // sun disc (HDR, blooms)
+      '#ifdef CLOUDS',
+      '  if (h > 0.0) {',
+      '    vec2 uv = d.xz / (h + 0.12) * 1.3 + vec2(time * 0.006, time * 0.002);',
+      '    float n = fbm(uv * 1.6);',
+      '    float cl = smoothstep(0.52, 0.8, n) * smoothstep(0.0, 0.15, h);',
+      '    vec3 cc = mix(vec3(0.22,0.2,0.26), vec3(1.0,0.66,0.45), pow(sd, 3.0) * 0.8 + 0.15 * (1.0 - h));',
+      '    c = mix(c, cc, cl * 0.85);',
+      '  }',
+      '#endif',
+      '  if (h > 0.3) { float st = step(0.9985, h21(floor(d.xz / h * 70.0))) * smoothstep(0.4, 0.85, h); c += vec3(st * 0.7); }',
+      '  gl_FragColor = vec4(c, 1.0);',
+      '  #include <tonemapping_fragment>',
+      '  #include <encodings_fragment>',
+      '}'
+    ].join('\n')
   });
-  const skyDome = new THREE.Mesh(skyGeo, skyMat);
-  skyDome.userData.sky = true;
-  scene.add(skyDome);
-  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(14, 24), new THREE.MeshBasicMaterial({ color: 0xfff2c8, fog: false }));
-  sunDisc.position.set(150, 170, -100);
-  sunDisc.lookAt(0, 0, 0);
-  sunDisc.userData.sky = true;
-  scene.add(sunDisc);
-  const sunGlow = new THREE.Mesh(new THREE.CircleGeometry(34, 24), new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.22, fog: false }));
-  sunGlow.position.copy(sunDisc.position).multiplyScalar(0.985);
-  sunGlow.lookAt(0, 0, 0);
-  sunGlow.userData.sky = true;
-  scene.add(sunGlow);
-})();
-// horizon haze band
+}
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), makeSkyMaterial(QUALITY.clouds));
+skyDome.userData.sky = true;
+skyDome.frustumCulled = false;
+skyDome.renderOrder = -10;
+scene.add(skyDome);
+// horizon haze band: blends the arena walls / skyline into the sky gradient
 (function makeHaze() {
-  const haze = new THREE.Mesh(
-    new THREE.CylinderGeometry(200, 200, 30, 48, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xc9a37a, transparent: true, opacity: 0.28, side: THREE.BackSide, fog: false })
-  );
-  haze.position.y = 8; haze.userData.sky = true;
+  const hazeMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, side: THREE.BackSide,
+    uniforms: { col: { value: new THREE.Color(0xb88068) } },
+    vertexShader: 'varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying float vY; uniform vec3 col; void main(){ gl_FragColor = vec4(col, (1.0 - vY) * 0.55 * smoothstep(0.0, 0.25, vY));\n#include <tonemapping_fragment>\n#include <encodings_fragment>\n}'
+  });
+  hazeMat.uniforms.col.value.convertSRGBToLinear();
+  const haze = new THREE.Mesh(new THREE.CylinderGeometry(200, 200, 40, 48, 1, true), hazeMat);
+  haze.position.y = 12; haze.userData.sky = true;
   scene.add(haze);
 })();
+// Image-based lighting from the sky (reflections on metal, glass, puddles).
+function buildEnvironment() {
+  if (!QUALITY.envMap) { scene.environment = null; gunScene.environment = null; return; }
+  try {
+    const envScene = new THREE.Scene();
+    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), makeSkyMaterial(false)));
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const rt = pmrem.fromScene(envScene, 0.04);
+    scene.environment = rt.texture;
+    gunScene.environment = rt.texture;
+    pmrem.dispose();
+  } catch (e) { console.warn('environment map unavailable', e); }
+}
+buildEnvironment();
 
-// ---- Ground ----
+// ---- Ground: tiled asphalt with a world-space macro variation to hide tiling ----
 const GROUND = 0;
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a47, roughness: 0.95 });
-(function makeGroundTex() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#39404e'; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 900; i++) {
-    g.fillStyle = 'rgba(' + (30 + Math.random() * 40 | 0) + ',' + (34 + Math.random() * 40 | 0) + ',' + (44 + Math.random() * 40 | 0) + ',0.6)';
-    g.fillRect(Math.random() * 256, Math.random() *256, 2 + Math.random() * 3, 2 + Math.random() * 3);
-  }
-  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1;
-  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(30, 30);
-  groundMat.map = tex; groundMat.needsUpdate = true;
-})();
+TEX.asphalt.map.repeat.set(55, 55); TEX.asphalt.normalMap.repeat.set(55, 55);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: TEX.asphalt.map, normalMap: TEX.asphalt.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.92, envMapIntensity: 0.4 });
+groundMat.onBeforeCompile = function (shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;')
+    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;\nfloat gh(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\nfloat gn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(gh(i),gh(i+vec2(1,0)),f.x), mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x), f.y); }')
+    .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gv = gn(vGroundW.xz * 0.06) * 0.6 + gn(vGroundW.xz * 0.21) * 0.4;\ndiffuseColor.rgb *= mix(0.72, 1.18, gv);');
+};
 // ---- Collision data ----
 const colliders = [];   // static AABBs {min,max}
 const raycastColliders = []; // world geometry meshes for scoped raycasting
@@ -118,9 +182,21 @@ raycastColliders.push(ground);
 function addCollider(x, y, z, w, h, d) {
   colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
 }
+// Highest collider top at (x, z) that is not above maxY (ground when none).
+function floorHeightAt(x, z, maxY) {
+  let f = GROUND;
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    if (x < c.min.x || x > c.max.x || z < c.min.z || z > c.max.z) continue;
+    if (c.max.y <= maxY + 0.05 && c.max.y > f) f = c.max.y;
+  }
+  return f;
+}
 function addBox(x, y, z, w, h, d, mat, opts) {
   opts = opts || {};
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  const geo = new THREE.BoxGeometry(w, h, d);
+  if (mat.userData.texSize) boxWorldUV(geo, w, h, d, mat.userData.texSize, (x * 73 + z * 131 + y * 17) | 0);
+  const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
   m.castShadow = opts.noShadow ? false : true;
   m.receiveShadow = true;
@@ -131,16 +207,36 @@ function addBox(x, y, z, w, h, d, mat, opts) {
 }
 
 // ---- Materials ----
+// userData.surface drives impact effects, footsteps and bullet penetration;
+// userData.texSize is the world size (m) of one texture tile for boxWorldUV.
+function surfMat(params, surface, texSize) {
+  const m = new THREE.MeshStandardMaterial(params);
+  m.userData.surface = surface;
+  if (texSize) m.userData.texSize = texSize;
+  return m;
+}
 const MAT = {
-  concrete: new THREE.MeshStandardMaterial({ color: 0x8f8f96, roughness: 0.9 }),
-  concrete2: new THREE.MeshStandardMaterial({ color: 0x6b6f78, roughness: 0.95 }),
-  brick: new THREE.MeshStandardMaterial({ color: 0x7a4f3a, roughness: 0.95 }),
-  metal: new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.45, metalness: 0.75 }),
-  wood: new THREE.MeshStandardMaterial({ color: 0x7d5a36, roughness: 0.9 }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x2f333c, roughness: 0.8 }),
-  accent: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.3 }),
-  red: new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 })
+  concrete: surfMat({ color: 0xc9c7c4, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.9, envMapIntensity: 0.2 }, 'concrete', 4),
+  concrete2: surfMat({ color: 0xa4a6ac, map: TEX.concrete.map, normalMap: TEX.concrete.normalMap, roughness: 0.93, envMapIntensity: 0.2 }, 'concrete', 3),
+  brick: surfMat({ color: 0xffffff, map: TEX.brick.map, normalMap: TEX.brick.normalMap, roughness: 0.92, envMapIntensity: 0.3 }, 'brick', 2.4),
+  metal: surfMat({ color: 0x9aa3ad, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.5, metalness: 0.7, envMapIntensity: 0.9 }, 'metal', 3),
+  wood: surfMat({ color: 0xffffff, map: TEX.wood.map, normalMap: TEX.wood.normalMap, roughness: 0.85, envMapIntensity: 0.25 }, 'wood', 1.5),
+  dark: surfMat({ color: 0x3a3e46, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75, envMapIntensity: 0.4 }, 'metal', 2),
+  accent: surfMat({ color: 0xc9a227, map: TEX.paint.map, roughness: 0.5, metalness: 0.3 }, 'metal', 2),
+  red: surfMat({ color: 0xa33a2c, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.55, metalness: 0.35, envMapIntensity: 0.8 }, 'metal', 3),
+  container: surfMat({ color: 0x46627a, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.55, metalness: 0.55, envMapIntensity: 0.8 }, 'metal', 2.5)
 };
+// Surface lookup for a raycast hit (props and GLBs default by tag / name).
+function surfaceOf(obj) {
+  if (!obj) return 'concrete';
+  if (obj === ground) return 'ground';
+  const m = obj.material;
+  if (m && m.userData && m.userData.surface) return m.userData.surface;
+  if (obj.userData && obj.userData.surface) return obj.userData.surface;
+  let p = obj;
+  while (p) { if (p.userData && p.userData.surface) return p.userData.surface; p = p.parent; }
+  return 'concrete';
+}
 
 // ---- Build urban arena ----
 function buildArena() {
@@ -180,7 +276,7 @@ function buildArena() {
   addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);  // crates
   addBox(34, 3.3, -20.5, 2.2, 2.2, 2.2, MAT.wood, {noShadow:false});
   addBox(31.5, 1.1, -18, 2.2, 2.2, 2.2, MAT.wood);
-  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);   // container
+  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.container);   // container
 
   // NW district: ruins
   addBox(-28, 1.5, -28, 14, 3, 1, MAT.brick);
@@ -215,7 +311,7 @@ function buildArena() {
 
   // ---- Central building windows (dark glass, dusk reflection) ----
   (function makeWindows() {
-    const winMat = new THREE.MeshStandardMaterial({ color: 0x2b3d55, roughness: 0.15, metalness: 0.6, emissive: 0x1a2436, emissiveIntensity: 0.5 });
+    const winMat = surfMat({ color: 0x31465f, roughness: 0.06, metalness: 0.9, emissive: 0x141c2a, emissiveIntensity: 0.6, envMapIntensity: 1.4 }, 'glass');
     const winGeoE = new THREE.PlaneGeometry(1.6, 1.1);
     const winGeoS = new THREE.PlaneGeometry(1.3, 1.1);
     function winRow(x, z, ry, n, geo, y) {
@@ -327,6 +423,7 @@ function scatterProps() {
     const useSimpleProp = mobileSafe || !gltf;
     const m = useSimpleProp ? makeMobileProp(s[0]) : gltf.scene.clone(true);
     m.position.set(s[1], 0, s[2]);
+    m.userData.surface = s[0] === 'COLUMN' ? 'concrete' : 'wood';
     m.rotation.y = s[4];
     m.scale.setScalar(s[3]);
     m.traverse(function (o) {
@@ -344,6 +441,7 @@ function scatterProps() {
   const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
   [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
       const m = useSimpleCrate ? makeMobileProp('CRATE') : GLB_PARSED.CRATE.scene.clone(true);
+      m.userData.surface = 'wood';
       m.position.set(c[0], c[2], c[1]);
       m.rotation.y = c[3];
       m.scale.setScalar(2.0);
