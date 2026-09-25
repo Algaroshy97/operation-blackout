@@ -95,7 +95,7 @@ const DETAIL = { lamps: [], wires: null };
   for (const p of polePts) {
     poleParts.push({ geo: poleGeo, m: xform(p[0], 4.5, p[1]) });
     poleParts.push(boxPart(2.2, 0.14, 0.16, p[0], 8.4, p[1]));
-    addCollider(p[0], 4.5, p[1], 0.32, 9, 0.32);
+    addCollider(p[0], 4.5, p[1], 0.32, 9, 0.32, 'wood');
   }
   addMerged(poleParts, MAT.wood, { raycast: true });
   {
@@ -216,8 +216,8 @@ const DETAIL = { lamps: [], wires: null };
       scene.add(g);
       raycastColliders.push(g);
       const w = c[2] ? 1.9 : 4.3, d = c[2] ? 4.3 : 1.9;
-      addCollider(c[0], 0.55, c[1], w, 1.1, d);
-      addCollider(c[0], 1.4, c[1], c[2] ? 1.7 : 2.4, 0.6, c[2] ? 2.4 : 1.7);
+      addCollider(c[0], 0.55, c[1], w, 1.1, d, 'metal');
+      addCollider(c[0], 1.4, c[1], c[2] ? 1.7 : 2.4, 0.6, c[2] ? 2.4 : 1.7, 'metal');
     }
   }
   // ---- Rubble in the NW ruins and at the construction site ----

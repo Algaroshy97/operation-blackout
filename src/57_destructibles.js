@@ -34,7 +34,7 @@ function placeBarrel(b) {
   b.mesh.traverse(function (o) { if (o.isMesh) { o.userData.barrelRef = b; o.userData.surface = 'metal'; } });
   scene.add(b.mesh);
   raycastColliders.push(b.mesh);
-  b.collider = { min: new THREE.Vector3(b.x - BARREL_R, 0, b.z - BARREL_R), max: new THREE.Vector3(b.x + BARREL_R, BARREL_H, b.z + BARREL_R), barrel: true };
+  b.collider = { min: new THREE.Vector3(b.x - BARREL_R, 0, b.z - BARREL_R), max: new THREE.Vector3(b.x + BARREL_R, BARREL_H, b.z + BARREL_R), barrel: true, surface: 'metal' };
   colliders.push(b.collider);
   b.hp = BARREL_HP; b.state = 'ok'; b.fuse = 0; b.hiss = 0;
 }
@@ -162,7 +162,7 @@ const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff7a2a).m
     glow.rotation.x = -Math.PI / 2; glow.position.set(s[0], 0.82, s[1]);
     glow.userData.vfx = true;
     scene.add(glow);
-    addCollider(s[0], 0.45, s[1], 0.68, 0.9, 0.68);
+    addCollider(s[0], 0.45, s[1], 0.68, 0.9, 0.68, 'metal');
     let light = null;
     if (QUALITY.pointLights && i < 2) {
       light = new THREE.PointLight(0xff8a3a, 2.2, 11, 2);

@@ -123,8 +123,9 @@ class ReleaseBuildTests(unittest.TestCase):
         # 8) Ammo pickup HUD update
         self.assertIn("updateHudAmmo();", grenades_src)
 
-        # 9) Secondary weapon reset across runs
-        self.assertIn("weaponsOwned[1] = -1;\n  curWeapon = 0;\n  initWeapons();", main_src)
+        # 9) Secondary weapon reset across runs (slot 2 is the sidearm again,
+        #    so an Armory swap from a previous run never persists)
+        self.assertIn("weaponsOwned[1] = PISTOL;\n  curWeapon = 0;\n  initWeapons();", main_src)
 
         # 10) Audio node disconnect in playSound3D
         self.assertIn("p.disconnect()", vfx_src)

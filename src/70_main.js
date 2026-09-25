@@ -11,7 +11,15 @@ function resumeGame() {
   paused = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'none';
-  canvas.requestPointerLock();
+  lockPointer();
+}
+function endStats(prefix) {
+  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+  const rec = recordBest(score, waveNum);
+  return prefix + 'Score: <b>' + score + '</b>' + (rec.isNew && score > 0 ? ' <span class="newbest">NEW BEST</span>' : ' · best <b>' + rec.best.score + '</b>') +
+    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+    '<br>Difficulty: <b>' + diff().label + '</b>';
 }
 function killPlayer() {
   player.dead = true;
@@ -22,22 +30,22 @@ function killPlayer() {
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
   paused = false;
   $id('pause-menu').style.display = 'none';
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  $id('ds-stats').innerHTML =
-    'Waves survived: <b>' + waveNum + '</b><br>Score: <b>' + score + '</b><br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')';
-  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+  $id('ds-stats').innerHTML = endStats('Waves survived: <b>' + Math.max(0, waveNum - 1) + '</b><br>');
+  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 1200);
 }
 function victory() {
   gameEnded = true;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  $id('vs-stats').innerHTML =
-    'Final score: <b>' + score + '</b><br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')';
+  $id('vs-stats').innerHTML = endStats('All ' + CFG.wave.victoryWave + ' waves survived<br>');
   $id('victory-screen').style.display = 'flex';
+}
+function refreshBestLabel() {
+  const b = loadBest()[SETTINGS.difficulty];
+  const txt = b ? 'BEST · ' + diff().label + ' · ' + b.score + ' (WAVE ' + b.wave + ')' : '';
+  $id('start-best').textContent = txt;
+  hud.bestVal.textContent = b ? 'BEST ' + b.score : '';
 }
 
 function resetGame() {
@@ -72,7 +80,8 @@ function resetGame() {
     casingPool.push(c.m);
   }
   casings.length = 0;
-  grenades.count = CFG.grenade.count;
+  resetPerks();
+  grenades.count = maxGrenades();
   grenades.cd = 0;
   resetBarrels();
   clearDebris();
@@ -81,12 +90,14 @@ function resetGame() {
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
-  player.health = CFG.player.health; player.armor = CFG.player.armor;
+  player.health = CFG.player.health; player.armor = maxArmor();
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
+  player.eyeH = CFG.player.height; player.crouchLatch = false; player.lean = 0; player.leanTarget = 0;
+  player.leanOffset.set(0, 0, 0); player.mantle = null; player.landDip = 0; player.landVel = 0; player.lastLandSpeed = 0;
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
@@ -95,7 +106,7 @@ function resetGame() {
   betweenWaveT = CFG.wave.startDelay;
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
-  weaponsOwned[1] = -1;
+  weaponsOwned[1] = PISTOL;
   curWeapon = 0;
   initWeapons();
   gunSwitchT = 1;
@@ -103,29 +114,49 @@ function resetGame() {
   updateHudHealth(); updateHudAmmo();
   hud.scoreVal.textContent = '0';
   hud.killfeed.innerHTML = '';
+  clearDamageNumbers();
+  ghostHp = CFG.player.health; lastHudHp = -1; lastHudArmor = -1;
+  POST.damage = 0; POST.lowHealth = 0; camTrauma = 0; meleeT = 0; meleeCd = 0;
+  refreshBestLabel();
   clearTimeout(hud.waveBanner._t);
   hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
 }
 
-// gun select UI
+// gun select UI: stat bars normalised across the primary roster
+const GUN_TYPE_LABEL = { AR: 'ASSAULT RIFLE', SMG: 'SUBMACHINE GUN', BR: 'BATTLE RIFLE', SR: 'BOLT-ACTION SNIPER', SG: 'PUMP SHOTGUN', LMG: 'LIGHT MACHINE GUN', PST: 'PISTOL' };
+function gunStats(w) {
+  const dmg = w.dmg * (w.pellets || 1);
+  return {
+    Damage: Math.min(1, dmg / 130),
+    'Fire rate': Math.min(1, w.rpm / 1050),
+    Range: Math.min(1, (w.r0 + w.r1) / 380),
+    Control: Math.max(0.08, 1 - (w.recoilV * 30 + w.recoilH * 40)),
+    Mobility: Math.min(1, (w.moveMul || 1) * (w.type === 'LMG' ? 0.55 : w.type === 'SR' ? 0.6 : w.type === 'SMG' ? 1 : 0.8)),
+    Capacity: Math.min(1, w.mag / 60)
+  };
+}
 function buildGunSelect() {
   const wrap = $id('gun-cards');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
+    if (w.sidearm) return;
     const card = document.createElement('div');
     card.className = 'gun-card';
     enableMenuKeyboard(card);
-    const scoped = w.type === 'BR' || w.type === 'SR';
-    card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
-      '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>';
+    const st = gunStats(w);
+    let bars = '';
+    for (const k in st) bars += '<div class="gc-stat"><span>' + k.toUpperCase() + '</span><i><u style="width:' + Math.round(st[k] * 100) + '%"></u></i></div>';
+    card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div><div class="gc-type">' + GUN_TYPE_LABEL[w.type] + '</div>' + bars +
+      '<div class="gc-foot">' + (w.auto ? 'Full auto' : w.bolt ? 'Bolt action' : w.pump ? 'Pump action' : 'Semi auto') + ' · ' + w.mag + ' rds · ' + ({ reddot: 'Red dot', holo: 'Holographic', acog: '4x ACOG', scope: '8x scope', iron: 'Iron sights' })[w.sight] + (w.pen ? ' · penetrates cover' : '') + '</div>';
     card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
   });
+  const first = wrap.querySelector('.gun-card');
+  if (first && lastInputDevice === 'pad') first.focus();
 }
 function pickGun(i) {
   weaponsOwned[0] = i;
-  weaponsOwned[1] = -1;
+  weaponsOwned[1] = PISTOL;
   $id('gun-select').style.display = 'none';
   paused = false;              // always start unpaused — fixes frozen redeploy
   $id('pause-menu').style.display = 'none';
@@ -149,7 +180,8 @@ function startGame() {
   resetGame();
   showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
   $id('start-screen').style.display = 'none';
-  canvas.requestPointerLock();
+  startAmbient();
+  lockPointer();
 }
 
 // Keyboard-operable menu controls, including dynamically created weapon cards.
@@ -164,7 +196,7 @@ document.querySelectorAll(".menu-btn").forEach(enableMenuKeyboard);
 // catches the dynamically built gun cards (and their inner stat divs) plus
 // keyboard Enter/Space activation, which dispatches a real el.click().
 document.addEventListener('click', function (e) {
-  const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card') : null;
+  const t = e.target && e.target.closest ? e.target.closest('.menu-btn, .gun-card, .perk-card') : null;
   if (t) playSound('click');
 });
 // buttons
@@ -175,6 +207,10 @@ $id('btn-start').addEventListener('click', function () {
   audioCtx(); // unlock audio on user gesture
 });
 $id('btn-resume').addEventListener('click', resumeGame);
+$id('btn-settings').addEventListener('click', function () { audioCtx(); openSettings('start-screen'); });
+$id('btn-pause-settings').addEventListener('click', function () { openSettings('pause-menu'); });
+$id('btn-settings-back').addEventListener('click', function () { closeSettings(); refreshBestLabel(); });
+enableMenuKeyboard($id('btn-settings')); enableMenuKeyboard($id('btn-pause-settings')); enableMenuKeyboard($id('btn-settings-back'));
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
   $id('pause-menu').style.display = 'none';
@@ -211,6 +247,12 @@ let slideFov = 0;   // extra FOV kick while sliding
 let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
 let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
 let hudFlickT = -9;     // gameT of last flick-forced redraw
+let heartT = 0;
+function updateHeartbeat(dt) {
+  if (player.health > 30 || player.dead) { heartT = 0; return; }
+  heartT -= dt;
+  if (heartT <= 0) { heartT = 0.55 + player.health / 60; playSound('heartbeat'); }
+}
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - lastT) / 1000;
@@ -226,7 +268,7 @@ function frame(now) {
     // the camera to appear to hitch on slower GPUs.
     qualityAdjustT += fpsAcc;
     if (qualityAdjustT >= 4.5) {
-      const maxPR = Math.min(window.devicePixelRatio, 1.5);
+      const maxPR = Math.min(window.devicePixelRatio, QUALITY.maxPR);
       const currentPR = renderer.getPixelRatio();
       let desiredPR = currentPR;
       if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
@@ -235,6 +277,7 @@ function frame(now) {
       else if (fps > 58 && currentPR < maxPR) desiredPR = Math.min(maxPR, currentPR + 0.1);
       if (Math.abs(desiredPR - currentPR) >= 0.05) {
         renderer.setPixelRatio(desiredPR);
+        postfxResize();
       }
       qualityAdjustT = 0;
     }
@@ -258,6 +301,10 @@ function frame(now) {
     updateMuzzleLight(dt);
     updateFootsteps(dt);
     updateHudHealth();
+    updateHudTick(dt);
+    updateDamageNumbers(dt);
+    updateGrenadeWarning();
+    updateHeartbeat(dt);
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
     // frame: they cost significant CPU overhead on 2D contexts and the
     // human eye cannot track a rotating minimap at 60+ Hz. A fast flick
@@ -284,6 +331,7 @@ function frame(now) {
       slideOv.style.boxShadow = 'inset 0 0 90px 30px rgba(0,0,0,' + (0.55 * parseFloat(slideOv.style.opacity)) + ')';
     }
   }
+  pollGamepadMenus(dt);
   // clear edge-trigger keys
   for (const k in pressed) delete pressed[k];
 
@@ -296,19 +344,21 @@ function frame(now) {
     slideFov += (slideBlend * 6 - slideFov) * Math.min(1, 10 * dt);
     // Ease toward one bounded FOV target. The old incremental update let FOV
     // drift upward after a slide and looked like a camera rotation skip.
-    const baseFov = SETTINGS.fov - adsAmount * (curW().type === 'SR' ? 52 : 24);
+    // ADS zoom scales the tangent of the half-angle (true optical magnification)
+    const adsFov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(SETTINGS.fov) / 2) * (curW().adsZoom || 0.75)));
+    const baseFov = SETTINGS.fov + (adsFov - SETTINGS.fov) * adsAmount;
     const targetFov = baseFov + slideFov;
     const previousFov = camera.fov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
-    const slideDip = slideBlend * 0.45;
-    camera.position.set(player.pos.x + bobX, player.pos.y - slideDip + bobY, player.pos.z);
+    updateLandSpring(dt);
+    camera.position.set(player.pos.x + bobX + player.leanOffset.x, player.pos.y + bobY + player.leanOffset.y + player.landDip, player.pos.z + player.leanOffset.z);
     camera.rotation.order = 'YXZ';
     updateCameraShake(dt, performance.now() / 1000);
     camera.rotation.y = player.yaw + player.recoilY + camShake.yaw;
     camera.rotation.x = player.pitch + player.recoilP + camShake.pitch;
     // roll: bob + slide lean + sway
-    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + slideBlend * 0.16 + (adsAmount > 0.8 ? swayX * 0.5 : 0) + camShake.roll;
+    camera.rotation.z = Math.sin(player.bobPhase) * player.bobAmp * 0.008 + (slideFov / 6) * 0.12 + (adsAmount > 0.8 ? swayX * 0.5 : 0) + camShake.roll - player.lean * 0.13;
     shotKick *= Math.pow(0.001, dt);
   } else {
     // death cam: fall to ground
@@ -326,21 +376,12 @@ function frame(now) {
   // world pass + viewmodel pass (own camera, cleared depth) + post-FX
   renderFrame(dt, started && !player.dead && !!gunGroup && gunGroup.visible);
 }
-function triggerMuzzleFlashIdle() { /* flash triggered in fireShot via flashT */ }
-
-// hook muzzle flash + sniper boom + muzzle light into fireShot (defined earlier; patch via wrapper)
-const _origFire = fireShot;
-fireShot = function () {
-  _origFire();
-  triggerMuzzleFlash();
-  flashMuzzleLight();
-  if (curW().type === 'SR') playSound('sniper');
-};
-
 initWeapons();
 buildViewmodel();
 updateHudHealth();
 updateHudAmmo();
+updatePerkHud();
+refreshBestLabel();
 requestAnimationFrame(frame);
 // Parse every embedded GLB before deployment. This matters for file:// launches:
 // the previous asynchronous path could render the arena before desktop props were

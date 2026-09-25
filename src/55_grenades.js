@@ -301,8 +301,9 @@ const PICKUP_BLINK = 20;       // start blinking during the last 5s
 function dropPickup(pos) {
   const roll = Math.random();
   let kind = null;
-  if (roll < 0.30) kind = 'ammo';
-  else if (roll < 0.45) kind = 'med';
+  const k = perkMul('drops');
+  if (roll < 0.30 * k) kind = 'ammo';
+  else if (roll < 0.45 * k) kind = 'med';
   if (!kind) return;
   const g = kind === 'ammo' ? new THREE.Mesh(pickupAmmoGeo, pickupAmmoMat) : new THREE.Mesh(pickupMedGeo, pickupMedMat);
   if (kind === 'med') {
@@ -332,13 +333,18 @@ function updatePickups(dt) {
       if (p.kind === 'ammo') {
         const s = curS();
         if (s) {
-          s.reserve = Math.min(CFG.weapons[weaponsOwned[curWeapon]].reserveMax, s.reserve + Math.round(CFG.weapons[weaponsOwned[curWeapon]].mag * 1.5));
+          // tops up both weapons; the one in hand gets the bigger share
+          for (let si = 0; si < wState.length; si++) {
+            if (!wState[si]) continue;
+            const ww = CFG.weapons[weaponsOwned[si]];
+            wState[si].reserve = Math.min(ww.reserveMax, wState[si].reserve + Math.round(magSize(ww) * (si === curWeapon ? 1.5 : 0.75)));
+          }
           updateHudAmmo();
           showCenterMsg('+ AMMO');
         }
       } else {
         player.health = Math.min(CFG.player.health, player.health + 35);
-        player.armor = Math.min(CFG.player.armor, player.armor + 15);
+        player.armor = Math.min(maxArmor(), player.armor + 15);
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }

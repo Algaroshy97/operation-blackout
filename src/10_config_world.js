@@ -5,11 +5,17 @@ const CFG = {
   player: { height: 1.7, crouchHeight: 1.05, radius: 0.35, speed: 5.4, sprintMul: 1.65, crouchMul: 0.55, accel: 16, decel: 38, jumpVel: 5.6, gravity: 16, health: 100, armor: 50, regenDelay: 3.5, regenRate: 12, maxStamina: 3.2 },
   world: { size: 90, fogColor: 0x5d5a6a, skyColor: 0x5a6a90 },
   wave: { baseCount: 5, growth: 2.5, maxActive: 14, spawnInterval: [1.2, 3.0], startDelay: 3.5, victoryWave: 15 },
+  // dmg per bullet (per pellet for SG) · rpm · mag · reload (tactical) / reloadEmpty · spread / adsSpread (rad)
+  // recoilV/H · falloff: full damage to r0, scaling to minMul at r1 · pen = surfaces a round can punch through
+  // heat = spread bloom per shot · adsZoom = FOV multiplier when aiming · sight: reddot | holo | acog | scope | iron
   weapons: [
-    { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150, reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006, range: 120, auto: true },
-    { name: 'MK18 Mod1', type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160, reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005, range: 80, auto: true },
-    { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
-    { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false }
+    { name: 'M4A1 Carbine', type: 'AR', dmg: 27, rpm: 760, mag: 30, reserveMax: 180, reload: 2.0, reloadEmpty: 2.55, spread: 0.013, adsSpread: 0.0035, recoilV: 0.013, recoilH: 0.0055, r0: 35, r1: 95, minMul: 0.7, range: 160, auto: true, pen: 1, heat: 0.16, headMul: 2.0, adsZoom: 0.7, sight: 'reddot', chamber: true },
+    { name: 'KRISS Vector', type: 'SMG', dmg: 20, rpm: 1050, mag: 30, reserveMax: 210, reload: 1.8, reloadEmpty: 2.2, spread: 0.019, adsSpread: 0.007, recoilV: 0.0085, recoilH: 0.0045, r0: 14, r1: 45, minMul: 0.55, range: 110, auto: true, pen: 0, heat: 0.11, headMul: 1.7, adsZoom: 0.8, sight: 'holo', chamber: true, suppressed: true },
+    { name: 'SCAR-H', type: 'BR', dmg: 43, rpm: 600, mag: 20, reserveMax: 120, reload: 2.3, reloadEmpty: 2.9, spread: 0.011, adsSpread: 0.0025, recoilV: 0.021, recoilH: 0.008, r0: 55, r1: 140, minMul: 0.8, range: 200, auto: true, pen: 1, heat: 0.22, headMul: 2.0, adsZoom: 0.5, sight: 'acog', chamber: true },
+    { name: 'SV-98 Marksman', type: 'SR', dmg: 125, rpm: 50, mag: 5, reserveMax: 40, reload: 3.2, reloadEmpty: 3.6, spread: 0.055, adsSpread: 0.0005, recoilV: 0.055, recoilH: 0.012, r0: 120, r1: 260, minMul: 0.9, range: 300, auto: false, pen: 2, heat: 0, headMul: 2.6, adsZoom: 0.33, sight: 'scope', bolt: 1.05 },
+    { name: 'M870 Breacher', type: 'SG', dmg: 14, pellets: 9, rpm: 75, mag: 7, reserveMax: 42, reload: 0.46, reloadEmpty: 0.46, spread: 0.06, adsSpread: 0.045, recoilV: 0.05, recoilH: 0.012, r0: 8, r1: 28, minMul: 0.25, range: 60, auto: false, pen: 0, heat: 0, headMul: 1.5, adsZoom: 0.85, sight: 'iron', pump: 0.62 },
+    { name: 'M249 SAW', type: 'LMG', dmg: 25, rpm: 820, mag: 100, reserveMax: 300, reload: 5.0, reloadEmpty: 5.4, spread: 0.022, adsSpread: 0.006, recoilV: 0.011, recoilH: 0.0075, r0: 40, r1: 110, minMul: 0.7, range: 180, auto: true, pen: 1, heat: 0.07, headMul: 1.8, adsZoom: 0.72, sight: 'reddot', moveMul: 0.9 },
+    { name: 'M17 Sidearm', type: 'PST', dmg: 32, rpm: 420, mag: 17, reserveMax: 85, reload: 1.45, reloadEmpty: 1.8, spread: 0.017, adsSpread: 0.006, recoilV: 0.02, recoilH: 0.007, r0: 18, r1: 50, minMul: 0.6, range: 90, auto: false, pen: 0, heat: 0.3, headMul: 2.0, adsZoom: 0.82, sight: 'iron', chamber: true, sidearm: true }
   ],
   ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
@@ -179,8 +185,8 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 raycastColliders.push(ground);
-function addCollider(x, y, z, w, h, d) {
-  colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2) });
+function addCollider(x, y, z, w, h, d, surface) {
+  colliders.push({ min: new THREE.Vector3(x - w/2, y - h/2, z - d/2), max: new THREE.Vector3(x + w/2, y + h/2, z + d/2), surface: surface || 'concrete' });
 }
 // Highest collider top at (x, z) that is not above maxY (ground when none).
 function floorHeightAt(x, z, maxY) {
@@ -202,7 +208,7 @@ function addBox(x, y, z, w, h, d, mat, opts) {
   m.receiveShadow = true;
   scene.add(m);
   raycastColliders.push(m);
-  if (!opts.noCollide) addCollider(x, y, z, w, h, d);
+  if (!opts.noCollide) addCollider(x, y, z, w, h, d, mat.userData.surface);
   return m;
 }
 
@@ -425,7 +431,7 @@ function scatterProps() {
     scene.add(m);
     raycastColliders.push(m);
     const d = dims[s[0]];
-    addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
+    addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2], s[0] === 'COLUMN' ? 'concrete' : 'wood');
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
@@ -443,7 +449,7 @@ function scatterProps() {
       });
       scene.add(m);
       raycastColliders.push(m);
-      addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
+      addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1, 'wood');
   });
   placed += 3;
   return placed;
