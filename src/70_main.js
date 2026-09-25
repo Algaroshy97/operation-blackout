@@ -825,12 +825,12 @@ function frame(now) {
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
-  // single-pass render: viewmodel is a camera child with depthTest:false materials
-  renderer.autoClear = true;
-  renderFrame(dt);
+  // pose the viewmodel for THIS frame, then draw world + gun (65_postfx.js)
   if (started && !player.dead && gunGroup) {
     updateViewmodel(dt);
   }
+  renderer.autoClear = true;
+  renderFrame(dt);
 }
 
 applyAllSettings();

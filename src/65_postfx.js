@@ -149,13 +149,23 @@ function blurPass(src, tmp) {
 }
 // Gameplay nudges the lens (explosions, heavy hits); it relaxes on its own.
 function postKick(amount) { POST.kick = Math.min(1, POST.kick + amount); }
+// World first, then the viewmodel over a cleared depth buffer (32_viewmodels.js).
+function renderWorld() {
+  renderer.render(scene, camera);
+  if (started && !player.dead && gunGroup) {
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(gunScene, gunCamera);
+    renderer.autoClear = true;
+  }
+}
 function renderFrame(dt) {
   // frame() can hand over a negative step (rAF stamps trail performance.now()).
   if (!(dt > 0)) dt = 0;
   POST.kick = Math.max(0, POST.kick - dt * 1.6);
   if (!POST.enabled) {
     renderer.setRenderTarget(null);
-    renderer.render(scene, camera);
+    renderWorld();
     return;
   }
   try {
@@ -163,7 +173,7 @@ function renderFrame(dt) {
     const size = renderer.getDrawingBufferSize(POST.size);
     if (size.x !== POST.rt.width || size.y !== POST.rt.height) postfxResize(Math.max(1, size.x), Math.max(1, size.y));
     renderer.setRenderTarget(POST.rt);
-    renderer.render(scene, camera);
+    renderWorld();
     POST.mats.bright.uniforms.tSrc.value = POST.rt.texture;
     postPass(POST.mats.bright, POST.bright);
     // 1/4 and 1/8 resolution blur levels: a tight core plus a wide glow
@@ -182,6 +192,6 @@ function renderFrame(dt) {
     console.warn('post-processing failed, disabling', e);
     POST.failed = true; disposePostTargets(); POST.enabled = false; applyPostFog();
     renderer.setRenderTarget(null);
-    renderer.render(scene, camera);
+    renderWorld();
   }
 }
