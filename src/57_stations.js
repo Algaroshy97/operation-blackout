@@ -196,6 +196,7 @@ function resetStations() {
   lethalIdx = 1;
   tacticalIdx = 0;
   for (let i = 0; i < stations.length; i++) stations[i].holdT = 0;
+  if (_lastTouchUseState) _lastTouchUseState.nearStation = null;
 }
 
 // ---- Offers -----------------------------------------------------------------
@@ -209,51 +210,51 @@ function stationOffer(st) {
     const reserve = s ? s.reserve : 0;
     const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
     const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax);
-    if (offer.action === 'full') return { label: w.name.toUpperCase() + ' — FULL', price: 0, ok: false };
-    if (offer.action === 'ammo') return { label: 'AMMO · ' + w.name.toUpperCase(), price: offer.price, ok: true };
-    return { label: w.name.toUpperCase(), price: offer.price, ok: true };
+    if (offer.action === 'full') return { label: w.name.toUpperCase() + ' — FULL', price: 0, ok: false, action: 'full' };
+    if (offer.action === 'ammo') return { label: 'AMMO · ' + w.name.toUpperCase(), price: offer.price, ok: true, action: 'ammo' };
+    return { label: w.name.toUpperCase(), price: offer.price, ok: true, action: 'buy' };
   }
   if (st.kind === 'armory') {
     if (!CORE.armoryAvailable(waveNum)) {
-      return { label: 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE, price: 0, ok: false };
+      return { label: 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE, price: 0, ok: false, action: 'locked' };
     }
     const s = curS();
-    if (!s) return { label: 'ARMORY', price: 0, ok: false };
-    if (s.up) return { label: curW().name.toUpperCase() + ' — ALREADY UPGRADED', price: 0, ok: false };
-    return { label: 'UPGRADE ' + curW().name.toUpperCase(), price: CORE.ARMORY_PRICE, ok: true };
+    if (!s) return { label: 'ARMORY', price: 0, ok: false, action: 'none' };
+    if (s.up) return { label: curW().name.toUpperCase() + ' — ALREADY UPGRADED', price: 0, ok: false, action: 'upgraded' };
+    return { label: 'UPGRADE ' + curW().name.toUpperCase(), price: CORE.ARMORY_PRICE, ok: true, action: 'upgrade' };
   }
   if (st.kind === 'plate') {
-    if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false };
-    return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true };
+    if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false, action: 'full' };
+    return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true, action: 'plate' };
   }
   if (st.kind === 'door') {
     const d = CORE.districtByKey(st.district);
-    if (!d) return { label: 'DOOR', price: 0, ok: false };
+    if (!d) return { label: 'DOOR', price: 0, ok: false, action: 'door' };
     if (openDistricts.indexOf(st.district) >= 0) {
-      return { label: d.name + ' — OPEN', price: 0, ok: false };
+      return { label: d.name + ' — OPEN', price: 0, ok: false, action: 'open' };
     }
-    return { label: 'OPEN ' + d.name, price: d.price, ok: true };
+    return { label: 'OPEN ' + d.name, price: d.price, ok: true, action: 'door' };
   }
   if (st.kind === 'lethal') {
     const d = CORE.LETHALS[lethalIdx];
     if (d.key === equippedLethal) {
-      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
     }
-    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true };
+    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true, action: 'buy' };
   }
   if (st.kind === 'tactical') {
     const d = CORE.TACTICALS[tacticalIdx];
     if (d.key === equippedTactical && tacticalCount >= TACTICAL_MAX) {
-      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true };
+      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
     }
     const refill = d.key === equippedTactical;
-    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true };
+    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true, action: refill ? 'ammo' : 'buy' };
   }
   const p = CORE.perkByKey(st.perk);
-  if (!p) return { label: 'PERK', price: 0, ok: false };
+  if (!p) return { label: 'PERK', price: 0, ok: false, action: 'perk' };
   const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
-  if (blocker) return { label: p.name + ' — ' + blocker, price: p.price, ok: false };
-  return { label: p.name + ' · ' + p.blurb.toUpperCase(), price: p.price, ok: true };
+  if (blocker) return { label: p.name + ' — ' + blocker, price: p.price, ok: false, action: 'blocked' };
+  return { label: p.name + ' · ' + p.blurb.toUpperCase(), price: p.price, ok: true, action: 'perk' };
 }
 
 function purchase(st) {
@@ -331,18 +332,34 @@ function purchase(st) {
   return true;
 }
 
+// ---- Mobile touch station USE button change-detection -----------------------
+let _lastTouchUseState = null;
+let _tbtnUseEl = null;
+
+function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, action) {
+  if (typeof IS_TOUCH === 'undefined' || !IS_TOUCH) return;
+  if (!_tbtnUseEl) _tbtnUseEl = $id('tbtn-use');
+  if (!_tbtnUseEl) return;
+  if (!_lastTouchUseState) _lastTouchUseState = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null };
+  if (!CORE.touchUseChanged(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action)) return;
+  CORE.syncTouchUseState(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action);
+
+  const uState = CORE.touchUseState(nearStation, canAfford, isHolding);
+  _tbtnUseEl.classList.toggle('empty', uState === 'empty');
+  _tbtnUseEl.classList.toggle('ready', uState === 'ready');
+  _tbtnUseEl.classList.toggle('holding', uState === 'holding');
+  _tbtnUseEl.classList.toggle('blocked', uState === 'blocked');
+
+  const lbl = CORE.touchUseLabel(nearStation, canAfford, isHolding, stationKind, action);
+  if (_tbtnUseEl.textContent !== lbl) _tbtnUseEl.textContent = lbl;
+}
+
 // ---- Per-frame --------------------------------------------------------------
 function updateStations(dt) {
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
   if (!started || paused || player.dead) {
     setBuyPrompt(null, 0);
-    if (isTouch) {
-      const tb = $id('tbtn-use');
-      if (tb) {
-        tb.classList.add('empty');
-        tb.classList.remove('ready', 'holding', 'blocked');
-      }
-    }
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
     return;
   }
   // Plating runs to completion once started; it is a commitment, like a reload.
@@ -356,6 +373,7 @@ function updateStations(dt) {
       }
     }
     setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
     return;
   }
   if (pressed['KeyX'] || pressed['__plate']) usePlate();
@@ -364,17 +382,12 @@ function updateStations(dt) {
   if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
   if (idx < 0) {
     setBuyPrompt(null, 0);
-    if (isTouch) {
-      const tb = $id('tbtn-use');
-      if (tb) {
-        tb.classList.add('empty');
-        tb.classList.remove('ready', 'holding', 'blocked');
-      }
-    }
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
     return;
   }
   const st = stations[idx];
   const offer = stationOffer(st);
+  const canAfford = offer.ok && credits >= offer.price;
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
   if (holding) {
     stationHoldT += dt;
@@ -386,14 +399,7 @@ function updateStations(dt) {
     stationHoldT = Math.max(0, stationHoldT - dt * 3);
   }
   if (isTouch) {
-    const tb = $id('tbtn-use');
-    if (tb) {
-      const uState = CORE.touchUseState(true, offer.ok, holding);
-      tb.classList.toggle('empty', uState === 'empty');
-      tb.classList.toggle('ready', uState === 'ready');
-      tb.classList.toggle('holding', uState === 'holding');
-      tb.classList.toggle('blocked', uState === 'blocked');
-    }
+    updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action);
   }
   const text = offer.price > 0
     ? offer.label + '  ·  ' + offer.price + ' CR'

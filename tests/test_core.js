@@ -5312,3 +5312,57 @@ test('stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff, mus
   assert.strictEqual(CORE.playerDownSound(), 'player_down');
   assert.strictEqual(CORE.playerReviveSound(), 'player_revive');
 });
+
+test('touchUseLabel, touchUseChanged, and syncTouchUseState govern contextual mobile station interaction feedback and change-detection', () => {
+  // touchUseLabel:
+  // Out of range: 'USE'
+  assert.strictEqual(CORE.touchUseLabel(false, true, false, 'armory', 'upgrade'), 'USE');
+  assert.strictEqual(CORE.touchUseLabel(false, false, false, '', ''), 'USE');
+
+  // Holding interaction takes top priority when in range:
+  assert.strictEqual(CORE.touchUseLabel(true, true, true, 'armory', 'upgrade'), 'HOLD');
+  assert.strictEqual(CORE.touchUseLabel(true, true, true, 'door', 'door'), 'HOLD');
+  assert.strictEqual(CORE.touchUseLabel(true, true, true, 'plate', 'plate'), 'HOLD');
+  assert.strictEqual(CORE.touchUseLabel(true, false, true, 'perk', 'perk'), 'HOLD');
+
+  // Blocked / unaffordable when in range: 'LOCK'
+  assert.strictEqual(CORE.touchUseLabel(true, false, false, 'armory', 'locked'), 'LOCK');
+  assert.strictEqual(CORE.touchUseLabel(true, false, false, 'door', 'door'), 'LOCK');
+  assert.strictEqual(CORE.touchUseLabel(true, false, false, 'plate', 'full'), 'LOCK');
+  assert.strictEqual(CORE.touchUseLabel(true, false, false, 'perk', 'blocked'), 'LOCK');
+
+  // Station-specific contextual labels when available:
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'armory', 'upgrade'), 'UPGRADE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'door', 'door'), 'OPEN');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'plate', 'plate'), 'PLATE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'perk', 'perk'), 'PERK');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'wall', 'ammo'), 'AMMO');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'wall', 'buy'), 'BUY');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'lethal', 'cycle'), 'CYCLE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'tactical', 'cycle'), 'CYCLE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'lethal', 'buy'), 'BUY');
+
+  // touchUseChanged & syncTouchUseState change-detection:
+  const cache = { nearStation: false, canAfford: false, isHolding: false, stationKind: '', action: '' };
+  assert.strictEqual(CORE.touchUseChanged(null, false, false, false, '', ''), true);
+  assert.strictEqual(CORE.touchUseChanged(cache, false, false, false, '', ''), false);
+  assert.strictEqual(CORE.touchUseChanged(cache, true, false, false, 'armory', 'upgrade'), true);
+
+  // Sync updates cache in-place without reallocation:
+  const synced = CORE.syncTouchUseState(cache, true, true, false, 'armory', 'upgrade');
+  assert.strictEqual(synced, cache);
+  assert.strictEqual(cache.nearStation, true);
+  assert.strictEqual(cache.canAfford, true);
+  assert.strictEqual(cache.isHolding, false);
+  assert.strictEqual(cache.stationKind, 'armory');
+  assert.strictEqual(cache.action, 'upgrade');
+
+  // Same state reports no change:
+  assert.strictEqual(CORE.touchUseChanged(cache, true, true, false, 'armory', 'upgrade'), false);
+
+  // Transition to holding:
+  assert.strictEqual(CORE.touchUseChanged(cache, true, true, true, 'armory', 'upgrade'), true);
+  CORE.syncTouchUseState(cache, true, true, true, 'armory', 'upgrade');
+  assert.strictEqual(cache.isHolding, true);
+  assert.strictEqual(CORE.touchUseChanged(cache, true, true, true, 'armory', 'upgrade'), false);
+});

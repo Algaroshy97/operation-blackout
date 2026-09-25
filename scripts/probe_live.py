@@ -1824,7 +1824,44 @@ def main() -> int:
         }""")
         checks.append(("adaptive-music-and-tactical-audio-rules", adaptive_audio_check))
 
-        # 46) Clean console throughout gameplay.
+        # 46) Mobile touch station USE button contextual label, state, and change-detection rules.
+        touch_use_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.touchUseState !== 'function' ||
+                typeof CORE.touchUseLabel !== 'function' ||
+                typeof CORE.touchUseChanged !== 'function' ||
+                typeof CORE.syncTouchUseState !== 'function') return false;
+
+            const stEmpty = CORE.touchUseState(false, true, false) === 'empty';
+            const stReady = CORE.touchUseState(true, true, false) === 'ready';
+            const stHolding = CORE.touchUseState(true, true, true) === 'holding';
+            const stBlocked = CORE.touchUseState(true, false, false) === 'blocked';
+
+            const lblIdle = CORE.touchUseLabel(false, false, false, '', '') === 'USE';
+            const lblHold = CORE.touchUseLabel(true, true, true, 'armory', 'upgrade') === 'HOLD';
+            const lblLock = CORE.touchUseLabel(true, false, false, 'door', 'door') === 'LOCK';
+            const lblArmory = CORE.touchUseLabel(true, true, false, 'armory', 'upgrade') === 'UPGRADE';
+            const lblDoor = CORE.touchUseLabel(true, true, false, 'door', 'door') === 'OPEN';
+            const lblPlate = CORE.touchUseLabel(true, true, false, 'plate', 'plate') === 'PLATE';
+            const lblPerk = CORE.touchUseLabel(true, true, false, 'perk', 'perk') === 'PERK';
+            const lblWallAmmo = CORE.touchUseLabel(true, true, false, 'wall', 'ammo') === 'AMMO';
+            const lblWallBuy = CORE.touchUseLabel(true, true, false, 'wall', 'buy') === 'BUY';
+            const lblCycle = CORE.touchUseLabel(true, true, false, 'lethal', 'cycle') === 'CYCLE';
+
+            const cacheState = { nearStation: false, canAfford: false, isHolding: false, stationKind: '', action: '' };
+            const chInit = CORE.touchUseChanged(cacheState, true, true, false, 'armory', 'upgrade');
+            CORE.syncTouchUseState(cacheState, true, true, false, 'armory', 'upgrade');
+            const chSame = !CORE.touchUseChanged(cacheState, true, true, false, 'armory', 'upgrade');
+            const chHold = CORE.touchUseChanged(cacheState, true, true, true, 'armory', 'upgrade');
+
+            return stEmpty && stReady && stHolding && stBlocked &&
+                   lblIdle && lblHold && lblLock && lblArmory && lblDoor &&
+                   lblPlate && lblPerk && lblWallAmmo && lblWallBuy && lblCycle &&
+                   chInit && chSame && chHold;
+        }""")
+        checks.append(("touch-station-use-feedback-and-contextual-rules", touch_use_check))
+
+        # 47) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

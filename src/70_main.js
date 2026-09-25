@@ -186,6 +186,7 @@ function resetGame() {
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
   if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
+  if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;

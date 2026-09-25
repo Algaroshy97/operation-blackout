@@ -2116,6 +2116,39 @@ const CORE = (function () {
     if (canAfford) return 'ready';
     return 'blocked';
   }
+  // Mobile touch station USE button contextual label: displays 'HOLD' while purchasing,
+  // 'LOCK' when blocked, 'UPGRADE' / 'OPEN' / 'AMMO' / 'BUY' / 'PLATE' / 'PERK' / 'CYCLE'
+  // when available, or 'USE' when idle/empty.
+  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action) {
+    if (!nearStation) return 'USE';
+    if (isHolding) return 'HOLD';
+    if (!canAfford) return 'LOCK';
+    if (action === 'cycle') return 'CYCLE';
+    if (stationKind === 'armory') return 'UPGRADE';
+    if (stationKind === 'door') return 'OPEN';
+    if (stationKind === 'plate') return 'PLATE';
+    if (stationKind === 'perk') return 'PERK';
+    if (stationKind === 'wall') return action === 'ammo' ? 'AMMO' : 'BUY';
+    return 'BUY';
+  }
+  // Change-detection for mobile touch station USE button to prevent redundant DOM updates.
+  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    return lastState.nearStation !== nearStation ||
+           lastState.canAfford !== canAfford ||
+           lastState.isHolding !== isHolding ||
+           lastState.stationKind !== stationKind ||
+           lastState.action !== action;
+  }
+  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+    const target = lastState && typeof lastState === 'object' ? lastState : {};
+    target.nearStation = nearStation;
+    target.canAfford = canAfford;
+    target.isHolding = isHolding;
+    target.stationKind = stationKind;
+    target.action = action;
+    return target;
+  }
   // Mobile touch stance/slide button state: returns 'sliding' during an active slide,
   // 'crouch' while crouching, 'sprint' when forward sprint momentum is ready to slide,
   // or '' during standard movement.
@@ -4582,7 +4615,10 @@ const CORE = (function () {
     musicPulseGain: musicPulseGain,
     stationPurchaseSound: stationPurchaseSound,
     playerDownSound: playerDownSound,
-    playerReviveSound: playerReviveSound
+    playerReviveSound: playerReviveSound,
+    touchUseLabel: touchUseLabel,
+    touchUseChanged: touchUseChanged,
+    syncTouchUseState: syncTouchUseState
   };
 })();
 
