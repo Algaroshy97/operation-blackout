@@ -1921,7 +1921,63 @@ def main() -> int:
         }""")
         checks.append(("procedural-viewmodel-and-weapon-dynamics-rules", viewmodel_rules_check))
 
-        # 48) Clean console throughout gameplay.
+        # 48) Particle upload optimization, marksman scope dynamics, and spring physics rules.
+        pfx_scope_spring_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.pfxNeedsUpload !== 'function' ||
+                typeof CORE.scopeParallaxOffset !== 'function' ||
+                typeof CORE.scopeParallaxChanged !== 'function' ||
+                typeof CORE.rangefinderLabel !== 'function' ||
+                typeof CORE.isHostileTarget !== 'function' ||
+                typeof CORE.stepRangefinderTimer !== 'function' ||
+                typeof CORE.stepSpring !== 'function' ||
+                typeof CORE.vmSmooth !== 'function' ||
+                typeof CORE.vmBump !== 'function' ||
+                typeof CORE.wrapAngle !== 'function' ||
+                typeof CORE.stepPostKick !== 'function' ||
+                typeof CORE.postFringe !== 'function' ||
+                typeof CORE.isPostfxWanted !== 'function') return false;
+
+            const pfxIdle = CORE.pfxNeedsUpload(0, 0) === false;
+            const pfxActive = CORE.pfxNeedsUpload(5, 0) === true;
+            const pfxDying = CORE.pfxNeedsUpload(0, 5) === true;
+
+            const pOut = { x: 0, y: 0, sx: '', sy: '' };
+            CORE.scopeParallaxOffset(0.02, -0.01, false, 40, 900, pOut);
+            const parallaxOk = pOut.x === -18 && pOut.y === -9 && pOut.sx === '-18.0px' && pOut.sy === '-9.0px';
+
+            CORE.scopeParallaxOffset(0.02, -0.01, true, 40, 900, pOut);
+            const parallaxRedOk = pOut.x === 0 && pOut.y === 0 && pOut.sx === '0.0px' && pOut.sy === '0.0px';
+
+            const pCh1 = CORE.scopeParallaxChanged(null, null, '0.0px', '0.0px');
+            const pChSame = !CORE.scopeParallaxChanged('0.0px', '0.0px', '0.0px', '0.0px');
+
+            const rngNone = CORE.rangefinderLabel(Infinity, false) === 'RNG ---';
+            const rngDist = CORE.rangefinderLabel(12.3, false) === 'RNG 12m';
+            const rngTgt = CORE.rangefinderLabel(12.3, true) === 'TGT 12m';
+
+            const hostNear = CORE.isHostileTarget(10, 15, 0.5) === true;
+            const hostFar = CORE.isHostileTarget(16, 15, 0.5) === false;
+
+            const sOut = [0, 0];
+            CORE.stepSpring(0, 0, 1, 90, 11, 0.05, sOut);
+            const springOk = sOut[0] > 0 && sOut[0] < 1 && sOut[1] > 0;
+
+            const smoothOk = CORE.vmSmooth(0, 1, 0.5) === 0.5;
+            const bumpOk = CORE.vmBump(0, 1, 0.5) === 1.0;
+            const wrapOk = Math.abs(CORE.wrapAngle(Math.PI * 3) - Math.PI) < 1e-4;
+
+            const kickOk = Math.abs(CORE.stepPostKick(1.0, 0.05, 1.6) - 0.92) < 1e-4;
+            const fringeOk = CORE.postFringe(0.8, false) === 0.8 && CORE.postFringe(0.8, true) === 0;
+            const pfxWantedOk = CORE.isPostfxWanted('low', false) === false && CORE.isPostfxWanted('high', true) === true;
+
+            return pfxIdle && pfxActive && pfxDying && parallaxOk && parallaxRedOk &&
+                   pCh1 && pChSame && rngNone && rngDist && rngTgt && hostNear && !hostFar &&
+                   springOk && smoothOk && bumpOk && wrapOk && kickOk && fringeOk && pfxWantedOk;
+        }""")
+        checks.append(("particle-scope-and-spring-physics-rules", pfx_scope_spring_check))
+
+        # 49) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

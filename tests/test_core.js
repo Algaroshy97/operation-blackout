@@ -5475,3 +5475,114 @@ test('viewmodelStance, viewmodelPose, reloadAnimationOffsets, viewmodelBoltOffse
   assert.ok(Math.abs(CORE.impactVfxScale(0.125, 0.25) - (1 + (0.125) * 6) * 0.5) < 1e-4);
   assert.strictEqual(CORE.impactVfxScale(0, 0.25), 0.001);
 });
+
+test('pfxNeedsUpload, scopeParallaxOffset, scopeParallaxChanged, rangefinderLabel, isHostileTarget, stepRangefinderTimer, stepSpring, vmSmooth, vmBump, wrapAngle, stepPostKick, postFringe, and isPostfxWanted govern particle performance, marksman scope dynamics, and spring physics', () => {
+  // 1) pfxNeedsUpload
+  assert.strictEqual(CORE.pfxNeedsUpload(0, 0), false);
+  assert.strictEqual(CORE.pfxNeedsUpload(1, 0), true);
+  assert.strictEqual(CORE.pfxNeedsUpload(0, 1), true);
+  assert.strictEqual(CORE.pfxNeedsUpload(10, 5), true);
+  assert.strictEqual(CORE.pfxNeedsUpload('invalid', NaN), false);
+
+  // 2) scopeParallaxOffset & scopeParallaxChanged
+  assert.strictEqual(CORE.SCOPE_PARALLAX_MAX, 40);
+  assert.strictEqual(CORE.SCOPE_PARALLAX_SCALE, 900);
+  assert.strictEqual(CORE.SCOPE_RANGE_MAX, 400);
+  assert.strictEqual(CORE.SCOPE_RANGE_INTERVAL, 0.1);
+  assert.strictEqual(CORE.POST_KICK_DECAY_RATE, 1.6);
+
+  const pOut = { x: 0, y: 0, sx: '', sy: '' };
+  CORE.scopeParallaxOffset(0.02, -0.01, false, 40, 900, pOut);
+  assert.strictEqual(pOut.x, -18);
+  assert.strictEqual(pOut.y, -9);
+  assert.strictEqual(pOut.sx, '-18.0px');
+  assert.strictEqual(pOut.sy, '-9.0px');
+
+  // Clamping to bounds
+  CORE.scopeParallaxOffset(0.2, 0.2, false, 40, 900, pOut);
+  assert.strictEqual(pOut.x, -40);
+  assert.strictEqual(pOut.y, 40);
+  assert.strictEqual(pOut.sx, '-40.0px');
+  assert.strictEqual(pOut.sy, '40.0px');
+
+  // Reduced motion zeroes parallax
+  CORE.scopeParallaxOffset(0.02, -0.01, true, 40, 900, pOut);
+  assert.strictEqual(pOut.x, 0);
+  assert.strictEqual(pOut.y, 0);
+  assert.strictEqual(pOut.sx, '0.0px');
+  assert.strictEqual(pOut.sy, '0.0px');
+
+  assert.strictEqual(CORE.scopeParallaxChanged(null, null, '0.0px', '0.0px'), true);
+  assert.strictEqual(CORE.scopeParallaxChanged('0.0px', '0.0px', '0.0px', '0.0px'), false);
+  assert.strictEqual(CORE.scopeParallaxChanged('0.0px', '0.0px', '1.0px', '0.0px'), true);
+  assert.strictEqual(CORE.scopeParallaxChanged('0.0px', '0.0px', '0.0px', '-1.0px'), true);
+
+  // 3) rangefinderLabel & isHostileTarget
+  assert.strictEqual(CORE.rangefinderLabel(Infinity, false), 'RNG ---');
+  assert.strictEqual(CORE.rangefinderLabel(NaN, false), 'RNG ---');
+  assert.strictEqual(CORE.rangefinderLabel(12.3, false), 'RNG 12m');
+  assert.strictEqual(CORE.rangefinderLabel(12.3, true), 'TGT 12m');
+  assert.strictEqual(CORE.rangefinderLabel(45.8, true), 'TGT 46m');
+
+  assert.strictEqual(CORE.isHostileTarget(10, 15, 0.5), true);
+  assert.strictEqual(CORE.isHostileTarget(15.2, 15, 0.5), true);
+  assert.strictEqual(CORE.isHostileTarget(15.8, 15, 0.5), false);
+  assert.strictEqual(CORE.isHostileTarget(Infinity, 15, 0.5), false);
+
+  // 4) stepRangefinderTimer
+  const t1 = CORE.stepRangefinderTimer(0.1, 0.04, 0.1);
+  assert.strictEqual(t1.ready, false);
+  assert.ok(Math.abs(t1.timer - 0.06) < 1e-4);
+  const t2 = CORE.stepRangefinderTimer(0.02, 0.04, 0.1);
+  assert.strictEqual(t2.ready, true);
+  assert.strictEqual(t2.timer, 0.1);
+
+  // 5) stepSpring
+  const sOut = [0, 0];
+  CORE.stepSpring(0, 0, 1, 90, 11, 0.05, sOut);
+  assert.ok(sOut[0] > 0 && sOut[0] < 1, 'displaces toward target');
+  assert.ok(sOut[1] > 0, 'velocity increases toward target');
+  // Equilibrium test: at target with 0 vel, stays at target
+  CORE.stepSpring(1, 0, 1, 90, 11, 0.05, sOut);
+  assert.ok(Math.abs(sOut[0] - 1) < 1e-4);
+  assert.ok(Math.abs(sOut[1]) < 1e-4);
+  // Stiff stability: zero dt or NaN fallback
+  CORE.stepSpring(NaN, NaN, 2, 90, 11, 0.05, sOut);
+  assert.strictEqual(sOut[0], 2);
+  assert.strictEqual(sOut[1], 0);
+
+  // 6) vmSmooth & vmBump
+  assert.strictEqual(CORE.vmSmooth(0, 1, 0), 0);
+  assert.strictEqual(CORE.vmSmooth(0, 1, 1), 1);
+  assert.strictEqual(CORE.vmSmooth(0, 1, 0.5), 0.5);
+  assert.strictEqual(CORE.vmSmooth(0, 1, -1), 0);
+  assert.strictEqual(CORE.vmSmooth(0, 1, 2), 1);
+  assert.strictEqual(CORE.vmSmooth(1, 1, 1), 1);
+
+  assert.strictEqual(CORE.vmBump(0, 1, 0), 0);
+  assert.strictEqual(CORE.vmBump(0, 1, 1), 0);
+  assert.strictEqual(CORE.vmBump(0, 1, 0.5), 1);
+  assert.strictEqual(CORE.vmBump(0, 1, -0.2), 0);
+  assert.strictEqual(CORE.vmBump(0, 1, 1.2), 0);
+  assert.strictEqual(CORE.vmBump(1, 1, 1), 0);
+
+  // 7) wrapAngle
+  assert.strictEqual(CORE.wrapAngle(0), 0);
+  assert.ok(Math.abs(CORE.wrapAngle(Math.PI * 3) - Math.PI) < 1e-4);
+  assert.ok(Math.abs(CORE.wrapAngle(-Math.PI * 3) + Math.PI) < 1e-4);
+  assert.ok(Math.abs(CORE.wrapAngle(Math.PI * 0.5) - Math.PI * 0.5) < 1e-4);
+
+  // 8) stepPostKick & postFringe
+  assert.ok(Math.abs(CORE.stepPostKick(1.0, 0.05, 1.6) - (1.0 - 0.05 * 1.6)) < 1e-4);
+  assert.strictEqual(CORE.stepPostKick(0.05, 0.1, 1.6), 0);
+  assert.strictEqual(CORE.postFringe(0.8, false), 0.8);
+  assert.strictEqual(CORE.postFringe(0.8, true), 0);
+
+  // 9) isPostfxWanted
+  assert.strictEqual(CORE.isPostfxWanted('low', false), false);
+  assert.strictEqual(CORE.isPostfxWanted('low', true), false);
+  assert.strictEqual(CORE.isPostfxWanted('medium', false), true);
+  assert.strictEqual(CORE.isPostfxWanted('high', false), true);
+  assert.strictEqual(CORE.isPostfxWanted('medium', true), false);
+  assert.strictEqual(CORE.isPostfxWanted('high', true), true);
+});

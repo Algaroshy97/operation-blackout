@@ -187,6 +187,8 @@ function resetGame() {
   if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
+  if (typeof _lastSx !== 'undefined') { _lastSx = null; _lastSy = null; }
+  if (typeof _scopeOvEl !== 'undefined' && _scopeOvEl) { _scopeOvEl.style.setProperty('--sx', '0px'); _scopeOvEl.style.setProperty('--sy', '0px'); }
   if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
   if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();

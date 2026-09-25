@@ -85,9 +85,7 @@ function postMat(frag, uniforms) {
 
 function postfxWanted() {
   const q = getSetting('quality');
-  if (q === 'low') return false;
-  if (IS_TOUCH) return q === 'high';
-  return true;
+  return CORE.isPostfxWanted(q, IS_TOUCH);
 }
 function disposePostTargets() {
   ['rt', 'bright', 'a1', 'b1', 'a2', 'b2'].forEach(function (k) { if (POST[k]) { POST[k].dispose(); POST[k] = null; } });
@@ -162,7 +160,7 @@ function renderWorld() {
 function renderFrame(dt) {
   // frame() can hand over a negative step (rAF stamps trail performance.now()).
   if (!(dt > 0)) dt = 0;
-  POST.kick = Math.max(0, POST.kick - dt * 1.6);
+  POST.kick = CORE.stepPostKick(POST.kick, dt, CORE.POST_KICK_DECAY_RATE);
   if (!POST.enabled) {
     renderer.setRenderTarget(null);
     renderWorld();
@@ -186,7 +184,7 @@ function renderFrame(dt) {
     u.tScene.value = POST.rt.texture; u.tBloom1.value = POST.a1.texture; u.tBloom2.value = POST.a2.texture;
     u.exposure.value = renderer.toneMappingExposure;
     u.time.value = (u.time.value + dt * 60) % 1000;
-    u.fringe.value = getSetting('reducedMotion') ? 0 : POST.kick;
+    u.fringe.value = CORE.postFringe(POST.kick, !!getSetting('reducedMotion'));
     postPass(POST.mats.composite, null);
   } catch (e) {
     console.warn('post-processing failed, disabling', e);

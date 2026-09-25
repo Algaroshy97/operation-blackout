@@ -4267,6 +4267,134 @@ const CORE = (function () {
     return Math.max(0.001, expansion * (curL / maxL));
   }
 
+  // ---- Particle Upload Optimization, Marksman Scope & Spring Physics (v94) ----
+  const PFX_DEFAULT_MAX = 3000;
+  const SCOPE_PARALLAX_MAX = 40;
+  const SCOPE_PARALLAX_SCALE = 900;
+  const SCOPE_RANGE_MAX = 400;
+  const SCOPE_RANGE_INTERVAL = 0.1;
+  const POST_KICK_DECAY_RATE = 1.6;
+
+  function pfxNeedsUpload(currentAlive, previousAlive) {
+    const cur = typeof currentAlive === 'number' && isFinite(currentAlive) ? currentAlive : 0;
+    const prev = typeof previousAlive === 'number' && isFinite(previousAlive) ? previousAlive : 0;
+    return cur > 0 || prev > 0;
+  }
+
+  function scopeParallaxOffset(swayX, swayY, isReducedMotion, maxOffset, scale, out) {
+    const o = out || { x: 0, y: 0, sx: '0.0px', sy: '0.0px' };
+    if (isReducedMotion) {
+      o.x = 0;
+      o.y = 0;
+      o.sx = '0.0px';
+      o.sy = '0.0px';
+      return o;
+    }
+    const maxVal = typeof maxOffset === 'number' && isFinite(maxOffset) && maxOffset > 0 ? maxOffset : SCOPE_PARALLAX_MAX;
+    const s = typeof scale === 'number' && isFinite(scale) ? scale : SCOPE_PARALLAX_SCALE;
+    const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
+    const sy = typeof swayY === 'number' && isFinite(swayY) ? swayY : 0;
+    const px = Math.max(-maxVal, Math.min(maxVal, -sx * s));
+    const py = Math.max(-maxVal, Math.min(maxVal, sy * s));
+    o.x = px;
+    o.y = py;
+    o.sx = px.toFixed(1) + 'px';
+    o.sy = py.toFixed(1) + 'px';
+    return o;
+  }
+
+  function scopeParallaxChanged(lastSx, lastSy, newSx, newSy) {
+    return lastSx !== newSx || lastSy !== newSy;
+  }
+
+  function rangefinderLabel(distance, isHostile) {
+    const d = typeof distance === 'number' && isFinite(distance) ? distance : Infinity;
+    if (!isFinite(d)) return 'RNG ---';
+    const tag = isHostile ? 'TGT ' : 'RNG ';
+    return tag + Math.round(d) + 'm';
+  }
+
+  function isHostileTarget(enemyDist, worldDist, tolerance) {
+    const ed = typeof enemyDist === 'number' && isFinite(enemyDist) ? enemyDist : Infinity;
+    if (!isFinite(ed)) return false;
+    const wd = typeof worldDist === 'number' && isFinite(worldDist) ? worldDist : Infinity;
+    const tol = typeof tolerance === 'number' && isFinite(tolerance) ? tolerance : 0.5;
+    return ed < (wd + tol);
+  }
+
+  function stepRangefinderTimer(timer, dt, interval) {
+    const t = typeof timer === 'number' && isFinite(timer) ? timer : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const next = t - delta;
+    if (next <= 0) {
+      const inv = typeof interval === 'number' && isFinite(interval) && interval > 0 ? interval : SCOPE_RANGE_INTERVAL;
+      return { ready: true, timer: inv };
+    }
+    return { ready: false, timer: next };
+  }
+
+  function stepSpring(x, v, target, k, c, dt, out) {
+    const o = out || [0, 0];
+    const tgt = typeof target === 'number' && isFinite(target) ? target : 0;
+    let curX = typeof x === 'number' && isFinite(x) ? x : tgt;
+    let curV = typeof v === 'number' && isFinite(v) ? v : 0;
+    const stiff = typeof k === 'number' && isFinite(k) && k > 0 ? k : 90;
+    const damp = typeof c === 'number' && isFinite(c) && c >= 0 ? c : 11;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+
+    const n = Math.max(1, Math.ceil(delta * 120)), h = delta / n;
+    for (let i = 0; i < n; i++) {
+      curV += ((tgt - curX) * stiff - curV * damp) * h;
+      curX += curV * h;
+    }
+    if (!isFinite(curX) || !isFinite(curV)) { curX = tgt; curV = 0; }
+    o[0] = curX; o[1] = curV;
+    return o;
+  }
+
+  function vmSmooth(a, b, x) {
+    const start = typeof a === 'number' && isFinite(a) ? a : 0;
+    const end = typeof b === 'number' && isFinite(b) ? b : 1;
+    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    if (end === start) return val >= end ? 1 : 0;
+    const t = Math.max(0, Math.min(1, (val - start) / (end - start)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function vmBump(a, b, x) {
+    const start = typeof a === 'number' && isFinite(a) ? a : 0;
+    const end = typeof b === 'number' && isFinite(b) ? b : 1;
+    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    if (val <= start || val >= end || start === end) return 0;
+    return Math.sin((val - start) / (end - start) * Math.PI);
+  }
+
+  function wrapAngle(a) {
+    let ang = typeof a === 'number' && isFinite(a) ? a : 0;
+    while (ang > Math.PI) ang -= Math.PI * 2;
+    while (ang < -Math.PI) ang += Math.PI * 2;
+    return ang;
+  }
+
+  function stepPostKick(currentKick, dt, decayRate) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const rate = typeof decayRate === 'number' && isFinite(decayRate) && decayRate > 0 ? decayRate : POST_KICK_DECAY_RATE;
+    return Math.max(0, cur - delta * rate);
+  }
+
+  function postFringe(kick, isReducedMotion) {
+    if (isReducedMotion) return 0;
+    return typeof kick === 'number' && isFinite(kick) ? Math.max(0, kick) : 0;
+  }
+
+  function isPostfxWanted(quality, isTouch) {
+    const q = String(quality || 'high').toLowerCase();
+    if (q === 'low') return false;
+    if (isTouch) return q === 'high';
+    return true;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4803,7 +4931,26 @@ const CORE = (function () {
     viewmodelPose: viewmodelPose,
     stepMuzzleFlash: stepMuzzleFlash,
     stepMuzzleLight: stepMuzzleLight,
-    impactVfxScale: impactVfxScale
+    impactVfxScale: impactVfxScale,
+    PFX_DEFAULT_MAX: PFX_DEFAULT_MAX,
+    SCOPE_PARALLAX_MAX: SCOPE_PARALLAX_MAX,
+    SCOPE_PARALLAX_SCALE: SCOPE_PARALLAX_SCALE,
+    SCOPE_RANGE_MAX: SCOPE_RANGE_MAX,
+    SCOPE_RANGE_INTERVAL: SCOPE_RANGE_INTERVAL,
+    POST_KICK_DECAY_RATE: POST_KICK_DECAY_RATE,
+    pfxNeedsUpload: pfxNeedsUpload,
+    scopeParallaxOffset: scopeParallaxOffset,
+    scopeParallaxChanged: scopeParallaxChanged,
+    rangefinderLabel: rangefinderLabel,
+    isHostileTarget: isHostileTarget,
+    stepRangefinderTimer: stepRangefinderTimer,
+    stepSpring: stepSpring,
+    vmSmooth: vmSmooth,
+    vmBump: vmBump,
+    wrapAngle: wrapAngle,
+    stepPostKick: stepPostKick,
+    postFringe: postFringe,
+    isPostfxWanted: isPostfxWanted
   };
 })();
 

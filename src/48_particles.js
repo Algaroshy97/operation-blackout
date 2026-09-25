@@ -18,7 +18,7 @@ function makePfxLayer(additive, tex) {
     rot: new Float32Array(PFX_MAX), rotV: new Float32Array(PFX_MAX),
     life: new Float32Array(PFX_MAX), maxLife: new Float32Array(PFX_MAX),
     drag: new Float32Array(PFX_MAX), grav: new Float32Array(PFX_MAX), flags: new Uint8Array(PFX_MAX),
-    cursor: 0, alive: 0, additive: additive
+    cursor: 0, alive: 0, prevAlive: 0, additive: additive
   };
   const geo = new THREE.BufferGeometry();
   const attr = function (arr, n) { const a = new THREE.BufferAttribute(arr, n); a.setUsage(THREE.DynamicDrawUsage); return a; };
@@ -130,9 +130,13 @@ function updatePfxLayer(L, dt) {
     L.alpha[i] = L.additive ? L.a0[i] * (1 - t) * (1 - t) : L.a0[i] * Math.min(1, t * 10) * (1 - t);
     L.rot[i] += L.rotV[i] * dt;
   }
+  const needsUpload = CORE.pfxNeedsUpload(alive, L.prevAlive);
+  L.prevAlive = alive;
   L.alive = alive;
-  const a = L.geo.attributes;
-  a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
+  if (needsUpload) {
+    const a = L.geo.attributes;
+    a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
+  }
 }
 function updateParticles(dt) {
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
@@ -148,7 +152,7 @@ function updateParticles(dt) {
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
   for (const L of [PFX_ADD, PFX_SMOKE]) {
-    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0;
+    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
 }

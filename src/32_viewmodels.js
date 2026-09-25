@@ -422,21 +422,14 @@ function kickViewmodel(w, tune) {
   if (w.type === 'SR') { vmSpring.boltDur = Math.min(0.95, 60 / w.rpm * 0.75); vmSpring.boltT = vmSpring.boltDur + 0.12; }
 }
 // Semi-implicit Euler in fixed 1/120 s substeps: stiff springs stay stable even
-// when a hitch hands over the 0.1 s maximum frame step.
+// when a hitch hands over the 0.1 s maximum frame step. Pure implementation in CORE.
 const _springOut = [0, 0];
 function stepSpring(x, v, target, k, c, dt) {
-  const n = Math.max(1, Math.ceil(dt * 120)), h = dt / n;
-  for (let i = 0; i < n; i++) {
-    v += ((target - x) * k - v * c) * h;
-    x += v * h;
-  }
-  if (!isFinite(x) || !isFinite(v)) { x = target; v = 0; }
-  _springOut[0] = x; _springOut[1] = v;
-  return _springOut;
+  return CORE.stepSpring(x, v, target, k, c, dt, _springOut);
 }
-function vmSmooth(a, b, x) { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
-function vmBump(a, b, x) { return x <= a || x >= b ? 0 : Math.sin((x - a) / (b - a) * Math.PI); }
-function wrapAngle(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+function vmSmooth(a, b, x) { return CORE.vmSmooth(a, b, x); }
+function vmBump(a, b, x) { return CORE.vmBump(a, b, x); }
+function wrapAngle(a) { return CORE.wrapAngle(a); }
 
 // Pose the gun for this frame. Inputs are the game's live state; output is the
 // gunGroup transform plus the animated parts.

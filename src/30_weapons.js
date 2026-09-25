@@ -447,6 +447,10 @@ function updateViewmodel(dt) {
     if (_scopeOvEl) {
       _scopeOvEl.style.opacity = wantScope ? '1' : '0';
       _scopeOvEl.classList.toggle('scope-sniper', isSr);
+      if (!wantScope) {
+        if (_lastSx !== null) { _scopeOvEl.style.setProperty('--sx', '0px'); _lastSx = null; }
+        if (_lastSy !== null) { _scopeOvEl.style.setProperty('--sy', '0px'); _lastSy = null; }
+      }
     }
   }
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
@@ -486,32 +490,37 @@ function updateViewmodel(dt) {
 // whatever sits under the reticle, flagging a hostile. The ray is cheap but not
 // free, so it runs at 10 Hz.
 let _scopeRangeEl = null, _scopeRangeT = 0;
+let _lastSx = null, _lastSy = null;
+const _parallaxOut = { x: 0, y: 0, sx: '0.0px', sy: '0.0px' };
 const _rfRay = new THREE.Raycaster();
 const _rfFrom = new THREE.Vector3(), _rfDir = new THREE.Vector3();
 const _rfTargets = [];
 function updateMarksmanScope(dt) {
   if (!_scopeOvEl) return;
-  const k = getSetting('reducedMotion') ? 0 : 1;
-  const px = Math.max(-40, Math.min(40, -swayX * 900 * k));
-  const py = Math.max(-40, Math.min(40, swayY * 900 * k));
-  _scopeOvEl.style.setProperty('--sx', px.toFixed(1) + 'px');
-  _scopeOvEl.style.setProperty('--sy', py.toFixed(1) + 'px');
-  _scopeRangeT -= dt;
-  if (_scopeRangeT > 0) return;
-  _scopeRangeT = 0.1;
+  const isRed = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+  CORE.scopeParallaxOffset(swayX, swayY, isRed, CORE.SCOPE_PARALLAX_MAX, CORE.SCOPE_PARALLAX_SCALE, _parallaxOut);
+  if (CORE.scopeParallaxChanged(_lastSx, _lastSy, _parallaxOut.sx, _parallaxOut.sy)) {
+    _lastSx = _parallaxOut.sx;
+    _lastSy = _parallaxOut.sy;
+    _scopeOvEl.style.setProperty('--sx', _parallaxOut.sx);
+    _scopeOvEl.style.setProperty('--sy', _parallaxOut.sy);
+  }
+  const rfStep = CORE.stepRangefinderTimer(_scopeRangeT, dt, CORE.SCOPE_RANGE_INTERVAL);
+  _scopeRangeT = rfStep.timer;
+  if (!rfStep.ready) return;
   if (!_scopeRangeEl) _scopeRangeEl = $id('scope-range');
   if (!_scopeRangeEl) return;
   camera.getWorldPosition(_rfFrom);
   _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = 400;
+  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = CORE.SCOPE_RANGE_MAX;
   let best = Infinity, hostile = false;
-  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, 400), true);
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
   const eh = _rfRay.intersectObjects(_rfTargets, true);
-  if (eh.length && eh[0].distance < best + 0.5) { best = eh[0].distance; hostile = true; }
-  const txt = isFinite(best) ? (hostile ? 'TGT ' : 'RNG ') + Math.round(best) + 'm' : 'RNG ---';
+  if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
+  const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
   _scopeRangeEl.classList.toggle('tgt', hostile);
 }

@@ -8943,6 +8943,134 @@ const CORE = (function () {
     return Math.max(0.001, expansion * (curL / maxL));
   }
 
+  // ---- Particle Upload Optimization, Marksman Scope & Spring Physics (v94) ----
+  const PFX_DEFAULT_MAX = 3000;
+  const SCOPE_PARALLAX_MAX = 40;
+  const SCOPE_PARALLAX_SCALE = 900;
+  const SCOPE_RANGE_MAX = 400;
+  const SCOPE_RANGE_INTERVAL = 0.1;
+  const POST_KICK_DECAY_RATE = 1.6;
+
+  function pfxNeedsUpload(currentAlive, previousAlive) {
+    const cur = typeof currentAlive === 'number' && isFinite(currentAlive) ? currentAlive : 0;
+    const prev = typeof previousAlive === 'number' && isFinite(previousAlive) ? previousAlive : 0;
+    return cur > 0 || prev > 0;
+  }
+
+  function scopeParallaxOffset(swayX, swayY, isReducedMotion, maxOffset, scale, out) {
+    const o = out || { x: 0, y: 0, sx: '0.0px', sy: '0.0px' };
+    if (isReducedMotion) {
+      o.x = 0;
+      o.y = 0;
+      o.sx = '0.0px';
+      o.sy = '0.0px';
+      return o;
+    }
+    const maxVal = typeof maxOffset === 'number' && isFinite(maxOffset) && maxOffset > 0 ? maxOffset : SCOPE_PARALLAX_MAX;
+    const s = typeof scale === 'number' && isFinite(scale) ? scale : SCOPE_PARALLAX_SCALE;
+    const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
+    const sy = typeof swayY === 'number' && isFinite(swayY) ? swayY : 0;
+    const px = Math.max(-maxVal, Math.min(maxVal, -sx * s));
+    const py = Math.max(-maxVal, Math.min(maxVal, sy * s));
+    o.x = px;
+    o.y = py;
+    o.sx = px.toFixed(1) + 'px';
+    o.sy = py.toFixed(1) + 'px';
+    return o;
+  }
+
+  function scopeParallaxChanged(lastSx, lastSy, newSx, newSy) {
+    return lastSx !== newSx || lastSy !== newSy;
+  }
+
+  function rangefinderLabel(distance, isHostile) {
+    const d = typeof distance === 'number' && isFinite(distance) ? distance : Infinity;
+    if (!isFinite(d)) return 'RNG ---';
+    const tag = isHostile ? 'TGT ' : 'RNG ';
+    return tag + Math.round(d) + 'm';
+  }
+
+  function isHostileTarget(enemyDist, worldDist, tolerance) {
+    const ed = typeof enemyDist === 'number' && isFinite(enemyDist) ? enemyDist : Infinity;
+    if (!isFinite(ed)) return false;
+    const wd = typeof worldDist === 'number' && isFinite(worldDist) ? worldDist : Infinity;
+    const tol = typeof tolerance === 'number' && isFinite(tolerance) ? tolerance : 0.5;
+    return ed < (wd + tol);
+  }
+
+  function stepRangefinderTimer(timer, dt, interval) {
+    const t = typeof timer === 'number' && isFinite(timer) ? timer : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const next = t - delta;
+    if (next <= 0) {
+      const inv = typeof interval === 'number' && isFinite(interval) && interval > 0 ? interval : SCOPE_RANGE_INTERVAL;
+      return { ready: true, timer: inv };
+    }
+    return { ready: false, timer: next };
+  }
+
+  function stepSpring(x, v, target, k, c, dt, out) {
+    const o = out || [0, 0];
+    const tgt = typeof target === 'number' && isFinite(target) ? target : 0;
+    let curX = typeof x === 'number' && isFinite(x) ? x : tgt;
+    let curV = typeof v === 'number' && isFinite(v) ? v : 0;
+    const stiff = typeof k === 'number' && isFinite(k) && k > 0 ? k : 90;
+    const damp = typeof c === 'number' && isFinite(c) && c >= 0 ? c : 11;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+
+    const n = Math.max(1, Math.ceil(delta * 120)), h = delta / n;
+    for (let i = 0; i < n; i++) {
+      curV += ((tgt - curX) * stiff - curV * damp) * h;
+      curX += curV * h;
+    }
+    if (!isFinite(curX) || !isFinite(curV)) { curX = tgt; curV = 0; }
+    o[0] = curX; o[1] = curV;
+    return o;
+  }
+
+  function vmSmooth(a, b, x) {
+    const start = typeof a === 'number' && isFinite(a) ? a : 0;
+    const end = typeof b === 'number' && isFinite(b) ? b : 1;
+    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    if (end === start) return val >= end ? 1 : 0;
+    const t = Math.max(0, Math.min(1, (val - start) / (end - start)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function vmBump(a, b, x) {
+    const start = typeof a === 'number' && isFinite(a) ? a : 0;
+    const end = typeof b === 'number' && isFinite(b) ? b : 1;
+    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    if (val <= start || val >= end || start === end) return 0;
+    return Math.sin((val - start) / (end - start) * Math.PI);
+  }
+
+  function wrapAngle(a) {
+    let ang = typeof a === 'number' && isFinite(a) ? a : 0;
+    while (ang > Math.PI) ang -= Math.PI * 2;
+    while (ang < -Math.PI) ang += Math.PI * 2;
+    return ang;
+  }
+
+  function stepPostKick(currentKick, dt, decayRate) {
+    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const rate = typeof decayRate === 'number' && isFinite(decayRate) && decayRate > 0 ? decayRate : POST_KICK_DECAY_RATE;
+    return Math.max(0, cur - delta * rate);
+  }
+
+  function postFringe(kick, isReducedMotion) {
+    if (isReducedMotion) return 0;
+    return typeof kick === 'number' && isFinite(kick) ? Math.max(0, kick) : 0;
+  }
+
+  function isPostfxWanted(quality, isTouch) {
+    const q = String(quality || 'high').toLowerCase();
+    if (q === 'low') return false;
+    if (isTouch) return q === 'high';
+    return true;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -9479,7 +9607,26 @@ const CORE = (function () {
     viewmodelPose: viewmodelPose,
     stepMuzzleFlash: stepMuzzleFlash,
     stepMuzzleLight: stepMuzzleLight,
-    impactVfxScale: impactVfxScale
+    impactVfxScale: impactVfxScale,
+    PFX_DEFAULT_MAX: PFX_DEFAULT_MAX,
+    SCOPE_PARALLAX_MAX: SCOPE_PARALLAX_MAX,
+    SCOPE_PARALLAX_SCALE: SCOPE_PARALLAX_SCALE,
+    SCOPE_RANGE_MAX: SCOPE_RANGE_MAX,
+    SCOPE_RANGE_INTERVAL: SCOPE_RANGE_INTERVAL,
+    POST_KICK_DECAY_RATE: POST_KICK_DECAY_RATE,
+    pfxNeedsUpload: pfxNeedsUpload,
+    scopeParallaxOffset: scopeParallaxOffset,
+    scopeParallaxChanged: scopeParallaxChanged,
+    rangefinderLabel: rangefinderLabel,
+    isHostileTarget: isHostileTarget,
+    stepRangefinderTimer: stepRangefinderTimer,
+    stepSpring: stepSpring,
+    vmSmooth: vmSmooth,
+    vmBump: vmBump,
+    wrapAngle: wrapAngle,
+    stepPostKick: stepPostKick,
+    postFringe: postFringe,
+    isPostfxWanted: isPostfxWanted
   };
 })();
 
@@ -12241,6 +12388,10 @@ function updateViewmodel(dt) {
     if (_scopeOvEl) {
       _scopeOvEl.style.opacity = wantScope ? '1' : '0';
       _scopeOvEl.classList.toggle('scope-sniper', isSr);
+      if (!wantScope) {
+        if (_lastSx !== null) { _scopeOvEl.style.setProperty('--sx', '0px'); _lastSx = null; }
+        if (_lastSy !== null) { _scopeOvEl.style.setProperty('--sy', '0px'); _lastSy = null; }
+      }
     }
   }
   // sniper: hide gun viewmodel fully when scoped (overlay takes over), hide crosshair
@@ -12280,32 +12431,37 @@ function updateViewmodel(dt) {
 // whatever sits under the reticle, flagging a hostile. The ray is cheap but not
 // free, so it runs at 10 Hz.
 let _scopeRangeEl = null, _scopeRangeT = 0;
+let _lastSx = null, _lastSy = null;
+const _parallaxOut = { x: 0, y: 0, sx: '0.0px', sy: '0.0px' };
 const _rfRay = new THREE.Raycaster();
 const _rfFrom = new THREE.Vector3(), _rfDir = new THREE.Vector3();
 const _rfTargets = [];
 function updateMarksmanScope(dt) {
   if (!_scopeOvEl) return;
-  const k = getSetting('reducedMotion') ? 0 : 1;
-  const px = Math.max(-40, Math.min(40, -swayX * 900 * k));
-  const py = Math.max(-40, Math.min(40, swayY * 900 * k));
-  _scopeOvEl.style.setProperty('--sx', px.toFixed(1) + 'px');
-  _scopeOvEl.style.setProperty('--sy', py.toFixed(1) + 'px');
-  _scopeRangeT -= dt;
-  if (_scopeRangeT > 0) return;
-  _scopeRangeT = 0.1;
+  const isRed = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
+  CORE.scopeParallaxOffset(swayX, swayY, isRed, CORE.SCOPE_PARALLAX_MAX, CORE.SCOPE_PARALLAX_SCALE, _parallaxOut);
+  if (CORE.scopeParallaxChanged(_lastSx, _lastSy, _parallaxOut.sx, _parallaxOut.sy)) {
+    _lastSx = _parallaxOut.sx;
+    _lastSy = _parallaxOut.sy;
+    _scopeOvEl.style.setProperty('--sx', _parallaxOut.sx);
+    _scopeOvEl.style.setProperty('--sy', _parallaxOut.sy);
+  }
+  const rfStep = CORE.stepRangefinderTimer(_scopeRangeT, dt, CORE.SCOPE_RANGE_INTERVAL);
+  _scopeRangeT = rfStep.timer;
+  if (!rfStep.ready) return;
   if (!_scopeRangeEl) _scopeRangeEl = $id('scope-range');
   if (!_scopeRangeEl) return;
   camera.getWorldPosition(_rfFrom);
   _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = 400;
+  _rfRay.set(_rfFrom, _rfDir); _rfRay.far = CORE.SCOPE_RANGE_MAX;
   let best = Infinity, hostile = false;
-  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, 400), true);
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
   const eh = _rfRay.intersectObjects(_rfTargets, true);
-  if (eh.length && eh[0].distance < best + 0.5) { best = eh[0].distance; hostile = true; }
-  const txt = isFinite(best) ? (hostile ? 'TGT ' : 'RNG ') + Math.round(best) + 'm' : 'RNG ---';
+  if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
+  const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
   _scopeRangeEl.classList.toggle('tgt', hostile);
 }
@@ -12743,21 +12899,14 @@ function kickViewmodel(w, tune) {
   if (w.type === 'SR') { vmSpring.boltDur = Math.min(0.95, 60 / w.rpm * 0.75); vmSpring.boltT = vmSpring.boltDur + 0.12; }
 }
 // Semi-implicit Euler in fixed 1/120 s substeps: stiff springs stay stable even
-// when a hitch hands over the 0.1 s maximum frame step.
+// when a hitch hands over the 0.1 s maximum frame step. Pure implementation in CORE.
 const _springOut = [0, 0];
 function stepSpring(x, v, target, k, c, dt) {
-  const n = Math.max(1, Math.ceil(dt * 120)), h = dt / n;
-  for (let i = 0; i < n; i++) {
-    v += ((target - x) * k - v * c) * h;
-    x += v * h;
-  }
-  if (!isFinite(x) || !isFinite(v)) { x = target; v = 0; }
-  _springOut[0] = x; _springOut[1] = v;
-  return _springOut;
+  return CORE.stepSpring(x, v, target, k, c, dt, _springOut);
 }
-function vmSmooth(a, b, x) { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
-function vmBump(a, b, x) { return x <= a || x >= b ? 0 : Math.sin((x - a) / (b - a) * Math.PI); }
-function wrapAngle(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+function vmSmooth(a, b, x) { return CORE.vmSmooth(a, b, x); }
+function vmBump(a, b, x) { return CORE.vmBump(a, b, x); }
+function wrapAngle(a) { return CORE.wrapAngle(a); }
 
 // Pose the gun for this frame. Inputs are the game's live state; output is the
 // gunGroup transform plus the animated parts.
@@ -14621,7 +14770,7 @@ function makePfxLayer(additive, tex) {
     rot: new Float32Array(PFX_MAX), rotV: new Float32Array(PFX_MAX),
     life: new Float32Array(PFX_MAX), maxLife: new Float32Array(PFX_MAX),
     drag: new Float32Array(PFX_MAX), grav: new Float32Array(PFX_MAX), flags: new Uint8Array(PFX_MAX),
-    cursor: 0, alive: 0, additive: additive
+    cursor: 0, alive: 0, prevAlive: 0, additive: additive
   };
   const geo = new THREE.BufferGeometry();
   const attr = function (arr, n) { const a = new THREE.BufferAttribute(arr, n); a.setUsage(THREE.DynamicDrawUsage); return a; };
@@ -14733,9 +14882,13 @@ function updatePfxLayer(L, dt) {
     L.alpha[i] = L.additive ? L.a0[i] * (1 - t) * (1 - t) : L.a0[i] * Math.min(1, t * 10) * (1 - t);
     L.rot[i] += L.rotV[i] * dt;
   }
+  const needsUpload = CORE.pfxNeedsUpload(alive, L.prevAlive);
+  L.prevAlive = alive;
   L.alive = alive;
-  const a = L.geo.attributes;
-  a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
+  if (needsUpload) {
+    const a = L.geo.attributes;
+    a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
+  }
 }
 function updateParticles(dt) {
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
@@ -14751,7 +14904,7 @@ function updateParticles(dt) {
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
   for (const L of [PFX_ADD, PFX_SMOKE]) {
-    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0;
+    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
 }
@@ -18085,9 +18238,7 @@ function postMat(frag, uniforms) {
 
 function postfxWanted() {
   const q = getSetting('quality');
-  if (q === 'low') return false;
-  if (IS_TOUCH) return q === 'high';
-  return true;
+  return CORE.isPostfxWanted(q, IS_TOUCH);
 }
 function disposePostTargets() {
   ['rt', 'bright', 'a1', 'b1', 'a2', 'b2'].forEach(function (k) { if (POST[k]) { POST[k].dispose(); POST[k] = null; } });
@@ -18162,7 +18313,7 @@ function renderWorld() {
 function renderFrame(dt) {
   // frame() can hand over a negative step (rAF stamps trail performance.now()).
   if (!(dt > 0)) dt = 0;
-  POST.kick = Math.max(0, POST.kick - dt * 1.6);
+  POST.kick = CORE.stepPostKick(POST.kick, dt, CORE.POST_KICK_DECAY_RATE);
   if (!POST.enabled) {
     renderer.setRenderTarget(null);
     renderWorld();
@@ -18186,7 +18337,7 @@ function renderFrame(dt) {
     u.tScene.value = POST.rt.texture; u.tBloom1.value = POST.a1.texture; u.tBloom2.value = POST.a2.texture;
     u.exposure.value = renderer.toneMappingExposure;
     u.time.value = (u.time.value + dt * 60) % 1000;
-    u.fringe.value = getSetting('reducedMotion') ? 0 : POST.kick;
+    u.fringe.value = CORE.postFringe(POST.kick, !!getSetting('reducedMotion'));
     postPass(POST.mats.composite, null);
   } catch (e) {
     console.warn('post-processing failed, disabling', e);
@@ -18385,6 +18536,8 @@ function resetGame() {
   if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
+  if (typeof _lastSx !== 'undefined') { _lastSx = null; _lastSy = null; }
+  if (typeof _scopeOvEl !== 'undefined' && _scopeOvEl) { _scopeOvEl.style.setProperty('--sx', '0px'); _scopeOvEl.style.setProperty('--sy', '0px'); }
   if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
   if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
