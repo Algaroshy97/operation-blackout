@@ -373,8 +373,8 @@ buildArena();
 // Lightweight mobile-safe stand-ins ensure cover remains visible even when a phone
 // cannot decode/render the embedded GLBs from a local file.
 const mobilePropMats = {
-  bark: new THREE.MeshStandardMaterial({ color: 0x59452f, roughness: 1 }),
-  leaf: new THREE.MeshStandardMaterial({ color: 0x3f5a3c, roughness: 1 }),
+  bark: new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 1 }),
+  leaf: new THREE.MeshStandardMaterial({ color: 0x22341e, roughness: 1 }),
   crate: new THREE.MeshStandardMaterial({ color: 0x806443, roughness: 0.9 }),
   stone: new THREE.MeshStandardMaterial({ color: 0x77756e, roughness: 1 })
 };
@@ -452,5 +452,29 @@ function scatterProps() {
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1, 'wood');
   });
   placed += 3;
+  // Kenney survival-kit barrels as inert decor clusters (the red hazard barrels are
+  // the explosive ones). Natural bounds ~0.24 x 0.34 m -> scale 3.2 ~ 0.77 x 1.1 m.
+  const decor = [[-41.5, 30.5], [-40.6, 31.3], [41.5, -30.5], [40.7, -29.6], [-12, -41.5], [-11.2, -40.7], [30, 41.5]];
+  for (let i = 0; i < decor.length; i++) {
+    const d = decor[i];
+    let b;
+    if (!mobileSafe && GLB_PARSED.BARREL) {
+      b = GLB_PARSED.BARREL.scene.clone(true);
+      b.scale.setScalar(3.2);
+    } else {
+      b = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.1, 12), MAT.dark);
+      b.position.y = 0.55;
+      const gw = new THREE.Group(); gw.add(b); b = gw;
+    }
+    b.position.set(d[0], 0, d[1]);
+    b.rotation.y = i * 1.7;
+    b.userData.surface = 'metal';
+    b.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.prop = true; } });
+    scene.add(b);
+    raycastColliders.push(b);
+    addCollider(d[0], 0.55, d[1], 0.78, 1.1, 0.78, 'metal');
+    placed++;
+  }
+  markNavDirty();
   return placed;
 }

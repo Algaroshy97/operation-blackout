@@ -177,6 +177,53 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("skClone(gltf.scene)", enemy_source)
         self.assertIn("node.bind(new THREE.Skeleton(bones, node.skeleton.boneInverses), node.bindMatrix)", enemy_source)
 
+    def test_settings_are_persisted_defensively(self) -> None:
+        src = (ROOT / "src" / "07_settings.js").read_text()
+        self.assertIn("const SETTINGS_KEY", src)
+        self.assertIn("QUALITY_PRESETS", src)
+        for q in ("low:", "medium:", "high:"):
+            self.assertIn(q, src)
+        # storage access can throw (private mode / file://): every access sits in a try
+        lines = src.splitlines()
+        for i, line in enumerate(lines):
+            if "localStorage." in line:
+                context = line + (lines[i - 1] if i else "") + (lines[i - 2] if i > 1 else "")
+                self.assertIn("try", context, f"unguarded storage access: {line.strip()}")
+
+    def test_sky_shaders_encode_output_for_pmrem(self) -> None:
+        # Regression: without the encoding include the RGBE-encoded PMREM target
+        # decoded the sky as ~2^127 and NaN-poisoned every reflective material.
+        world = (ROOT / "src" / "10_config_world.js").read_text()
+        sky = world[world.index("function makeSkyMaterial"):world.index("const skyDome")]
+        self.assertIn("#include <encodings_fragment>", sky)
+        self.assertNotIn("(h + 0.02)", sky)   # old star term divided by zero below the horizon
+
+    def test_first_frame_negative_dt_is_clamped(self) -> None:
+        self.assertIn("if (!(dt > 0)) dt = 0;", MAIN.read_text())
+
+    def test_viewmodel_springs_are_substepped(self) -> None:
+        vm = (ROOT / "src" / "32_viewmodels.js").read_text()
+        self.assertIn("Math.ceil(dt * 120)", vm)
+        self.assertIn("isFinite(x)", vm)
+
+    def test_stairs_block_ground_navigation(self) -> None:
+        nav = (ROOT / "src" / "45_navigation.js").read_text()
+        self.assertIn("function computeFlow", nav)
+        self.assertNotIn("if (isStairStep(c)) { NAV.stairs.push(c); continue; }", nav)
+
+    def test_postfx_has_plain_render_fallback(self) -> None:
+        post = (ROOT / "src" / "65_postfx.js").read_text()
+        self.assertIn("POST.failed = true", post)
+        self.assertIn("if (!POST.enabled) {", post)
+        self.assertIn("EXT_color_buffer_float", post)
+
+    def test_weapon_roster_has_sidearm_and_primaries(self) -> None:
+        world = (ROOT / "src" / "10_config_world.js").read_text()
+        roster = world[world.index("weapons: ["):world.index("  ai: {")]
+        self.assertEqual(roster.count("sidearm: true"), 1)
+        for t in ("'AR'", "'SMG'", "'BR'", "'SR'", "'SG'", "'LMG'", "'PST'"):
+            self.assertIn("type: " + t, roster)
+
     def test_menu_assets_embedded_and_dist_under_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "Operation Blackout.html"

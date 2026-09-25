@@ -128,7 +128,8 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
     el.addEventListener('touchend', release, { passive: false });
     el.addEventListener('touchcancel', release, { passive: false });
   }
-  holdBtn('tbtn-fire', function () { touchState.firing = true; }, function () { touchState.firing = false; mouse1Down = false; });
+  // a tap latches one shot until the game loop fires it (fast taps on slow phones)
+  holdBtn('tbtn-fire', function () { touchState.firing = true; touchState.tapFiring = true; clearTimeout(touchState._tapT); touchState._tapT = setTimeout(function () { touchState.tapFiring = false; }, 400); }, function () { touchState.firing = false; mouse1Down = false; });
   holdBtn('tbtn-ads', function () { touchState.ads = true; }, function () { touchState.ads = false; });
   holdBtn('tbtn-jump', function () { pressed['Space'] = true; }, function () {});
   holdBtn('tbtn-slide', function () {

@@ -116,6 +116,7 @@ function updateWeapons(dt) {
     if (gameT >= s.nextShot && s.ammo > 0 && s.chambered) {
       if (!w.auto) mouse1Down = false;
       fireShot();
+      if (typeof touchState !== 'undefined') touchState.tapFiring = false;
     } else if (gameT >= s.nextShot && s.ammo === 0) {
       if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
