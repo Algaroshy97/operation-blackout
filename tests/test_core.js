@@ -5748,3 +5748,92 @@ test('powerupSound, equipmentDeploySound, steadyAimBreathEvent, exhaustionSound,
   // 5) slideCancelSound
   assert.strictEqual(CORE.slideCancelSound(), 'slide_cancel');
 });
+
+test('touchJumpState, touchJumpLabel, touchAdsState, touchAdsLabel, touch change detection, and mobile steady aim govern mobile UI polish', () => {
+  // 1) touchJumpState
+  assert.strictEqual(CORE.touchJumpState(true), '');
+  assert.strictEqual(CORE.touchJumpState(false), 'airborne');
+  assert.strictEqual(CORE.touchJumpState(true, true, false, false, false), 'boost');
+  assert.strictEqual(CORE.touchJumpState(false, true, false, false, false), 'boost');
+  assert.strictEqual(CORE.touchJumpState(false, false, true, false, false), 'mantle');
+  assert.strictEqual(CORE.touchJumpState(true, false, false, true, false), 'locked');
+  assert.strictEqual(CORE.touchJumpState(true, false, false, false, true), 'locked');
+  assert.strictEqual(CORE.touchJumpState(true, false, false, false, false), '');
+
+  // 2) touchJumpLabel
+  assert.strictEqual(CORE.touchJumpLabel('locked', false), 'LOCK');
+  assert.strictEqual(CORE.touchJumpLabel('mantle', false), 'CLIMB');
+  assert.strictEqual(CORE.touchJumpLabel('boost', false), 'BOOST');
+  assert.strictEqual(CORE.touchJumpLabel('airborne', false), 'AIR');
+  assert.strictEqual(CORE.touchJumpLabel('', true), 'STAND');
+  assert.strictEqual(CORE.touchJumpLabel('', false), 'JUMP');
+
+  // 3) touchJumpChanged & syncTouchJumpState
+  const jumpCache = { jumpState: '', jumpLabel: 'JUMP' };
+  assert.strictEqual(CORE.touchJumpChanged(null, '', 'JUMP'), true);
+  assert.strictEqual(CORE.touchJumpChanged(jumpCache, '', 'JUMP'), false);
+  assert.strictEqual(CORE.touchJumpChanged(jumpCache, 'boost', 'BOOST'), true);
+  const syncedJump = CORE.syncTouchJumpState(jumpCache, 'boost', 'BOOST');
+  assert.strictEqual(syncedJump, jumpCache);
+  assert.strictEqual(jumpCache.jumpState, 'boost');
+  assert.strictEqual(jumpCache.jumpLabel, 'BOOST');
+  assert.strictEqual(CORE.touchJumpChanged(jumpCache, 'boost', 'BOOST'), false);
+
+  // 4) touchAdsState
+  assert.strictEqual(CORE.touchAdsState(0, 'SR', 0.82, false), '');
+  assert.strictEqual(CORE.touchAdsState(0.5, 'SR', 0.82, false), 'active');
+  assert.strictEqual(CORE.touchAdsState(0.85, 'SR', 0.82, false), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(0.85, 'SR', 0.82, true), 'steady');
+  assert.strictEqual(CORE.touchAdsState(0.85, 'BR', 0.82, false), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(0.85, 'AR', 0.82, true), 'active');
+  assert.strictEqual(CORE.touchAdsState(0.85, 'SR', undefined, true), 'steady');
+
+  // 5) touchAdsLabel
+  assert.strictEqual(CORE.touchAdsLabel('steady', 'SR', 2.0), 'STEADY');
+  assert.strictEqual(CORE.touchAdsLabel('scoped', 'SR', 2.0), 'SCOPE');
+  assert.strictEqual(CORE.touchAdsLabel('scoped', 'SR', 0), 'WAIT');
+  assert.strictEqual(CORE.touchAdsLabel('scoped', 'SR', -0.5), 'WAIT');
+  assert.strictEqual(CORE.touchAdsLabel('active', 'AR', 0), 'AIM');
+  assert.strictEqual(CORE.touchAdsLabel('', '', 0), 'ADS');
+
+  // 6) touchAdsChanged & syncTouchAdsState
+  const adsCache = { adsState: '', adsLabel: 'ADS' };
+  assert.strictEqual(CORE.touchAdsChanged(null, '', 'ADS'), true);
+  assert.strictEqual(CORE.touchAdsChanged(adsCache, '', 'ADS'), false);
+  assert.strictEqual(CORE.touchAdsChanged(adsCache, 'scoped', 'SCOPE'), true);
+  const syncedAds = CORE.syncTouchAdsState(adsCache, 'scoped', 'SCOPE');
+  assert.strictEqual(syncedAds, adsCache);
+  assert.strictEqual(adsCache.adsState, 'scoped');
+  assert.strictEqual(adsCache.adsLabel, 'SCOPE');
+  assert.strictEqual(CORE.touchAdsChanged(adsCache, 'scoped', 'SCOPE'), false);
+
+  // 7) touchSlideChanged & syncTouchSlideState
+  const slideCache = { slideState: '', slideLabel: 'SLIDE' };
+  assert.strictEqual(CORE.touchSlideChanged(null, '', 'SLIDE'), true);
+  assert.strictEqual(CORE.touchSlideChanged(slideCache, '', 'SLIDE'), false);
+  assert.strictEqual(CORE.touchSlideChanged(slideCache, 'sliding', 'SLIDE'), true);
+  const syncedSlide = CORE.syncTouchSlideState(slideCache, 'sliding', 'SLIDE');
+  assert.strictEqual(syncedSlide, slideCache);
+  assert.strictEqual(slideCache.slideState, 'sliding');
+  assert.strictEqual(CORE.touchSlideChanged(slideCache, 'sliding', 'SLIDE'), false);
+
+  // 8) touchMeleeChanged & syncTouchMeleeState
+  const meleeCache = { meleeState: '', meleeLabel: 'KNIFE' };
+  assert.strictEqual(CORE.touchMeleeChanged(null, '', 'KNIFE'), true);
+  assert.strictEqual(CORE.touchMeleeChanged(meleeCache, '', 'KNIFE'), false);
+  assert.strictEqual(CORE.touchMeleeChanged(meleeCache, 'ready', 'STRIKE'), true);
+  const syncedMelee = CORE.syncTouchMeleeState(meleeCache, 'ready', 'STRIKE');
+  assert.strictEqual(syncedMelee, meleeCache);
+  assert.strictEqual(meleeCache.meleeState, 'ready');
+  assert.strictEqual(meleeCache.meleeLabel, 'STRIKE');
+  assert.strictEqual(CORE.touchMeleeChanged(meleeCache, 'ready', 'STRIKE'), false);
+
+  // 9) isMobileSteadyAim
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0, 0), true);
+  assert.strictEqual(CORE.isMobileSteadyAim(false, 0.85, 'SR', 0, 0), false);
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.70, 'SR', 0, 0), false);
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'AR', 0, 0), false);
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0.2, 0), false);
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0, -0.15), false);
+  assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0.02, 0.01), true);
+});

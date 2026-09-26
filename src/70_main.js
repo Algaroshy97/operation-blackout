@@ -192,6 +192,10 @@ function resetGame() {
   if (typeof _scopeOvEl !== 'undefined' && _scopeOvEl) { _scopeOvEl.style.setProperty('--sx', '0px'); _scopeOvEl.style.setProperty('--sy', '0px'); }
   if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
   if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
+  if (typeof _touchJumpCache !== 'undefined' && _touchJumpCache) _touchJumpCache.jumpState = null;
+  if (typeof _touchAdsCache !== 'undefined' && _touchAdsCache) _touchAdsCache.adsState = null;
+  if (typeof _touchSlideCache !== 'undefined' && _touchSlideCache) _touchSlideCache.slideState = null;
+  if (typeof _touchMeleeCache !== 'undefined' && _touchMeleeCache) _touchMeleeCache.meleeState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;

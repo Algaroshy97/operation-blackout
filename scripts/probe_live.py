@@ -2087,7 +2087,83 @@ def main() -> int:
         }""")
         checks.append(("tactical-audio-ordnance-steady-and-exhaustion-rules", tactical_audio_check))
 
-        # 51) Clean console throughout gameplay.
+        # 51) Mobile UI polish: touch jump/ads contextual states, labels, change detection, and steady-aim rules.
+        touch_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.touchJumpState !== 'function' ||
+                typeof CORE.touchJumpLabel !== 'function' ||
+                typeof CORE.touchJumpChanged !== 'function' ||
+                typeof CORE.syncTouchJumpState !== 'function' ||
+                typeof CORE.touchAdsState !== 'function' ||
+                typeof CORE.touchAdsLabel !== 'function' ||
+                typeof CORE.touchAdsChanged !== 'function' ||
+                typeof CORE.syncTouchAdsState !== 'function' ||
+                typeof CORE.touchSlideChanged !== 'function' ||
+                typeof CORE.syncTouchSlideState !== 'function' ||
+                typeof CORE.touchMeleeChanged !== 'function' ||
+                typeof CORE.syncTouchMeleeState !== 'function' ||
+                typeof CORE.isMobileSteadyAim !== 'function') return false;
+
+            const jumpAir = CORE.touchJumpState(false) === 'airborne';
+            const jumpGrd = CORE.touchJumpState(true) === '';
+            const jumpBoost = CORE.touchJumpState(true, true, false, false, false) === 'boost';
+            const jumpMantle = CORE.touchJumpState(false, false, true, false, false) === 'mantle';
+            const jumpLock = CORE.touchJumpState(true, false, false, true, false) === 'locked';
+
+            const lblBoost = CORE.touchJumpLabel('boost', false) === 'BOOST';
+            const lblClimb = CORE.touchJumpLabel('mantle', false) === 'CLIMB';
+            const lblAir = CORE.touchJumpLabel('airborne', false) === 'AIR';
+            const lblStand = CORE.touchJumpLabel('', true) === 'STAND';
+            const lblJump = CORE.touchJumpLabel('', false) === 'JUMP';
+
+            const jCache = { jumpState: '', jumpLabel: 'JUMP' };
+            const jSame = CORE.touchJumpChanged(jCache, '', 'JUMP') === false;
+            const jDiff = CORE.touchJumpChanged(jCache, 'boost', 'BOOST') === true;
+            CORE.syncTouchJumpState(jCache, 'boost', 'BOOST');
+            const jSyncOk = jCache.jumpState === 'boost' && jCache.jumpLabel === 'BOOST';
+
+            const adsZero = CORE.touchAdsState(0, 'SR', 0.82, false) === '';
+            const adsAct = CORE.touchAdsState(0.5, 'SR', 0.82, false) === 'active';
+            const adsScope = CORE.touchAdsState(0.85, 'SR', 0.82, false) === 'scoped';
+            const adsSteady = CORE.touchAdsState(0.85, 'SR', 0.82, true) === 'steady';
+
+            const lblSteady = CORE.touchAdsLabel('steady', 'SR', 2.0) === 'STEADY';
+            const lblScope = CORE.touchAdsLabel('scoped', 'SR', 2.0) === 'SCOPE';
+            const lblWait = CORE.touchAdsLabel('scoped', 'SR', 0) === 'WAIT';
+            const lblAim = CORE.touchAdsLabel('active', 'AR', 0) === 'AIM';
+            const lblAds = CORE.touchAdsLabel('', '', 0) === 'ADS';
+
+            const aCache = { adsState: '', adsLabel: 'ADS' };
+            const aSame = CORE.touchAdsChanged(aCache, '', 'ADS') === false;
+            const aDiff = CORE.touchAdsChanged(aCache, 'steady', 'STEADY') === true;
+            CORE.syncTouchAdsState(aCache, 'steady', 'STEADY');
+            const aSyncOk = aCache.adsState === 'steady' && aCache.adsLabel === 'STEADY';
+
+            const sCache = { slideState: '', slideLabel: 'SLIDE' };
+            const sDiff = CORE.touchSlideChanged(sCache, 'sliding', 'SLIDE') === true;
+            CORE.syncTouchSlideState(sCache, 'sliding', 'SLIDE');
+            const sSame = CORE.touchSlideChanged(sCache, 'sliding', 'SLIDE') === false;
+
+            const mCache = { meleeState: '', meleeLabel: 'KNIFE' };
+            const mDiff = CORE.touchMeleeChanged(mCache, 'ready', 'STRIKE') === true;
+            CORE.syncTouchMeleeState(mCache, 'ready', 'STRIKE');
+            const mSame = CORE.touchMeleeChanged(mCache, 'ready', 'STRIKE') === false;
+
+            const steadyOk = CORE.isMobileSteadyAim(true, 0.85, 'SR', 0, 0) === true &&
+                             CORE.isMobileSteadyAim(false, 0.85, 'SR', 0, 0) === false &&
+                             CORE.isMobileSteadyAim(true, 0.85, 'AR', 0, 0) === false &&
+                             CORE.isMobileSteadyAim(true, 0.85, 'SR', 0.3, 0) === false;
+
+            return jumpAir && jumpGrd && jumpBoost && jumpMantle && jumpLock &&
+                   lblBoost && lblClimb && lblAir && lblStand && lblJump &&
+                   jSame && jDiff && jSyncOk &&
+                   adsZero && adsAct && adsScope && adsSteady &&
+                   lblSteady && lblScope && lblWait && lblAim && lblAds &&
+                   aSame && aDiff && aSyncOk && sDiff && sSame && mDiff && mSame && steadyOk;
+        }""")
+        checks.append(("touch-jump-ads-and-steady-aim-mobile-rules", touch_polish_check))
+
+        # 52) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

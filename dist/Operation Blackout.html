@@ -260,11 +260,15 @@
   body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
   body.touch #tbtn-fire.dry{background:rgba(180,60,20,.45);border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.28),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-fire.reloading{background:rgba(120,80,20,.4);border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
-  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
+  body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-ads.active{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.18)}
   body.touch #tbtn-ads.scoped{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 4px rgba(80,180,255,.35),inset 0 0 14px rgba(80,180,255,.3)}
-  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
+  body.touch #tbtn-ads.steady{background:rgba(255,210,74,.4);border-color:#ffd24a;color:#fff;box-shadow:0 0 0 4px rgba(255,210,74,.35),inset 0 0 14px rgba(255,210,74,.25)}
+  body.touch #tbtn-jump{right:calc(26px + var(--sa-r));bottom:calc(152px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s,background .15s}
   body.touch #tbtn-jump.airborne{border-color:#50b4ff;color:#80d4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.15);opacity:.55}
+  body.touch #tbtn-jump.boost{background:rgba(255,210,74,.35);border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 3px rgba(255,210,74,.3),inset 0 0 10px rgba(255,210,74,.2)}
+  body.touch #tbtn-jump.mantle{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 10px rgba(80,180,255,.2)}
+  body.touch #tbtn-jump.locked{opacity:.35;border-color:rgba(120,120,120,.4);color:rgba(160,160,160,.5)}
   body.touch #tbtn-slide{right:calc(118px + var(--sa-r));bottom:calc(124px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-slide.sliding{background:rgba(80,180,255,.55);border-color:#50b4ff;color:#fff;box-shadow:0 0 0 3px rgba(80,180,255,.3),inset 0 0 12px rgba(80,180,255,.25)}
   body.touch #tbtn-slide.crouch{border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,170,58,.25),inset 0 0 8px rgba(255,170,58,.18)}
@@ -6896,22 +6900,113 @@ const CORE = (function () {
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
-  // Mobile touch ADS button state: returns 'scoped' when a sniper or battle rifle has fully
-  // engaged its optical scope (adsAmount >= scopeLockedThreshold and weapon type is SR or BR),
-  // 'active' when ADS is engaged for any weapon, or '' when at hip-fire.
+  // Mobile touch ADS button state: returns 'steady' when sniper breath hold is engaged,
+  // 'scoped' when optical scope is locked in (SR/BR >= threshold),
+  // 'active' when aiming down sights, or '' at hip fire.
+  // Backwards-compatible: behaves identically to previous versions when isSteadyActive is omitted/falsy.
   // Pure: no side effects, no DOM, no THREE.
-  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold) {
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive) {
     const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
     const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
     if (ads <= 0) return '';
-    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) return 'scoped';
+    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) {
+      return isSteadyActive ? 'steady' : 'scoped';
+    }
     return 'active';
   }
-  // Mobile touch jump button state: returns 'airborne' when the player is off the ground,
-  // or '' when grounded. Signals that a second jump is unavailable.
+  // Mobile touch ADS button contextual label: displays 'STEADY' while holding breath,
+  // 'WAIT' when sniper breath is exhausted, 'SCOPE' when optical scope is engaged,
+  // 'AIM' when aiming standard sights, or 'ADS' default.
   // Pure: no side effects, no DOM, no THREE.
-  function touchJumpState(onGround) {
+  function touchAdsLabel(adsState, weaponType, steadyT) {
+    if (adsState === 'steady') return 'STEADY';
+    if (adsState === 'scoped') {
+      if (typeof steadyT === 'number' && isFinite(steadyT) && steadyT <= 0) return 'WAIT';
+      return 'SCOPE';
+    }
+    if (adsState === 'active') return 'AIM';
+    return 'ADS';
+  }
+  // Change-detection for mobile touch ADS button to prevent redundant DOM updates.
+  function touchAdsChanged(lastState, adsState, adsLabel) {
+    if (!lastState) return true;
+    return lastState.adsState !== adsState || lastState.adsLabel !== adsLabel;
+  }
+  // In-place cache synchronizer for mobile touch ADS button state.
+  function syncTouchAdsState(lastState, adsState, adsLabel) {
+    if (!lastState) return { adsState: adsState, adsLabel: adsLabel };
+    lastState.adsState = adsState;
+    lastState.adsLabel = adsLabel;
+    return lastState;
+  }
+  // Mobile touch jump button state: returns 'locked' when downed or stunned,
+  // 'mantle' during ledge mantle climbing, 'boost' during kinetic slide momentum,
+  // 'airborne' when off the ground, or '' when grounded and jump-ready.
+  // Backwards-compatible: single boolean onGround returns '' or 'airborne'.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpState(onGround, isSliding, isMantling, isDowned, isStunned) {
+    if (isDowned || isStunned) return 'locked';
+    if (isMantling) return 'mantle';
+    if (isSliding) return 'boost';
     return onGround ? '' : 'airborne';
+  }
+  // Mobile touch jump button contextual label: displays 'LOCK' when disabled,
+  // 'CLIMB' when mantling, 'BOOST' during kinetic slide, 'AIR' when airborne,
+  // 'STAND' when crouched, or 'JUMP' default.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpLabel(jumpState, isCrouching) {
+    if (jumpState === 'locked') return 'LOCK';
+    if (jumpState === 'mantle') return 'CLIMB';
+    if (jumpState === 'boost') return 'BOOST';
+    if (jumpState === 'airborne') return 'AIR';
+    return isCrouching ? 'STAND' : 'JUMP';
+  }
+  // Change-detection for mobile touch jump button to prevent redundant DOM updates.
+  function touchJumpChanged(lastState, jumpState, jumpLabel) {
+    if (!lastState) return true;
+    return lastState.jumpState !== jumpState || lastState.jumpLabel !== jumpLabel;
+  }
+  // In-place cache synchronizer for mobile touch jump button state.
+  function syncTouchJumpState(lastState, jumpState, jumpLabel) {
+    if (!lastState) return { jumpState: jumpState, jumpLabel: jumpLabel };
+    lastState.jumpState = jumpState;
+    lastState.jumpLabel = jumpLabel;
+    return lastState;
+  }
+  // Change-detection for mobile touch slide button to prevent redundant DOM updates.
+  function touchSlideChanged(lastState, slideState, slideLabel) {
+    if (!lastState) return true;
+    return lastState.slideState !== slideState || lastState.slideLabel !== slideLabel;
+  }
+  // In-place cache synchronizer for mobile touch slide button state.
+  function syncTouchSlideState(lastState, slideState, slideLabel) {
+    if (!lastState) return { slideState: slideState, slideLabel: slideLabel };
+    lastState.slideState = slideState;
+    lastState.slideLabel = slideLabel;
+    return lastState;
+  }
+  // Change-detection for mobile touch melee button to prevent redundant DOM updates.
+  function touchMeleeChanged(lastState, meleeState, meleeLabel) {
+    if (!lastState) return true;
+    return lastState.meleeState !== meleeState || lastState.meleeLabel !== meleeLabel;
+  }
+  // In-place cache synchronizer for mobile touch melee button state.
+  function syncTouchMeleeState(lastState, meleeState, meleeLabel) {
+    if (!lastState) return { meleeState: meleeState, meleeLabel: meleeLabel };
+    lastState.meleeState = meleeState;
+    lastState.meleeLabel = meleeLabel;
+    return lastState;
+  }
+  // Evaluates whether a mobile touch player has engaged sniper steady-aim by holding
+  // ADS while stationary in marksman scope.
+  // Pure: no side effects, no DOM, no THREE.
+  function isMobileSteadyAim(isAdsTouch, adsAmount, weaponType, moveX, moveZ) {
+    if (!isAdsTouch || weaponType !== 'SR') return false;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    if (ads < ADS_SCOPE_THRESHOLD) return false;
+    const mx = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
+    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? Math.abs(moveZ) : 0;
+    return mx < 0.05 && mz < 0.05;
   }
   // Mobile touch fire button feedback state: returns 'reloading' during reload cycle,
   // 'empty' when all ammo is completely exhausted (ammo <= 0 and reserve <= 0),
@@ -9685,7 +9780,18 @@ const CORE = (function () {
     sprintIndicatorState: sprintIndicatorState,
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
+    touchAdsLabel: touchAdsLabel,
+    touchAdsChanged: touchAdsChanged,
+    syncTouchAdsState: syncTouchAdsState,
     touchJumpState: touchJumpState,
+    touchJumpLabel: touchJumpLabel,
+    touchJumpChanged: touchJumpChanged,
+    syncTouchJumpState: syncTouchJumpState,
+    touchSlideChanged: touchSlideChanged,
+    syncTouchSlideState: syncTouchSlideState,
+    touchMeleeChanged: touchMeleeChanged,
+    syncTouchMeleeState: syncTouchMeleeState,
+    isMobileSteadyAim: isMobileSteadyAim,
     touchFireState: touchFireState,
     touchFireLabel: touchFireLabel,
     touchReloadLabel: touchReloadLabel,
@@ -12138,7 +12244,11 @@ function applyTouchInput() {
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
-    keys['ShiftLeft'] = false;
+    const w = (typeof curW === 'function') ? curW() : null;
+    const wType = w ? w.type : '';
+    const adsVal = typeof adsAmount === 'number' ? adsAmount : 0;
+    const isSteady = CORE.isMobileSteadyAim(touchState.ads, adsVal, wType, touchState.moveX, touchState.moveZ);
+    keys['ShiftLeft'] = isSteady;
     if (joyBaseEl) joyBaseEl.classList.remove('sprint');
     window.__analogMove = null;
   }
@@ -12161,19 +12271,24 @@ function applyTouchInput() {
 }
 
 let tbtnSlideEl = null;
+let _touchSlideCache = { slideState: '', slideLabel: 'SLIDE' };
 function updateTouchSlideBtn() {
   if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
   if (!tbtnSlideEl || typeof player === 'undefined') return;
-  const isSprint = !!keys['ShiftLeft'];
+  const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint);
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
+  if (!CORE.touchSlideChanged(_touchSlideCache, slideState, slideLabel)) return;
+  CORE.syncTouchSlideState(_touchSlideCache, slideState, slideLabel);
+
   tbtnSlideEl.classList.toggle('sliding', slideState === 'sliding');
   tbtnSlideEl.classList.toggle('crouch', slideState === 'crouch');
   tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
-  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
   if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
 }
 
 let tbtnMeleeEl = null;
+let _touchMeleeCache = { meleeState: '', meleeLabel: 'KNIFE' };
 function updateTouchMeleeBtn() {
   if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');
   if (!tbtnMeleeEl || typeof player === 'undefined') return;
@@ -12183,31 +12298,58 @@ function updateTouchMeleeBtn() {
     : -1;
   const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
   const mState = CORE.touchMeleeState(targetIdx >= 0, cd);
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
+  if (!CORE.touchMeleeChanged(_touchMeleeCache, mState, mLabel)) return;
+  CORE.syncTouchMeleeState(_touchMeleeCache, mState, mLabel);
+
   tbtnMeleeEl.classList.toggle('ready', mState === 'ready');
   tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
-  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
   if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
 }
 
-// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in.
+// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in,
+// golden breath-hold pulse while steadying aim.
 let tbtnAdsEl = null;
+let _touchAdsCache = { adsState: '', adsLabel: 'ADS' };
 function updateTouchAdsBtn() {
   if (!tbtnAdsEl) tbtnAdsEl = document.getElementById('tbtn-ads');
   if (!tbtnAdsEl || typeof adsAmount === 'undefined' || typeof player === 'undefined') return;
   const w = (typeof curW === 'function') ? curW() : null;
   const wType = w ? w.type : '';
-  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD);
+  const isSteady = typeof steadyActive === 'boolean' ? steadyActive : false;
+  const sT = typeof steadyT === 'number' ? steadyT : 0;
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady);
+  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT);
+  if (!CORE.touchAdsChanged(_touchAdsCache, adsState, adsLabel)) return;
+  CORE.syncTouchAdsState(_touchAdsCache, adsState, adsLabel);
+
   tbtnAdsEl.classList.toggle('active', adsState === 'active');
   tbtnAdsEl.classList.toggle('scoped', adsState === 'scoped');
+  tbtnAdsEl.classList.toggle('steady', adsState === 'steady');
+  if (tbtnAdsEl.textContent !== adsLabel) tbtnAdsEl.textContent = adsLabel;
 }
 
-// Jump button: dims and glows cyan when the player is airborne to signal no jump available.
+// Jump button: signals kinetic slide-jump BOOST, ledge CLIMB, airborne lockout, or ground JUMP.
 let tbtnJumpEl = null;
+let _touchJumpCache = { jumpState: '', jumpLabel: 'JUMP' };
 function updateTouchJumpBtn() {
   if (!tbtnJumpEl) tbtnJumpEl = document.getElementById('tbtn-jump');
   if (!tbtnJumpEl || typeof player === 'undefined') return;
-  const jState = CORE.touchJumpState(!!player.onGround);
+  const isMantle = typeof player.mantleT === 'number' && player.mantleT > 0;
+  const isSliding = !!player.sliding;
+  const isDowned = !!player.downed;
+  const isStunned = typeof player.landStunT === 'number' && player.landStunT > 0;
+  const isCrouch = !!player.crouching;
+  const jState = CORE.touchJumpState(!!player.onGround, isSliding, isMantle, isDowned, isStunned);
+  const jLabel = CORE.touchJumpLabel(jState, isCrouch);
+  if (!CORE.touchJumpChanged(_touchJumpCache, jState, jLabel)) return;
+  CORE.syncTouchJumpState(_touchJumpCache, jState, jLabel);
+
   tbtnJumpEl.classList.toggle('airborne', jState === 'airborne');
+  tbtnJumpEl.classList.toggle('boost', jState === 'boost');
+  tbtnJumpEl.classList.toggle('mantle', jState === 'mantle');
+  tbtnJumpEl.classList.toggle('locked', jState === 'locked');
+  if (tbtnJumpEl.textContent !== jLabel) tbtnJumpEl.textContent = jLabel;
 }
 
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
@@ -18831,6 +18973,10 @@ function resetGame() {
   if (typeof _scopeOvEl !== 'undefined' && _scopeOvEl) { _scopeOvEl.style.setProperty('--sx', '0px'); _scopeOvEl.style.setProperty('--sy', '0px'); }
   if (typeof _steadyIndState !== 'undefined') { _steadyIndState.visible = null; _steadyIndState.steadyActive = null; _steadyIndState.label = null; }
   if (typeof _lastTouchUseState !== 'undefined' && _lastTouchUseState) _lastTouchUseState.nearStation = null;
+  if (typeof _touchJumpCache !== 'undefined' && _touchJumpCache) _touchJumpCache.jumpState = null;
+  if (typeof _touchAdsCache !== 'undefined' && _touchAdsCache) _touchAdsCache.adsState = null;
+  if (typeof _touchSlideCache !== 'undefined' && _touchSlideCache) _touchSlideCache.slideState = null;
+  if (typeof _touchMeleeCache !== 'undefined' && _touchMeleeCache) _touchMeleeCache.meleeState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;

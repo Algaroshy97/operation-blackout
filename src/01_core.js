@@ -2220,22 +2220,113 @@ const CORE = (function () {
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
-  // Mobile touch ADS button state: returns 'scoped' when a sniper or battle rifle has fully
-  // engaged its optical scope (adsAmount >= scopeLockedThreshold and weapon type is SR or BR),
-  // 'active' when ADS is engaged for any weapon, or '' when at hip-fire.
+  // Mobile touch ADS button state: returns 'steady' when sniper breath hold is engaged,
+  // 'scoped' when optical scope is locked in (SR/BR >= threshold),
+  // 'active' when aiming down sights, or '' at hip fire.
+  // Backwards-compatible: behaves identically to previous versions when isSteadyActive is omitted/falsy.
   // Pure: no side effects, no DOM, no THREE.
-  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold) {
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive) {
     const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
     const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
     if (ads <= 0) return '';
-    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) return 'scoped';
+    if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) {
+      return isSteadyActive ? 'steady' : 'scoped';
+    }
     return 'active';
   }
-  // Mobile touch jump button state: returns 'airborne' when the player is off the ground,
-  // or '' when grounded. Signals that a second jump is unavailable.
+  // Mobile touch ADS button contextual label: displays 'STEADY' while holding breath,
+  // 'WAIT' when sniper breath is exhausted, 'SCOPE' when optical scope is engaged,
+  // 'AIM' when aiming standard sights, or 'ADS' default.
   // Pure: no side effects, no DOM, no THREE.
-  function touchJumpState(onGround) {
+  function touchAdsLabel(adsState, weaponType, steadyT) {
+    if (adsState === 'steady') return 'STEADY';
+    if (adsState === 'scoped') {
+      if (typeof steadyT === 'number' && isFinite(steadyT) && steadyT <= 0) return 'WAIT';
+      return 'SCOPE';
+    }
+    if (adsState === 'active') return 'AIM';
+    return 'ADS';
+  }
+  // Change-detection for mobile touch ADS button to prevent redundant DOM updates.
+  function touchAdsChanged(lastState, adsState, adsLabel) {
+    if (!lastState) return true;
+    return lastState.adsState !== adsState || lastState.adsLabel !== adsLabel;
+  }
+  // In-place cache synchronizer for mobile touch ADS button state.
+  function syncTouchAdsState(lastState, adsState, adsLabel) {
+    if (!lastState) return { adsState: adsState, adsLabel: adsLabel };
+    lastState.adsState = adsState;
+    lastState.adsLabel = adsLabel;
+    return lastState;
+  }
+  // Mobile touch jump button state: returns 'locked' when downed or stunned,
+  // 'mantle' during ledge mantle climbing, 'boost' during kinetic slide momentum,
+  // 'airborne' when off the ground, or '' when grounded and jump-ready.
+  // Backwards-compatible: single boolean onGround returns '' or 'airborne'.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpState(onGround, isSliding, isMantling, isDowned, isStunned) {
+    if (isDowned || isStunned) return 'locked';
+    if (isMantling) return 'mantle';
+    if (isSliding) return 'boost';
     return onGround ? '' : 'airborne';
+  }
+  // Mobile touch jump button contextual label: displays 'LOCK' when disabled,
+  // 'CLIMB' when mantling, 'BOOST' during kinetic slide, 'AIR' when airborne,
+  // 'STAND' when crouched, or 'JUMP' default.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchJumpLabel(jumpState, isCrouching) {
+    if (jumpState === 'locked') return 'LOCK';
+    if (jumpState === 'mantle') return 'CLIMB';
+    if (jumpState === 'boost') return 'BOOST';
+    if (jumpState === 'airborne') return 'AIR';
+    return isCrouching ? 'STAND' : 'JUMP';
+  }
+  // Change-detection for mobile touch jump button to prevent redundant DOM updates.
+  function touchJumpChanged(lastState, jumpState, jumpLabel) {
+    if (!lastState) return true;
+    return lastState.jumpState !== jumpState || lastState.jumpLabel !== jumpLabel;
+  }
+  // In-place cache synchronizer for mobile touch jump button state.
+  function syncTouchJumpState(lastState, jumpState, jumpLabel) {
+    if (!lastState) return { jumpState: jumpState, jumpLabel: jumpLabel };
+    lastState.jumpState = jumpState;
+    lastState.jumpLabel = jumpLabel;
+    return lastState;
+  }
+  // Change-detection for mobile touch slide button to prevent redundant DOM updates.
+  function touchSlideChanged(lastState, slideState, slideLabel) {
+    if (!lastState) return true;
+    return lastState.slideState !== slideState || lastState.slideLabel !== slideLabel;
+  }
+  // In-place cache synchronizer for mobile touch slide button state.
+  function syncTouchSlideState(lastState, slideState, slideLabel) {
+    if (!lastState) return { slideState: slideState, slideLabel: slideLabel };
+    lastState.slideState = slideState;
+    lastState.slideLabel = slideLabel;
+    return lastState;
+  }
+  // Change-detection for mobile touch melee button to prevent redundant DOM updates.
+  function touchMeleeChanged(lastState, meleeState, meleeLabel) {
+    if (!lastState) return true;
+    return lastState.meleeState !== meleeState || lastState.meleeLabel !== meleeLabel;
+  }
+  // In-place cache synchronizer for mobile touch melee button state.
+  function syncTouchMeleeState(lastState, meleeState, meleeLabel) {
+    if (!lastState) return { meleeState: meleeState, meleeLabel: meleeLabel };
+    lastState.meleeState = meleeState;
+    lastState.meleeLabel = meleeLabel;
+    return lastState;
+  }
+  // Evaluates whether a mobile touch player has engaged sniper steady-aim by holding
+  // ADS while stationary in marksman scope.
+  // Pure: no side effects, no DOM, no THREE.
+  function isMobileSteadyAim(isAdsTouch, adsAmount, weaponType, moveX, moveZ) {
+    if (!isAdsTouch || weaponType !== 'SR') return false;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    if (ads < ADS_SCOPE_THRESHOLD) return false;
+    const mx = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
+    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? Math.abs(moveZ) : 0;
+    return mx < 0.05 && mz < 0.05;
   }
   // Mobile touch fire button feedback state: returns 'reloading' during reload cycle,
   // 'empty' when all ammo is completely exhausted (ammo <= 0 and reserve <= 0),
@@ -5009,7 +5100,18 @@ const CORE = (function () {
     sprintIndicatorState: sprintIndicatorState,
     sprintIndicatorLabel: sprintIndicatorLabel,
     touchAdsState: touchAdsState,
+    touchAdsLabel: touchAdsLabel,
+    touchAdsChanged: touchAdsChanged,
+    syncTouchAdsState: syncTouchAdsState,
     touchJumpState: touchJumpState,
+    touchJumpLabel: touchJumpLabel,
+    touchJumpChanged: touchJumpChanged,
+    syncTouchJumpState: syncTouchJumpState,
+    touchSlideChanged: touchSlideChanged,
+    syncTouchSlideState: syncTouchSlideState,
+    touchMeleeChanged: touchMeleeChanged,
+    syncTouchMeleeState: syncTouchMeleeState,
+    isMobileSteadyAim: isMobileSteadyAim,
     touchFireState: touchFireState,
     touchFireLabel: touchFireLabel,
     touchReloadLabel: touchReloadLabel,

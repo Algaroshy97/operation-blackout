@@ -286,7 +286,11 @@ function applyTouchInput() {
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
-    keys['ShiftLeft'] = false;
+    const w = (typeof curW === 'function') ? curW() : null;
+    const wType = w ? w.type : '';
+    const adsVal = typeof adsAmount === 'number' ? adsAmount : 0;
+    const isSteady = CORE.isMobileSteadyAim(touchState.ads, adsVal, wType, touchState.moveX, touchState.moveZ);
+    keys['ShiftLeft'] = isSteady;
     if (joyBaseEl) joyBaseEl.classList.remove('sprint');
     window.__analogMove = null;
   }
@@ -309,19 +313,24 @@ function applyTouchInput() {
 }
 
 let tbtnSlideEl = null;
+let _touchSlideCache = { slideState: '', slideLabel: 'SLIDE' };
 function updateTouchSlideBtn() {
   if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
   if (!tbtnSlideEl || typeof player === 'undefined') return;
-  const isSprint = !!keys['ShiftLeft'];
+  const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint);
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
+  if (!CORE.touchSlideChanged(_touchSlideCache, slideState, slideLabel)) return;
+  CORE.syncTouchSlideState(_touchSlideCache, slideState, slideLabel);
+
   tbtnSlideEl.classList.toggle('sliding', slideState === 'sliding');
   tbtnSlideEl.classList.toggle('crouch', slideState === 'crouch');
   tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
-  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
   if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
 }
 
 let tbtnMeleeEl = null;
+let _touchMeleeCache = { meleeState: '', meleeLabel: 'KNIFE' };
 function updateTouchMeleeBtn() {
   if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');
   if (!tbtnMeleeEl || typeof player === 'undefined') return;
@@ -331,29 +340,56 @@ function updateTouchMeleeBtn() {
     : -1;
   const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
   const mState = CORE.touchMeleeState(targetIdx >= 0, cd);
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
+  if (!CORE.touchMeleeChanged(_touchMeleeCache, mState, mLabel)) return;
+  CORE.syncTouchMeleeState(_touchMeleeCache, mState, mLabel);
+
   tbtnMeleeEl.classList.toggle('ready', mState === 'ready');
   tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
-  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
   if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
 }
 
-// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in.
+// ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in,
+// golden breath-hold pulse while steadying aim.
 let tbtnAdsEl = null;
+let _touchAdsCache = { adsState: '', adsLabel: 'ADS' };
 function updateTouchAdsBtn() {
   if (!tbtnAdsEl) tbtnAdsEl = document.getElementById('tbtn-ads');
   if (!tbtnAdsEl || typeof adsAmount === 'undefined' || typeof player === 'undefined') return;
   const w = (typeof curW === 'function') ? curW() : null;
   const wType = w ? w.type : '';
-  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD);
+  const isSteady = typeof steadyActive === 'boolean' ? steadyActive : false;
+  const sT = typeof steadyT === 'number' ? steadyT : 0;
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady);
+  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT);
+  if (!CORE.touchAdsChanged(_touchAdsCache, adsState, adsLabel)) return;
+  CORE.syncTouchAdsState(_touchAdsCache, adsState, adsLabel);
+
   tbtnAdsEl.classList.toggle('active', adsState === 'active');
   tbtnAdsEl.classList.toggle('scoped', adsState === 'scoped');
+  tbtnAdsEl.classList.toggle('steady', adsState === 'steady');
+  if (tbtnAdsEl.textContent !== adsLabel) tbtnAdsEl.textContent = adsLabel;
 }
 
-// Jump button: dims and glows cyan when the player is airborne to signal no jump available.
+// Jump button: signals kinetic slide-jump BOOST, ledge CLIMB, airborne lockout, or ground JUMP.
 let tbtnJumpEl = null;
+let _touchJumpCache = { jumpState: '', jumpLabel: 'JUMP' };
 function updateTouchJumpBtn() {
   if (!tbtnJumpEl) tbtnJumpEl = document.getElementById('tbtn-jump');
   if (!tbtnJumpEl || typeof player === 'undefined') return;
-  const jState = CORE.touchJumpState(!!player.onGround);
+  const isMantle = typeof player.mantleT === 'number' && player.mantleT > 0;
+  const isSliding = !!player.sliding;
+  const isDowned = !!player.downed;
+  const isStunned = typeof player.landStunT === 'number' && player.landStunT > 0;
+  const isCrouch = !!player.crouching;
+  const jState = CORE.touchJumpState(!!player.onGround, isSliding, isMantle, isDowned, isStunned);
+  const jLabel = CORE.touchJumpLabel(jState, isCrouch);
+  if (!CORE.touchJumpChanged(_touchJumpCache, jState, jLabel)) return;
+  CORE.syncTouchJumpState(_touchJumpCache, jState, jLabel);
+
   tbtnJumpEl.classList.toggle('airborne', jState === 'airborne');
+  tbtnJumpEl.classList.toggle('boost', jState === 'boost');
+  tbtnJumpEl.classList.toggle('mantle', jState === 'mantle');
+  tbtnJumpEl.classList.toggle('locked', jState === 'locked');
+  if (tbtnJumpEl.textContent !== jLabel) tbtnJumpEl.textContent = jLabel;
 }
