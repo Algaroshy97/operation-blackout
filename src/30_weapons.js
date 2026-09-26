@@ -115,8 +115,10 @@ function switchWeapon(slot) {
   playSound('draw');
 }
 
+const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
+
 function tryReload() {
-  const s = curS(); if (!s || s.reloading || s.ammo >= curW().mag || s.reserve <= 0) return;
+  const s = curS(); if (!s || !CORE.canReload(s.ammo, curW().mag, s.reserve, s.reloading)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
   if (!s.reloadPaused) s.reloadT = 0;
@@ -131,10 +133,11 @@ function updateWeapons(dt) {
   const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
-    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
-      const need = w.mag - s.ammo;
-      const take = Math.min(need, s.reserve);
-      s.ammo += take; s.reserve -= take;
+    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks));
+    if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
+      CORE.completeReload(s.ammo, w.mag, s.reserve, _reloadOut);
+      s.ammo = _reloadOut.ammo;
+      s.reserve = _reloadOut.reserve;
       s.reloading = false; s.reloadPaused = false;
       playSound('reload_in');
       updateHudAmmo();

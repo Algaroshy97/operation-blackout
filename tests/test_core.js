@@ -5586,3 +5586,130 @@ test('pfxNeedsUpload, scopeParallaxOffset, scopeParallaxChanged, rangefinderLabe
   assert.strictEqual(CORE.isPostfxWanted('medium', true), false);
   assert.strictEqual(CORE.isPostfxWanted('high', true), true);
 });
+
+test('canReload, effectiveReloadDuration, isReloadComplete, completeReload, munitionsAmmoRestore, airstrike, enemy ballistics, and pickup lifecycle govern combat ordnance and balance', () => {
+  // 1) canReload
+  assert.strictEqual(CORE.canReload(15, 30, 90, false), true);
+  assert.strictEqual(CORE.canReload(0, 30, 90, false), true);
+  assert.strictEqual(CORE.canReload(30, 30, 90, false), false, 'full magazine cannot reload');
+  assert.strictEqual(CORE.canReload(35, 30, 90, false), false, 'overfilled magazine cannot reload');
+  assert.strictEqual(CORE.canReload(15, 30, 0, false), false, 'zero reserve cannot reload');
+  assert.strictEqual(CORE.canReload(15, 30, -5, false), false, 'negative reserve cannot reload');
+  assert.strictEqual(CORE.canReload(15, 30, 90, true), false, 'already reloading cannot reload');
+  assert.strictEqual(CORE.canReload(null, NaN, undefined, false), false, 'invalid inputs cannot reload');
+
+  // 2) effectiveReloadDuration & isReloadComplete
+  assert.strictEqual(CORE.CAN_RELOAD_MIN_DURATION, 0.05);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.1, 1.0) - 2.1) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.1, 0.7) - 1.47) < 1e-4);
+  assert.strictEqual(CORE.effectiveReloadDuration(0, 0), 0.05);
+  assert.strictEqual(CORE.isReloadComplete(1.46, 1.47), false);
+  assert.strictEqual(CORE.isReloadComplete(1.47, 1.47), true);
+  assert.strictEqual(CORE.isReloadComplete(2.0, 1.47), true);
+  assert.strictEqual(CORE.isReloadComplete(NaN, 1.47), false);
+
+  // 3) completeReload
+  const out = { ammo: 0, reserve: 0, take: 0 };
+  const r1 = CORE.completeReload(10, 30, 50, out);
+  assert.strictEqual(r1.ammo, 30);
+  assert.strictEqual(r1.reserve, 30);
+  assert.strictEqual(r1.take, 20);
+  assert.strictEqual(r1, out, 'reuses output object without allocation');
+
+  // Partial reload when reserve is lower than needed
+  const r2 = CORE.completeReload(25, 30, 3);
+  assert.strictEqual(r2.ammo, 28);
+  assert.strictEqual(r2.reserve, 0);
+  assert.strictEqual(r2.take, 3);
+
+  // Full mag reload does nothing
+  const r3 = CORE.completeReload(30, 30, 50);
+  assert.strictEqual(r3.ammo, 30);
+  assert.strictEqual(r3.reserve, 50);
+  assert.strictEqual(r3.take, 0);
+
+  // 4) munitionsAmmoRestore
+  assert.strictEqual(CORE.MUNITIONS_MAG_RATIO, 0.5);
+  assert.strictEqual(CORE.munitionsAmmoRestore(30, 120, 30, 0.5), 45);
+  assert.strictEqual(CORE.munitionsAmmoRestore(110, 120, 30, 0.5), 120, 'clamps to reserveMax');
+  assert.strictEqual(CORE.munitionsAmmoRestore(50, 100, 20), 60, 'defaults to MUNITIONS_MAG_RATIO');
+
+  // 5) Sentry combat constants & deploy offsets
+  assert.strictEqual(CORE.SENTRY_RANGE, 26);
+  assert.strictEqual(CORE.SENTRY_ROF, 0.22);
+  assert.strictEqual(CORE.SENTRY_DMG, 22);
+  assert.strictEqual(CORE.SENTRY_DEPLOY_OFFSET, 2.2);
+  assert.strictEqual(CORE.MUNITIONS_DEPLOY_OFFSET, 1.8);
+
+  // 6) Airstrike scheduling and coordinates
+  assert.strictEqual(CORE.AIRSTRIKE_LEAD_DIST, 14);
+  assert.strictEqual(CORE.AIRSTRIKE_BOMB_COUNT, 6);
+  assert.strictEqual(CORE.AIRSTRIKE_SPACING, 5);
+  assert.strictEqual(CORE.AIRSTRIKE_BASE_DELAY, 700);
+  assert.strictEqual(CORE.AIRSTRIKE_STEP_DELAY, 260);
+  assert.strictEqual(CORE.AIRSTRIKE_JITTER, 6);
+
+  assert.strictEqual(CORE.airstrikeDelay(0), 700);
+  assert.strictEqual(CORE.airstrikeDelay(1), 960);
+  assert.strictEqual(CORE.airstrikeDelay(5), 2000);
+
+  const strikeCoord = CORE.airstrikeBombCoord(0, 0, 0, 1, 2, 14, 5, 0.5, -0.5);
+  assert.ok(Math.abs(strikeCoord.x - 0.5) < 1e-4);
+  assert.ok(Math.abs(strikeCoord.z - (14 + 10 - 0.5)) < 1e-4);
+
+  // 7) Enemy grenade ballistics and burst intervals
+  assert.strictEqual(CORE.ENEMY_GRENADE_MIN_SPEED, 6);
+  assert.strictEqual(CORE.ENEMY_GRENADE_MAX_SPEED, 13);
+  assert.strictEqual(CORE.ENEMY_GRENADE_SPEED_DIST_SCALE, 0.32);
+  assert.strictEqual(CORE.ENEMY_GRENADE_ARC_Y, 0.62);
+  assert.strictEqual(CORE.ENEMY_GRENADE_FUSE_BONUS, 0.4);
+  assert.strictEqual(CORE.ENEMY_GRENADE_JITTER, 1.2);
+
+  assert.strictEqual(CORE.enemyGrenadeSpeed(0), 6);
+  assert.ok(Math.abs(CORE.enemyGrenadeSpeed(10) - 9.2) < 1e-4);
+  assert.strictEqual(CORE.enemyGrenadeSpeed(100), 13, 'clamps to max speed');
+
+  assert.ok(Math.abs(CORE.enemyGrenadeFuse(2.5, 0.4) - 2.9) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyGrenadeFuse(3.0) - 3.4) < 1e-4);
+
+  assert.ok(Math.abs(CORE.enemyGrenadeCooldown(true, 10, 0.5) - (10 + 5.5 + 2)) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyGrenadeCooldown(false, 10, 0.5) - (10 + 11 + 4.5)) < 1e-4);
+
+  assert.strictEqual(CORE.enemyBurstInterval(2, 0.4, 0.5), 0.12);
+  assert.ok(Math.abs(CORE.enemyBurstInterval(0, 0.4, 0.5) - 0.4 * 1.6 * (0.8 + 0.2)) < 1e-4);
+
+  // 8) Tactical equipment & pickup lifecycle dynamics
+  assert.strictEqual(CORE.PICKUP_LIFE, 25);
+  assert.strictEqual(CORE.PICKUP_BLINK_START, 20);
+  assert.strictEqual(CORE.PICKUP_COLLECT_RADIUS, 1.3);
+  assert.strictEqual(CORE.PICKUP_POWER_ROT_SPEED, 4);
+  assert.strictEqual(CORE.PICKUP_STANDARD_ROT_SPEED, 2);
+  assert.strictEqual(CORE.FLASH_OVERLAY_MAX_ALPHA, 0.92);
+  assert.strictEqual(CORE.FLASH_OVERLAY_DURATION_SCALE, 1.5);
+
+  assert.ok(Math.abs(CORE.pickupBobHeight(0, false) - 0.3) < 1e-4);
+  assert.ok(Math.abs(CORE.pickupBobHeight(0, true) - 0.55) < 1e-4);
+
+  assert.strictEqual(CORE.isPickupVisible(10, 20, 25), true);
+  assert.strictEqual(CORE.isPickupVisible(26, 20, 25), false, 'despawned after max life');
+  assert.strictEqual(typeof CORE.isPickupVisible(21, 20, 25), 'boolean', 'blinking phase returns boolean');
+
+  assert.strictEqual(CORE.canCollectPickup(0, 0, 0.5, 0.5, 1.3), true);
+  assert.strictEqual(CORE.canCollectPickup(0, 0, 2, 2, 1.3), false);
+
+  assert.strictEqual(typeof CORE.grenadeBlinkVisible(1.5, 0, 0), 'boolean');
+  assert.strictEqual(CORE.grenadeBlinkVisible(Infinity, 0.6, 0.5), true);
+  assert.strictEqual(CORE.grenadeBlinkVisible(Infinity, 0.3, 0.5), false);
+
+  assert.ok(Math.abs(CORE.flashOverlayOpacity(1.5, 1.5, 0.92) - 0.92) < 1e-4);
+  assert.ok(Math.abs(CORE.flashOverlayOpacity(0.75, 1.5, 0.92) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.flashOverlayOpacity(0, 1.5, 0.92), 0);
+
+  assert.ok(Math.abs(CORE.smokeCloudScale(0, 4, 1.0) - 1.0) < 1e-4);
+  assert.ok(Math.abs(CORE.smokeCloudScale(1.0, 4, 1.0) - 4.0) < 1e-4);
+  assert.ok(Math.abs(CORE.smokeCloudOpacity(1.5, 1.5, 0.62) - 0.62) < 1e-4);
+  assert.strictEqual(CORE.smokeCloudOpacity(0, 1.5, 0.62), 0);
+
+  assert.ok(Math.abs(CORE.burnPatchOpacity(1.0, 2.0, 0.5) - 0.25) < 1e-4);
+  assert.strictEqual(CORE.burnPatchOpacity(0, 2.0, 0.5), 0);
+});

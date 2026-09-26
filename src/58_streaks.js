@@ -12,9 +12,9 @@ let streakKills = 0;          // consecutive kills since the last down
 const streakBank = [];        // earned, not yet used
 let uavUntil = -99;
 const sentries = [];
-const SENTRY_RANGE = 26;
-const SENTRY_ROF = 0.22;
-const SENTRY_DMG = 22;
+const SENTRY_RANGE = CORE.SENTRY_RANGE;
+const SENTRY_ROF = CORE.SENTRY_ROF;
+const SENTRY_DMG = CORE.SENTRY_DMG;
 
 let fieldCharge = 0;
 let runStreaksEarned = 0;   // career challenge counter, banked at end of run
@@ -97,21 +97,25 @@ function uavActive() { return gameT < uavUntil; }
 // ---- Precision airstrike ------------------------------------------------------
 // Lands along the line the player is looking down, walking outward, so it is aimed
 // rather than dropped on the player's own head.
+const _airstrikeCoordOut = { x: 0, z: 0 };
 function callAirstrike() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  const ox = player.pos.x + dirX * 14, oz = player.pos.z + dirZ * 14;
   showCenterMsg('AIRSTRIKE INBOUND');
   const id = runId;
-  for (let i = 0; i < 6; i++) {
+  const px = player.pos.x, pz = player.pos.z;
+  for (let i = 0; i < CORE.AIRSTRIKE_BOMB_COUNT; i++) {
+    const delay = CORE.airstrikeDelay(i, CORE.AIRSTRIKE_BASE_DELAY, CORE.AIRSTRIKE_STEP_DELAY);
     setTimeout(function () {
       // The run can end mid-sequence; anything scheduled has to check (BUG-08).
       if (id !== runId || !started || player.dead) return;
-      const x = ox + dirX * i * 5 + (Math.random() - 0.5) * 6;
-      const z = oz + dirZ * i * 5 + (Math.random() - 0.5) * 6;
+      const jx = (Math.random() - 0.5) * CORE.AIRSTRIKE_JITTER;
+      const jz = (Math.random() - 0.5) * CORE.AIRSTRIKE_JITTER;
+      CORE.airstrikeBombCoord(px, pz, dirX, dirZ, i, CORE.AIRSTRIKE_LEAD_DIST, CORE.AIRSTRIKE_SPACING, jx, jz, _airstrikeCoordOut);
+      const x = _airstrikeCoordOut.x, z = _airstrikeCoordOut.z;
       if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) return;
       _strikePos.set(x, 0.4, z);
       explodeGrenade(_strikePos);
-    }, 700 + i * 260);
+    }, delay);
   }
 }
 const _strikePos = new THREE.Vector3();
@@ -125,7 +129,7 @@ const _sentryTo = new THREE.Vector3();
 
 function deploySentry() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  let x = player.pos.x + dirX * 2.2, z = player.pos.z + dirZ * 2.2;
+  let x = player.pos.x + dirX * CORE.SENTRY_DEPLOY_OFFSET, z = player.pos.z + dirZ * CORE.SENTRY_DEPLOY_OFFSET;
   if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
   const g = new THREE.Group();
   const body = new THREE.Mesh(sentryBodyGeo, sentryMat);
@@ -179,7 +183,7 @@ const munitionMat = new THREE.MeshStandardMaterial({ color: 0x4a5a2f, roughness:
 
 function deployMunitions() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  let x = player.pos.x + dirX * 1.8, z = player.pos.z + dirZ * 1.8;
+  let x = player.pos.x + dirX * CORE.MUNITIONS_DEPLOY_OFFSET, z = player.pos.z + dirZ * CORE.MUNITIONS_DEPLOY_OFFSET;
   if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
   const m = new THREE.Mesh(munitionGeo, munitionMat);
   m.position.set(x, 0.23, z);
@@ -205,7 +209,8 @@ function updateMunitions(dt) {
       const tacNeed = !!(equippedTactical && tacticalCount < TACTICAL_MAX);
       if (CORE.canMunitionsResupply(ammoNeed, nadeNeed, tacNeed)) {
         if (ammoNeed) {
-          s.reserve = Math.min((s.up ? s.up.reserveMax : w.reserveMax), s.reserve + Math.round(w.mag * 0.5));
+          const maxR = s.up ? s.up.reserveMax : w.reserveMax;
+          s.reserve = CORE.munitionsAmmoRestore(s.reserve, maxR, w.mag, CORE.MUNITIONS_MAG_RATIO);
         }
         if (nadeNeed) grenades.count++;
         else if (tacNeed) tacticalCount++;

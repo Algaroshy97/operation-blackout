@@ -608,7 +608,7 @@ function updateEnemies(dt) {
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
-          en.nextShot = gameT + (en.burst > 0 ? 0.12 : CFG.ai.rangedROF * 1.6 * (0.8 + Math.random() * 0.4));
+          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
         } else {
           en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
         }
@@ -621,14 +621,14 @@ function updateEnemies(dt) {
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
     if (en.kind === 5 && !player.dead && dist > 9 && dist < 36 && gameT > (en.nextNade || 3)) {
-      en.nextNade = gameT + 5.5 + Math.random() * 4;
+      en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a player who is actually behind cover.
     if (waveBehaviours.enemyNades && en.kind === 1 && !player.dead &&
         dist > 8 && dist < 32 && gameT > (en.nextNade || 6)) {
-      en.nextNade = gameT + 11 + Math.random() * 9;
+      en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
     // animate
@@ -691,10 +691,11 @@ function throwEnemyGrenade(en) {
   const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
   const d = Math.hypot(dx, dz) || 1;
   // lobbed, deliberately imprecise — it is a flush, not a snipe
-  const speed = Math.min(13, 6 + d * 0.32);
-  const vel = new THREE.Vector3(dx / d, 0.62, dz / d).normalize().multiplyScalar(speed);
-  vel.x += (Math.random() - 0.5) * 1.2; vel.z += (Math.random() - 0.5) * 1.2;
-  liveGrenades.push({ m: m, vel: vel, fuse: CFG.grenade.fuse + 0.4, blink: blink,
+  const speed = CORE.enemyGrenadeSpeed(d);
+  const vel = new THREE.Vector3(dx / d, CORE.ENEMY_GRENADE_ARC_Y, dz / d).normalize().multiplyScalar(speed);
+  vel.x += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
+  vel.z += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
+  liveGrenades.push({ m: m, vel: vel, fuse: CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS), blink: blink,
     atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
   scene.add(m);
   playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);

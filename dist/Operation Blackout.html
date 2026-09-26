@@ -9071,6 +9071,192 @@ const CORE = (function () {
     return true;
   }
 
+  // ---- Combat Ordnance, Weapon Reload, and Lifecycle Balance Rules ----
+  const CAN_RELOAD_MIN_DURATION = 0.05;
+  const MUNITIONS_MAG_RATIO = 0.5;
+  const SENTRY_RANGE = 26;
+  const SENTRY_ROF = 0.22;
+  const SENTRY_DMG = 22;
+  const SENTRY_DEPLOY_OFFSET = 2.2;
+  const MUNITIONS_DEPLOY_OFFSET = 1.8;
+  const AIRSTRIKE_LEAD_DIST = 14;
+  const AIRSTRIKE_BOMB_COUNT = 6;
+  const AIRSTRIKE_SPACING = 5;
+  const AIRSTRIKE_BASE_DELAY = 700;
+  const AIRSTRIKE_STEP_DELAY = 260;
+  const AIRSTRIKE_JITTER = 6;
+  const ENEMY_GRENADE_MIN_SPEED = 6;
+  const ENEMY_GRENADE_MAX_SPEED = 13;
+  const ENEMY_GRENADE_SPEED_DIST_SCALE = 0.32;
+  const ENEMY_GRENADE_ARC_Y = 0.62;
+  const ENEMY_GRENADE_FUSE_BONUS = 0.4;
+  const ENEMY_GRENADE_JITTER = 1.2;
+  const PICKUP_LIFE = 25;
+  const PICKUP_BLINK_START = 20;
+  const PICKUP_COLLECT_RADIUS = 1.3;
+  const PICKUP_POWER_ROT_SPEED = 4;
+  const PICKUP_STANDARD_ROT_SPEED = 2;
+  const FLASH_OVERLAY_MAX_ALPHA = 0.92;
+  const FLASH_OVERLAY_DURATION_SCALE = 1.5;
+
+  function canReload(ammo, magSize, reserve, isReloading) {
+    if (isReloading) return false;
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const m = typeof magSize === 'number' && isFinite(magSize) ? magSize : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (m <= 0 || r <= 0) return false;
+    return a < m;
+  }
+
+  function effectiveReloadDuration(baseReload, perkMul) {
+    const base = typeof baseReload === 'number' && isFinite(baseReload) && baseReload >= 0 ? baseReload : 2.0;
+    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul >= 0 ? perkMul : 1.0;
+    return Math.max(CAN_RELOAD_MIN_DURATION, base * mul);
+  }
+
+  function isReloadComplete(reloadT, duration) {
+    return typeof reloadT === 'number' && isFinite(reloadT) &&
+           typeof duration === 'number' && isFinite(duration) &&
+           reloadT >= duration;
+  }
+
+  function completeReload(ammo, magSize, reserve, out) {
+    const curAmmo = typeof ammo === 'number' && isFinite(ammo) ? Math.max(0, ammo) : 0;
+    const curMag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
+    const curReserve = typeof reserve === 'number' && isFinite(reserve) ? Math.max(0, reserve) : 0;
+    const need = Math.max(0, curMag - curAmmo);
+    const take = Math.min(need, curReserve);
+    const res = out || { ammo: 0, reserve: 0, take: 0 };
+    res.ammo = curAmmo + take;
+    res.reserve = curReserve - take;
+    res.take = take;
+    return res;
+  }
+
+  function munitionsAmmoRestore(currentReserve, reserveMax, magSize, ratio) {
+    const r = typeof ratio === 'number' && isFinite(ratio) && ratio >= 0 ? ratio : MUNITIONS_MAG_RATIO;
+    const curRes = typeof currentReserve === 'number' && isFinite(currentReserve) ? Math.max(0, currentReserve) : 0;
+    const maxRes = typeof reserveMax === 'number' && isFinite(reserveMax) ? Math.max(0, reserveMax) : curRes;
+    const mag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
+    return Math.min(maxRes, curRes + Math.round(mag * r));
+  }
+
+  function airstrikeDelay(index, baseDelay, stepDelay) {
+    const b = typeof baseDelay === 'number' && isFinite(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY;
+    const s = typeof stepDelay === 'number' && isFinite(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY;
+    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
+    return b + i * s;
+  }
+
+  function airstrikeBombCoord(playerX, playerZ, dirX, dirZ, index, leadDist, spacing, jitterX, jitterZ, out) {
+    const px = typeof playerX === 'number' && isFinite(playerX) ? playerX : 0;
+    const pz = typeof playerZ === 'number' && isFinite(playerZ) ? playerZ : 0;
+    const dx = typeof dirX === 'number' && isFinite(dirX) ? dirX : 0;
+    const dz = typeof dirZ === 'number' && isFinite(dirZ) ? dirZ : 0;
+    const lead = typeof leadDist === 'number' && isFinite(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST;
+    const sp = typeof spacing === 'number' && isFinite(spacing) ? spacing : AIRSTRIKE_SPACING;
+    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
+    const jx = typeof jitterX === 'number' && isFinite(jitterX) ? jitterX : 0;
+    const jz = typeof jitterZ === 'number' && isFinite(jitterZ) ? jitterZ : 0;
+    const ox = px + dx * lead;
+    const oz = pz + dz * lead;
+    const res = out || { x: 0, z: 0 };
+    res.x = ox + dx * i * sp + jx;
+    res.z = oz + dz * i * sp + jz;
+    return res;
+  }
+
+  function enemyGrenadeSpeed(distance) {
+    const d = typeof distance === 'number' && isFinite(distance) ? Math.max(0, distance) : 0;
+    return Math.min(ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_MIN_SPEED + d * ENEMY_GRENADE_SPEED_DIST_SCALE);
+  }
+
+  function enemyGrenadeFuse(baseFuse, bonus) {
+    const base = typeof baseFuse === 'number' && isFinite(baseFuse) ? Math.max(0.5, baseFuse) : 2.5;
+    const b = typeof bonus === 'number' && isFinite(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS;
+    return base + b;
+  }
+
+  function enemyGrenadeCooldown(isGrenadier, currentT, randomVal) {
+    const t = typeof currentT === 'number' && isFinite(currentT) ? currentT : 0;
+    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    if (isGrenadier) {
+      return t + 5.5 + r * 4;
+    }
+    return t + 11 + r * 9;
+  }
+
+  function enemyBurstInterval(burstRemaining, rof, randomVal) {
+    if (typeof burstRemaining === 'number' && isFinite(burstRemaining) && burstRemaining > 0) return 0.12;
+    const baseRof = typeof rof === 'number' && isFinite(rof) && rof > 0 ? rof : 0.4;
+    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return baseRof * 1.6 * (0.8 + r * 0.4);
+  }
+
+  function pickupBobHeight(t, isPower) {
+    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const baseY = isPower ? 0.55 : 0.3;
+    const amp = isPower ? 0.12 : 0.06;
+    return baseY + Math.sin(time * 3) * amp;
+  }
+
+  function isPickupVisible(t, blinkStart, maxLife) {
+    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const life = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    if (time > life) return false;
+    const blink = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    if (time > blink) return (time * 6 % 2) < 1.4;
+    return true;
+  }
+
+  function canCollectPickup(pickupX, pickupZ, playerX, playerZ, radius) {
+    if (typeof pickupX !== 'number' || !isFinite(pickupX) ||
+        typeof pickupZ !== 'number' || !isFinite(pickupZ) ||
+        typeof playerX !== 'number' || !isFinite(playerX) ||
+        typeof playerZ !== 'number' || !isFinite(playerZ)) return false;
+    const rad = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : PICKUP_COLLECT_RADIUS;
+    const dx = pickupX - playerX, dz = pickupZ - playerZ;
+    return (dx * dx + dz * dz) < rad * rad;
+  }
+
+  function grenadeBlinkVisible(fuse, armT, requiredArm) {
+    if (typeof fuse === 'number' && isFinite(fuse)) {
+      return Math.sin(fuse * (20 - fuse * 4) * 2) > 0;
+    }
+    const t = typeof armT === 'number' && isFinite(armT) ? armT : 0;
+    const req = typeof requiredArm === 'number' && isFinite(requiredArm) ? requiredArm : 0;
+    return t >= req;
+  }
+
+  function flashOverlayOpacity(flashT, durScale, maxAlpha) {
+    if (typeof flashT !== 'number' || !isFinite(flashT) || flashT <= 0) return 0;
+    const scale = typeof durScale === 'number' && isFinite(durScale) && durScale > 0 ? durScale : FLASH_OVERLAY_DURATION_SCALE;
+    const alpha = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : FLASH_OVERLAY_MAX_ALPHA;
+    return Math.min(alpha, flashT / scale);
+  }
+
+  function smokeCloudScale(elapsedT, radius, growDuration) {
+    const elapsed = typeof elapsedT === 'number' && isFinite(elapsedT) ? Math.max(0, elapsedT) : 0;
+    const dur = typeof growDuration === 'number' && isFinite(growDuration) && growDuration > 0 ? growDuration : 1.0;
+    const grow = Math.min(1, elapsed / dur);
+    const r = typeof radius === 'number' && isFinite(radius) ? radius : 1.0;
+    return r * (0.25 + 0.75 * grow);
+  }
+
+  function smokeCloudOpacity(remainingT, fadeDuration, maxOpacity) {
+    if (!isFinite(remainingT) || remainingT <= 0) return 0;
+    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : 1.5;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.62;
+    return maxO * Math.min(1, Math.max(0, remainingT / fade));
+  }
+
+  function burnPatchOpacity(remainingT, totalLife, maxOpacity) {
+    if (!isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.5;
+    return maxO * Math.max(0, Math.min(1, remainingT / life));
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -9626,7 +9812,52 @@ const CORE = (function () {
     wrapAngle: wrapAngle,
     stepPostKick: stepPostKick,
     postFringe: postFringe,
-    isPostfxWanted: isPostfxWanted
+    isPostfxWanted: isPostfxWanted,
+    CAN_RELOAD_MIN_DURATION: CAN_RELOAD_MIN_DURATION,
+    MUNITIONS_MAG_RATIO: MUNITIONS_MAG_RATIO,
+    SENTRY_RANGE: SENTRY_RANGE,
+    SENTRY_ROF: SENTRY_ROF,
+    SENTRY_DMG: SENTRY_DMG,
+    SENTRY_DEPLOY_OFFSET: SENTRY_DEPLOY_OFFSET,
+    MUNITIONS_DEPLOY_OFFSET: MUNITIONS_DEPLOY_OFFSET,
+    AIRSTRIKE_LEAD_DIST: AIRSTRIKE_LEAD_DIST,
+    AIRSTRIKE_BOMB_COUNT: AIRSTRIKE_BOMB_COUNT,
+    AIRSTRIKE_SPACING: AIRSTRIKE_SPACING,
+    AIRSTRIKE_BASE_DELAY: AIRSTRIKE_BASE_DELAY,
+    AIRSTRIKE_STEP_DELAY: AIRSTRIKE_STEP_DELAY,
+    AIRSTRIKE_JITTER: AIRSTRIKE_JITTER,
+    ENEMY_GRENADE_MIN_SPEED: ENEMY_GRENADE_MIN_SPEED,
+    ENEMY_GRENADE_MAX_SPEED: ENEMY_GRENADE_MAX_SPEED,
+    ENEMY_GRENADE_SPEED_DIST_SCALE: ENEMY_GRENADE_SPEED_DIST_SCALE,
+    ENEMY_GRENADE_ARC_Y: ENEMY_GRENADE_ARC_Y,
+    ENEMY_GRENADE_FUSE_BONUS: ENEMY_GRENADE_FUSE_BONUS,
+    ENEMY_GRENADE_JITTER: ENEMY_GRENADE_JITTER,
+    PICKUP_LIFE: PICKUP_LIFE,
+    PICKUP_BLINK_START: PICKUP_BLINK_START,
+    PICKUP_COLLECT_RADIUS: PICKUP_COLLECT_RADIUS,
+    PICKUP_POWER_ROT_SPEED: PICKUP_POWER_ROT_SPEED,
+    PICKUP_STANDARD_ROT_SPEED: PICKUP_STANDARD_ROT_SPEED,
+    FLASH_OVERLAY_MAX_ALPHA: FLASH_OVERLAY_MAX_ALPHA,
+    FLASH_OVERLAY_DURATION_SCALE: FLASH_OVERLAY_DURATION_SCALE,
+    canReload: canReload,
+    effectiveReloadDuration: effectiveReloadDuration,
+    isReloadComplete: isReloadComplete,
+    completeReload: completeReload,
+    munitionsAmmoRestore: munitionsAmmoRestore,
+    airstrikeDelay: airstrikeDelay,
+    airstrikeBombCoord: airstrikeBombCoord,
+    enemyGrenadeSpeed: enemyGrenadeSpeed,
+    enemyGrenadeFuse: enemyGrenadeFuse,
+    enemyGrenadeCooldown: enemyGrenadeCooldown,
+    enemyBurstInterval: enemyBurstInterval,
+    pickupBobHeight: pickupBobHeight,
+    isPickupVisible: isPickupVisible,
+    canCollectPickup: canCollectPickup,
+    grenadeBlinkVisible: grenadeBlinkVisible,
+    flashOverlayOpacity: flashOverlayOpacity,
+    smokeCloudScale: smokeCloudScale,
+    smokeCloudOpacity: smokeCloudOpacity,
+    burnPatchOpacity: burnPatchOpacity
   };
 })();
 
@@ -12056,8 +12287,10 @@ function switchWeapon(slot) {
   playSound('draw');
 }
 
+const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
+
 function tryReload() {
-  const s = curS(); if (!s || s.reloading || s.ammo >= curW().mag || s.reserve <= 0) return;
+  const s = curS(); if (!s || !CORE.canReload(s.ammo, curW().mag, s.reserve, s.reloading)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
   if (!s.reloadPaused) s.reloadT = 0;
@@ -12072,10 +12305,11 @@ function updateWeapons(dt) {
   const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
-    if (s.reloadT >= w.reload * CORE.perkReloadMul(perks)) {
-      const need = w.mag - s.ammo;
-      const take = Math.min(need, s.reserve);
-      s.ammo += take; s.reserve -= take;
+    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks));
+    if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
+      CORE.completeReload(s.ammo, w.mag, s.reserve, _reloadOut);
+      s.ammo = _reloadOut.ammo;
+      s.reserve = _reloadOut.reserve;
       s.reloading = false; s.reloadPaused = false;
       playSound('reload_in');
       updateHudAmmo();
@@ -14346,7 +14580,7 @@ function updateEnemies(dt) {
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
-          en.nextShot = gameT + (en.burst > 0 ? 0.12 : CFG.ai.rangedROF * 1.6 * (0.8 + Math.random() * 0.4));
+          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
         } else {
           en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
         }
@@ -14359,14 +14593,14 @@ function updateEnemies(dt) {
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
     if (en.kind === 5 && !player.dead && dist > 9 && dist < 36 && gameT > (en.nextNade || 3)) {
-      en.nextNade = gameT + 5.5 + Math.random() * 4;
+      en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a player who is actually behind cover.
     if (waveBehaviours.enemyNades && en.kind === 1 && !player.dead &&
         dist > 8 && dist < 32 && gameT > (en.nextNade || 6)) {
-      en.nextNade = gameT + 11 + Math.random() * 9;
+      en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
     // animate
@@ -14429,10 +14663,11 @@ function throwEnemyGrenade(en) {
   const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
   const d = Math.hypot(dx, dz) || 1;
   // lobbed, deliberately imprecise — it is a flush, not a snipe
-  const speed = Math.min(13, 6 + d * 0.32);
-  const vel = new THREE.Vector3(dx / d, 0.62, dz / d).normalize().multiplyScalar(speed);
-  vel.x += (Math.random() - 0.5) * 1.2; vel.z += (Math.random() - 0.5) * 1.2;
-  liveGrenades.push({ m: m, vel: vel, fuse: CFG.grenade.fuse + 0.4, blink: blink,
+  const speed = CORE.enemyGrenadeSpeed(d);
+  const vel = new THREE.Vector3(dx / d, CORE.ENEMY_GRENADE_ARC_Y, dz / d).normalize().multiplyScalar(speed);
+  vel.x += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
+  vel.z += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
+  liveGrenades.push({ m: m, vel: vel, fuse: CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS), blink: blink,
     atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
   scene.add(m);
   playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);
@@ -16122,9 +16357,7 @@ function updateGrenades(dt) {
 // stays one path for every type.
 function stepLiveGrenade(g, dt, i, def) {
   // blink faster as fuse burns; an armed claymore holds a steady light instead
-  g.blink.visible = isFinite(g.fuse)
-    ? Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0
-    : (g.armT >= (def.arm || 0));
+  g.blink.visible = CORE.grenadeBlinkVisible(g.fuse, g.armT, def.arm);
 
   if (def.mode === 'proximity') {
     if (!g.atRest && !g.stuck) return;
@@ -16232,13 +16465,13 @@ function updateEquipmentEffects(dt) {
   if (playerFlashT > 0) {
     playerFlashT = Math.max(0, playerFlashT - dt);
     const el = $id('flash-overlay');
-    if (el) el.style.opacity = Math.min(0.92, playerFlashT / 1.5);
+    if (el) el.style.opacity = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
   }
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     const b = burnPatches[i];
     b.t -= dt;
     b.tick -= dt;
-    b.m.material.opacity = 0.5 * Math.max(0, b.t / b.life);
+    b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
     if (b.tick <= 0) {
       b.tick = 0.25;
       for (let e = 0; e < enemies.length; e++) {
@@ -16255,9 +16488,8 @@ function updateEquipmentEffects(dt) {
     const c = smokeClouds[i];
     c.t -= dt;
     // Bloom out over the first second, then hold, then fade.
-    const grow = Math.min(1, (c.life - c.t) / 1.0);
-    c.m.scale.setScalar(c.r * (0.25 + 0.75 * grow));
-    c.m.material.opacity = 0.62 * Math.min(1, Math.max(0, c.t / 1.5));
+    c.m.scale.setScalar(CORE.smokeCloudScale(c.life - c.t, c.r, 1.0));
+    c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
     if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
   }
 }
@@ -16429,18 +16661,13 @@ function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    p.m.rotation.y += dt * (p.kind === 'power' ? 4 : 2);
-    if (p.kind === 'power') {
-      p.m.rotation.x += dt * 1.6;
-      p.m.position.y = 0.55 + Math.sin(p.t * 3) * 0.12;
-    } else {
-      p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
-    }
+    p.m.rotation.y += dt * (p.kind === 'power' ? CORE.PICKUP_POWER_ROT_SPEED : CORE.PICKUP_STANDARD_ROT_SPEED);
+    if (p.kind === 'power') p.m.rotation.x += dt * 1.6;
+    p.m.position.y = CORE.pickupBobHeight(p.t, p.kind === 'power');
     // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
     // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
     // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
-    const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
-    if (d < 1.3) {
+    if (CORE.canCollectPickup(p.m.position.x, p.m.position.z, player.pos.x, player.pos.z, CORE.PICKUP_COLLECT_RADIUS)) {
       if (p.kind === 'power') {
         activatePowerUp(p.power);
         scene.remove(p.m);
@@ -16468,10 +16695,9 @@ function updatePickups(dt) {
       continue;
     }
     // blink during the last seconds so despawn never looks like a bug
-    if (p.t > PICKUP_BLINK) p.m.visible = (p.t * 6 % 2) < 1.4;
-    else p.m.visible = true;
+    p.m.visible = CORE.isPickupVisible(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
     // despawn after PICKUP_LIFE seconds
-    if (p.t > PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
+    if (p.t > CORE.PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
 }
 
@@ -17023,9 +17249,9 @@ let streakKills = 0;          // consecutive kills since the last down
 const streakBank = [];        // earned, not yet used
 let uavUntil = -99;
 const sentries = [];
-const SENTRY_RANGE = 26;
-const SENTRY_ROF = 0.22;
-const SENTRY_DMG = 22;
+const SENTRY_RANGE = CORE.SENTRY_RANGE;
+const SENTRY_ROF = CORE.SENTRY_ROF;
+const SENTRY_DMG = CORE.SENTRY_DMG;
 
 let fieldCharge = 0;
 let runStreaksEarned = 0;   // career challenge counter, banked at end of run
@@ -17108,21 +17334,25 @@ function uavActive() { return gameT < uavUntil; }
 // ---- Precision airstrike ------------------------------------------------------
 // Lands along the line the player is looking down, walking outward, so it is aimed
 // rather than dropped on the player's own head.
+const _airstrikeCoordOut = { x: 0, z: 0 };
 function callAirstrike() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  const ox = player.pos.x + dirX * 14, oz = player.pos.z + dirZ * 14;
   showCenterMsg('AIRSTRIKE INBOUND');
   const id = runId;
-  for (let i = 0; i < 6; i++) {
+  const px = player.pos.x, pz = player.pos.z;
+  for (let i = 0; i < CORE.AIRSTRIKE_BOMB_COUNT; i++) {
+    const delay = CORE.airstrikeDelay(i, CORE.AIRSTRIKE_BASE_DELAY, CORE.AIRSTRIKE_STEP_DELAY);
     setTimeout(function () {
       // The run can end mid-sequence; anything scheduled has to check (BUG-08).
       if (id !== runId || !started || player.dead) return;
-      const x = ox + dirX * i * 5 + (Math.random() - 0.5) * 6;
-      const z = oz + dirZ * i * 5 + (Math.random() - 0.5) * 6;
+      const jx = (Math.random() - 0.5) * CORE.AIRSTRIKE_JITTER;
+      const jz = (Math.random() - 0.5) * CORE.AIRSTRIKE_JITTER;
+      CORE.airstrikeBombCoord(px, pz, dirX, dirZ, i, CORE.AIRSTRIKE_LEAD_DIST, CORE.AIRSTRIKE_SPACING, jx, jz, _airstrikeCoordOut);
+      const x = _airstrikeCoordOut.x, z = _airstrikeCoordOut.z;
       if (Math.abs(x) > mapBounds || Math.abs(z) > mapBounds) return;
       _strikePos.set(x, 0.4, z);
       explodeGrenade(_strikePos);
-    }, 700 + i * 260);
+    }, delay);
   }
 }
 const _strikePos = new THREE.Vector3();
@@ -17136,7 +17366,7 @@ const _sentryTo = new THREE.Vector3();
 
 function deploySentry() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  let x = player.pos.x + dirX * 2.2, z = player.pos.z + dirZ * 2.2;
+  let x = player.pos.x + dirX * CORE.SENTRY_DEPLOY_OFFSET, z = player.pos.z + dirZ * CORE.SENTRY_DEPLOY_OFFSET;
   if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
   const g = new THREE.Group();
   const body = new THREE.Mesh(sentryBodyGeo, sentryMat);
@@ -17190,7 +17420,7 @@ const munitionMat = new THREE.MeshStandardMaterial({ color: 0x4a5a2f, roughness:
 
 function deployMunitions() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  let x = player.pos.x + dirX * 1.8, z = player.pos.z + dirZ * 1.8;
+  let x = player.pos.x + dirX * CORE.MUNITIONS_DEPLOY_OFFSET, z = player.pos.z + dirZ * CORE.MUNITIONS_DEPLOY_OFFSET;
   if (!CORE.isSpawnValid(x, z, colliders, 0.6, 1.8, 0.5)) { x = player.pos.x; z = player.pos.z; }
   const m = new THREE.Mesh(munitionGeo, munitionMat);
   m.position.set(x, 0.23, z);
@@ -17216,7 +17446,8 @@ function updateMunitions(dt) {
       const tacNeed = !!(equippedTactical && tacticalCount < TACTICAL_MAX);
       if (CORE.canMunitionsResupply(ammoNeed, nadeNeed, tacNeed)) {
         if (ammoNeed) {
-          s.reserve = Math.min((s.up ? s.up.reserveMax : w.reserveMax), s.reserve + Math.round(w.mag * 0.5));
+          const maxR = s.up ? s.up.reserveMax : w.reserveMax;
+          s.reserve = CORE.munitionsAmmoRestore(s.reserve, maxR, w.mag, CORE.MUNITIONS_MAG_RATIO);
         }
         if (nadeNeed) grenades.count++;
         else if (tacNeed) tacticalCount++;

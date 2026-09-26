@@ -4395,6 +4395,192 @@ const CORE = (function () {
     return true;
   }
 
+  // ---- Combat Ordnance, Weapon Reload, and Lifecycle Balance Rules ----
+  const CAN_RELOAD_MIN_DURATION = 0.05;
+  const MUNITIONS_MAG_RATIO = 0.5;
+  const SENTRY_RANGE = 26;
+  const SENTRY_ROF = 0.22;
+  const SENTRY_DMG = 22;
+  const SENTRY_DEPLOY_OFFSET = 2.2;
+  const MUNITIONS_DEPLOY_OFFSET = 1.8;
+  const AIRSTRIKE_LEAD_DIST = 14;
+  const AIRSTRIKE_BOMB_COUNT = 6;
+  const AIRSTRIKE_SPACING = 5;
+  const AIRSTRIKE_BASE_DELAY = 700;
+  const AIRSTRIKE_STEP_DELAY = 260;
+  const AIRSTRIKE_JITTER = 6;
+  const ENEMY_GRENADE_MIN_SPEED = 6;
+  const ENEMY_GRENADE_MAX_SPEED = 13;
+  const ENEMY_GRENADE_SPEED_DIST_SCALE = 0.32;
+  const ENEMY_GRENADE_ARC_Y = 0.62;
+  const ENEMY_GRENADE_FUSE_BONUS = 0.4;
+  const ENEMY_GRENADE_JITTER = 1.2;
+  const PICKUP_LIFE = 25;
+  const PICKUP_BLINK_START = 20;
+  const PICKUP_COLLECT_RADIUS = 1.3;
+  const PICKUP_POWER_ROT_SPEED = 4;
+  const PICKUP_STANDARD_ROT_SPEED = 2;
+  const FLASH_OVERLAY_MAX_ALPHA = 0.92;
+  const FLASH_OVERLAY_DURATION_SCALE = 1.5;
+
+  function canReload(ammo, magSize, reserve, isReloading) {
+    if (isReloading) return false;
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const m = typeof magSize === 'number' && isFinite(magSize) ? magSize : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (m <= 0 || r <= 0) return false;
+    return a < m;
+  }
+
+  function effectiveReloadDuration(baseReload, perkMul) {
+    const base = typeof baseReload === 'number' && isFinite(baseReload) && baseReload >= 0 ? baseReload : 2.0;
+    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul >= 0 ? perkMul : 1.0;
+    return Math.max(CAN_RELOAD_MIN_DURATION, base * mul);
+  }
+
+  function isReloadComplete(reloadT, duration) {
+    return typeof reloadT === 'number' && isFinite(reloadT) &&
+           typeof duration === 'number' && isFinite(duration) &&
+           reloadT >= duration;
+  }
+
+  function completeReload(ammo, magSize, reserve, out) {
+    const curAmmo = typeof ammo === 'number' && isFinite(ammo) ? Math.max(0, ammo) : 0;
+    const curMag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
+    const curReserve = typeof reserve === 'number' && isFinite(reserve) ? Math.max(0, reserve) : 0;
+    const need = Math.max(0, curMag - curAmmo);
+    const take = Math.min(need, curReserve);
+    const res = out || { ammo: 0, reserve: 0, take: 0 };
+    res.ammo = curAmmo + take;
+    res.reserve = curReserve - take;
+    res.take = take;
+    return res;
+  }
+
+  function munitionsAmmoRestore(currentReserve, reserveMax, magSize, ratio) {
+    const r = typeof ratio === 'number' && isFinite(ratio) && ratio >= 0 ? ratio : MUNITIONS_MAG_RATIO;
+    const curRes = typeof currentReserve === 'number' && isFinite(currentReserve) ? Math.max(0, currentReserve) : 0;
+    const maxRes = typeof reserveMax === 'number' && isFinite(reserveMax) ? Math.max(0, reserveMax) : curRes;
+    const mag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
+    return Math.min(maxRes, curRes + Math.round(mag * r));
+  }
+
+  function airstrikeDelay(index, baseDelay, stepDelay) {
+    const b = typeof baseDelay === 'number' && isFinite(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY;
+    const s = typeof stepDelay === 'number' && isFinite(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY;
+    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
+    return b + i * s;
+  }
+
+  function airstrikeBombCoord(playerX, playerZ, dirX, dirZ, index, leadDist, spacing, jitterX, jitterZ, out) {
+    const px = typeof playerX === 'number' && isFinite(playerX) ? playerX : 0;
+    const pz = typeof playerZ === 'number' && isFinite(playerZ) ? playerZ : 0;
+    const dx = typeof dirX === 'number' && isFinite(dirX) ? dirX : 0;
+    const dz = typeof dirZ === 'number' && isFinite(dirZ) ? dirZ : 0;
+    const lead = typeof leadDist === 'number' && isFinite(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST;
+    const sp = typeof spacing === 'number' && isFinite(spacing) ? spacing : AIRSTRIKE_SPACING;
+    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
+    const jx = typeof jitterX === 'number' && isFinite(jitterX) ? jitterX : 0;
+    const jz = typeof jitterZ === 'number' && isFinite(jitterZ) ? jitterZ : 0;
+    const ox = px + dx * lead;
+    const oz = pz + dz * lead;
+    const res = out || { x: 0, z: 0 };
+    res.x = ox + dx * i * sp + jx;
+    res.z = oz + dz * i * sp + jz;
+    return res;
+  }
+
+  function enemyGrenadeSpeed(distance) {
+    const d = typeof distance === 'number' && isFinite(distance) ? Math.max(0, distance) : 0;
+    return Math.min(ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_MIN_SPEED + d * ENEMY_GRENADE_SPEED_DIST_SCALE);
+  }
+
+  function enemyGrenadeFuse(baseFuse, bonus) {
+    const base = typeof baseFuse === 'number' && isFinite(baseFuse) ? Math.max(0.5, baseFuse) : 2.5;
+    const b = typeof bonus === 'number' && isFinite(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS;
+    return base + b;
+  }
+
+  function enemyGrenadeCooldown(isGrenadier, currentT, randomVal) {
+    const t = typeof currentT === 'number' && isFinite(currentT) ? currentT : 0;
+    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    if (isGrenadier) {
+      return t + 5.5 + r * 4;
+    }
+    return t + 11 + r * 9;
+  }
+
+  function enemyBurstInterval(burstRemaining, rof, randomVal) {
+    if (typeof burstRemaining === 'number' && isFinite(burstRemaining) && burstRemaining > 0) return 0.12;
+    const baseRof = typeof rof === 'number' && isFinite(rof) && rof > 0 ? rof : 0.4;
+    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return baseRof * 1.6 * (0.8 + r * 0.4);
+  }
+
+  function pickupBobHeight(t, isPower) {
+    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const baseY = isPower ? 0.55 : 0.3;
+    const amp = isPower ? 0.12 : 0.06;
+    return baseY + Math.sin(time * 3) * amp;
+  }
+
+  function isPickupVisible(t, blinkStart, maxLife) {
+    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const life = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    if (time > life) return false;
+    const blink = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    if (time > blink) return (time * 6 % 2) < 1.4;
+    return true;
+  }
+
+  function canCollectPickup(pickupX, pickupZ, playerX, playerZ, radius) {
+    if (typeof pickupX !== 'number' || !isFinite(pickupX) ||
+        typeof pickupZ !== 'number' || !isFinite(pickupZ) ||
+        typeof playerX !== 'number' || !isFinite(playerX) ||
+        typeof playerZ !== 'number' || !isFinite(playerZ)) return false;
+    const rad = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : PICKUP_COLLECT_RADIUS;
+    const dx = pickupX - playerX, dz = pickupZ - playerZ;
+    return (dx * dx + dz * dz) < rad * rad;
+  }
+
+  function grenadeBlinkVisible(fuse, armT, requiredArm) {
+    if (typeof fuse === 'number' && isFinite(fuse)) {
+      return Math.sin(fuse * (20 - fuse * 4) * 2) > 0;
+    }
+    const t = typeof armT === 'number' && isFinite(armT) ? armT : 0;
+    const req = typeof requiredArm === 'number' && isFinite(requiredArm) ? requiredArm : 0;
+    return t >= req;
+  }
+
+  function flashOverlayOpacity(flashT, durScale, maxAlpha) {
+    if (typeof flashT !== 'number' || !isFinite(flashT) || flashT <= 0) return 0;
+    const scale = typeof durScale === 'number' && isFinite(durScale) && durScale > 0 ? durScale : FLASH_OVERLAY_DURATION_SCALE;
+    const alpha = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : FLASH_OVERLAY_MAX_ALPHA;
+    return Math.min(alpha, flashT / scale);
+  }
+
+  function smokeCloudScale(elapsedT, radius, growDuration) {
+    const elapsed = typeof elapsedT === 'number' && isFinite(elapsedT) ? Math.max(0, elapsedT) : 0;
+    const dur = typeof growDuration === 'number' && isFinite(growDuration) && growDuration > 0 ? growDuration : 1.0;
+    const grow = Math.min(1, elapsed / dur);
+    const r = typeof radius === 'number' && isFinite(radius) ? radius : 1.0;
+    return r * (0.25 + 0.75 * grow);
+  }
+
+  function smokeCloudOpacity(remainingT, fadeDuration, maxOpacity) {
+    if (!isFinite(remainingT) || remainingT <= 0) return 0;
+    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : 1.5;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.62;
+    return maxO * Math.min(1, Math.max(0, remainingT / fade));
+  }
+
+  function burnPatchOpacity(remainingT, totalLife, maxOpacity) {
+    if (!isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.5;
+    return maxO * Math.max(0, Math.min(1, remainingT / life));
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -4950,7 +5136,52 @@ const CORE = (function () {
     wrapAngle: wrapAngle,
     stepPostKick: stepPostKick,
     postFringe: postFringe,
-    isPostfxWanted: isPostfxWanted
+    isPostfxWanted: isPostfxWanted,
+    CAN_RELOAD_MIN_DURATION: CAN_RELOAD_MIN_DURATION,
+    MUNITIONS_MAG_RATIO: MUNITIONS_MAG_RATIO,
+    SENTRY_RANGE: SENTRY_RANGE,
+    SENTRY_ROF: SENTRY_ROF,
+    SENTRY_DMG: SENTRY_DMG,
+    SENTRY_DEPLOY_OFFSET: SENTRY_DEPLOY_OFFSET,
+    MUNITIONS_DEPLOY_OFFSET: MUNITIONS_DEPLOY_OFFSET,
+    AIRSTRIKE_LEAD_DIST: AIRSTRIKE_LEAD_DIST,
+    AIRSTRIKE_BOMB_COUNT: AIRSTRIKE_BOMB_COUNT,
+    AIRSTRIKE_SPACING: AIRSTRIKE_SPACING,
+    AIRSTRIKE_BASE_DELAY: AIRSTRIKE_BASE_DELAY,
+    AIRSTRIKE_STEP_DELAY: AIRSTRIKE_STEP_DELAY,
+    AIRSTRIKE_JITTER: AIRSTRIKE_JITTER,
+    ENEMY_GRENADE_MIN_SPEED: ENEMY_GRENADE_MIN_SPEED,
+    ENEMY_GRENADE_MAX_SPEED: ENEMY_GRENADE_MAX_SPEED,
+    ENEMY_GRENADE_SPEED_DIST_SCALE: ENEMY_GRENADE_SPEED_DIST_SCALE,
+    ENEMY_GRENADE_ARC_Y: ENEMY_GRENADE_ARC_Y,
+    ENEMY_GRENADE_FUSE_BONUS: ENEMY_GRENADE_FUSE_BONUS,
+    ENEMY_GRENADE_JITTER: ENEMY_GRENADE_JITTER,
+    PICKUP_LIFE: PICKUP_LIFE,
+    PICKUP_BLINK_START: PICKUP_BLINK_START,
+    PICKUP_COLLECT_RADIUS: PICKUP_COLLECT_RADIUS,
+    PICKUP_POWER_ROT_SPEED: PICKUP_POWER_ROT_SPEED,
+    PICKUP_STANDARD_ROT_SPEED: PICKUP_STANDARD_ROT_SPEED,
+    FLASH_OVERLAY_MAX_ALPHA: FLASH_OVERLAY_MAX_ALPHA,
+    FLASH_OVERLAY_DURATION_SCALE: FLASH_OVERLAY_DURATION_SCALE,
+    canReload: canReload,
+    effectiveReloadDuration: effectiveReloadDuration,
+    isReloadComplete: isReloadComplete,
+    completeReload: completeReload,
+    munitionsAmmoRestore: munitionsAmmoRestore,
+    airstrikeDelay: airstrikeDelay,
+    airstrikeBombCoord: airstrikeBombCoord,
+    enemyGrenadeSpeed: enemyGrenadeSpeed,
+    enemyGrenadeFuse: enemyGrenadeFuse,
+    enemyGrenadeCooldown: enemyGrenadeCooldown,
+    enemyBurstInterval: enemyBurstInterval,
+    pickupBobHeight: pickupBobHeight,
+    isPickupVisible: isPickupVisible,
+    canCollectPickup: canCollectPickup,
+    grenadeBlinkVisible: grenadeBlinkVisible,
+    flashOverlayOpacity: flashOverlayOpacity,
+    smokeCloudScale: smokeCloudScale,
+    smokeCloudOpacity: smokeCloudOpacity,
+    burnPatchOpacity: burnPatchOpacity
   };
 })();
 

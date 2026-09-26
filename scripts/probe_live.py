@@ -1977,7 +1977,78 @@ def main() -> int:
         }""")
         checks.append(("particle-scope-and-spring-physics-rules", pfx_scope_spring_check))
 
-        # 49) Clean console throughout gameplay.
+        # 49) Combat ordnance, weapon reload, sentry, enemy ballistics, and pickup lifecycle rules.
+        balance_rules_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.canReload !== 'function' ||
+                typeof CORE.effectiveReloadDuration !== 'function' ||
+                typeof CORE.isReloadComplete !== 'function' ||
+                typeof CORE.completeReload !== 'function' ||
+                typeof CORE.munitionsAmmoRestore !== 'function' ||
+                typeof CORE.airstrikeDelay !== 'function' ||
+                typeof CORE.airstrikeBombCoord !== 'function' ||
+                typeof CORE.enemyGrenadeSpeed !== 'function' ||
+                typeof CORE.enemyGrenadeFuse !== 'function' ||
+                typeof CORE.enemyGrenadeCooldown !== 'function' ||
+                typeof CORE.enemyBurstInterval !== 'function' ||
+                typeof CORE.pickupBobHeight !== 'function' ||
+                typeof CORE.isPickupVisible !== 'function' ||
+                typeof CORE.canCollectPickup !== 'function' ||
+                typeof CORE.grenadeBlinkVisible !== 'function' ||
+                typeof CORE.flashOverlayOpacity !== 'function' ||
+                typeof CORE.smokeCloudScale !== 'function' ||
+                typeof CORE.smokeCloudOpacity !== 'function' ||
+                typeof CORE.burnPatchOpacity !== 'function') return false;
+
+            const reloadOk = CORE.canReload(15, 30, 90, false) === true &&
+                             CORE.canReload(30, 30, 90, false) === false &&
+                             CORE.canReload(15, 30, 0, false) === false;
+
+            const durOk = Math.abs(CORE.effectiveReloadDuration(2.1, 0.7) - 1.47) < 1e-4 &&
+                          CORE.isReloadComplete(1.5, 1.47) === true &&
+                          CORE.isReloadComplete(1.0, 1.47) === false;
+
+            const rOut = { ammo: 0, reserve: 0, take: 0 };
+            CORE.completeReload(10, 30, 50, rOut);
+            const compOk = rOut.ammo === 30 && rOut.reserve === 30 && rOut.take === 20;
+
+            const munOk = CORE.munitionsAmmoRestore(30, 120, 30, 0.5) === 45 &&
+                          CORE.munitionsAmmoRestore(110, 120, 30, 0.5) === 120;
+
+            const sentryOk = CORE.SENTRY_RANGE === 26 && CORE.SENTRY_ROF === 0.22 && CORE.SENTRY_DMG === 22 &&
+                             CORE.SENTRY_DEPLOY_OFFSET === 2.2 && CORE.MUNITIONS_DEPLOY_OFFSET === 1.8;
+
+            const airOk = CORE.airstrikeDelay(0) === 700 && CORE.airstrikeDelay(2) === 1220;
+            const airCoord = CORE.airstrikeBombCoord(0, 0, 0, 1, 2, 14, 5, 0, 0);
+            const airCoordOk = airCoord.x === 0 && airCoord.z === 24;
+
+            const enSpdOk = CORE.enemyGrenadeSpeed(0) === 6 && CORE.enemyGrenadeSpeed(100) === 13;
+            const enFuseOk = Math.abs(CORE.enemyGrenadeFuse(2.5, 0.4) - 2.9) < 1e-4;
+            const enCdOk = Math.abs(CORE.enemyGrenadeCooldown(true, 10, 0.5) - 17.5) < 1e-4;
+            const enBurstOk = CORE.enemyBurstInterval(2, 0.4, 0.5) === 0.12;
+
+            const pickBobOk = Math.abs(CORE.pickupBobHeight(0, false) - 0.3) < 1e-4 &&
+                              Math.abs(CORE.pickupBobHeight(0, true) - 0.55) < 1e-4;
+            const pickVisOk = CORE.isPickupVisible(10, 20, 25) === true &&
+                              CORE.isPickupVisible(26, 20, 25) === false;
+            const pickColOk = CORE.canCollectPickup(0, 0, 0.5, 0.5, 1.3) === true &&
+                              CORE.canCollectPickup(0, 0, 2, 2, 1.3) === false;
+
+            const blinkOk = typeof CORE.grenadeBlinkVisible(1.5, 0, 0) === 'boolean' &&
+                            CORE.grenadeBlinkVisible(Infinity, 0.6, 0.5) === true;
+            const flashOk = Math.abs(CORE.flashOverlayOpacity(1.5, 1.5, 0.92) - 0.92) < 1e-4 &&
+                            CORE.flashOverlayOpacity(0, 1.5, 0.92) === 0;
+            const smokeOk = Math.abs(CORE.smokeCloudScale(1.0, 4, 1.0) - 4.0) < 1e-4 &&
+                            Math.abs(CORE.smokeCloudOpacity(1.5, 1.5, 0.62) - 0.62) < 1e-4;
+            const burnOk = Math.abs(CORE.burnPatchOpacity(1.0, 2.0, 0.5) - 0.25) < 1e-4;
+
+            return reloadOk && durOk && compOk && munOk && sentryOk && airOk && airCoordOk &&
+                   enSpdOk && enFuseOk && enCdOk && enBurstOk && pickBobOk && pickVisOk &&
+                   pickColOk && blinkOk && flashOk && smokeOk && burnOk;
+        }""")
+        checks.append(("combat-ordnance-reload-and-lifecycle-balance-rules", balance_rules_check))
+
+        # 50) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

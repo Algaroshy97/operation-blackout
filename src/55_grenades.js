@@ -347,9 +347,7 @@ function updateGrenades(dt) {
 // stays one path for every type.
 function stepLiveGrenade(g, dt, i, def) {
   // blink faster as fuse burns; an armed claymore holds a steady light instead
-  g.blink.visible = isFinite(g.fuse)
-    ? Math.sin(g.fuse * (20 - g.fuse * 4) * 2) > 0
-    : (g.armT >= (def.arm || 0));
+  g.blink.visible = CORE.grenadeBlinkVisible(g.fuse, g.armT, def.arm);
 
   if (def.mode === 'proximity') {
     if (!g.atRest && !g.stuck) return;
@@ -457,13 +455,13 @@ function updateEquipmentEffects(dt) {
   if (playerFlashT > 0) {
     playerFlashT = Math.max(0, playerFlashT - dt);
     const el = $id('flash-overlay');
-    if (el) el.style.opacity = Math.min(0.92, playerFlashT / 1.5);
+    if (el) el.style.opacity = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
   }
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     const b = burnPatches[i];
     b.t -= dt;
     b.tick -= dt;
-    b.m.material.opacity = 0.5 * Math.max(0, b.t / b.life);
+    b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
     if (b.tick <= 0) {
       b.tick = 0.25;
       for (let e = 0; e < enemies.length; e++) {
@@ -480,9 +478,8 @@ function updateEquipmentEffects(dt) {
     const c = smokeClouds[i];
     c.t -= dt;
     // Bloom out over the first second, then hold, then fade.
-    const grow = Math.min(1, (c.life - c.t) / 1.0);
-    c.m.scale.setScalar(c.r * (0.25 + 0.75 * grow));
-    c.m.material.opacity = 0.62 * Math.min(1, Math.max(0, c.t / 1.5));
+    c.m.scale.setScalar(CORE.smokeCloudScale(c.life - c.t, c.r, 1.0));
+    c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
     if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
   }
 }
@@ -654,18 +651,13 @@ function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.t += dt;
-    p.m.rotation.y += dt * (p.kind === 'power' ? 4 : 2);
-    if (p.kind === 'power') {
-      p.m.rotation.x += dt * 1.6;
-      p.m.position.y = 0.55 + Math.sin(p.t * 3) * 0.12;
-    } else {
-      p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
-    }
+    p.m.rotation.y += dt * (p.kind === 'power' ? CORE.PICKUP_POWER_ROT_SPEED : CORE.PICKUP_STANDARD_ROT_SPEED);
+    if (p.kind === 'power') p.m.rotation.x += dt * 1.6;
+    p.m.position.y = CORE.pickupBobHeight(p.t, p.kind === 'power');
     // walk-over collect: HORIZONTAL distance — player.pos is anchored at eye
     // height (1.7 m), so 3D distance to a ground pickup (y=0.3) is always
     // >= 1.4 m and a 3D radius of 1.3 m could never collect anything.
-    const d = Math.hypot(p.m.position.x - player.pos.x, p.m.position.z - player.pos.z);
-    if (d < 1.3) {
+    if (CORE.canCollectPickup(p.m.position.x, p.m.position.z, player.pos.x, player.pos.z, CORE.PICKUP_COLLECT_RADIUS)) {
       if (p.kind === 'power') {
         activatePowerUp(p.power);
         scene.remove(p.m);
@@ -693,9 +685,8 @@ function updatePickups(dt) {
       continue;
     }
     // blink during the last seconds so despawn never looks like a bug
-    if (p.t > PICKUP_BLINK) p.m.visible = (p.t * 6 % 2) < 1.4;
-    else p.m.visible = true;
+    p.m.visible = CORE.isPickupVisible(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
     // despawn after PICKUP_LIFE seconds
-    if (p.t > PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
+    if (p.t > CORE.PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
 }
