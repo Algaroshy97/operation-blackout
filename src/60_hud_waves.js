@@ -332,7 +332,7 @@ function activatePowerUp(def) {
     }
   }
   showPowerBanner(def.label);
-  playSound('powerup');
+  playSound(CORE.powerupSound(def.key));
 }
 function showPowerBanner(txt) {
   if (!hud.powerBanner) return;

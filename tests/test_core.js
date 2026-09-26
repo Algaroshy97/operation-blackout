@@ -5713,3 +5713,38 @@ test('canReload, effectiveReloadDuration, isReloadComplete, completeReload, muni
   assert.ok(Math.abs(CORE.burnPatchOpacity(1.0, 2.0, 0.5) - 0.25) < 1e-4);
   assert.strictEqual(CORE.burnPatchOpacity(0, 2.0, 0.5), 0);
 });
+
+test('powerupSound, equipmentDeploySound, steadyAimBreathEvent, exhaustionSound, and slideCancelSound govern tactical acoustics', () => {
+  // 1) powerupSound
+  assert.strictEqual(CORE.powerupSound('nuke'), 'powerup_nuke');
+  assert.strictEqual(CORE.powerupSound('maxammo'), 'powerup_ammo');
+  assert.strictEqual(CORE.powerupSound('double'), 'powerup_double');
+  assert.strictEqual(CORE.powerupSound('instakill'), 'powerup_instakill');
+  assert.strictEqual(CORE.powerupSound('other'), 'powerup');
+  assert.strictEqual(CORE.powerupSound(undefined), 'powerup');
+  assert.strictEqual(CORE.powerupSound(null), 'powerup');
+
+  // 2) equipmentDeploySound
+  assert.strictEqual(CORE.equipmentDeploySound('proximity', 'claymore'), 'claymore_plant');
+  assert.strictEqual(CORE.equipmentDeploySound('timed', 'claymore'), 'claymore_plant');
+  assert.strictEqual(CORE.equipmentDeploySound('proximity', 'frag'), 'claymore_plant');
+  assert.strictEqual(CORE.equipmentDeploySound('timed', 'frag'), 'pin');
+  assert.strictEqual(CORE.equipmentDeploySound('tactical', 'flash'), 'pin');
+  assert.strictEqual(CORE.equipmentDeploySound(), 'pin');
+
+  // 3) steadyAimBreathEvent
+  assert.strictEqual(CORE.steadyAimBreathEvent(true, false, 5.0), 'breath_hold');
+  assert.strictEqual(CORE.steadyAimBreathEvent(false, true, 0.0), 'breath_gasp');
+  assert.strictEqual(CORE.steadyAimBreathEvent(true, true, 4.0), null);
+  assert.strictEqual(CORE.steadyAimBreathEvent(false, false, 5.0), null);
+  assert.strictEqual(CORE.steadyAimBreathEvent(1, 0, 3.0), 'breath_hold');
+
+  // 4) exhaustionSound
+  assert.strictEqual(CORE.exhaustionSound(true, false), 'exhausted');
+  assert.strictEqual(CORE.exhaustionSound(true, true), null);
+  assert.strictEqual(CORE.exhaustionSound(false, true), null);
+  assert.strictEqual(CORE.exhaustionSound(false, false), null);
+
+  // 5) slideCancelSound
+  assert.strictEqual(CORE.slideCancelSound(), 'slide_cancel');
+});

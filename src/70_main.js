@@ -179,6 +179,7 @@ function resetGame() {
   waveNum = 0; score = 0; kills = 0; headshots = 0;
   shotsFired = 0; shotsHit = 0;
   steadyT = STEADY_MAX; steadyActive = false;
+  if (typeof _wasSteadyActive !== 'undefined') _wasSteadyActive = false;
   adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;

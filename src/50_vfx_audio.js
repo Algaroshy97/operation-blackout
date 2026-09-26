@@ -355,7 +355,10 @@ function setMasterVolume(v) {
 // WebAudio nodes 12 times a second; measured, synthesised audio was the single
 // largest cost in fireShot — larger than both raycasts combined.
 const _sndLast = Object.create(null);
-const SND_MIN_GAP = { impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03 };
+const SND_MIN_GAP = {
+  impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
+  breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15
+};
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
   if (gap === undefined) return false;
@@ -440,7 +443,16 @@ const SOUND_RECIPES = {
   door_unlock:       [['noise', 0.35, 0.38, 240, 0.7], ['osc', 'sawtooth', 120, 40, 0.30, 0.28], ['osc', 'sine', 80, 30, 0.40, 0.32]],
   weapon_buy:        [['noise', 0.08, 0.25, 1400, 2.2], ['osc', 'square', 320, 180, 0.06, 0.16], ['noise', 0.06, 0.22, 2200, 3]],
   player_down:       [['osc', 'sawtooth', 140, 40, 0.35, 0.28], ['noise', 0.22, 0.26, 320, 0.8], ['osc', 'sine', 75, 25, 0.30, 0.35]],
-  player_revive:     [['osc', 'sine', 330, 660, 0.20, 0.22], ['osc', 'sine', 550, 1100, 0.22, 0.18], ['osc', 'triangle', 220, 440, 0.25, 0.15]]
+  player_revive:     [['osc', 'sine', 330, 660, 0.20, 0.22], ['osc', 'sine', 550, 1100, 0.22, 0.18], ['osc', 'triangle', 220, 440, 0.25, 0.15]],
+  powerup_nuke:      [['noise', 0.65, 0.45, 160, 0.6], ['osc', 'sine', 110, 25, 0.7, 0.5], ['osc', 'sawtooth', 440, 330, 0.35, 0.18]],
+  powerup_ammo:      [['noise', 0.12, 0.30, 1800, 2.5], ['osc', 'square', 480, 240, 0.08, 0.18], ['osc', 'sine', 350, 700, 0.16, 0.22]],
+  powerup_double:    [['osc', 'sine', 587, 880, 0.15, 0.18], ['osc', 'triangle', 740, 1175, 0.18, 0.16], ['osc', 'sine', 1175, 1760, 0.20, 0.12]],
+  powerup_instakill: [['osc', 'sawtooth', 196, 65, 0.30, 0.28], ['noise', 0.10, 0.26, 2600, 2.8], ['osc', 'sine', 98, 40, 0.32, 0.30]],
+  claymore_plant:    [['noise', 0.08, 0.24, 600, 1.2], ['osc', 'square', 620, 310, 0.04, 0.14], ['osc', 'sine', 1200, 1600, 0.05, 0.10]],
+  breath_hold:       [['noise', 0.18, 0.10, 450, 1.0], ['osc', 'sine', 70, 50, 0.20, 0.08]],
+  breath_gasp:       [['noise', 0.22, 0.14, 550, 0.8], ['osc', 'sine', 90, 45, 0.18, 0.10]],
+  exhausted:         [['noise', 0.28, 0.16, 420, 0.7], ['osc', 'sine', 110, 45, 0.22, 0.12]],
+  slide_cancel:      [['noise', 0.10, 0.22, 650, 1.4], ['osc', 'sine', 160, 80, 0.08, 0.16]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -453,7 +465,9 @@ const SOUND_VARIED = {
   pickup_ammo: 1, pickup_med: 1,
   streak_uav: 1, streak_airstrike: 1, streak_sentry: 1, sentry_shot: 1, munitions: 1, munitions_resupply: 1,
   mantle: 1, step_crouch: 1,
-  armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1
+  armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1,
+  powerup_nuke: 1, powerup_ammo: 1, powerup_double: 1, powerup_instakill: 1,
+  claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1
 };
 
 function recipeDuration(recipe) {

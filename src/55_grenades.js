@@ -229,8 +229,9 @@ function throwGrenade(customSpeed, def) {
     faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
   });
   scene.add(m);
-  playSound('pin');
-  playSound('draw');
+  const deploySnd = CORE.equipmentDeploySound(d.mode, d.key);
+  playSound(deploySnd);
+  if (deploySnd !== 'claymore_plant') playSound('draw');
   updateHudAmmo();
 }
 

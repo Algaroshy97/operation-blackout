@@ -2048,7 +2048,46 @@ def main() -> int:
         }""")
         checks.append(("combat-ordnance-reload-and-lifecycle-balance-rules", balance_rules_check))
 
-        # 50) Clean console throughout gameplay.
+        # 50) Tactical power-ups, ordnance deployment, steady aim breath, and stamina exhaustion audio rules.
+        tactical_audio_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.powerupSound !== 'function' ||
+                typeof CORE.equipmentDeploySound !== 'function' ||
+                typeof CORE.steadyAimBreathEvent !== 'function' ||
+                typeof CORE.exhaustionSound !== 'function' ||
+                typeof CORE.slideCancelSound !== 'function') return false;
+
+            const nukeOk = CORE.powerupSound('nuke') === 'powerup_nuke';
+            const ammoOk = CORE.powerupSound('maxammo') === 'powerup_ammo';
+            const dblOk = CORE.powerupSound('double') === 'powerup_double';
+            const instaOk = CORE.powerupSound('instakill') === 'powerup_instakill';
+            const defOk = CORE.powerupSound('other') === 'powerup';
+
+            const clayOk = CORE.equipmentDeploySound('proximity', 'claymore') === 'claymore_plant' &&
+                           CORE.equipmentDeploySound('timed', 'claymore') === 'claymore_plant' &&
+                           CORE.equipmentDeploySound('proximity', 'other') === 'claymore_plant';
+            const pinOk = CORE.equipmentDeploySound('timed', 'frag') === 'pin' &&
+                          CORE.equipmentDeploySound('tactical', 'flash') === 'pin';
+
+            const breathHold = CORE.steadyAimBreathEvent(true, false, 5.0) === 'breath_hold';
+            const breathGasp = CORE.steadyAimBreathEvent(false, true, 0.0) === 'breath_gasp';
+            const breathSteady = CORE.steadyAimBreathEvent(true, true, 4.0) === null &&
+                                 CORE.steadyAimBreathEvent(false, false, 5.0) === null;
+
+            const exhTrigger = CORE.exhaustionSound(true, false) === 'exhausted';
+            const exhSustain = CORE.exhaustionSound(true, true) === null &&
+                               CORE.exhaustionSound(false, false) === null &&
+                               CORE.exhaustionSound(false, true) === null;
+
+            const slideCancel = CORE.slideCancelSound() === 'slide_cancel';
+
+            return nukeOk && ammoOk && dblOk && instaOk && defOk &&
+                   clayOk && pinOk && breathHold && breathGasp && breathSteady &&
+                   exhTrigger && exhSustain && slideCancel;
+        }""")
+        checks.append(("tactical-audio-ordnance-steady-and-exhaustion-rules", tactical_audio_check))
+
+        # 51) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

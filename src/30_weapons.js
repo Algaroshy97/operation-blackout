@@ -194,6 +194,7 @@ const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.ST
 let swayPhase = 0, swayX = 0, swayY = 0;
 let steadyT = STEADY_MAX; // remaining breath-hold time
 let steadyActive = false;
+let _wasSteadyActive = false;
 const _swayOut = { x: 0, y: 0 };
 
 function updateSway(dt) {
@@ -201,6 +202,9 @@ function updateSway(dt) {
   const w = curW();
   steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, !!keys['ShiftLeft'], steadyT);
   steadyT = CORE.stepSteadyAim(steadyT, steadyActive, dt, STEADY_MAX, STEADY_RECOVER);
+  const breathEvt = CORE.steadyAimBreathEvent(steadyActive, _wasSteadyActive, steadyT);
+  if (breathEvt) playSound(breathEvt);
+  _wasSteadyActive = steadyActive;
   const amp = CORE.swayAmplitude(CFG.assist.swayAmp, steadyActive, CFG.assist.steadyMul, w ? w.sway : 1);
   CORE.swayOffsets(swayPhase, amp, _swayOut);
   swayX = _swayOut.x;

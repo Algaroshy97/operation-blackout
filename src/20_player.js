@@ -233,6 +233,7 @@ function updatePlayer(dt) {
     if (player.slideT > 0.12 && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
       player.sliding = false;
       player.crouching = !!crouchKey;
+      playSound(CORE.slideCancelSound());
       spawnSlideDust(player.pos);
     }
     // slide ends: timeout, released crouch, or stopped
@@ -276,6 +277,7 @@ function updatePlayer(dt) {
     && !player.downed && player.landStunT <= 0;
   if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
+  const wasExhausted = player.exhausted;
   if (wantSprint && !player.exhausted) {
     player.sprinting = true;
     player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, true, player.tacT > 0, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
@@ -286,6 +288,8 @@ function updatePlayer(dt) {
     player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, false, false, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
     player.exhausted = CORE.isPlayerExhausted(player.stamina, player.exhausted, CFG.player.maxStamina, CORE.STAMINA_EXHAUST_RECOVER_RATIO);
   }
+  const exSnd = CORE.exhaustionSound(player.exhausted, wasExhausted);
+  if (exSnd) playSound(exSnd);
 
   // movement intent (yaw-relative). iz: +1 = forward (W), -1 = back (S)
   let ix = 0, iz = 0;

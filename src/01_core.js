@@ -4114,6 +4114,37 @@ const CORE = (function () {
     return 'player_revive';
   }
 
+  // ---- Tactical Power-ups, Ordnance Deployment, Steady Aim, & Locomotion Acoustics (v96) ----
+  function powerupSound(key) {
+    if (key === 'nuke') return 'powerup_nuke';
+    if (key === 'maxammo') return 'powerup_ammo';
+    if (key === 'double') return 'powerup_double';
+    if (key === 'instakill') return 'powerup_instakill';
+    return 'powerup';
+  }
+
+  function equipmentDeploySound(mode, key) {
+    if (mode === 'proximity' || key === 'claymore') return 'claymore_plant';
+    return 'pin';
+  }
+
+  function steadyAimBreathEvent(isSteadyActive, wasSteadyActive, steadyT) {
+    const cur = !!isSteadyActive;
+    const was = !!wasSteadyActive;
+    if (cur && !was) return 'breath_hold';
+    if (!cur && was) return 'breath_gasp';
+    return null;
+  }
+
+  function exhaustionSound(isExhausted, wasExhausted) {
+    if (isExhausted && !wasExhausted) return 'exhausted';
+    return null;
+  }
+
+  function slideCancelSound() {
+    return 'slide_cancel';
+  }
+
   // ---- Viewmodel Procedural Dynamics & Tactical Stance Rules (v93) -----------
   const VIEWMODEL_HIP_X = 0.22;
   const VIEWMODEL_HIP_Y = -0.20;
@@ -5181,7 +5212,12 @@ const CORE = (function () {
     flashOverlayOpacity: flashOverlayOpacity,
     smokeCloudScale: smokeCloudScale,
     smokeCloudOpacity: smokeCloudOpacity,
-    burnPatchOpacity: burnPatchOpacity
+    burnPatchOpacity: burnPatchOpacity,
+    powerupSound: powerupSound,
+    equipmentDeploySound: equipmentDeploySound,
+    steadyAimBreathEvent: steadyAimBreathEvent,
+    exhaustionSound: exhaustionSound,
+    slideCancelSound: slideCancelSound
   };
 })();
 
