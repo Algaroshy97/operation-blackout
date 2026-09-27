@@ -760,6 +760,8 @@ function dirToDeg(en) {
   return CORE.worldBearing(player.pos.x, player.pos.z, en.pos.x, en.pos.z);
 }
 
+const _enemyProcPoseOut = { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
+
 function animateEnemy(en, dt, dist) {
   const p = en.parts;
   if (p.soldier) { if (!en.dead) animateSoldier(en, dt, dist); return; }
@@ -768,19 +770,13 @@ function animateEnemy(en, dt, dist) {
   // ---- procedural fallback (box-man) ----
   if (en.dead) return;
   const moveSpd = Math.hypot(en.vel.x, en.vel.z);
-  const moving = moveSpd > 0.3;
-  const spd = moving ? 9 * (moveSpd / 3.2) * (en.kind === 0 ? 1.5 : 1) : 0;
-  en.walkPhase += spd * dt;
-  const swing = Math.sin(en.walkPhase) * (moving ? 0.55 : 0.06);
-  p.legL.rotation.x = swing;
-  p.legR.rotation.x = -swing;
-  p.armL.rotation.x = -swing * 0.7;
-  p.armR.rotation.x = swing * 0.7 - (en.kind === 1 ? 0.5 : 0);
-  // head slightly track pitch to player
-  const pitch = Math.atan2(player.pos.y - (en.pos.y + 1.5), dist);
-  p.body.rotation.x = en.kind === 1 ? -pitch * 0.25 : 0;
-  // runner lean
-  p.body.rotation.x += en.kind === 0 ? 0.12 : 0;
-  // idle bob
-  p.body.position.y = moving ? Math.abs(Math.cos(en.walkPhase)) * 0.03 : 0;
+  const spd = CORE.enemyProcWalkSpeed(moveSpd, en.kind, CORE.ENEMY_PROC_WALK_THRESHOLD);
+  en.walkPhase = CORE.stepEnemyProcWalkPhase(en.walkPhase, spd, dt);
+  const pose = CORE.enemyProcPose(en.walkPhase, moveSpd, en.kind, dist, player.pos.y, en.pos.y, _enemyProcPoseOut);
+  p.legL.rotation.x = pose.legLRotX;
+  p.legR.rotation.x = pose.legRRotX;
+  p.armL.rotation.x = pose.armLRotX;
+  p.armR.rotation.x = pose.armRRotX;
+  p.body.rotation.x = pose.bodyRotX;
+  p.body.position.y = pose.bodyPosY;
 }

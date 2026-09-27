@@ -197,6 +197,13 @@ function resetStations() {
   tacticalIdx = 0;
   for (let i = 0; i < stations.length; i++) stations[i].holdT = 0;
   if (_lastTouchUseState) _lastTouchUseState.nearStation = null;
+  if (_buyPromptState) {
+    _buyPromptState.visible = false;
+    _buyPromptState.text = '';
+    _buyPromptState.fillPct = -1;
+    _buyPromptState.dim = null;
+  }
+  if (_buyPromptEl) _buyPromptEl.style.opacity = '0';
 }
 
 // ---- Offers -----------------------------------------------------------------
@@ -404,11 +411,9 @@ function updateStations(dt) {
   if (isTouch) {
     updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action);
   }
-  const text = offer.price > 0
-    ? offer.label + '  ·  ' + offer.price + ' CR'
-    : offer.label;
   const promptPrefix = CORE.buyPromptPrefix(isTouch, offer.ok);
-  setBuyPrompt(promptPrefix + text, stationHoldT / CORE.BUY_HOLD, !offer.ok);
+  const promptText = CORE.buyPromptLabel(offer.label, offer.price, promptPrefix);
+  setBuyPrompt(promptText, stationHoldT / CORE.BUY_HOLD, !offer.ok);
 }
 
 function usePlate() {
@@ -478,22 +483,43 @@ function clearDowned() {
 }
 
 // ---- HUD --------------------------------------------------------------------
-let _promptTxt = null;
+let _buyPromptEl = null;
+let _buyPromptTxtEl = null;
+let _buyPromptFillEl = null;
+let _buyPromptState = null;
+
 function setBuyPrompt(text, fill, dim) {
-  const el = $id('buy-prompt');
-  if (!el) return;
-  if (!text) {
-    if (_promptTxt !== null) { el.style.opacity = '0'; _promptTxt = null; }
+  if (!_buyPromptEl) _buyPromptEl = $id('buy-prompt');
+  if (!_buyPromptEl) return;
+  if (!_buyPromptTxtEl) _buyPromptTxtEl = $id('buy-prompt-txt');
+  if (!_buyPromptFillEl) _buyPromptFillEl = $id('buy-prompt-fill');
+
+  const visible = !!text;
+  const fillPct = visible ? CORE.buyPromptFillPct(fill, 1) : 0;
+  const isDim = !!dim;
+
+  if (!_buyPromptState) _buyPromptState = { visible: false, text: '', fillPct: -1, dim: null };
+  if (!CORE.buyPromptChanged(_buyPromptState, visible, text, fillPct, isDim)) return;
+
+  if (!visible) {
+    _buyPromptEl.style.opacity = '0';
+    CORE.syncBuyPromptState(_buyPromptState, false, '', 0, false);
     return;
   }
-  if (text !== _promptTxt) {
-    $id('buy-prompt-txt').textContent = text;
-    _promptTxt = text;
+
+  if (_buyPromptState.text !== text && _buyPromptTxtEl) {
+    _buyPromptTxtEl.textContent = text;
   }
-  el.style.opacity = '1';
-  el.style.color = dim ? 'rgba(255,255,255,.55)' : '#ffd24a';
-  const bar = $id('buy-prompt-fill');
-  if (bar) bar.style.width = Math.round(Math.min(1, Math.max(0, fill)) * 100) + '%';
+  if (_buyPromptState.visible !== true) {
+    _buyPromptEl.style.opacity = '1';
+  }
+  if (_buyPromptState.dim !== isDim) {
+    _buyPromptEl.style.color = CORE.buyPromptColor(isDim);
+  }
+  if (_buyPromptState.fillPct !== fillPct && _buyPromptFillEl) {
+    _buyPromptFillEl.style.width = fillPct + '%';
+  }
+  CORE.syncBuyPromptState(_buyPromptState, true, text, fillPct, isDim);
 }
 
 function updateHudPlates() {

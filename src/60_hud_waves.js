@@ -784,8 +784,11 @@ function invalidateMinimapBlocks() {
   _minimapBlocks = null;
 }
 
+let _mmBlipOut = { x: 0, z: 0 };
+
 function drawMinimap() {
-  const W = 150, R = 75, scale = R / (CFG.world.size / 2 + 8);
+  const W = 150, R = 75;
+  const scale = CORE.minimapScale(R, CFG.world.size, 8);
   mmCtx.clearRect(0, 0, W, W);
   mmCtx.save();
   mmCtx.translate(R, R);
@@ -803,44 +806,46 @@ function drawMinimap() {
   }
   // Baseline detection is near-only; the UAV reveals the whole arena. That split
   // is what gives the minimap — and the streak — any meaning at all.
-  const detect = uavActive() ? R * R : MM_BASE_DETECT * MM_BASE_DETECT * scale * scale;
+  const detectSq = CORE.minimapDetectRadiusSq(uavActive(), R, MM_BASE_DETECT, scale);
+  const maxEnemyDistSq = Math.min(R * R, detectSq);
   if (objective && !objective.done) {
-    const ox = (objective.x - px) * scale, oz = (objective.z - pz) * scale;
+    CORE.minimapBlipOffset(objective.x, objective.z, px, pz, scale, _mmBlipOut);
     mmCtx.strokeStyle = '#4fd08a';
     mmCtx.lineWidth = 2;
     mmCtx.beginPath();
-    mmCtx.arc(ox, oz, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
+    mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
     mmCtx.stroke();
   }
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.
+  const rSq = R * R;
   for (let i = 0; i < stations.length; i++) {
     const st = stations[i];
-    const x = (st.x - px) * scale, z = (st.z - pz) * scale;
-    if (x * x + z * z > R * R) continue;
+    CORE.minimapBlipOffset(st.x, st.z, px, pz, scale, _mmBlipOut);
+    if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
     mmCtx.fillStyle = MM_STATION_COLOR[st.kind] || '#ffffff';
-    mmCtx.fillRect(x - 2.5, z - 2.5, 5, 5);
+    mmCtx.fillRect(_mmBlipOut.x - 2.5, _mmBlipOut.z - 2.5, 5, 5);
     mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
     mmCtx.lineWidth = 1;
-    mmCtx.strokeRect(x - 2.5, z - 2.5, 5, 5);
+    mmCtx.strokeRect(_mmBlipOut.x - 2.5, _mmBlipOut.z - 2.5, 5, 5);
   }
   // enemies
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.dead) continue;
-    const x = (e.pos.x - px) * scale, z = (e.pos.z - pz) * scale;
-    if (x * x + z * z > Math.min(R * R, detect)) continue;
+    CORE.minimapBlipOffset(e.pos.x, e.pos.z, px, pz, scale, _mmBlipOut);
+    if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, maxEnemyDistSq)) continue;
     mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
-    const rad = (e.kind === 2 || e.kind === 3) ? 4 : e.kind === 4 ? 2.5 : 3;
-    mmCtx.beginPath(); mmCtx.arc(x, z, rad, 0, 7); mmCtx.fill();
+    const rad = CORE.minimapEnemyRadius(e.kind);
+    mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7); mmCtx.fill();
     if (e.elite) {
       mmCtx.strokeStyle = '#ffd24a'; mmCtx.lineWidth = 1.5;
-      mmCtx.beginPath(); mmCtx.arc(x, z, rad + 2.5, 0, 7); mmCtx.stroke();
+      mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad + 2.5, 0, 7); mmCtx.stroke();
     }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
     if (getSetting('colorblindMarkers') && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
-      mmCtx.beginPath(); mmCtx.arc(x, z, 6, 0, 7); mmCtx.stroke();
+      mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 6, 0, 7); mmCtx.stroke();
     }
   }
   mmCtx.restore();
@@ -855,7 +860,10 @@ function drawMinimap() {
 // CSS width, so drawCompass centred the heading at x=280 — the strip's RIGHT clip
 // edge — while the yellow index line sits at the centre. The compass read ~45 deg
 // off with half its ticks invisible. Derive every offset from the real canvas size.
+let _lastDrawnCompassYaw = null;
 function drawCompass() {
+  if (!CORE.compassNeedsRedraw(_lastDrawnCompassYaw, player.yaw, CORE.COMPASS_YAW_THRESHOLD)) return;
+  _lastDrawnCompassYaw = player.yaw;
   const w = hud.compass.width, h = hud.compass.height;
   const cx = w / 2;
   cpCtx.clearRect(0, 0, w, h);
@@ -865,14 +873,14 @@ function drawCompass() {
   // draw ticks every 15deg within +/- 60 of heading
   const pxPerDeg = w / 90;   // 90 degrees of heading across the visible strip
   for (let d = -60; d <= 60; d += 5) {
-    const deg = (heading + d + 360) % 360;
+    const deg = CORE.compassTickAngle(heading, d);
     // snap to 5-degree marks
-    const dispDeg = Math.round(deg / 5) * 5;
+    const dispDeg = CORE.compassSnapAngle(deg, 5);
     const off = CORE.compassTickOffset(dispDeg, heading);
-    if (Math.abs(off) > 45) continue;
+    if (!CORE.compassTickVisible(off, 45)) continue;
     const x = cx + off * pxPerDeg;
     const isMajor = dispDeg % 45 === 0;
-    cpCtx.fillStyle = isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
+    cpCtx.fillStyle = CORE.compassTickStyle(isMajor);
     if (dispDeg % 15 === 0) cpCtx.fillRect(x - 1, 12, 2, 6);
     if (isMajor) {
       const lbl = CORE.compassCardinalLabel(dispDeg);

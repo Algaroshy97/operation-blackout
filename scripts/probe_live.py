@@ -2229,7 +2229,48 @@ def main() -> int:
         }""")
         checks.append(("casing-and-viewmodel-visual-polish-rules", visual_polish_check))
 
-        # 53) Clean console throughout gameplay.
+        # 53) Buy prompt change gating, minimap/compass rules, ragdoll sink lifecycle, and procedural enemy kinematics.
+        perf_rules_check = page.evaluate("""() => {
+            if (!CORE ||
+                typeof CORE.buyPromptLabel !== 'function' ||
+                typeof CORE.buyPromptFillPct !== 'function' ||
+                typeof CORE.compassNeedsRedraw !== 'function' ||
+                typeof CORE.minimapBlipOffset !== 'function' ||
+                typeof CORE.isRagdollSinkReady !== 'function' ||
+                typeof CORE.enemyProcPose !== 'function') return false;
+
+            const bpLabelOk = CORE.buyPromptLabel('MK18', 500, '[F] ') === '[F] MK18  ·  500 CR' &&
+                              CORE.buyPromptLabel('ARMOR', 0, '') === 'ARMOR';
+            const bpPctOk = CORE.buyPromptFillPct(0.5, 2.0) === 25 &&
+                            CORE.buyPromptFillPct(2.5, 2.0) === 100;
+            const bpColorOk = CORE.buyPromptColor(false) === CORE.BUY_PROMPT_DEFAULT_COLOR &&
+                              CORE.buyPromptColor(true) === CORE.BUY_PROMPT_DIM_COLOR;
+
+            const compassOk = CORE.compassNeedsRedraw(null, 1.0) === true &&
+                              CORE.compassNeedsRedraw(1.0, 1.001) === false &&
+                              CORE.compassNeedsRedraw(1.0, 1.003) === true;
+
+            const blip = CORE.minimapBlipOffset(10, 20, 5, 10, 2);
+            const mmOk = blip.x === 10 && blip.z === 20 &&
+                         CORE.isMinimapBlipVisible(10, 20, 500) === true &&
+                         CORE.isMinimapBlipVisible(10, 20, 400) === false &&
+                         CORE.minimapEnemyRadius(2) === 4 &&
+                         CORE.minimapEnemyRadius(0) === 3;
+
+            const sinkOk = CORE.isRagdollSinkReady(false, 5.0) === false &&
+                           CORE.isRagdollSinkReady(true, 3.0) === false &&
+                           CORE.isRagdollSinkReady(true, 3.6) === true &&
+                           CORE.isRagdollExpired(1.7) === true;
+
+            const poseOut = { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
+            const poseRes = CORE.enemyProcPose(Math.PI / 2, 3.2, 1, 5.0, 1.5, 0.0, poseOut);
+            const poseOk = poseRes === poseOut && poseOut.moving === true && poseOut.legLRotX > 0 && poseOut.legRRotX < 0;
+
+            return bpLabelOk && bpPctOk && bpColorOk && compassOk && mmOk && sinkOk && poseOk;
+        }""")
+        checks.append(("buy-prompt-and-minimap-perf-rules", perf_rules_check))
+
+        # 54) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

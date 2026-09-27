@@ -155,10 +155,10 @@ function updateRagdolls(dt) {
     const live = !e.rag.settled && simulating < RAGDOLL_BUDGET;
     if (e.sd) {
       if (live) { simulating++; sdUpdateRagdoll(e.sd, dt); }
-      if (e.sd.settled && e.t > 3.5) {
-        e.sunk += dt * 0.6;
-        e.sd.container.position.y -= e.sunk * 0.02;
-        if (e.sunk > 1.6) { removeRagdoll(e); ragdolls.splice(i, 1); }
+      if (CORE.isRagdollSinkReady(e.sd.settled, e.t, CORE.RAGDOLL_SINK_DELAY)) {
+        e.sunk = CORE.stepRagdollSink(e.sunk, dt, CORE.RAGDOLL_SINK_RATE);
+        e.sd.container.position.y -= CORE.ragdollDropOffsetY(e.sunk, CORE.RAGDOLL_DROP_SCALE);
+        if (CORE.isRagdollExpired(e.sunk, CORE.RAGDOLL_SINK_MAX)) { removeRagdoll(e); ragdolls.splice(i, 1); }
       }
       continue;
     }
@@ -193,12 +193,12 @@ function updateRagdolls(dt) {
     }
     // Sink and remove, as before — but only once the body has actually stopped, so
     // a corpse never sinks mid-tumble.
-    if (e.rag.settled && e.t > 3.5) {
-      e.sunk += dt * 0.6;
-      const drop = e.sunk;
-      if (e.useBones && e.root) e.root.position.y -= drop * 0.02;
-      else if (e.boxParts) for (let k = 0; k < e.boxParts.length; k++) e.boxParts[k].obj.position.y -= drop * 0.02;
-      if (e.sunk > 1.6) {
+    if (CORE.isRagdollSinkReady(e.rag.settled, e.t, CORE.RAGDOLL_SINK_DELAY)) {
+      e.sunk = CORE.stepRagdollSink(e.sunk, dt, CORE.RAGDOLL_SINK_RATE);
+      const dropOffset = CORE.ragdollDropOffsetY(e.sunk, CORE.RAGDOLL_DROP_SCALE);
+      if (e.useBones && e.root) e.root.position.y -= dropOffset;
+      else if (e.boxParts) for (let k = 0; k < e.boxParts.length; k++) e.boxParts[k].obj.position.y -= dropOffset;
+      if (CORE.isRagdollExpired(e.sunk, CORE.RAGDOLL_SINK_MAX)) {
         removeRagdoll(e);
         ragdolls.splice(i, 1);
       }

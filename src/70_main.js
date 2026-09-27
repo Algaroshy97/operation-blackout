@@ -206,6 +206,7 @@ function resetGame() {
   killStreak = 0; lastKillT = -99;   // multi-kill streak state
   hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
+  if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
   curWeapon = 0;
   fireClockT = 0;
   initWeapons();

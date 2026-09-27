@@ -5944,3 +5944,106 @@ test('casing dynamics, ground settling, smooth scale fade, and viewmodel kinemat
   const lookY = CORE.viewmodelLookInertiaTarget(0.02, true, 0, 1);
   assert.ok(lookY < 0);
 });
+
+test('buy prompt change gating, minimap/compass canvas rules, ragdoll sink lifecycle, and procedural enemy pose kinematics govern frame performance', () => {
+  // 1) Buy prompt helpers
+  assert.strictEqual(CORE.BUY_PROMPT_DEFAULT_COLOR, '#ffd24a');
+  assert.strictEqual(CORE.BUY_PROMPT_DIM_COLOR, 'rgba(255,255,255,.55)');
+  assert.strictEqual(CORE.buyPromptColor(false), '#ffd24a');
+  assert.strictEqual(CORE.buyPromptColor(true), 'rgba(255,255,255,.55)');
+  assert.strictEqual(CORE.buyPromptLabel('M4', 500, '[F] '), '[F] M4  ·  500 CR');
+  assert.strictEqual(CORE.buyPromptLabel('PLATES — FULL', 0, ''), 'PLATES — FULL');
+  assert.strictEqual(CORE.buyPromptFillPct(0.5, 2.0), 25);
+  assert.strictEqual(CORE.buyPromptFillPct(2.5, 2.0), 100);
+  assert.strictEqual(CORE.buyPromptFillPct(-0.5, 2.0), 0);
+
+  const bpState = { visible: false, text: '', fillPct: 0, dim: false };
+  assert.strictEqual(CORE.buyPromptChanged(bpState, false, '', 0, false), false);
+  assert.strictEqual(CORE.buyPromptChanged(bpState, true, 'TEST', 0, false), true);
+  CORE.syncBuyPromptState(bpState, true, 'TEST', 50, true);
+  assert.strictEqual(bpState.visible, true);
+  assert.strictEqual(bpState.text, 'TEST');
+  assert.strictEqual(bpState.fillPct, 50);
+  assert.strictEqual(bpState.dim, true);
+  assert.strictEqual(CORE.buyPromptChanged(bpState, true, 'TEST', 50, true), false);
+  assert.strictEqual(CORE.buyPromptChanged(bpState, true, 'TEST', 60, true), true);
+
+  // 2) Minimap and compass gating & projection
+  assert.strictEqual(CORE.COMPASS_YAW_THRESHOLD, 0.002);
+  assert.strictEqual(CORE.compassNeedsRedraw(null, 1.0), true);
+  assert.strictEqual(CORE.compassNeedsRedraw(1.0, 1.0), false);
+  assert.strictEqual(CORE.compassNeedsRedraw(1.0, 1.001), false);
+  assert.strictEqual(CORE.compassNeedsRedraw(1.0, 1.003), true);
+
+  const scale = CORE.minimapScale(75, 90, 8);
+  assert.ok(Math.abs(scale - (75 / 53)) < 1e-4);
+
+  const detectNorm = CORE.minimapDetectRadiusSq(false, 75, 26, scale);
+  const detectUav = CORE.minimapDetectRadiusSq(true, 75, 26, scale);
+  assert.strictEqual(detectUav, 75 * 75);
+  assert.ok(detectNorm < detectUav);
+
+  const blip = CORE.minimapBlipOffset(10, 20, 5, 10, 2);
+  assert.strictEqual(blip.x, 10);
+  assert.strictEqual(blip.z, 20);
+  assert.strictEqual(CORE.isMinimapBlipVisible(10, 20, 500), true);
+  assert.strictEqual(CORE.isMinimapBlipVisible(10, 20, 400), false);
+
+  assert.strictEqual(CORE.minimapEnemyRadius(0), 3);
+  assert.strictEqual(CORE.minimapEnemyRadius(1), 3);
+  assert.strictEqual(CORE.minimapEnemyRadius(2), 4);
+  assert.strictEqual(CORE.minimapEnemyRadius(3), 4);
+  assert.strictEqual(CORE.minimapEnemyRadius(4), 2.5);
+
+  assert.strictEqual(CORE.compassTickAngle(350, 20), 10);
+  assert.strictEqual(CORE.compassSnapAngle(12, 5), 10);
+  assert.strictEqual(CORE.compassSnapAngle(13, 5), 15);
+  assert.strictEqual(CORE.compassTickVisible(40, 45), true);
+  assert.strictEqual(CORE.compassTickVisible(50, 45), false);
+  assert.strictEqual(CORE.compassTickStyle(true), 'rgba(255,255,255,0.9)');
+  assert.strictEqual(CORE.compassTickStyle(false), 'rgba(255,255,255,0.45)');
+
+  // 3) Ragdoll sink & disposal lifecycle
+  assert.strictEqual(CORE.RAGDOLL_SINK_DELAY, 3.5);
+  assert.strictEqual(CORE.RAGDOLL_SINK_RATE, 0.6);
+  assert.strictEqual(CORE.RAGDOLL_SINK_MAX, 1.6);
+  assert.strictEqual(CORE.RAGDOLL_DROP_SCALE, 0.02);
+
+  assert.strictEqual(CORE.isRagdollSinkReady(false, 5.0), false);
+  assert.strictEqual(CORE.isRagdollSinkReady(true, 3.0), false);
+  assert.strictEqual(CORE.isRagdollSinkReady(true, 3.6), true);
+
+  const sunk1 = CORE.stepRagdollSink(0, 0.5);
+  assert.ok(Math.abs(sunk1 - 0.3) < 1e-4);
+  assert.ok(Math.abs(CORE.ragdollDropOffsetY(sunk1) - 0.006) < 1e-4);
+  assert.strictEqual(CORE.isRagdollExpired(sunk1), false);
+  assert.strictEqual(CORE.isRagdollExpired(1.7), true);
+
+  // 4) Procedural enemy animation kinematics
+  assert.strictEqual(CORE.ENEMY_PROC_WALK_THRESHOLD, 0.3);
+  assert.strictEqual(CORE.ENEMY_PROC_BASE_FREQ, 9);
+  assert.strictEqual(CORE.enemyProcWalkSpeed(0.2, 0), 0);
+  const runnerSpd = CORE.enemyProcWalkSpeed(3.2, 0);
+  const gruntSpd = CORE.enemyProcWalkSpeed(3.2, 1);
+  assert.ok(Math.abs(runnerSpd - 13.5) < 1e-4);
+  assert.ok(Math.abs(gruntSpd - 9.0) < 1e-4);
+
+  const phaseNext = CORE.stepEnemyProcWalkPhase(1.0, 10, 0.05);
+  assert.ok(Math.abs(phaseNext - 1.5) < 1e-4);
+
+  const idleSwing = CORE.enemyProcLimbSwing(Math.PI / 2, false);
+  const walkSwing = CORE.enemyProcLimbSwing(Math.PI / 2, true);
+  assert.ok(Math.abs(idleSwing - 0.06) < 1e-4);
+  assert.ok(Math.abs(walkSwing - 0.55) < 1e-4);
+
+  const pitch = CORE.enemyProcPitchTrack(2.0, 0.0, 5.0);
+  assert.ok(pitch > 0);
+
+  const poseOut = { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
+  const poseRes = CORE.enemyProcPose(Math.PI / 2, 3.2, 1, 5.0, 1.5, 0.0, poseOut);
+  assert.strictEqual(poseRes, poseOut);
+  assert.strictEqual(poseOut.moving, true);
+  assert.ok(poseOut.legLRotX > 0);
+  assert.ok(poseOut.legRRotX < 0);
+  assert.ok(poseOut.armLRotX < 0);
+});

@@ -4889,6 +4889,195 @@ const CORE = (function () {
     return clamped * (1 - ads * 0.75) * motion;
   }
 
+  // ---- Station Buy Prompt Performance Rules ----
+  const BUY_PROMPT_DEFAULT_COLOR = '#ffd24a';
+  const BUY_PROMPT_DIM_COLOR = 'rgba(255,255,255,.55)';
+
+  function buyPromptLabel(label, price, prefix) {
+    const lbl = (typeof label === 'string') ? label : '';
+    const prc = (typeof price === 'number' && isFinite(price) && price > 0) ? ('  ·  ' + price + ' CR') : '';
+    const pfx = (typeof prefix === 'string') ? prefix : '';
+    return pfx + lbl + prc;
+  }
+
+  function buyPromptFillPct(holdT, maxHold) {
+    const t = (typeof holdT === 'number' && isFinite(holdT)) ? holdT : 0;
+    const maxT = (typeof maxHold === 'number' && isFinite(maxHold) && maxHold > 0) ? maxHold : 1;
+    return Math.round(Math.min(1, Math.max(0, t / maxT)) * 100);
+  }
+
+  function buyPromptColor(dim) {
+    return dim ? BUY_PROMPT_DIM_COLOR : BUY_PROMPT_DEFAULT_COLOR;
+  }
+
+  function buyPromptChanged(lastState, visible, text, fillPct, dim) {
+    if (!lastState) return true;
+    return lastState.visible !== !!visible ||
+           lastState.text !== (text || '') ||
+           lastState.fillPct !== fillPct ||
+           lastState.dim !== !!dim;
+  }
+
+  function syncBuyPromptState(lastState, visible, text, fillPct, dim) {
+    if (!lastState) return { visible: !!visible, text: text || '', fillPct: fillPct || 0, dim: !!dim };
+    lastState.visible = !!visible;
+    lastState.text = text || '';
+    lastState.fillPct = fillPct || 0;
+    lastState.dim = !!dim;
+    return lastState;
+  }
+
+  // ---- Minimap & Compass 2D Canvas Gating & Projection ----
+  const COMPASS_YAW_THRESHOLD = 0.002; // ~0.11 degrees
+
+  function compassNeedsRedraw(lastYaw, currentYaw, threshold) {
+    if (typeof lastYaw !== 'number' || !isFinite(lastYaw)) return true;
+    if (typeof currentYaw !== 'number' || !isFinite(currentYaw)) return false;
+    const limit = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : COMPASS_YAW_THRESHOLD;
+    return Math.abs(currentYaw - lastYaw) >= limit;
+  }
+
+  function minimapScale(canvasRadius, worldSize, margin) {
+    const r = (typeof canvasRadius === 'number' && isFinite(canvasRadius)) ? canvasRadius : 75;
+    const ws = (typeof worldSize === 'number' && isFinite(worldSize)) ? worldSize : 90;
+    const m = (typeof margin === 'number' && isFinite(margin)) ? margin : 8;
+    return r / (ws / 2 + m);
+  }
+
+  function minimapDetectRadiusSq(uavActive, canvasRadius, baseDetect, scale) {
+    const r = (typeof canvasRadius === 'number' && isFinite(canvasRadius)) ? canvasRadius : 75;
+    if (uavActive) return r * r;
+    const bd = (typeof baseDetect === 'number' && isFinite(baseDetect)) ? baseDetect : 26;
+    const s = (typeof scale === 'number' && isFinite(scale)) ? scale : 1;
+    const dist = bd * s;
+    return dist * dist;
+  }
+
+  function minimapBlipOffset(worldX, worldZ, playerX, playerZ, scale, out) {
+    const o = out || { x: 0, z: 0 };
+    const s = (typeof scale === 'number' && isFinite(scale)) ? scale : 1;
+    o.x = ((typeof worldX === 'number' && isFinite(worldX) ? worldX : 0) - (typeof playerX === 'number' && isFinite(playerX) ? playerX : 0)) * s;
+    o.z = ((typeof worldZ === 'number' && isFinite(worldZ) ? worldZ : 0) - (typeof playerZ === 'number' && isFinite(playerZ) ? playerZ : 0)) * s;
+    return o;
+  }
+
+  function isMinimapBlipVisible(offsetX, offsetZ, maxRadiusSq) {
+    if (!isFinite(offsetX) || !isFinite(offsetZ)) return false;
+    const limit = (typeof maxRadiusSq === 'number' && isFinite(maxRadiusSq)) ? maxRadiusSq : Infinity;
+    return (offsetX * offsetX + offsetZ * offsetZ) <= limit;
+  }
+
+  function minimapEnemyRadius(kind) {
+    if (kind === 2 || kind === 3) return 4;
+    if (kind === 4) return 2.5;
+    return 3;
+  }
+
+  function compassTickAngle(heading, offset) {
+    const h = (typeof heading === 'number' && isFinite(heading)) ? heading : 0;
+    const off = (typeof offset === 'number' && isFinite(offset)) ? offset : 0;
+    return (h + off + 360) % 360;
+  }
+
+  function compassSnapAngle(deg, step) {
+    const d = (typeof deg === 'number' && isFinite(deg)) ? deg : 0;
+    const s = (typeof step === 'number' && isFinite(step) && step > 0) ? step : 5;
+    return Math.round(d / s) * s;
+  }
+
+  function compassTickVisible(offset, maxSpan) {
+    if (!isFinite(offset)) return false;
+    const span = (typeof maxSpan === 'number' && isFinite(maxSpan)) ? maxSpan : 45;
+    return Math.abs(offset) <= span;
+  }
+
+  function compassTickStyle(isMajor) {
+    return isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
+  }
+
+  // ---- Ragdoll Settling, Sinking & Despawn Lifecycle ----
+  const RAGDOLL_SINK_DELAY = 3.5;
+  const RAGDOLL_SINK_RATE = 0.6;
+  const RAGDOLL_SINK_MAX = 1.6;
+  const RAGDOLL_DROP_SCALE = 0.02;
+
+  function isRagdollSinkReady(isSettled, age, delay) {
+    if (!isSettled) return false;
+    const a = (typeof age === 'number' && isFinite(age)) ? age : 0;
+    const d = (typeof delay === 'number' && isFinite(delay)) ? delay : RAGDOLL_SINK_DELAY;
+    return a > d;
+  }
+
+  function stepRagdollSink(currentSunk, dt, rate) {
+    const s = (typeof currentSunk === 'number' && isFinite(currentSunk)) ? currentSunk : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const r = (typeof rate === 'number' && isFinite(rate)) ? rate : RAGDOLL_SINK_RATE;
+    return s + delta * r;
+  }
+
+  function ragdollDropOffsetY(sunk, scale) {
+    const s = (typeof sunk === 'number' && isFinite(sunk)) ? sunk : 0;
+    const sc = (typeof scale === 'number' && isFinite(scale)) ? scale : RAGDOLL_DROP_SCALE;
+    return s * sc;
+  }
+
+  function isRagdollExpired(sunk, maxSunk) {
+    const s = (typeof sunk === 'number' && isFinite(sunk)) ? sunk : 0;
+    const m = (typeof maxSunk === 'number' && isFinite(maxSunk)) ? maxSunk : RAGDOLL_SINK_MAX;
+    return s > m;
+  }
+
+  // ---- Procedural Box-Man Enemy Animation Kinematics ----
+  const ENEMY_PROC_WALK_THRESHOLD = 0.3;
+  const ENEMY_PROC_BASE_FREQ = 9;
+
+  function enemyProcWalkSpeed(moveSpeed, kind, threshold) {
+    const spd = (typeof moveSpeed === 'number' && isFinite(moveSpeed)) ? moveSpeed : 0;
+    const th = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : ENEMY_PROC_WALK_THRESHOLD;
+    if (spd <= th) return 0;
+    const runnerMul = kind === 0 ? 1.5 : 1;
+    return ENEMY_PROC_BASE_FREQ * (spd / 3.2) * runnerMul;
+  }
+
+  function stepEnemyProcWalkPhase(phase, speed, dt) {
+    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const s = (typeof speed === 'number' && isFinite(speed)) ? speed : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return p + s * delta;
+  }
+
+  function enemyProcLimbSwing(phase, isMoving) {
+    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const amp = isMoving ? 0.55 : 0.06;
+    return Math.sin(p) * amp;
+  }
+
+  function enemyProcPitchTrack(playerEyeY, enemyY, dist) {
+    const py = (typeof playerEyeY === 'number' && isFinite(playerEyeY)) ? playerEyeY : 0;
+    const ey = (typeof enemyY === 'number' && isFinite(enemyY)) ? enemyY : 0;
+    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0.1, dist) : 1;
+    return Math.atan2(py - (ey + 1.5), d);
+  }
+
+  function enemyProcPose(phase, moveSpeed, kind, dist, playerEyeY, enemyY, out) {
+    const o = out || { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
+    const spd = (typeof moveSpeed === 'number' && isFinite(moveSpeed)) ? moveSpeed : 0;
+    const moving = spd > ENEMY_PROC_WALK_THRESHOLD;
+    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const swing = enemyProcLimbSwing(p, moving);
+    o.moving = moving;
+    o.legLRotX = swing;
+    o.legRRotX = -swing;
+    o.armLRotX = -swing * 0.7;
+    o.armRRotX = swing * 0.7 - (kind === 1 ? 0.5 : 0);
+    const pitch = enemyProcPitchTrack(playerEyeY, enemyY, dist);
+    let bRotX = kind === 1 ? -pitch * 0.25 : 0;
+    if (kind === 0) bRotX += 0.12;
+    o.bodyRotX = bRotX;
+    o.bodyPosY = moving ? Math.abs(Math.cos(p)) * 0.03 : 0;
+    return o;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -5529,7 +5718,40 @@ const CORE = (function () {
     reloadHandOffsets: reloadHandOffsets,
     viewmodelLateralSpeed: viewmodelLateralSpeed,
     stepViewmodelTilt: stepViewmodelTilt,
-    viewmodelLookInertiaTarget: viewmodelLookInertiaTarget
+    viewmodelLookInertiaTarget: viewmodelLookInertiaTarget,
+    BUY_PROMPT_DEFAULT_COLOR: BUY_PROMPT_DEFAULT_COLOR,
+    BUY_PROMPT_DIM_COLOR: BUY_PROMPT_DIM_COLOR,
+    buyPromptLabel: buyPromptLabel,
+    buyPromptFillPct: buyPromptFillPct,
+    buyPromptColor: buyPromptColor,
+    buyPromptChanged: buyPromptChanged,
+    syncBuyPromptState: syncBuyPromptState,
+    COMPASS_YAW_THRESHOLD: COMPASS_YAW_THRESHOLD,
+    compassNeedsRedraw: compassNeedsRedraw,
+    minimapScale: minimapScale,
+    minimapDetectRadiusSq: minimapDetectRadiusSq,
+    minimapBlipOffset: minimapBlipOffset,
+    isMinimapBlipVisible: isMinimapBlipVisible,
+    minimapEnemyRadius: minimapEnemyRadius,
+    compassTickAngle: compassTickAngle,
+    compassSnapAngle: compassSnapAngle,
+    compassTickVisible: compassTickVisible,
+    compassTickStyle: compassTickStyle,
+    RAGDOLL_SINK_DELAY: RAGDOLL_SINK_DELAY,
+    RAGDOLL_SINK_RATE: RAGDOLL_SINK_RATE,
+    RAGDOLL_SINK_MAX: RAGDOLL_SINK_MAX,
+    RAGDOLL_DROP_SCALE: RAGDOLL_DROP_SCALE,
+    isRagdollSinkReady: isRagdollSinkReady,
+    stepRagdollSink: stepRagdollSink,
+    ragdollDropOffsetY: ragdollDropOffsetY,
+    isRagdollExpired: isRagdollExpired,
+    ENEMY_PROC_WALK_THRESHOLD: ENEMY_PROC_WALK_THRESHOLD,
+    ENEMY_PROC_BASE_FREQ: ENEMY_PROC_BASE_FREQ,
+    enemyProcWalkSpeed: enemyProcWalkSpeed,
+    stepEnemyProcWalkPhase: stepEnemyProcWalkPhase,
+    enemyProcLimbSwing: enemyProcLimbSwing,
+    enemyProcPitchTrack: enemyProcPitchTrack,
+    enemyProcPose: enemyProcPose
   };
 })();
 
