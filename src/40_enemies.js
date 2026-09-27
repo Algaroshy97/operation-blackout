@@ -227,16 +227,18 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   }
 }
 
+const _killImpulseOut = { force: 0, y: 0 };
+
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
   // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
   // rather than firing it across the arena.
-  const force = Math.min(0.085, 0.012 + (en._lastHitForce || 20) * 0.00035);
+  const impulse = CORE.enemyKillImpulse(en._lastHitForce, isHead, Math.random(), _killImpulseOut);
   spawnRagdoll(en, {
     node: en._lastHitNode || 'chest',
-    x: (en._lastHitDirX || 0) * force,
-    y: (isHead ? 0.030 : 0.016) + Math.random() * 0.008,
-    z: (en._lastHitDirZ || 0) * force,
+    x: (en._lastHitDirX || 0) * impulse.force,
+    y: impulse.y,
+    z: (en._lastHitDirZ || 0) * impulse.force,
     spread: 0.3
   });
   const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
@@ -362,14 +364,7 @@ function moveEnemy(en, dt) {
 
   // Vertical resolve: find highest floor below feet + stepH
   const floorY = CORE.findFloorY(en.pos.x, en.pos.z, 0, colliders, en.pos.y, stepH, GROUND);
-  const fallSpeed = 6;
-  if (floorY < en.pos.y) {
-    const needed = en.pos.y - floorY;
-    en.pos.y -= Math.min(needed, dt * fallSpeed);
-  } else if (floorY > en.pos.y && (floorY - en.pos.y) <= stepH) {
-    const needed = floorY - en.pos.y;
-    en.pos.y += Math.min(needed, dt * fallSpeed);
-  }
+  en.pos.y = CORE.stepEnemyFallY(en.pos.y, floorY, dt, CORE.ENEMY_FALL_SPEED, stepH);
 }
 
 // LOS check: ray from enemy eye to player eye against static world
@@ -448,14 +443,14 @@ function updateStatusEffects(dt) {
       en.stunT = Math.max(0, en.stunT - dt);
       en.speedMul = en.baseSpeedMul === undefined ? (en.speedMul || 1) : en.baseSpeedMul;
       if (en.baseSpeedMul === undefined) en.baseSpeedMul = en.speedMul;
-      en.speedMul = en.baseSpeedMul * 0.35;
+      en.speedMul = CORE.enemyStunSpeedMultiplier(en.baseSpeedMul, true);
     } else if (en.baseSpeedMul !== undefined) {
       en.speedMul = en.baseSpeedMul;
       en.baseSpeedMul = undefined;
     }
     if (en.blindT > 0) {
       en.blindT = Math.max(0, en.blindT - dt);
-      en.yaw += dt * 1.6;          // wanders instead of holding an aim
+      en.yaw = CORE.stepEnemyBlindYaw(en.yaw, dt, CORE.ENEMY_BLIND_YAW_RATE);
     }
   }
 }
@@ -579,14 +574,13 @@ function updateEnemies(dt) {
     if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
-      const stagger = 0.25 + Math.random() * 0.45;
-      en.swinging = stagger;                   // windup (telegraphed)
+      en.swinging = CORE.enemyMeleeWindup(Math.random());
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
         // swing lands — only if still in reach and player alive
-        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
+        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
@@ -596,7 +590,7 @@ function updateEnemies(dt) {
           }
         }
         en.swinging = -1;                        // cooldown marker
-        en.attackReadyT = gameT + CORE.enemyAttackCooldown(en.kind) + Math.random() * 0.5;
+        en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.kind), Math.random());
       }
       if (en.swinging <= -1 - 0.01) en.swinging = undefined;
     }
@@ -610,7 +604,7 @@ function updateEnemies(dt) {
           en.burst--;
           en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
         } else {
-          en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
+          en.nextShot = CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random());
         }
         enemyShoot(en, dist);
       } else {
@@ -751,7 +745,7 @@ function enemyShoot(en, dist) {
       if (CORE.smokeBlocks(ox, oy, oz,
           player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
       damagePlayer(dmg, hitDeg);
-    }, Math.min(300, dist * 2.2));
+    }, CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS));
   }
 }
 

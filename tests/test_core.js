@@ -6047,3 +6047,96 @@ test('buy prompt change gating, minimap/compass canvas rules, ragdoll sink lifec
   assert.ok(poseOut.legRRotX < 0);
   assert.ok(poseOut.armLRotX < 0);
 });
+
+test('wave spawn pacing, enemy combat execution, and mobility balance rules govern gameplay dynamics', () => {
+  // 1) Wave spawn pacing and ammo relief dynamics
+  assert.strictEqual(CORE.WAVE_SPAWN_PRESSURE_QUEUE, 18);
+  assert.strictEqual(CORE.WAVE_SPAWN_SWEET_SPOT, 26);
+  assert.strictEqual(CORE.WAVE_SPAWN_JITTER, 6);
+  assert.strictEqual(CORE.AMMO_RELIEF_DRY_THRESHOLD, 5);
+  assert.strictEqual(CORE.AMMO_RELIEF_COOLDOWN, 18);
+
+  assert.strictEqual(CORE.waveSpawnPressure(0, 18), 0);
+  assert.strictEqual(CORE.waveSpawnPressure(9, 18), 0.5);
+  assert.strictEqual(CORE.waveSpawnPressure(36, 18), 1);
+
+  assert.strictEqual(CORE.waveSpawnBurstCount(10, 5, 0, 0), 3);
+  assert.strictEqual(CORE.waveSpawnBurstCount(10, 5, 1, 0.9), 5);
+  assert.strictEqual(CORE.waveSpawnBurstCount(1, 5, 1, 0.9), 1);
+
+  assert.strictEqual(CORE.waveSpawnDelay(0, 0), 2.5);
+  assert.ok(Math.abs(CORE.waveSpawnDelay(1, 0) - 1.1) < 1e-4);
+
+  assert.strictEqual(CORE.spawnCandidateScore(26, 26, 0), 0);
+  assert.strictEqual(CORE.spawnCandidateScore(30, 26, 0.5), -7);
+
+  assert.strictEqual(CORE.stepAmmoReliefTimer(2, 0.5, false), 2.5);
+  assert.strictEqual(CORE.stepAmmoReliefTimer(2.5, 0.5, true), 0);
+
+  assert.strictEqual(CORE.isAmmoReliefNeeded(false, false, 6, 20, 10), false);
+  assert.strictEqual(CORE.isAmmoReliefNeeded(true, true, 6, 20, 10), false);
+  assert.strictEqual(CORE.isAmmoReliefNeeded(true, false, 4, 20, 10), false);
+  assert.strictEqual(CORE.isAmmoReliefNeeded(true, false, 6, 20, 25), false);
+  assert.strictEqual(CORE.isAmmoReliefNeeded(true, false, 6, 20, 10), true);
+
+  // 2) Enemy combat execution & status balance
+  assert.strictEqual(CORE.ENEMY_BULLET_DELAY_FACTOR, 2.2);
+  assert.strictEqual(CORE.ENEMY_BULLET_MAX_DELAY_MS, 300);
+  assert.strictEqual(CORE.ENEMY_MELEE_WINDUP_BASE, 0.25);
+  assert.strictEqual(CORE.ENEMY_MELEE_WINDUP_RANGE, 0.45);
+  assert.strictEqual(CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING, 0.35);
+  assert.strictEqual(CORE.ENEMY_STUN_SPEED_MUL, 0.35);
+  assert.strictEqual(CORE.ENEMY_BLIND_YAW_RATE, 1.6);
+  assert.strictEqual(CORE.ENEMY_FALL_SPEED, 6);
+
+  assert.strictEqual(CORE.enemyBulletTravelDelay(10), 22);
+  assert.strictEqual(CORE.enemyBulletTravelDelay(200), 300);
+
+  assert.strictEqual(CORE.enemyRangedNextShot(10, 1.0, 0), 10.75);
+  assert.ok(Math.abs(CORE.enemyRangedNextShot(10, 1.0, 1.0) - 11.25) < 1e-4);
+
+  assert.strictEqual(CORE.enemyMeleeWindup(0), 0.25);
+  assert.ok(Math.abs(CORE.enemyMeleeWindup(1.0) - 0.70) < 1e-4);
+
+  assert.strictEqual(CORE.enemyAttackReadyTime(5, 1.0, 0), 6.0);
+  assert.strictEqual(CORE.enemyAttackReadyTime(5, 1.0, 1.0), 6.5);
+
+  const impOut = { force: 0, y: 0 };
+  const imp = CORE.enemyKillImpulse(100, false, 0, impOut);
+  assert.strictEqual(imp, impOut);
+  assert.ok(Math.abs(imp.force - 0.047) < 1e-4);
+  assert.ok(Math.abs(imp.y - 0.016) < 1e-4);
+
+  const impHead = CORE.enemyKillImpulse(100, true, 0.5);
+  assert.ok(Math.abs(impHead.y - 0.034) < 1e-4);
+
+  assert.strictEqual(CORE.enemyStunSpeedMultiplier(1.2, true), 1.2 * 0.35);
+  assert.strictEqual(CORE.enemyStunSpeedMultiplier(1.2, false), 1.2);
+
+  assert.strictEqual(CORE.stepEnemyBlindYaw(1.0, 0.5, 1.6), 1.8);
+  assert.ok(Math.abs(CORE.stepEnemyFallY(5.0, 2.0, 0.1, 6) - 4.4) < 1e-4);
+  assert.ok(Math.abs(CORE.stepEnemyFallY(2.0, 2.2, 0.1, 6, 0.6) - 2.2) < 1e-4);
+
+  // 3) Mobility, weapon fire interval & station hold
+  assert.strictEqual(CORE.SLIDE_CANCEL_MIN_T, 0.12);
+  assert.strictEqual(CORE.SLIDE_TIMEOUT_T, 0.9);
+  assert.strictEqual(CORE.SLIDE_STOP_MIN_T, 0.25);
+  assert.strictEqual(CORE.STATION_HOLD_DECAY_RATE, 3);
+
+  assert.strictEqual(CORE.canSlideCancel(0.10), false);
+  assert.strictEqual(CORE.canSlideCancel(0.15), true);
+
+  assert.strictEqual(CORE.isSlideExpired(0.95, true, true), true);
+  assert.strictEqual(CORE.isSlideExpired(0.5, false, true), true);
+  assert.strictEqual(CORE.isSlideExpired(0.3, true, false), true);
+  assert.strictEqual(CORE.isSlideExpired(0.15, true, false), false);
+  assert.strictEqual(CORE.isSlideExpired(0.5, true, true), false);
+
+  assert.ok(Math.abs(CORE.stepStationHold(0, true, 0.2) - 0.2) < 1e-4);
+  assert.strictEqual(CORE.stepStationHold(0.5, true, 0.2, 3, 0.6), 0.6);
+  assert.ok(Math.abs(CORE.stepStationHold(0.5, false, 0.1, 3, 0.6) - 0.2) < 1e-4);
+  assert.strictEqual(CORE.stepStationHold(0.1, false, 0.1, 3, 0.6), 0);
+
+  assert.ok(Math.abs(CORE.weaponFireInterval(600) - 0.1) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponFireInterval(750) - (60 / 750)) < 1e-4);
+});

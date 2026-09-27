@@ -582,13 +582,12 @@ function updateWaves(dt) {
           // Burst size and cadence scale with how much of the wave is still
           // queued: wave 15 used to need ~37 s of pure spawn gating before kill
           // time, which read as slow rather than climactic.
-          const pressure = Math.min(1, waveQueue / 18);
-          const burstSize = Math.floor(Math.random() * 2) + 3 + Math.round(pressure * 3);
-          const count = Math.min(burstSize, waveQueue, canSpawn);
+          const pressure = CORE.waveSpawnPressure(waveQueue, CORE.WAVE_SPAWN_PRESSURE_QUEUE);
+          const count = CORE.waveSpawnBurstCount(waveQueue, canSpawn, pressure, Math.random());
           for (let i = 0; i < count; i++) {
             spawnFromQueue();
           }
-          spawnTimer = (2.5 - pressure * 1.4) + Math.random() * 1.2;
+          spawnTimer = CORE.waveSpawnDelay(pressure, Math.random());
         } else {
           spawnTimer = 0.5;
         }
@@ -627,16 +626,16 @@ let _hudEnemiesLeft = -1;
 // few seconds, so the floor does not depend on getting a kill first.
 let dryT = 0, nextCacheT = -99;
 function updateAmmoRelief(dt) {
-  if (!waveActive || player.dead) { dryT = 0; return; }
   let rounds = 0;
   for (let i = 0; i < wState.length; i++) {
     if (!wState[i] || weaponsOwned[i] < 0) continue;
     rounds += wState[i].ammo + wState[i].reserve;
   }
-  if (rounds > 0) { dryT = 0; return; }
-  dryT += dt;
-  if (dryT > 5 && gameT > nextCacheT) {
-    nextCacheT = gameT + 18;
+  const hasAmmo = rounds > 0;
+  dryT = CORE.stepAmmoReliefTimer(dryT, dt, hasAmmo);
+  if (hasAmmo || !waveActive || player.dead) return;
+  if (CORE.isAmmoReliefNeeded(waveActive, player.dead, dryT, gameT, nextCacheT, CORE.AMMO_RELIEF_DRY_THRESHOLD)) {
+    nextCacheT = gameT + CORE.AMMO_RELIEF_COOLDOWN;
     // just in front of the player, never inside geometry
     for (let a = 0; a < 8; a++) {
       const ang = player.yaw + Math.PI + a * 0.8;
@@ -675,7 +674,7 @@ function spawnFromQueue() {
   for (let i = 0; i < ring.length; i++) {
     const d = Math.hypot(ring[i][0] - player.pos.x, ring[i][1] - player.pos.z);
     // sweet spot: 18-35m from player
-    const score = -Math.abs(d - 26) - Math.random() * 6;
+    const score = CORE.spawnCandidateScore(d, CORE.WAVE_SPAWN_SWEET_SPOT, Math.random());
     if (score > bestScore) { bestScore = score; best = i; }
   }
   const sp = ring[best];
@@ -684,8 +683,8 @@ function spawnFromQueue() {
   // Resample, then fall back to the unjittered ring point.
   let x = sp[0], z = sp[1];
   for (let attempt = 0; attempt < 8; attempt++) {
-    const jx = sp[0] + (Math.random() - 0.5) * 6;
-    const jz = sp[1] + (Math.random() - 0.5) * 6;
+    const jx = sp[0] + (Math.random() - 0.5) * CORE.WAVE_SPAWN_JITTER;
+    const jz = sp[1] + (Math.random() - 0.5) * CORE.WAVE_SPAWN_JITTER;
     if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
   }
   // A special wave draws from its own kind list, falling back to the normal table

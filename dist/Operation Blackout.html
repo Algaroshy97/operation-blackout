@@ -9758,6 +9758,166 @@ const CORE = (function () {
     return o;
   }
 
+  // ---- Combat Balance & Wave Pacing Dynamics ----
+  const WAVE_SPAWN_PRESSURE_QUEUE = 18;
+  const WAVE_SPAWN_SWEET_SPOT = 26;
+  const WAVE_SPAWN_JITTER = 6;
+  const AMMO_RELIEF_DRY_THRESHOLD = 5;
+  const AMMO_RELIEF_COOLDOWN = 18;
+  const ENEMY_BULLET_DELAY_FACTOR = 2.2;
+  const ENEMY_BULLET_MAX_DELAY_MS = 300;
+  const ENEMY_MELEE_WINDUP_BASE = 0.25;
+  const ENEMY_MELEE_WINDUP_RANGE = 0.45;
+  const ENEMY_MELEE_FOLLOW_REACH_PADDING = 0.35;
+  const ENEMY_STUN_SPEED_MUL = 0.35;
+  const ENEMY_BLIND_YAW_RATE = 1.6;
+  const ENEMY_FALL_SPEED = 6;
+  const SLIDE_CANCEL_MIN_T = 0.12;
+  const SLIDE_TIMEOUT_T = 0.9;
+  const SLIDE_STOP_MIN_T = 0.25;
+  const STATION_HOLD_DECAY_RATE = 3;
+
+  function waveSpawnPressure(waveQueue, queueThreshold) {
+    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
+    const thresh = (typeof queueThreshold === 'number' && isFinite(queueThreshold)) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
+    return Math.min(1, q / thresh);
+  }
+
+  function waveSpawnBurstCount(waveQueue, canSpawn, pressure, randomVal) {
+    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
+    const maxCan = (typeof canSpawn === 'number' && isFinite(canSpawn)) ? Math.max(0, canSpawn) : 0;
+    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const randBase = Math.floor(Math.min(0.9999, r) * 2);
+    const burstSize = randBase + 3 + Math.round(press * 3);
+    return Math.min(burstSize, q, maxCan);
+  }
+
+  function waveSpawnDelay(pressure, randomVal) {
+    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return (2.5 - press * 1.4) + r * 1.2;
+  }
+
+  function spawnCandidateScore(dist, sweetSpot, randomVal) {
+    const d = (typeof dist === 'number' && isFinite(dist)) ? dist : 0;
+    const target = (typeof sweetSpot === 'number' && isFinite(sweetSpot)) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const res = -Math.abs(d - target) - r * WAVE_SPAWN_JITTER;
+    return res === 0 ? 0 : res;
+  }
+
+  function stepAmmoReliefTimer(dryT, dt, hasAmmo) {
+    if (hasAmmo) return 0;
+    const cur = (typeof dryT === 'number' && isFinite(dryT)) ? Math.max(0, dryT) : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? Math.max(0, dt) : 0;
+    return cur + delta;
+  }
+
+  function isAmmoReliefNeeded(waveActive, isDead, dryT, gameT, nextCacheT, threshold) {
+    if (!waveActive || isDead) return false;
+    const t = (typeof dryT === 'number' && isFinite(dryT)) ? dryT : 0;
+    const th = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : AMMO_RELIEF_DRY_THRESHOLD;
+    const gT = (typeof gameT === 'number' && isFinite(gameT)) ? gameT : 0;
+    const nextT = (typeof nextCacheT === 'number' && isFinite(nextCacheT)) ? nextCacheT : 0;
+    return t > th && gT > nextT;
+  }
+
+  function enemyBulletTravelDelay(dist, factor, maxDelay) {
+    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0, dist) : 0;
+    const f = (typeof factor === 'number' && isFinite(factor)) ? factor : ENEMY_BULLET_DELAY_FACTOR;
+    const cap = (typeof maxDelay === 'number' && isFinite(maxDelay)) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS;
+    return Math.min(cap, d * f);
+  }
+
+  function enemyRangedNextShot(currentT, rangedRof, randomVal) {
+    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
+    const rof = (typeof rangedRof === 'number' && isFinite(rangedRof)) ? rangedRof : 1.35;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return t + rof * (0.75 + r * 0.5);
+  }
+
+  function enemyMeleeWindup(randomVal) {
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return ENEMY_MELEE_WINDUP_BASE + r * ENEMY_MELEE_WINDUP_RANGE;
+  }
+
+  function enemyAttackReadyTime(currentT, baseCooldown, randomVal) {
+    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
+    const cd = (typeof baseCooldown === 'number' && isFinite(baseCooldown)) ? baseCooldown : 1.1;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return t + cd + r * 0.5;
+  }
+
+  function enemyKillImpulse(lastHitForce, isHead, randomVal, out) {
+    const o = out || { force: 0, y: 0 };
+    const forceVal = (typeof lastHitForce === 'number' && isFinite(lastHitForce)) ? Math.max(0, lastHitForce) : 20;
+    o.force = Math.min(0.085, 0.012 + forceVal * 0.00035);
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    o.y = (isHead ? 0.030 : 0.016) + r * 0.008;
+    return o;
+  }
+
+  function enemyStunSpeedMultiplier(baseSpeedMul, isStunned) {
+    const base = (typeof baseSpeedMul === 'number' && isFinite(baseSpeedMul)) ? baseSpeedMul : 1;
+    return isStunned ? base * ENEMY_STUN_SPEED_MUL : base;
+  }
+
+  function stepEnemyBlindYaw(yaw, dt, rate) {
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const r = (typeof rate === 'number' && isFinite(rate)) ? rate : ENEMY_BLIND_YAW_RATE;
+    return y + delta * r;
+  }
+
+  function stepEnemyFallY(currentY, floorY, dt, fallSpeed, stepH) {
+    const cy = (typeof currentY === 'number' && isFinite(currentY)) ? currentY : 0;
+    const fy = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const spd = (typeof fallSpeed === 'number' && isFinite(fallSpeed)) ? fallSpeed : ENEMY_FALL_SPEED;
+    const step = (typeof stepH === 'number' && isFinite(stepH)) ? stepH : 0.60;
+    if (fy < cy) {
+      const needed = cy - fy;
+      return cy - Math.min(needed, delta * spd);
+    } else if (fy > cy && (fy - cy) <= step) {
+      const needed = fy - cy;
+      return cy + Math.min(needed, delta * spd);
+    }
+    return cy;
+  }
+
+  function canSlideCancel(slideT, minDuration) {
+    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
+    const minT = (typeof minDuration === 'number' && isFinite(minDuration)) ? minDuration : SLIDE_CANCEL_MIN_T;
+    return t > minT;
+  }
+
+  function isSlideExpired(slideT, isCrouchHeld, hasMoveInput, maxDuration, minMoveDuration) {
+    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
+    const maxT = (typeof maxDuration === 'number' && isFinite(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T;
+    const minMoveT = (typeof minMoveDuration === 'number' && isFinite(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T;
+    if (t > maxT) return true;
+    if (!isCrouchHeld) return true;
+    if (!hasMoveInput && t > minMoveT) return true;
+    return false;
+  }
+
+  function stepStationHold(holdT, isHolding, dt, decayRate, buyHold) {
+    const cur = (typeof holdT === 'number' && isFinite(holdT)) ? Math.max(0, holdT) : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const maxHold = (typeof buyHold === 'number' && isFinite(buyHold)) ? buyHold : BUY_HOLD;
+    if (isHolding) {
+      return Math.min(maxHold, cur + delta);
+    }
+    const dec = (typeof decayRate === 'number' && isFinite(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE;
+    return Math.max(0, cur - delta * dec);
+  }
+
+  function weaponFireInterval(rpm) {
+    const r = (typeof rpm === 'number' && isFinite(rpm) && rpm > 0) ? rpm : 600;
+    return 60 / r;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -10431,7 +10591,42 @@ const CORE = (function () {
     stepEnemyProcWalkPhase: stepEnemyProcWalkPhase,
     enemyProcLimbSwing: enemyProcLimbSwing,
     enemyProcPitchTrack: enemyProcPitchTrack,
-    enemyProcPose: enemyProcPose
+    enemyProcPose: enemyProcPose,
+    WAVE_SPAWN_PRESSURE_QUEUE: WAVE_SPAWN_PRESSURE_QUEUE,
+    WAVE_SPAWN_SWEET_SPOT: WAVE_SPAWN_SWEET_SPOT,
+    WAVE_SPAWN_JITTER: WAVE_SPAWN_JITTER,
+    AMMO_RELIEF_DRY_THRESHOLD: AMMO_RELIEF_DRY_THRESHOLD,
+    AMMO_RELIEF_COOLDOWN: AMMO_RELIEF_COOLDOWN,
+    ENEMY_BULLET_DELAY_FACTOR: ENEMY_BULLET_DELAY_FACTOR,
+    ENEMY_BULLET_MAX_DELAY_MS: ENEMY_BULLET_MAX_DELAY_MS,
+    ENEMY_MELEE_WINDUP_BASE: ENEMY_MELEE_WINDUP_BASE,
+    ENEMY_MELEE_WINDUP_RANGE: ENEMY_MELEE_WINDUP_RANGE,
+    ENEMY_MELEE_FOLLOW_REACH_PADDING: ENEMY_MELEE_FOLLOW_REACH_PADDING,
+    ENEMY_STUN_SPEED_MUL: ENEMY_STUN_SPEED_MUL,
+    ENEMY_BLIND_YAW_RATE: ENEMY_BLIND_YAW_RATE,
+    ENEMY_FALL_SPEED: ENEMY_FALL_SPEED,
+    SLIDE_CANCEL_MIN_T: SLIDE_CANCEL_MIN_T,
+    SLIDE_TIMEOUT_T: SLIDE_TIMEOUT_T,
+    SLIDE_STOP_MIN_T: SLIDE_STOP_MIN_T,
+    STATION_HOLD_DECAY_RATE: STATION_HOLD_DECAY_RATE,
+    waveSpawnPressure: waveSpawnPressure,
+    waveSpawnBurstCount: waveSpawnBurstCount,
+    waveSpawnDelay: waveSpawnDelay,
+    spawnCandidateScore: spawnCandidateScore,
+    stepAmmoReliefTimer: stepAmmoReliefTimer,
+    isAmmoReliefNeeded: isAmmoReliefNeeded,
+    enemyBulletTravelDelay: enemyBulletTravelDelay,
+    enemyRangedNextShot: enemyRangedNextShot,
+    enemyMeleeWindup: enemyMeleeWindup,
+    enemyAttackReadyTime: enemyAttackReadyTime,
+    enemyKillImpulse: enemyKillImpulse,
+    enemyStunSpeedMultiplier: enemyStunSpeedMultiplier,
+    stepEnemyBlindYaw: stepEnemyBlindYaw,
+    stepEnemyFallY: stepEnemyFallY,
+    canSlideCancel: canSlideCancel,
+    isSlideExpired: isSlideExpired,
+    stepStationHold: stepStationHold,
+    weaponFireInterval: weaponFireInterval
   };
 })();
 
@@ -12154,14 +12349,14 @@ function updatePlayer(dt) {
     // except releasing crouch, which removed the one piece of movement tech that
     // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
     // cannot also cancel it on the same frame.
-    if (player.slideT > 0.12 && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
+    if (CORE.canSlideCancel(player.slideT, CORE.SLIDE_CANCEL_MIN_T) && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
       player.sliding = false;
       player.crouching = !!crouchKey;
       playSound(CORE.slideCancelSound());
       spawnSlideDust(player.pos);
     }
     // slide ends: timeout, released crouch, or stopped
-    if (player.slideT > 0.9 || !crouchKey || (movingInput === false && player.slideT > 0.25)) {
+    if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, CORE.SLIDE_TIMEOUT_T, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos);
@@ -12935,7 +13130,7 @@ function updateWeapons(dt) {
   if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (fireClockT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
-        : CORE.advanceShotSchedule(fireClockT, s.nextShot, 60 / w.rpm, MAX_FIRE_CATCHUP_SHOTS).shots;
+        : CORE.advanceShotSchedule(fireClockT, s.nextShot, CORE.weaponFireInterval(w.rpm), MAX_FIRE_CATCHUP_SHOTS).shots;
       if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
       while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
       if (s.ammo === 0 && s.reserve > 0) tryReload();
@@ -13062,7 +13257,7 @@ function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
   s.ammo--;
-  const interval = 60 / w.rpm;
+  const interval = CORE.weaponFireInterval(w.rpm);
   s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : fireClockT + interval;
   // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
@@ -14822,16 +15017,18 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   }
 }
 
+const _killImpulseOut = { force: 0, y: 0 };
+
 function killEnemy(en, isHead) {
   en.dead = true; en.deathT = 0;
   // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
   // rather than firing it across the arena.
-  const force = Math.min(0.085, 0.012 + (en._lastHitForce || 20) * 0.00035);
+  const impulse = CORE.enemyKillImpulse(en._lastHitForce, isHead, Math.random(), _killImpulseOut);
   spawnRagdoll(en, {
     node: en._lastHitNode || 'chest',
-    x: (en._lastHitDirX || 0) * force,
-    y: (isHead ? 0.030 : 0.016) + Math.random() * 0.008,
-    z: (en._lastHitDirZ || 0) * force,
+    x: (en._lastHitDirX || 0) * impulse.force,
+    y: impulse.y,
+    z: (en._lastHitDirZ || 0) * impulse.force,
     spread: 0.3
   });
   const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
@@ -14957,14 +15154,7 @@ function moveEnemy(en, dt) {
 
   // Vertical resolve: find highest floor below feet + stepH
   const floorY = CORE.findFloorY(en.pos.x, en.pos.z, 0, colliders, en.pos.y, stepH, GROUND);
-  const fallSpeed = 6;
-  if (floorY < en.pos.y) {
-    const needed = en.pos.y - floorY;
-    en.pos.y -= Math.min(needed, dt * fallSpeed);
-  } else if (floorY > en.pos.y && (floorY - en.pos.y) <= stepH) {
-    const needed = floorY - en.pos.y;
-    en.pos.y += Math.min(needed, dt * fallSpeed);
-  }
+  en.pos.y = CORE.stepEnemyFallY(en.pos.y, floorY, dt, CORE.ENEMY_FALL_SPEED, stepH);
 }
 
 // LOS check: ray from enemy eye to player eye against static world
@@ -15043,14 +15233,14 @@ function updateStatusEffects(dt) {
       en.stunT = Math.max(0, en.stunT - dt);
       en.speedMul = en.baseSpeedMul === undefined ? (en.speedMul || 1) : en.baseSpeedMul;
       if (en.baseSpeedMul === undefined) en.baseSpeedMul = en.speedMul;
-      en.speedMul = en.baseSpeedMul * 0.35;
+      en.speedMul = CORE.enemyStunSpeedMultiplier(en.baseSpeedMul, true);
     } else if (en.baseSpeedMul !== undefined) {
       en.speedMul = en.baseSpeedMul;
       en.baseSpeedMul = undefined;
     }
     if (en.blindT > 0) {
       en.blindT = Math.max(0, en.blindT - dt);
-      en.yaw += dt * 1.6;          // wanders instead of holding an aim
+      en.yaw = CORE.stepEnemyBlindYaw(en.yaw, dt, CORE.ENEMY_BLIND_YAW_RATE);
     }
   }
 }
@@ -15174,14 +15364,13 @@ function updateEnemies(dt) {
     if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
-      const stagger = 0.25 + Math.random() * 0.45;
-      en.swinging = stagger;                   // windup (telegraphed)
+      en.swinging = CORE.enemyMeleeWindup(Math.random());
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
         // swing lands — only if still in reach and player alive
-        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + 0.35) && !player.dead) {
+        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
@@ -15191,7 +15380,7 @@ function updateEnemies(dt) {
           }
         }
         en.swinging = -1;                        // cooldown marker
-        en.attackReadyT = gameT + CORE.enemyAttackCooldown(en.kind) + Math.random() * 0.5;
+        en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.kind), Math.random());
       }
       if (en.swinging <= -1 - 0.01) en.swinging = undefined;
     }
@@ -15205,7 +15394,7 @@ function updateEnemies(dt) {
           en.burst--;
           en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
         } else {
-          en.nextShot = gameT + CFG.ai.rangedROF * (0.75 + Math.random() * 0.5);
+          en.nextShot = CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random());
         }
         enemyShoot(en, dist);
       } else {
@@ -15346,7 +15535,7 @@ function enemyShoot(en, dist) {
       if (CORE.smokeBlocks(ox, oy, oz,
           player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
       damagePlayer(dmg, hitDeg);
-    }, Math.min(300, dist * 2.2));
+    }, CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS));
   }
 }
 
@@ -17787,14 +17976,10 @@ function updateStations(dt) {
   const offer = stationOffer(st);
   const canAfford = offer.ok && credits >= offer.price;
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
-  if (holding) {
-    stationHoldT += dt;
-    if (stationHoldT >= CORE.BUY_HOLD) {
-      stationHoldT = 0;
-      purchase(st);
-    }
-  } else if (stationHoldT > 0) {
-    stationHoldT = Math.max(0, stationHoldT - dt * 3);
+  stationHoldT = CORE.stepStationHold(stationHoldT, holding, dt, CORE.STATION_HOLD_DECAY_RATE, CORE.BUY_HOLD);
+  if (holding && stationHoldT >= CORE.BUY_HOLD) {
+    stationHoldT = 0;
+    purchase(st);
   }
   if (isTouch) {
     updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action);
@@ -18793,13 +18978,12 @@ function updateWaves(dt) {
           // Burst size and cadence scale with how much of the wave is still
           // queued: wave 15 used to need ~37 s of pure spawn gating before kill
           // time, which read as slow rather than climactic.
-          const pressure = Math.min(1, waveQueue / 18);
-          const burstSize = Math.floor(Math.random() * 2) + 3 + Math.round(pressure * 3);
-          const count = Math.min(burstSize, waveQueue, canSpawn);
+          const pressure = CORE.waveSpawnPressure(waveQueue, CORE.WAVE_SPAWN_PRESSURE_QUEUE);
+          const count = CORE.waveSpawnBurstCount(waveQueue, canSpawn, pressure, Math.random());
           for (let i = 0; i < count; i++) {
             spawnFromQueue();
           }
-          spawnTimer = (2.5 - pressure * 1.4) + Math.random() * 1.2;
+          spawnTimer = CORE.waveSpawnDelay(pressure, Math.random());
         } else {
           spawnTimer = 0.5;
         }
@@ -18838,16 +19022,16 @@ let _hudEnemiesLeft = -1;
 // few seconds, so the floor does not depend on getting a kill first.
 let dryT = 0, nextCacheT = -99;
 function updateAmmoRelief(dt) {
-  if (!waveActive || player.dead) { dryT = 0; return; }
   let rounds = 0;
   for (let i = 0; i < wState.length; i++) {
     if (!wState[i] || weaponsOwned[i] < 0) continue;
     rounds += wState[i].ammo + wState[i].reserve;
   }
-  if (rounds > 0) { dryT = 0; return; }
-  dryT += dt;
-  if (dryT > 5 && gameT > nextCacheT) {
-    nextCacheT = gameT + 18;
+  const hasAmmo = rounds > 0;
+  dryT = CORE.stepAmmoReliefTimer(dryT, dt, hasAmmo);
+  if (hasAmmo || !waveActive || player.dead) return;
+  if (CORE.isAmmoReliefNeeded(waveActive, player.dead, dryT, gameT, nextCacheT, CORE.AMMO_RELIEF_DRY_THRESHOLD)) {
+    nextCacheT = gameT + CORE.AMMO_RELIEF_COOLDOWN;
     // just in front of the player, never inside geometry
     for (let a = 0; a < 8; a++) {
       const ang = player.yaw + Math.PI + a * 0.8;
@@ -18886,7 +19070,7 @@ function spawnFromQueue() {
   for (let i = 0; i < ring.length; i++) {
     const d = Math.hypot(ring[i][0] - player.pos.x, ring[i][1] - player.pos.z);
     // sweet spot: 18-35m from player
-    const score = -Math.abs(d - 26) - Math.random() * 6;
+    const score = CORE.spawnCandidateScore(d, CORE.WAVE_SPAWN_SWEET_SPOT, Math.random());
     if (score > bestScore) { bestScore = score; best = i; }
   }
   const sp = ring[best];
@@ -18895,8 +19079,8 @@ function spawnFromQueue() {
   // Resample, then fall back to the unjittered ring point.
   let x = sp[0], z = sp[1];
   for (let attempt = 0; attempt < 8; attempt++) {
-    const jx = sp[0] + (Math.random() - 0.5) * 6;
-    const jz = sp[1] + (Math.random() - 0.5) * 6;
+    const jx = sp[0] + (Math.random() - 0.5) * CORE.WAVE_SPAWN_JITTER;
+    const jz = sp[1] + (Math.random() - 0.5) * CORE.WAVE_SPAWN_JITTER;
     if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
   }
   // A special wave draws from its own kind list, falling back to the normal table

@@ -149,7 +149,7 @@ function updateWeapons(dt) {
   if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
     if (fireClockT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
-        : CORE.advanceShotSchedule(fireClockT, s.nextShot, 60 / w.rpm, MAX_FIRE_CATCHUP_SHOTS).shots;
+        : CORE.advanceShotSchedule(fireClockT, s.nextShot, CORE.weaponFireInterval(w.rpm), MAX_FIRE_CATCHUP_SHOTS).shots;
       if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
       while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
       if (s.ammo === 0 && s.reserve > 0) tryReload();
@@ -276,7 +276,7 @@ function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
   shotsFired++;
   s.ammo--;
-  const interval = 60 / w.rpm;
+  const interval = CORE.weaponFireInterval(w.rpm);
   s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : fireClockT + interval;
   // Spread now carries BLOOM: it grows with every shot toward a per-stance cap and
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and

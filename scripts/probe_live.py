@@ -2270,7 +2270,54 @@ def main() -> int:
         }""")
         checks.append(("buy-prompt-and-minimap-perf-rules", perf_rules_check))
 
-        # 54) Clean console throughout gameplay.
+        # 54) Wave spawn pacing, enemy combat execution, and mobility balance rules.
+        balance_rules_check = page.evaluate("""() => {
+            if (!CORE ||
+                typeof CORE.waveSpawnPressure !== 'function' ||
+                typeof CORE.waveSpawnBurstCount !== 'function' ||
+                typeof CORE.enemyBulletTravelDelay !== 'function' ||
+                typeof CORE.enemyMeleeWindup !== 'function' ||
+                typeof CORE.canSlideCancel !== 'function' ||
+                typeof CORE.isSlideExpired !== 'function' ||
+                typeof CORE.stepStationHold !== 'function' ||
+                typeof CORE.weaponFireInterval !== 'function') return false;
+
+            const constsOk = CORE.WAVE_SPAWN_PRESSURE_QUEUE === 18 &&
+                             CORE.WAVE_SPAWN_SWEET_SPOT === 26 &&
+                             CORE.AMMO_RELIEF_DRY_THRESHOLD === 5 &&
+                             CORE.ENEMY_BULLET_MAX_DELAY_MS === 300 &&
+                             CORE.SLIDE_CANCEL_MIN_T === 0.12 &&
+                             CORE.STATION_HOLD_DECAY_RATE === 3;
+
+            const wpOk = CORE.waveSpawnPressure(0) === 0 &&
+                         CORE.waveSpawnPressure(9) === 0.5 &&
+                         CORE.waveSpawnPressure(36) === 1;
+
+            const burstOk = CORE.waveSpawnBurstCount(10, 5, 0, 0) === 3 &&
+                            CORE.waveSpawnBurstCount(10, 5, 1, 0.9) === 5 &&
+                            CORE.waveSpawnBurstCount(1, 5, 1, 0.9) === 1;
+
+            const delayOk = CORE.enemyBulletTravelDelay(10) === 22 &&
+                            CORE.enemyBulletTravelDelay(200) === 300;
+
+            const meleeOk = CORE.enemyMeleeWindup(0) === 0.25 &&
+                            CORE.enemyAttackReadyTime(5, 1.0, 0) === 6.0;
+
+            const slideOk = CORE.canSlideCancel(0.10) === false &&
+                            CORE.canSlideCancel(0.15) === true &&
+                            CORE.isSlideExpired(0.95, true, true) === true &&
+                            CORE.isSlideExpired(0.5, true, true) === false;
+
+            const holdOk = Math.abs(CORE.stepStationHold(0, true, 0.2) - 0.2) < 1e-4 &&
+                           CORE.stepStationHold(0.5, false, 0.1, 3, 0.6) < 0.3;
+
+            const rpmOk = Math.abs(CORE.weaponFireInterval(600) - 0.1) < 1e-4;
+
+            return constsOk && wpOk && burstOk && delayOk && meleeOk && slideOk && holdOk && rpmOk;
+        }""")
+        checks.append(("wave-pacing-and-combat-balance-rules", balance_rules_check))
+
+        # 55) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

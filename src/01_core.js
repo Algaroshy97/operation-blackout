@@ -5078,6 +5078,166 @@ const CORE = (function () {
     return o;
   }
 
+  // ---- Combat Balance & Wave Pacing Dynamics ----
+  const WAVE_SPAWN_PRESSURE_QUEUE = 18;
+  const WAVE_SPAWN_SWEET_SPOT = 26;
+  const WAVE_SPAWN_JITTER = 6;
+  const AMMO_RELIEF_DRY_THRESHOLD = 5;
+  const AMMO_RELIEF_COOLDOWN = 18;
+  const ENEMY_BULLET_DELAY_FACTOR = 2.2;
+  const ENEMY_BULLET_MAX_DELAY_MS = 300;
+  const ENEMY_MELEE_WINDUP_BASE = 0.25;
+  const ENEMY_MELEE_WINDUP_RANGE = 0.45;
+  const ENEMY_MELEE_FOLLOW_REACH_PADDING = 0.35;
+  const ENEMY_STUN_SPEED_MUL = 0.35;
+  const ENEMY_BLIND_YAW_RATE = 1.6;
+  const ENEMY_FALL_SPEED = 6;
+  const SLIDE_CANCEL_MIN_T = 0.12;
+  const SLIDE_TIMEOUT_T = 0.9;
+  const SLIDE_STOP_MIN_T = 0.25;
+  const STATION_HOLD_DECAY_RATE = 3;
+
+  function waveSpawnPressure(waveQueue, queueThreshold) {
+    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
+    const thresh = (typeof queueThreshold === 'number' && isFinite(queueThreshold)) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
+    return Math.min(1, q / thresh);
+  }
+
+  function waveSpawnBurstCount(waveQueue, canSpawn, pressure, randomVal) {
+    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
+    const maxCan = (typeof canSpawn === 'number' && isFinite(canSpawn)) ? Math.max(0, canSpawn) : 0;
+    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const randBase = Math.floor(Math.min(0.9999, r) * 2);
+    const burstSize = randBase + 3 + Math.round(press * 3);
+    return Math.min(burstSize, q, maxCan);
+  }
+
+  function waveSpawnDelay(pressure, randomVal) {
+    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return (2.5 - press * 1.4) + r * 1.2;
+  }
+
+  function spawnCandidateScore(dist, sweetSpot, randomVal) {
+    const d = (typeof dist === 'number' && isFinite(dist)) ? dist : 0;
+    const target = (typeof sweetSpot === 'number' && isFinite(sweetSpot)) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const res = -Math.abs(d - target) - r * WAVE_SPAWN_JITTER;
+    return res === 0 ? 0 : res;
+  }
+
+  function stepAmmoReliefTimer(dryT, dt, hasAmmo) {
+    if (hasAmmo) return 0;
+    const cur = (typeof dryT === 'number' && isFinite(dryT)) ? Math.max(0, dryT) : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? Math.max(0, dt) : 0;
+    return cur + delta;
+  }
+
+  function isAmmoReliefNeeded(waveActive, isDead, dryT, gameT, nextCacheT, threshold) {
+    if (!waveActive || isDead) return false;
+    const t = (typeof dryT === 'number' && isFinite(dryT)) ? dryT : 0;
+    const th = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : AMMO_RELIEF_DRY_THRESHOLD;
+    const gT = (typeof gameT === 'number' && isFinite(gameT)) ? gameT : 0;
+    const nextT = (typeof nextCacheT === 'number' && isFinite(nextCacheT)) ? nextCacheT : 0;
+    return t > th && gT > nextT;
+  }
+
+  function enemyBulletTravelDelay(dist, factor, maxDelay) {
+    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0, dist) : 0;
+    const f = (typeof factor === 'number' && isFinite(factor)) ? factor : ENEMY_BULLET_DELAY_FACTOR;
+    const cap = (typeof maxDelay === 'number' && isFinite(maxDelay)) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS;
+    return Math.min(cap, d * f);
+  }
+
+  function enemyRangedNextShot(currentT, rangedRof, randomVal) {
+    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
+    const rof = (typeof rangedRof === 'number' && isFinite(rangedRof)) ? rangedRof : 1.35;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return t + rof * (0.75 + r * 0.5);
+  }
+
+  function enemyMeleeWindup(randomVal) {
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return ENEMY_MELEE_WINDUP_BASE + r * ENEMY_MELEE_WINDUP_RANGE;
+  }
+
+  function enemyAttackReadyTime(currentT, baseCooldown, randomVal) {
+    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
+    const cd = (typeof baseCooldown === 'number' && isFinite(baseCooldown)) ? baseCooldown : 1.1;
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    return t + cd + r * 0.5;
+  }
+
+  function enemyKillImpulse(lastHitForce, isHead, randomVal, out) {
+    const o = out || { force: 0, y: 0 };
+    const forceVal = (typeof lastHitForce === 'number' && isFinite(lastHitForce)) ? Math.max(0, lastHitForce) : 20;
+    o.force = Math.min(0.085, 0.012 + forceVal * 0.00035);
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    o.y = (isHead ? 0.030 : 0.016) + r * 0.008;
+    return o;
+  }
+
+  function enemyStunSpeedMultiplier(baseSpeedMul, isStunned) {
+    const base = (typeof baseSpeedMul === 'number' && isFinite(baseSpeedMul)) ? baseSpeedMul : 1;
+    return isStunned ? base * ENEMY_STUN_SPEED_MUL : base;
+  }
+
+  function stepEnemyBlindYaw(yaw, dt, rate) {
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const r = (typeof rate === 'number' && isFinite(rate)) ? rate : ENEMY_BLIND_YAW_RATE;
+    return y + delta * r;
+  }
+
+  function stepEnemyFallY(currentY, floorY, dt, fallSpeed, stepH) {
+    const cy = (typeof currentY === 'number' && isFinite(currentY)) ? currentY : 0;
+    const fy = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const spd = (typeof fallSpeed === 'number' && isFinite(fallSpeed)) ? fallSpeed : ENEMY_FALL_SPEED;
+    const step = (typeof stepH === 'number' && isFinite(stepH)) ? stepH : 0.60;
+    if (fy < cy) {
+      const needed = cy - fy;
+      return cy - Math.min(needed, delta * spd);
+    } else if (fy > cy && (fy - cy) <= step) {
+      const needed = fy - cy;
+      return cy + Math.min(needed, delta * spd);
+    }
+    return cy;
+  }
+
+  function canSlideCancel(slideT, minDuration) {
+    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
+    const minT = (typeof minDuration === 'number' && isFinite(minDuration)) ? minDuration : SLIDE_CANCEL_MIN_T;
+    return t > minT;
+  }
+
+  function isSlideExpired(slideT, isCrouchHeld, hasMoveInput, maxDuration, minMoveDuration) {
+    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
+    const maxT = (typeof maxDuration === 'number' && isFinite(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T;
+    const minMoveT = (typeof minMoveDuration === 'number' && isFinite(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T;
+    if (t > maxT) return true;
+    if (!isCrouchHeld) return true;
+    if (!hasMoveInput && t > minMoveT) return true;
+    return false;
+  }
+
+  function stepStationHold(holdT, isHolding, dt, decayRate, buyHold) {
+    const cur = (typeof holdT === 'number' && isFinite(holdT)) ? Math.max(0, holdT) : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const maxHold = (typeof buyHold === 'number' && isFinite(buyHold)) ? buyHold : BUY_HOLD;
+    if (isHolding) {
+      return Math.min(maxHold, cur + delta);
+    }
+    const dec = (typeof decayRate === 'number' && isFinite(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE;
+    return Math.max(0, cur - delta * dec);
+  }
+
+  function weaponFireInterval(rpm) {
+    const r = (typeof rpm === 'number' && isFinite(rpm) && rpm > 0) ? rpm : 600;
+    return 60 / r;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -5751,7 +5911,42 @@ const CORE = (function () {
     stepEnemyProcWalkPhase: stepEnemyProcWalkPhase,
     enemyProcLimbSwing: enemyProcLimbSwing,
     enemyProcPitchTrack: enemyProcPitchTrack,
-    enemyProcPose: enemyProcPose
+    enemyProcPose: enemyProcPose,
+    WAVE_SPAWN_PRESSURE_QUEUE: WAVE_SPAWN_PRESSURE_QUEUE,
+    WAVE_SPAWN_SWEET_SPOT: WAVE_SPAWN_SWEET_SPOT,
+    WAVE_SPAWN_JITTER: WAVE_SPAWN_JITTER,
+    AMMO_RELIEF_DRY_THRESHOLD: AMMO_RELIEF_DRY_THRESHOLD,
+    AMMO_RELIEF_COOLDOWN: AMMO_RELIEF_COOLDOWN,
+    ENEMY_BULLET_DELAY_FACTOR: ENEMY_BULLET_DELAY_FACTOR,
+    ENEMY_BULLET_MAX_DELAY_MS: ENEMY_BULLET_MAX_DELAY_MS,
+    ENEMY_MELEE_WINDUP_BASE: ENEMY_MELEE_WINDUP_BASE,
+    ENEMY_MELEE_WINDUP_RANGE: ENEMY_MELEE_WINDUP_RANGE,
+    ENEMY_MELEE_FOLLOW_REACH_PADDING: ENEMY_MELEE_FOLLOW_REACH_PADDING,
+    ENEMY_STUN_SPEED_MUL: ENEMY_STUN_SPEED_MUL,
+    ENEMY_BLIND_YAW_RATE: ENEMY_BLIND_YAW_RATE,
+    ENEMY_FALL_SPEED: ENEMY_FALL_SPEED,
+    SLIDE_CANCEL_MIN_T: SLIDE_CANCEL_MIN_T,
+    SLIDE_TIMEOUT_T: SLIDE_TIMEOUT_T,
+    SLIDE_STOP_MIN_T: SLIDE_STOP_MIN_T,
+    STATION_HOLD_DECAY_RATE: STATION_HOLD_DECAY_RATE,
+    waveSpawnPressure: waveSpawnPressure,
+    waveSpawnBurstCount: waveSpawnBurstCount,
+    waveSpawnDelay: waveSpawnDelay,
+    spawnCandidateScore: spawnCandidateScore,
+    stepAmmoReliefTimer: stepAmmoReliefTimer,
+    isAmmoReliefNeeded: isAmmoReliefNeeded,
+    enemyBulletTravelDelay: enemyBulletTravelDelay,
+    enemyRangedNextShot: enemyRangedNextShot,
+    enemyMeleeWindup: enemyMeleeWindup,
+    enemyAttackReadyTime: enemyAttackReadyTime,
+    enemyKillImpulse: enemyKillImpulse,
+    enemyStunSpeedMultiplier: enemyStunSpeedMultiplier,
+    stepEnemyBlindYaw: stepEnemyBlindYaw,
+    stepEnemyFallY: stepEnemyFallY,
+    canSlideCancel: canSlideCancel,
+    isSlideExpired: isSlideExpired,
+    stepStationHold: stepStationHold,
+    weaponFireInterval: weaponFireInterval
   };
 })();
 

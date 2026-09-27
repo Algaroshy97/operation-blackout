@@ -230,14 +230,14 @@ function updatePlayer(dt) {
     // except releasing crouch, which removed the one piece of movement tech that
     // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
     // cannot also cancel it on the same frame.
-    if (player.slideT > 0.12 && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
+    if (CORE.canSlideCancel(player.slideT, CORE.SLIDE_CANCEL_MIN_T) && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
       player.sliding = false;
       player.crouching = !!crouchKey;
       playSound(CORE.slideCancelSound());
       spawnSlideDust(player.pos);
     }
     // slide ends: timeout, released crouch, or stopped
-    if (player.slideT > 0.9 || !crouchKey || (movingInput === false && player.slideT > 0.25)) {
+    if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, CORE.SLIDE_TIMEOUT_T, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos);

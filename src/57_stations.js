@@ -399,14 +399,10 @@ function updateStations(dt) {
   const offer = stationOffer(st);
   const canAfford = offer.ok && credits >= offer.price;
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
-  if (holding) {
-    stationHoldT += dt;
-    if (stationHoldT >= CORE.BUY_HOLD) {
-      stationHoldT = 0;
-      purchase(st);
-    }
-  } else if (stationHoldT > 0) {
-    stationHoldT = Math.max(0, stationHoldT - dt * 3);
+  stationHoldT = CORE.stepStationHold(stationHoldT, holding, dt, CORE.STATION_HOLD_DECAY_RATE, CORE.BUY_HOLD);
+  if (holding && stationHoldT >= CORE.BUY_HOLD) {
+    stationHoldT = 0;
+    purchase(st);
   }
   if (isTouch) {
     updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action);
