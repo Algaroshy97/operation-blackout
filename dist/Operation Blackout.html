@@ -9383,6 +9383,192 @@ const CORE = (function () {
     return maxO * Math.max(0, Math.min(1, remainingT / life));
   }
 
+  // ---- Shell Casings Dynamics & Tactical Viewmodel Kinematics (v98) ----
+  const CASING_MAX = 24;
+  const CASING_LIFETIME = 2.2;
+  const CASING_FADE_DURATION = 0.35;
+  const CASING_FLOOR_Y = 0.02;
+  const CASING_GRAVITY = 12;
+  const CASING_BOUNCE = 0.35;
+  const CASING_FRICTION = 0.5;
+  const CASING_SPIN_DAMP = 0.4;
+  const CASING_REST_SPEED = 0.6;
+  const CASING_SND_GAP = 0.09;
+  const VIEWMODEL_MANTLE_IN_RATE = 8;
+  const VIEWMODEL_MANTLE_OUT_RATE = 5;
+
+  function casingScale(life, maxLife, fadeDur) {
+    const dur = typeof fadeDur === 'number' && isFinite(fadeDur) && fadeDur > 0 ? fadeDur : CASING_FADE_DURATION;
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0.001;
+    if (life >= dur) return 1.0;
+    const t = Math.max(0, Math.min(1, life / dur));
+    return Math.max(0.001, t * t * (3 - 2 * t));
+  }
+
+  function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const rMul = typeof randMul === 'number' && isFinite(randMul) ? randMul : 0;
+    const rY = typeof randY === 'number' && isFinite(randY) ? randY : 0;
+    const speed = 1.6 + rMul;
+    const rx = typeof rightX === 'number' && isFinite(rightX) ? rightX : 0;
+    const ry = typeof rightY === 'number' && isFinite(rightY) ? rightY : 0;
+    const rz = typeof rightZ === 'number' && isFinite(rightZ) ? rightZ : 0;
+    o.x = rx * speed;
+    o.y = ry * speed + 1.4 + rY;
+    o.z = rz * speed;
+    return o;
+  }
+
+  function stepCasingPhysics(posX, posY, posZ, vx, vy, vz, spinX, spinY, spinZ, dt, grav, bounce, fric, spinDamp, floorY, restSpd, out) {
+    const o = out || { x: posX, y: posY, z: posZ, vx: vx, vy: vy, vz: vz, spinX: spinX, spinY: spinY, spinZ: spinZ, rest: false, bounced: false };
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const g = typeof grav === 'number' && isFinite(grav) ? grav : CASING_GRAVITY;
+    const b = typeof bounce === 'number' && isFinite(bounce) ? bounce : CASING_BOUNCE;
+    const f = typeof fric === 'number' && isFinite(fric) ? fric : CASING_FRICTION;
+    const sd = typeof spinDamp === 'number' && isFinite(spinDamp) ? spinDamp : CASING_SPIN_DAMP;
+    const flY = typeof floorY === 'number' && isFinite(floorY) ? floorY : CASING_FLOOR_Y;
+    const rSpd = typeof restSpd === 'number' && isFinite(restSpd) ? restSpd : CASING_REST_SPEED;
+
+    let x = typeof posX === 'number' && isFinite(posX) ? posX : 0;
+    let y = typeof posY === 'number' && isFinite(posY) ? posY : 0;
+    let z = typeof posZ === 'number' && isFinite(posZ) ? posZ : 0;
+    let velX = typeof vx === 'number' && isFinite(vx) ? vx : 0;
+    let velY = typeof vy === 'number' && isFinite(vy) ? vy : 0;
+    let velZ = typeof vz === 'number' && isFinite(vz) ? vz : 0;
+    let spX = typeof spinX === 'number' && isFinite(spinX) ? spinX : 0;
+    let spY = typeof spinY === 'number' && isFinite(spinY) ? spinY : 0;
+    let spZ = typeof spinZ === 'number' && isFinite(spinZ) ? spinZ : 0;
+
+    velY -= g * delta;
+    x += velX * delta;
+    y += velY * delta;
+    z += velZ * delta;
+
+    let bounced = false;
+    let rest = false;
+
+    if (y <= flY) {
+      y = flY;
+      if (velY < -0.5) {
+        velY = -velY * b;
+        velX *= f;
+        velZ *= f;
+        spX *= sd;
+        spY *= sd;
+        spZ *= sd;
+        bounced = true;
+        if (Math.abs(velY) < rSpd) {
+          rest = true;
+          velX = 0; velY = 0; velZ = 0;
+          spX = 0; spY = 0; spZ = 0;
+        }
+      } else {
+        rest = true;
+        velX = 0; velY = 0; velZ = 0;
+        spX = 0; spY = 0; spZ = 0;
+      }
+    }
+
+    o.x = x; o.y = y; o.z = z;
+    o.vx = velX; o.vy = velY; o.vz = velZ;
+    o.spinX = spX; o.spinY = spY; o.spinZ = spZ;
+    o.bounced = bounced;
+    o.rest = rest;
+    return o;
+  }
+
+  function casingRestRotation(rotX, rotY, rotZ, out) {
+    const o = out || { rotX: 0, rotY: 0, rotZ: 0 };
+    const ry = typeof rotY === 'number' && isFinite(rotY) ? rotY : 0;
+    o.rotX = Math.PI * 0.5;
+    o.rotY = ry;
+    o.rotZ = 0;
+    return o;
+  }
+
+  function stepMeleeKnifePose(progress, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const sw = vmSmooth(0.1, 0.45, p);
+    const bump = vmBump(0, 1, p);
+    o.posX = 0.22 - sw * 0.36;
+    o.posY = -0.12 + bump * 0.06;
+    o.posZ = -0.3;
+    o.rotX = -0.2;
+    o.rotY = 0.9 - sw * 1.6;
+    o.rotZ = -0.9 + sw * 0.9;
+    return o;
+  }
+
+  function meleeGunDodgeOffsets(progress, out) {
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
+    o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0;
+    o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0;
+    o.rotZ = gunOut !== 0 ? gunOut * 0.4 : 0;
+    return o;
+  }
+
+  function stepViewmodelMantle(currentMantle, isMantling, dt, inRate, outRate) {
+    const cur = typeof currentMantle === 'number' && isFinite(currentMantle) ? currentMantle : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const inR = typeof inRate === 'number' && isFinite(inRate) && inRate > 0 ? inRate : VIEWMODEL_MANTLE_IN_RATE;
+    const outR = typeof outRate === 'number' && isFinite(outRate) && outRate > 0 ? outRate : VIEWMODEL_MANTLE_OUT_RATE;
+    if (isMantling) return Math.min(1, cur + delta * inR);
+    return Math.max(0, cur - delta * outR);
+  }
+
+  function viewmodelMantleOffsets(mantleAmount, out) {
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
+    const m = typeof mantleAmount === 'number' && isFinite(mantleAmount) ? Math.max(0, Math.min(1, mantleAmount)) : 0;
+    o.posY = m !== 0 ? -m * 0.18 : 0;
+    o.rotX = m !== 0 ? -m * 0.3 : 0;
+    o.rotZ = m !== 0 ? m * 0.5 : 0;
+    return o;
+  }
+
+  function reloadHandOffsets(progress, targetX, targetY, targetZ, restX, restY, restZ, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const hk = vmBump(0.08, 0.72, p);
+    const tx = typeof targetX === 'number' && isFinite(targetX) ? targetX : 0;
+    const tz = typeof targetZ === 'number' && isFinite(targetZ) ? targetZ : 0;
+    const rx = typeof restX === 'number' && isFinite(restX) ? restX : 0;
+    const rz = typeof restZ === 'number' && isFinite(restZ) ? restZ : 0;
+    o.posX = hk !== 0 ? (tx - rx - 0.01) * hk * 0.9 : 0;
+    o.posY = hk !== 0 ? -0.12 * hk : 0;
+    o.posZ = hk !== 0 ? (tz - rz + 0.15) * hk * 0.9 : 0;
+    return o;
+  }
+
+  function viewmodelLateralSpeed(velX, velZ, yaw) {
+    const vx = typeof velX === 'number' && isFinite(velX) ? velX : 0;
+    const vz = typeof velZ === 'number' && isFinite(velZ) ? velZ : 0;
+    const y = typeof yaw === 'number' && isFinite(yaw) ? yaw : 0;
+    return vx * Math.cos(y) - vz * Math.sin(y);
+  }
+
+  function stepViewmodelTilt(currentTilt, lateralVel, adsAmount, motionScale, dt) {
+    const cur = typeof currentTilt === 'number' && isFinite(currentTilt) ? currentTilt : 0;
+    const latV = typeof lateralVel === 'number' && isFinite(lateralVel) ? lateralVel : 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const target = -latV * 0.012 * (1 - ads * 0.7) * motion;
+    const blend = Math.min(1, 8 * delta);
+    return cur + (target - cur) * blend;
+  }
+
+  function viewmodelLookInertiaTarget(lookDelta, isPitch, adsAmount, motionScale) {
+    const d = typeof lookDelta === 'number' && isFinite(lookDelta) ? lookDelta : 0;
+    const sign = isPitch ? -1 : 1;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
+    const clamped = Math.max(-0.05, Math.min(0.05, sign * d * 1.6));
+    return clamped * (1 - ads * 0.75) * motion;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -9999,7 +10185,31 @@ const CORE = (function () {
     equipmentDeploySound: equipmentDeploySound,
     steadyAimBreathEvent: steadyAimBreathEvent,
     exhaustionSound: exhaustionSound,
-    slideCancelSound: slideCancelSound
+    slideCancelSound: slideCancelSound,
+    CASING_MAX: CASING_MAX,
+    CASING_LIFETIME: CASING_LIFETIME,
+    CASING_FADE_DURATION: CASING_FADE_DURATION,
+    CASING_FLOOR_Y: CASING_FLOOR_Y,
+    CASING_GRAVITY: CASING_GRAVITY,
+    CASING_BOUNCE: CASING_BOUNCE,
+    CASING_FRICTION: CASING_FRICTION,
+    CASING_SPIN_DAMP: CASING_SPIN_DAMP,
+    CASING_REST_SPEED: CASING_REST_SPEED,
+    CASING_SND_GAP: CASING_SND_GAP,
+    VIEWMODEL_MANTLE_IN_RATE: VIEWMODEL_MANTLE_IN_RATE,
+    VIEWMODEL_MANTLE_OUT_RATE: VIEWMODEL_MANTLE_OUT_RATE,
+    casingScale: casingScale,
+    casingEjectVelocity: casingEjectVelocity,
+    stepCasingPhysics: stepCasingPhysics,
+    casingRestRotation: casingRestRotation,
+    stepMeleeKnifePose: stepMeleeKnifePose,
+    meleeGunDodgeOffsets: meleeGunDodgeOffsets,
+    stepViewmodelMantle: stepViewmodelMantle,
+    viewmodelMantleOffsets: viewmodelMantleOffsets,
+    reloadHandOffsets: reloadHandOffsets,
+    viewmodelLateralSpeed: viewmodelLateralSpeed,
+    stepViewmodelTilt: stepViewmodelTilt,
+    viewmodelLookInertiaTarget: viewmodelLookInertiaTarget
   };
 })();
 
@@ -13321,6 +13531,10 @@ function kickViewmodel(w, tune) {
 // Semi-implicit Euler in fixed 1/120 s substeps: stiff springs stay stable even
 // when a hitch hands over the 0.1 s maximum frame step. Pure implementation in CORE.
 const _springOut = [0, 0];
+const _vmMantleOut = { posY: 0, rotX: 0, rotZ: 0 };
+const _vmHandOut = { posX: 0, posY: 0, posZ: 0 };
+const _vmKnifeOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+const _vmDodgeOut = { posY: 0, rotX: 0, rotZ: 0 };
 function stepSpring(x, v, target, k, c, dt) {
   return CORE.stepSpring(x, v, target, k, c, dt, _springOut);
 }
@@ -13346,8 +13560,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const lookDX = wrapAngle(player.yaw - vmSpring.lastYaw) * norm;
   const lookDY = (player.pitch - vmSpring.lastPitch) * norm;
   vmSpring.lastYaw = player.yaw; vmSpring.lastPitch = player.pitch;
-  const tx = Math.max(-0.05, Math.min(0.05, lookDX * 1.6)) * (1 - ads * 0.75) * motion;
-  const ty = Math.max(-0.05, Math.min(0.05, -lookDY * 1.6)) * (1 - ads * 0.75) * motion;
+  const tx = CORE.viewmodelLookInertiaTarget(lookDX, false, ads, motion);
+  const ty = CORE.viewmodelLookInertiaTarget(lookDY, true, ads, motion);
   let r = stepSpring(vmSpring.sx, vmSpring.vx, tx, 90, 11, dt); vmSpring.sx = r[0]; vmSpring.vx = r[1];
   r = stepSpring(vmSpring.sy, vmSpring.vy, ty, 90, 11, dt); vmSpring.sy = r[0]; vmSpring.vy = r[1];
   px += vmSpring.sx * 0.6; py += vmSpring.sy * 0.5;
@@ -13357,8 +13571,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   px += Math.sin(player.bobPhase) * 0.012 * bob;
   py += -Math.abs(Math.cos(player.bobPhase)) * 0.012 * bob;
   rz += Math.sin(player.bobPhase) * 0.02 * bob;
-  const latV = player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw);
-  vmSpring.tilt += (-latV * 0.012 * (1 - ads * 0.7) * motion - vmSpring.tilt) * Math.min(1, 8 * dt);
+  const latV = CORE.viewmodelLateralSpeed(player.vel.x, player.vel.z, player.yaw);
+  vmSpring.tilt = CORE.stepViewmodelTilt(vmSpring.tilt, latV, ads, motion, dt);
   rz += vmSpring.tilt;
   py += Math.sin(gameT * 1.7) * 0.0022 * hipK * motion;
   rx += Math.sin(gameT * 1.3) * 0.004 * hipK * motion;
@@ -13383,8 +13597,9 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const raise = 1 - gunSwitchT;
   py -= raise * raise * 0.3; rx -= raise * 0.6;
   // mantle: gun tucked away while climbing
-  vmSpring.mantle = player.mantleT > 0 ? Math.min(1, vmSpring.mantle + dt * 8) : Math.max(0, vmSpring.mantle - dt * 5);
-  py -= vmSpring.mantle * 0.18; rz += vmSpring.mantle * 0.5; rx -= vmSpring.mantle * 0.3;
+  vmSpring.mantle = CORE.stepViewmodelMantle(vmSpring.mantle, player.mantleT > 0, dt, CORE.VIEWMODEL_MANTLE_IN_RATE, CORE.VIEWMODEL_MANTLE_OUT_RATE);
+  CORE.viewmodelMantleOffsets(vmSpring.mantle, _vmMantleOut);
+  py += _vmMantleOut.posY; rz += _vmMantleOut.rotZ; rx += _vmMantleOut.rotX;
 
   // reload choreography: tilt, mag out / in, support hand fetches the fresh one
   if (P.mag && P.magRest) { P.mag.position.copy(P.magRest); P.mag.visible = true; }
@@ -13402,11 +13617,11 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       P.mag.visible = !(p > 0.3 && p < 0.45);
     }
     if (P.handL && P.handLRest) {
-      const hk = vmBump(0.08, 0.72, p);
       const target = P.magRest ? P.magRest : P.handLRest;
-      P.handL.position.x += (target.x - P.handLRest.x - 0.01) * hk * 0.9;
-      P.handL.position.y += -0.12 * hk;
-      P.handL.position.z += (target.z - P.handLRest.z + 0.15) * hk * 0.9;
+      CORE.reloadHandOffsets(p, target.x, target.y, target.z, P.handLRest.x, P.handLRest.y, P.handLRest.z, _vmHandOut);
+      P.handL.position.x += _vmHandOut.posX;
+      P.handL.position.y += _vmHandOut.posY;
+      P.handL.position.z += _vmHandOut.posZ;
     }
     if (s.ammo === 0) {
       boltBack = vmBump(0.78, 0.94, p);
@@ -13429,14 +13644,14 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   }
   // melee: gun ducks out, knife slashes across
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
-  const gunOut = meleeSwing > 0 ? vmBump(0, 1, mk) : 0;
-  py -= gunOut * 0.25; rx -= gunOut * 0.5; rz += gunOut * 0.4;
+  CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
+  py += _vmDodgeOut.posY; rx += _vmDodgeOut.rotX; rz += _vmDodgeOut.rotZ;
   if (knifeGroup) {
     knifeGroup.visible = meleeSwing > 0 && !player.dead;
     if (knifeGroup.visible) {
-      const sw = vmSmooth(0.1, 0.45, mk);
-      knifeGroup.position.set(0.22 - sw * 0.36, -0.12 + vmBump(0, 1, mk) * 0.06, -0.3);
-      knifeGroup.rotation.set(-0.2, 0.9 - sw * 1.6, -0.9 + sw * 0.9);
+      CORE.stepMeleeKnifePose(mk, _vmKnifeOut);
+      knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
+      knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
     }
   }
   // narrow screens: pull the hip pose toward the centre so the gun stays on screen
@@ -15709,53 +15924,104 @@ function spawnBlood(point, isHead) {
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
 const casings = [];
+const casingRecPool = [];
 const _casingRight = new THREE.Vector3();
 const _casingUp = new THREE.Vector3();
 const _casingFwd = new THREE.Vector3();
+const _casingVelOut = { x: 0, y: 0, z: 0 };
+const _casingPhysOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, spinZ: 0, rest: false, bounced: false };
+const _casingRotOut = { rotX: 0, rotY: 0, rotZ: 0 };
+
+function getCasingRecord(m, vx, vy, vz, sx, sy, sz) {
+  const r = casingRecPool.length > 0 ? casingRecPool.pop() : {
+    m: null, v: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, rest: false, ry: 0
+  };
+  r.m = m;
+  r.v.set(vx, vy, vz);
+  r.spin.set(sx, sy, sz);
+  r.life = CORE.CASING_LIFETIME;
+  r.rest = false;
+  r.ry = 0;
+  return r;
+}
+
+function releaseCasingRecord(c) {
+  if (!c) return;
+  if (c.m) {
+    scene.remove(c.m);
+    c.m.visible = false;
+    c.m.scale.set(1, 1, 1);
+    casingPool.push(c.m);
+    c.m = null;
+  }
+  casingRecPool.push(c);
+}
+
+function clearCasings() {
+  for (let i = 0; i < casings.length; i++) {
+    releaseCasingRecord(casings[i]);
+  }
+  casings.length = 0;
+}
+
 function spawnCasing(camPos, camQ) {
-  if (casings.length >= 24) {
+  if (casings.length >= CORE.CASING_MAX) {
     const old = casings.shift();
-    scene.remove(old.m);
-    old.m.visible = false;
-    casingPool.push(old.m);
+    releaseCasingRecord(old);
   }
   const m = getCasingMesh();
   m.position.copy(camPos);
+  m.scale.set(1, 1, 1);
   _casingRight.set(1, 0, 0).applyQuaternion(camQ);
   _casingUp.set(0, 1, 0).applyQuaternion(camQ);
   _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
   m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
   m.position.addScaledVector(_casingFwd, 0.3);
-  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(1.6 + Math.random());
-  v.y += 1.4 + Math.random();
-  const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
+  const vel = CORE.casingEjectVelocity(_casingRight.x, _casingRight.y, _casingRight.z, Math.random(), Math.random(), _casingVelOut);
+  const sx = Math.random() * 14 - 7, sy = Math.random() * 14 - 7, sz = Math.random() * 14 - 7;
   scene.add(m);
-  casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
+  casings.push(getCasingRecord(m, vel.x, vel.y, vel.z, sx, sy, sz));
 }
+
 function updateCasings(dt) {
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     c.life -= dt;
     if (c.life <= 0) {
-      scene.remove(c.m);
-      c.m.visible = false;
-      casingPool.push(c.m);
+      releaseCasingRecord(c);
       casings.splice(i, 1);
       continue;
     }
+    // Smooth visual despawn: shrink in final 0.35s to eliminate abrupt pop-out
+    if (c.life < CORE.CASING_FADE_DURATION) {
+      c.m.scale.setScalar(CORE.casingScale(c.life, CORE.CASING_LIFETIME, CORE.CASING_FADE_DURATION));
+    }
     if (!c.rest) {
-      c.v.y -= 12 * dt;
-      c.m.position.addScaledVector(c.v, dt);
-      c.m.rotation.x += c.spin.x * dt; c.m.rotation.y += c.spin.y * dt; c.m.rotation.z += c.spin.z * dt;
-      if (c.m.position.y <= 0.02) {
-        c.m.position.y = 0.02;
-        if (c.v.y < -0.5) {
-          c.v.y = -c.v.y * 0.35; c.v.x *= 0.5; c.v.z *= 0.5; c.spin.multiplyScalar(0.4);
-          const now = performance.now();
-          if (now - casingSndT > 90) { playSound('casing'); casingSndT = now; }  // tink (max ~11/s)
-          if (Math.abs(c.v.y) < 0.6) c.rest = true;
+      const p = CORE.stepCasingPhysics(
+        c.m.position.x, c.m.position.y, c.m.position.z,
+        c.v.x, c.v.y, c.v.z,
+        c.spin.x, c.spin.y, c.spin.z,
+        dt, CORE.CASING_GRAVITY, CORE.CASING_BOUNCE, CORE.CASING_FRICTION, CORE.CASING_SPIN_DAMP,
+        CORE.CASING_FLOOR_Y, CORE.CASING_REST_SPEED, _casingPhysOut
+      );
+      c.m.position.set(p.x, p.y, p.z);
+      c.v.set(p.vx, p.vy, p.vz);
+      c.spin.set(p.spinX, p.spinY, p.spinZ);
+      c.m.rotation.x += c.spin.x * dt;
+      c.m.rotation.y += c.spin.y * dt;
+      c.m.rotation.z += c.spin.z * dt;
+      if (p.bounced) {
+        const now = performance.now();
+        if (now - casingSndT > CORE.CASING_SND_GAP * 1000) {
+          playSound('casing');
+          casingSndT = now;
         }
-        else c.rest = true;
+      }
+      if (p.rest) {
+        c.rest = true;
+        // Realistic ground settle: spent casing rests horizontally on floor
+        CORE.casingRestRotation(c.m.rotation.x, c.m.rotation.y, c.m.rotation.z, _casingRotOut);
+        c.m.rotation.set(_casingRotOut.rotX, _casingRotOut.rotY, _casingRotOut.rotZ);
       }
     }
   }
@@ -18923,13 +19189,17 @@ function resetGame() {
     if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
   }
   vfx.blood.length = 0;
-  for (let i = casings.length - 1; i >= 0; i--) {
-    const c = casings[i];
-    scene.remove(c.m);
-    c.m.visible = false;
-    casingPool.push(c.m);
+  if (typeof clearCasings === 'function') {
+    clearCasings();
+  } else {
+    for (let i = casings.length - 1; i >= 0; i--) {
+      const c = casings[i];
+      scene.remove(c.m);
+      c.m.visible = false;
+      casingPool.push(c.m);
+    }
+    casings.length = 0;
   }
-  casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run

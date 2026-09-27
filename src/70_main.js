@@ -142,13 +142,17 @@ function resetGame() {
     if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
   }
   vfx.blood.length = 0;
-  for (let i = casings.length - 1; i >= 0; i--) {
-    const c = casings[i];
-    scene.remove(c.m);
-    c.m.visible = false;
-    casingPool.push(c.m);
+  if (typeof clearCasings === 'function') {
+    clearCasings();
+  } else {
+    for (let i = casings.length - 1; i >= 0; i--) {
+      const c = casings[i];
+      scene.remove(c.m);
+      c.m.visible = false;
+      casingPool.push(c.m);
+    }
+    casings.length = 0;
   }
-  casings.length = 0;
   grenades.count = CFG.grenade.count;
   grenades.cd = 0;
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run

@@ -4703,6 +4703,192 @@ const CORE = (function () {
     return maxO * Math.max(0, Math.min(1, remainingT / life));
   }
 
+  // ---- Shell Casings Dynamics & Tactical Viewmodel Kinematics (v98) ----
+  const CASING_MAX = 24;
+  const CASING_LIFETIME = 2.2;
+  const CASING_FADE_DURATION = 0.35;
+  const CASING_FLOOR_Y = 0.02;
+  const CASING_GRAVITY = 12;
+  const CASING_BOUNCE = 0.35;
+  const CASING_FRICTION = 0.5;
+  const CASING_SPIN_DAMP = 0.4;
+  const CASING_REST_SPEED = 0.6;
+  const CASING_SND_GAP = 0.09;
+  const VIEWMODEL_MANTLE_IN_RATE = 8;
+  const VIEWMODEL_MANTLE_OUT_RATE = 5;
+
+  function casingScale(life, maxLife, fadeDur) {
+    const dur = typeof fadeDur === 'number' && isFinite(fadeDur) && fadeDur > 0 ? fadeDur : CASING_FADE_DURATION;
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0.001;
+    if (life >= dur) return 1.0;
+    const t = Math.max(0, Math.min(1, life / dur));
+    return Math.max(0.001, t * t * (3 - 2 * t));
+  }
+
+  function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const rMul = typeof randMul === 'number' && isFinite(randMul) ? randMul : 0;
+    const rY = typeof randY === 'number' && isFinite(randY) ? randY : 0;
+    const speed = 1.6 + rMul;
+    const rx = typeof rightX === 'number' && isFinite(rightX) ? rightX : 0;
+    const ry = typeof rightY === 'number' && isFinite(rightY) ? rightY : 0;
+    const rz = typeof rightZ === 'number' && isFinite(rightZ) ? rightZ : 0;
+    o.x = rx * speed;
+    o.y = ry * speed + 1.4 + rY;
+    o.z = rz * speed;
+    return o;
+  }
+
+  function stepCasingPhysics(posX, posY, posZ, vx, vy, vz, spinX, spinY, spinZ, dt, grav, bounce, fric, spinDamp, floorY, restSpd, out) {
+    const o = out || { x: posX, y: posY, z: posZ, vx: vx, vy: vy, vz: vz, spinX: spinX, spinY: spinY, spinZ: spinZ, rest: false, bounced: false };
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const g = typeof grav === 'number' && isFinite(grav) ? grav : CASING_GRAVITY;
+    const b = typeof bounce === 'number' && isFinite(bounce) ? bounce : CASING_BOUNCE;
+    const f = typeof fric === 'number' && isFinite(fric) ? fric : CASING_FRICTION;
+    const sd = typeof spinDamp === 'number' && isFinite(spinDamp) ? spinDamp : CASING_SPIN_DAMP;
+    const flY = typeof floorY === 'number' && isFinite(floorY) ? floorY : CASING_FLOOR_Y;
+    const rSpd = typeof restSpd === 'number' && isFinite(restSpd) ? restSpd : CASING_REST_SPEED;
+
+    let x = typeof posX === 'number' && isFinite(posX) ? posX : 0;
+    let y = typeof posY === 'number' && isFinite(posY) ? posY : 0;
+    let z = typeof posZ === 'number' && isFinite(posZ) ? posZ : 0;
+    let velX = typeof vx === 'number' && isFinite(vx) ? vx : 0;
+    let velY = typeof vy === 'number' && isFinite(vy) ? vy : 0;
+    let velZ = typeof vz === 'number' && isFinite(vz) ? vz : 0;
+    let spX = typeof spinX === 'number' && isFinite(spinX) ? spinX : 0;
+    let spY = typeof spinY === 'number' && isFinite(spinY) ? spinY : 0;
+    let spZ = typeof spinZ === 'number' && isFinite(spinZ) ? spinZ : 0;
+
+    velY -= g * delta;
+    x += velX * delta;
+    y += velY * delta;
+    z += velZ * delta;
+
+    let bounced = false;
+    let rest = false;
+
+    if (y <= flY) {
+      y = flY;
+      if (velY < -0.5) {
+        velY = -velY * b;
+        velX *= f;
+        velZ *= f;
+        spX *= sd;
+        spY *= sd;
+        spZ *= sd;
+        bounced = true;
+        if (Math.abs(velY) < rSpd) {
+          rest = true;
+          velX = 0; velY = 0; velZ = 0;
+          spX = 0; spY = 0; spZ = 0;
+        }
+      } else {
+        rest = true;
+        velX = 0; velY = 0; velZ = 0;
+        spX = 0; spY = 0; spZ = 0;
+      }
+    }
+
+    o.x = x; o.y = y; o.z = z;
+    o.vx = velX; o.vy = velY; o.vz = velZ;
+    o.spinX = spX; o.spinY = spY; o.spinZ = spZ;
+    o.bounced = bounced;
+    o.rest = rest;
+    return o;
+  }
+
+  function casingRestRotation(rotX, rotY, rotZ, out) {
+    const o = out || { rotX: 0, rotY: 0, rotZ: 0 };
+    const ry = typeof rotY === 'number' && isFinite(rotY) ? rotY : 0;
+    o.rotX = Math.PI * 0.5;
+    o.rotY = ry;
+    o.rotZ = 0;
+    return o;
+  }
+
+  function stepMeleeKnifePose(progress, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const sw = vmSmooth(0.1, 0.45, p);
+    const bump = vmBump(0, 1, p);
+    o.posX = 0.22 - sw * 0.36;
+    o.posY = -0.12 + bump * 0.06;
+    o.posZ = -0.3;
+    o.rotX = -0.2;
+    o.rotY = 0.9 - sw * 1.6;
+    o.rotZ = -0.9 + sw * 0.9;
+    return o;
+  }
+
+  function meleeGunDodgeOffsets(progress, out) {
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
+    o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0;
+    o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0;
+    o.rotZ = gunOut !== 0 ? gunOut * 0.4 : 0;
+    return o;
+  }
+
+  function stepViewmodelMantle(currentMantle, isMantling, dt, inRate, outRate) {
+    const cur = typeof currentMantle === 'number' && isFinite(currentMantle) ? currentMantle : 0;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const inR = typeof inRate === 'number' && isFinite(inRate) && inRate > 0 ? inRate : VIEWMODEL_MANTLE_IN_RATE;
+    const outR = typeof outRate === 'number' && isFinite(outRate) && outRate > 0 ? outRate : VIEWMODEL_MANTLE_OUT_RATE;
+    if (isMantling) return Math.min(1, cur + delta * inR);
+    return Math.max(0, cur - delta * outR);
+  }
+
+  function viewmodelMantleOffsets(mantleAmount, out) {
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
+    const m = typeof mantleAmount === 'number' && isFinite(mantleAmount) ? Math.max(0, Math.min(1, mantleAmount)) : 0;
+    o.posY = m !== 0 ? -m * 0.18 : 0;
+    o.rotX = m !== 0 ? -m * 0.3 : 0;
+    o.rotZ = m !== 0 ? m * 0.5 : 0;
+    return o;
+  }
+
+  function reloadHandOffsets(progress, targetX, targetY, targetZ, restX, restY, restZ, out) {
+    const o = out || { posX: 0, posY: 0, posZ: 0 };
+    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const hk = vmBump(0.08, 0.72, p);
+    const tx = typeof targetX === 'number' && isFinite(targetX) ? targetX : 0;
+    const tz = typeof targetZ === 'number' && isFinite(targetZ) ? targetZ : 0;
+    const rx = typeof restX === 'number' && isFinite(restX) ? restX : 0;
+    const rz = typeof restZ === 'number' && isFinite(restZ) ? restZ : 0;
+    o.posX = hk !== 0 ? (tx - rx - 0.01) * hk * 0.9 : 0;
+    o.posY = hk !== 0 ? -0.12 * hk : 0;
+    o.posZ = hk !== 0 ? (tz - rz + 0.15) * hk * 0.9 : 0;
+    return o;
+  }
+
+  function viewmodelLateralSpeed(velX, velZ, yaw) {
+    const vx = typeof velX === 'number' && isFinite(velX) ? velX : 0;
+    const vz = typeof velZ === 'number' && isFinite(velZ) ? velZ : 0;
+    const y = typeof yaw === 'number' && isFinite(yaw) ? yaw : 0;
+    return vx * Math.cos(y) - vz * Math.sin(y);
+  }
+
+  function stepViewmodelTilt(currentTilt, lateralVel, adsAmount, motionScale, dt) {
+    const cur = typeof currentTilt === 'number' && isFinite(currentTilt) ? currentTilt : 0;
+    const latV = typeof lateralVel === 'number' && isFinite(lateralVel) ? lateralVel : 0;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
+    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const target = -latV * 0.012 * (1 - ads * 0.7) * motion;
+    const blend = Math.min(1, 8 * delta);
+    return cur + (target - cur) * blend;
+  }
+
+  function viewmodelLookInertiaTarget(lookDelta, isPitch, adsAmount, motionScale) {
+    const d = typeof lookDelta === 'number' && isFinite(lookDelta) ? lookDelta : 0;
+    const sign = isPitch ? -1 : 1;
+    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
+    const clamped = Math.max(-0.05, Math.min(0.05, sign * d * 1.6));
+    return clamped * (1 - ads * 0.75) * motion;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -5319,7 +5505,31 @@ const CORE = (function () {
     equipmentDeploySound: equipmentDeploySound,
     steadyAimBreathEvent: steadyAimBreathEvent,
     exhaustionSound: exhaustionSound,
-    slideCancelSound: slideCancelSound
+    slideCancelSound: slideCancelSound,
+    CASING_MAX: CASING_MAX,
+    CASING_LIFETIME: CASING_LIFETIME,
+    CASING_FADE_DURATION: CASING_FADE_DURATION,
+    CASING_FLOOR_Y: CASING_FLOOR_Y,
+    CASING_GRAVITY: CASING_GRAVITY,
+    CASING_BOUNCE: CASING_BOUNCE,
+    CASING_FRICTION: CASING_FRICTION,
+    CASING_SPIN_DAMP: CASING_SPIN_DAMP,
+    CASING_REST_SPEED: CASING_REST_SPEED,
+    CASING_SND_GAP: CASING_SND_GAP,
+    VIEWMODEL_MANTLE_IN_RATE: VIEWMODEL_MANTLE_IN_RATE,
+    VIEWMODEL_MANTLE_OUT_RATE: VIEWMODEL_MANTLE_OUT_RATE,
+    casingScale: casingScale,
+    casingEjectVelocity: casingEjectVelocity,
+    stepCasingPhysics: stepCasingPhysics,
+    casingRestRotation: casingRestRotation,
+    stepMeleeKnifePose: stepMeleeKnifePose,
+    meleeGunDodgeOffsets: meleeGunDodgeOffsets,
+    stepViewmodelMantle: stepViewmodelMantle,
+    viewmodelMantleOffsets: viewmodelMantleOffsets,
+    reloadHandOffsets: reloadHandOffsets,
+    viewmodelLateralSpeed: viewmodelLateralSpeed,
+    stepViewmodelTilt: stepViewmodelTilt,
+    viewmodelLookInertiaTarget: viewmodelLookInertiaTarget
   };
 })();
 

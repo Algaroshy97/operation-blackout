@@ -206,53 +206,104 @@ function spawnBlood(point, isHead) {
 // ---- Shell casings (eject on every shot) ----
 let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
 const casings = [];
+const casingRecPool = [];
 const _casingRight = new THREE.Vector3();
 const _casingUp = new THREE.Vector3();
 const _casingFwd = new THREE.Vector3();
+const _casingVelOut = { x: 0, y: 0, z: 0 };
+const _casingPhysOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, spinZ: 0, rest: false, bounced: false };
+const _casingRotOut = { rotX: 0, rotY: 0, rotZ: 0 };
+
+function getCasingRecord(m, vx, vy, vz, sx, sy, sz) {
+  const r = casingRecPool.length > 0 ? casingRecPool.pop() : {
+    m: null, v: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, rest: false, ry: 0
+  };
+  r.m = m;
+  r.v.set(vx, vy, vz);
+  r.spin.set(sx, sy, sz);
+  r.life = CORE.CASING_LIFETIME;
+  r.rest = false;
+  r.ry = 0;
+  return r;
+}
+
+function releaseCasingRecord(c) {
+  if (!c) return;
+  if (c.m) {
+    scene.remove(c.m);
+    c.m.visible = false;
+    c.m.scale.set(1, 1, 1);
+    casingPool.push(c.m);
+    c.m = null;
+  }
+  casingRecPool.push(c);
+}
+
+function clearCasings() {
+  for (let i = 0; i < casings.length; i++) {
+    releaseCasingRecord(casings[i]);
+  }
+  casings.length = 0;
+}
+
 function spawnCasing(camPos, camQ) {
-  if (casings.length >= 24) {
+  if (casings.length >= CORE.CASING_MAX) {
     const old = casings.shift();
-    scene.remove(old.m);
-    old.m.visible = false;
-    casingPool.push(old.m);
+    releaseCasingRecord(old);
   }
   const m = getCasingMesh();
   m.position.copy(camPos);
+  m.scale.set(1, 1, 1);
   _casingRight.set(1, 0, 0).applyQuaternion(camQ);
   _casingUp.set(0, 1, 0).applyQuaternion(camQ);
   _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
   m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
   m.position.addScaledVector(_casingFwd, 0.3);
-  const v = new THREE.Vector3().copy(_casingRight).multiplyScalar(1.6 + Math.random());
-  v.y += 1.4 + Math.random();
-  const spin = new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7);
+  const vel = CORE.casingEjectVelocity(_casingRight.x, _casingRight.y, _casingRight.z, Math.random(), Math.random(), _casingVelOut);
+  const sx = Math.random() * 14 - 7, sy = Math.random() * 14 - 7, sz = Math.random() * 14 - 7;
   scene.add(m);
-  casings.push({ m: m, v: v, spin: spin, life: 2.2, rest: false, ry: 0 });
+  casings.push(getCasingRecord(m, vel.x, vel.y, vel.z, sx, sy, sz));
 }
+
 function updateCasings(dt) {
   for (let i = casings.length - 1; i >= 0; i--) {
     const c = casings[i];
     c.life -= dt;
     if (c.life <= 0) {
-      scene.remove(c.m);
-      c.m.visible = false;
-      casingPool.push(c.m);
+      releaseCasingRecord(c);
       casings.splice(i, 1);
       continue;
     }
+    // Smooth visual despawn: shrink in final 0.35s to eliminate abrupt pop-out
+    if (c.life < CORE.CASING_FADE_DURATION) {
+      c.m.scale.setScalar(CORE.casingScale(c.life, CORE.CASING_LIFETIME, CORE.CASING_FADE_DURATION));
+    }
     if (!c.rest) {
-      c.v.y -= 12 * dt;
-      c.m.position.addScaledVector(c.v, dt);
-      c.m.rotation.x += c.spin.x * dt; c.m.rotation.y += c.spin.y * dt; c.m.rotation.z += c.spin.z * dt;
-      if (c.m.position.y <= 0.02) {
-        c.m.position.y = 0.02;
-        if (c.v.y < -0.5) {
-          c.v.y = -c.v.y * 0.35; c.v.x *= 0.5; c.v.z *= 0.5; c.spin.multiplyScalar(0.4);
-          const now = performance.now();
-          if (now - casingSndT > 90) { playSound('casing'); casingSndT = now; }  // tink (max ~11/s)
-          if (Math.abs(c.v.y) < 0.6) c.rest = true;
+      const p = CORE.stepCasingPhysics(
+        c.m.position.x, c.m.position.y, c.m.position.z,
+        c.v.x, c.v.y, c.v.z,
+        c.spin.x, c.spin.y, c.spin.z,
+        dt, CORE.CASING_GRAVITY, CORE.CASING_BOUNCE, CORE.CASING_FRICTION, CORE.CASING_SPIN_DAMP,
+        CORE.CASING_FLOOR_Y, CORE.CASING_REST_SPEED, _casingPhysOut
+      );
+      c.m.position.set(p.x, p.y, p.z);
+      c.v.set(p.vx, p.vy, p.vz);
+      c.spin.set(p.spinX, p.spinY, p.spinZ);
+      c.m.rotation.x += c.spin.x * dt;
+      c.m.rotation.y += c.spin.y * dt;
+      c.m.rotation.z += c.spin.z * dt;
+      if (p.bounced) {
+        const now = performance.now();
+        if (now - casingSndT > CORE.CASING_SND_GAP * 1000) {
+          playSound('casing');
+          casingSndT = now;
         }
-        else c.rest = true;
+      }
+      if (p.rest) {
+        c.rest = true;
+        // Realistic ground settle: spent casing rests horizontally on floor
+        CORE.casingRestRotation(c.m.rotation.x, c.m.rotation.y, c.m.rotation.z, _casingRotOut);
+        c.m.rotation.set(_casingRotOut.rotX, _casingRotOut.rotY, _casingRotOut.rotZ);
       }
     }
   }

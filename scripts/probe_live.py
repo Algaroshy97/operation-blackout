@@ -2163,7 +2163,73 @@ def main() -> int:
         }""")
         checks.append(("touch-jump-ads-and-steady-aim-mobile-rules", touch_polish_check))
 
-        # 52) Clean console throughout gameplay.
+        # 52) Casing dynamics, ground settling, smooth scale fade, and viewmodel kinematics visual rules.
+        visual_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.casingScale !== 'function' ||
+                typeof CORE.casingEjectVelocity !== 'function' ||
+                typeof CORE.stepCasingPhysics !== 'function' ||
+                typeof CORE.casingRestRotation !== 'function' ||
+                typeof CORE.stepMeleeKnifePose !== 'function' ||
+                typeof CORE.meleeGunDodgeOffsets !== 'function' ||
+                typeof CORE.stepViewmodelMantle !== 'function' ||
+                typeof CORE.viewmodelMantleOffsets !== 'function' ||
+                typeof CORE.reloadHandOffsets !== 'function' ||
+                typeof CORE.viewmodelLateralSpeed !== 'function' ||
+                typeof CORE.stepViewmodelTilt !== 'function' ||
+                typeof CORE.viewmodelLookInertiaTarget !== 'function') return false;
+
+            const constsOk = CORE.CASING_MAX === 24 &&
+                             CORE.CASING_LIFETIME === 2.2 &&
+                             CORE.CASING_FADE_DURATION === 0.35 &&
+                             CORE.CASING_FLOOR_Y === 0.02 &&
+                             CORE.CASING_GRAVITY === 12 &&
+                             CORE.CASING_BOUNCE === 0.35 &&
+                             CORE.CASING_FRICTION === 0.5 &&
+                             CORE.CASING_SPIN_DAMP === 0.4 &&
+                             CORE.CASING_REST_SPEED === 0.6 &&
+                             CORE.CASING_SND_GAP === 0.09 &&
+                             CORE.VIEWMODEL_MANTLE_IN_RATE === 8 &&
+                             CORE.VIEWMODEL_MANTLE_OUT_RATE === 5;
+
+            const scaleFull = CORE.casingScale(2.2, 2.2, 0.35) === 1.0;
+            const scaleFadeMid = Math.abs(CORE.casingScale(0.175, 2.2, 0.35) - 0.5) < 1e-4;
+            const scaleZero = CORE.casingScale(0, 2.2, 0.35) === 0.001;
+
+            const vel = CORE.casingEjectVelocity(1, 0, 0, 0.5, 0.5);
+            const velOk = Math.abs(vel.x - 2.1) < 1e-4 && Math.abs(vel.y - 1.9) < 1e-4;
+
+            const pOut = CORE.stepCasingPhysics(0, 0.05, 0, 1.0, -2.0, 0, 2.0, 0, 0, 0.05, 12, 0.35, 0.5, 0.4, 0.02, 0.6);
+            const bounceOk = pOut.y === 0.02 && pOut.bounced === true && Math.abs(pOut.vy - 0.91) < 1e-4;
+
+            const rot = CORE.casingRestRotation(0.2, 1.5, 0.8);
+            const rotOk = Math.abs(rot.rotX - Math.PI * 0.5) < 1e-4 && rot.rotY === 1.5 && rot.rotZ === 0;
+
+            const kPose = CORE.stepMeleeKnifePose(0.3);
+            const knifeOk = kPose.posZ === -0.3 && kPose.rotX === -0.2 && typeof kPose.posX === 'number';
+
+            const dMid = CORE.meleeGunDodgeOffsets(0.5);
+            const dodgeOk = Math.abs(dMid.posY - (-0.25)) < 1e-4 && Math.abs(dMid.rotX - (-0.5)) < 1e-4;
+
+            const mStep = CORE.stepViewmodelMantle(0, true, 0.05) === 0.4;
+            const mOffsets = CORE.viewmodelMantleOffsets(1.0);
+            const mantleOk = mStep && Math.abs(mOffsets.posY - (-0.18)) < 1e-4 && Math.abs(mOffsets.rotX - (-0.3)) < 1e-4;
+
+            const handRest = CORE.reloadHandOffsets(0, 0, 0, 0, 0, 0, 0);
+            const handOk = handRest.posX === 0 && handRest.posY === 0 && handRest.posZ === 0;
+
+            const latSpdOk = Math.abs(CORE.viewmodelLateralSpeed(5, 0, 0) - 5) < 1e-4;
+            const tiltOk = CORE.stepViewmodelTilt(0, 5, 0, 1, 0.05) < 0;
+            const lookOk = CORE.viewmodelLookInertiaTarget(0.02, false, 0, 1) > 0 &&
+                           CORE.viewmodelLookInertiaTarget(0.02, true, 0, 1) < 0;
+
+            return constsOk && scaleFull && scaleFadeMid && scaleZero &&
+                   velOk && bounceOk && rotOk && knifeOk && dodgeOk &&
+                   mantleOk && handOk && latSpdOk && tiltOk && lookOk;
+        }""")
+        checks.append(("casing-and-viewmodel-visual-polish-rules", visual_polish_check))
+
+        # 53) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

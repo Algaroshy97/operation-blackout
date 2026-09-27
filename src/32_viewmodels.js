@@ -424,6 +424,10 @@ function kickViewmodel(w, tune) {
 // Semi-implicit Euler in fixed 1/120 s substeps: stiff springs stay stable even
 // when a hitch hands over the 0.1 s maximum frame step. Pure implementation in CORE.
 const _springOut = [0, 0];
+const _vmMantleOut = { posY: 0, rotX: 0, rotZ: 0 };
+const _vmHandOut = { posX: 0, posY: 0, posZ: 0 };
+const _vmKnifeOut = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
+const _vmDodgeOut = { posY: 0, rotX: 0, rotZ: 0 };
 function stepSpring(x, v, target, k, c, dt) {
   return CORE.stepSpring(x, v, target, k, c, dt, _springOut);
 }
@@ -449,8 +453,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const lookDX = wrapAngle(player.yaw - vmSpring.lastYaw) * norm;
   const lookDY = (player.pitch - vmSpring.lastPitch) * norm;
   vmSpring.lastYaw = player.yaw; vmSpring.lastPitch = player.pitch;
-  const tx = Math.max(-0.05, Math.min(0.05, lookDX * 1.6)) * (1 - ads * 0.75) * motion;
-  const ty = Math.max(-0.05, Math.min(0.05, -lookDY * 1.6)) * (1 - ads * 0.75) * motion;
+  const tx = CORE.viewmodelLookInertiaTarget(lookDX, false, ads, motion);
+  const ty = CORE.viewmodelLookInertiaTarget(lookDY, true, ads, motion);
   let r = stepSpring(vmSpring.sx, vmSpring.vx, tx, 90, 11, dt); vmSpring.sx = r[0]; vmSpring.vx = r[1];
   r = stepSpring(vmSpring.sy, vmSpring.vy, ty, 90, 11, dt); vmSpring.sy = r[0]; vmSpring.vy = r[1];
   px += vmSpring.sx * 0.6; py += vmSpring.sy * 0.5;
@@ -460,8 +464,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   px += Math.sin(player.bobPhase) * 0.012 * bob;
   py += -Math.abs(Math.cos(player.bobPhase)) * 0.012 * bob;
   rz += Math.sin(player.bobPhase) * 0.02 * bob;
-  const latV = player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw);
-  vmSpring.tilt += (-latV * 0.012 * (1 - ads * 0.7) * motion - vmSpring.tilt) * Math.min(1, 8 * dt);
+  const latV = CORE.viewmodelLateralSpeed(player.vel.x, player.vel.z, player.yaw);
+  vmSpring.tilt = CORE.stepViewmodelTilt(vmSpring.tilt, latV, ads, motion, dt);
   rz += vmSpring.tilt;
   py += Math.sin(gameT * 1.7) * 0.0022 * hipK * motion;
   rx += Math.sin(gameT * 1.3) * 0.004 * hipK * motion;
@@ -486,8 +490,9 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const raise = 1 - gunSwitchT;
   py -= raise * raise * 0.3; rx -= raise * 0.6;
   // mantle: gun tucked away while climbing
-  vmSpring.mantle = player.mantleT > 0 ? Math.min(1, vmSpring.mantle + dt * 8) : Math.max(0, vmSpring.mantle - dt * 5);
-  py -= vmSpring.mantle * 0.18; rz += vmSpring.mantle * 0.5; rx -= vmSpring.mantle * 0.3;
+  vmSpring.mantle = CORE.stepViewmodelMantle(vmSpring.mantle, player.mantleT > 0, dt, CORE.VIEWMODEL_MANTLE_IN_RATE, CORE.VIEWMODEL_MANTLE_OUT_RATE);
+  CORE.viewmodelMantleOffsets(vmSpring.mantle, _vmMantleOut);
+  py += _vmMantleOut.posY; rz += _vmMantleOut.rotZ; rx += _vmMantleOut.rotX;
 
   // reload choreography: tilt, mag out / in, support hand fetches the fresh one
   if (P.mag && P.magRest) { P.mag.position.copy(P.magRest); P.mag.visible = true; }
@@ -505,11 +510,11 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       P.mag.visible = !(p > 0.3 && p < 0.45);
     }
     if (P.handL && P.handLRest) {
-      const hk = vmBump(0.08, 0.72, p);
       const target = P.magRest ? P.magRest : P.handLRest;
-      P.handL.position.x += (target.x - P.handLRest.x - 0.01) * hk * 0.9;
-      P.handL.position.y += -0.12 * hk;
-      P.handL.position.z += (target.z - P.handLRest.z + 0.15) * hk * 0.9;
+      CORE.reloadHandOffsets(p, target.x, target.y, target.z, P.handLRest.x, P.handLRest.y, P.handLRest.z, _vmHandOut);
+      P.handL.position.x += _vmHandOut.posX;
+      P.handL.position.y += _vmHandOut.posY;
+      P.handL.position.z += _vmHandOut.posZ;
     }
     if (s.ammo === 0) {
       boltBack = vmBump(0.78, 0.94, p);
@@ -532,14 +537,14 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   }
   // melee: gun ducks out, knife slashes across
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
-  const gunOut = meleeSwing > 0 ? vmBump(0, 1, mk) : 0;
-  py -= gunOut * 0.25; rx -= gunOut * 0.5; rz += gunOut * 0.4;
+  CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
+  py += _vmDodgeOut.posY; rx += _vmDodgeOut.rotX; rz += _vmDodgeOut.rotZ;
   if (knifeGroup) {
     knifeGroup.visible = meleeSwing > 0 && !player.dead;
     if (knifeGroup.visible) {
-      const sw = vmSmooth(0.1, 0.45, mk);
-      knifeGroup.position.set(0.22 - sw * 0.36, -0.12 + vmBump(0, 1, mk) * 0.06, -0.3);
-      knifeGroup.rotation.set(-0.2, 0.9 - sw * 1.6, -0.9 + sw * 0.9);
+      CORE.stepMeleeKnifePose(mk, _vmKnifeOut);
+      knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
+      knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
     }
   }
   // narrow screens: pull the hip pose toward the centre so the gun stays on screen

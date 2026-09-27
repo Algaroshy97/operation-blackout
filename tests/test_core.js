@@ -5837,3 +5837,110 @@ test('touchJumpState, touchJumpLabel, touchAdsState, touchAdsLabel, touch change
   assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0, -0.15), false);
   assert.strictEqual(CORE.isMobileSteadyAim(true, 0.85, 'SR', 0.02, 0.01), true);
 });
+
+test('casing dynamics, ground settling, smooth scale fade, and viewmodel kinematics govern visual polish', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.CASING_MAX, 24);
+  assert.strictEqual(CORE.CASING_LIFETIME, 2.2);
+  assert.strictEqual(CORE.CASING_FADE_DURATION, 0.35);
+  assert.strictEqual(CORE.CASING_FLOOR_Y, 0.02);
+  assert.strictEqual(CORE.CASING_GRAVITY, 12);
+  assert.strictEqual(CORE.CASING_BOUNCE, 0.35);
+  assert.strictEqual(CORE.CASING_FRICTION, 0.5);
+  assert.strictEqual(CORE.CASING_SPIN_DAMP, 0.4);
+  assert.strictEqual(CORE.CASING_REST_SPEED, 0.6);
+  assert.strictEqual(CORE.CASING_SND_GAP, 0.09);
+  assert.strictEqual(CORE.VIEWMODEL_MANTLE_IN_RATE, 8);
+  assert.strictEqual(CORE.VIEWMODEL_MANTLE_OUT_RATE, 5);
+
+  // 2) casingScale
+  assert.strictEqual(CORE.casingScale(2.2, 2.2, 0.35), 1.0);
+  assert.strictEqual(CORE.casingScale(0.35, 2.2, 0.35), 1.0);
+  assert.ok(Math.abs(CORE.casingScale(0.175, 2.2, 0.35) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.casingScale(0, 2.2, 0.35), 0.001);
+  assert.strictEqual(CORE.casingScale(-0.5, 2.2, 0.35), 0.001);
+  assert.strictEqual(CORE.casingScale(NaN), 0.001);
+
+  // 3) casingEjectVelocity
+  const vel = CORE.casingEjectVelocity(1, 0, 0, 0.5, 0.5);
+  assert.ok(Math.abs(vel.x - 2.1) < 1e-4);
+  assert.ok(Math.abs(vel.y - 1.9) < 1e-4);
+  assert.ok(Math.abs(vel.z - 0) < 1e-4);
+
+  // 4) stepCasingPhysics
+  const outAir = CORE.stepCasingPhysics(0, 1.0, 0, 1.0, 2.0, 0, 0, 0, 0, 0.1, 12, 0.35, 0.5, 0.4, 0.02, 0.6);
+  assert.ok(Math.abs(outAir.y - 1.08) < 1e-4);
+  assert.ok(Math.abs(outAir.vy - 0.8) < 1e-4);
+  assert.strictEqual(outAir.rest, false);
+  assert.strictEqual(outAir.bounced, false);
+
+  const outFloor = CORE.stepCasingPhysics(0, 0.05, 0, 1.0, -2.0, 0, 2.0, 0, 0, 0.05, 12, 0.35, 0.5, 0.4, 0.02, 0.6);
+  assert.strictEqual(outFloor.y, 0.02);
+  assert.strictEqual(outFloor.bounced, true);
+  assert.ok(Math.abs(outFloor.vy - 0.91) < 1e-4);
+  assert.ok(Math.abs(outFloor.vx - 0.5) < 1e-4);
+  assert.ok(Math.abs(outFloor.spinX - 0.8) < 1e-4);
+
+  const outRest = CORE.stepCasingPhysics(0, 0.02, 0, 0.2, -0.3, 0, 1.0, 0, 0, 0.05, 12, 0.35, 0.5, 0.4, 0.02, 0.6);
+  assert.strictEqual(outRest.rest, true);
+  assert.strictEqual(outRest.vx, 0);
+  assert.strictEqual(outRest.vy, 0);
+  assert.strictEqual(outRest.vz, 0);
+  assert.strictEqual(outRest.spinX, 0);
+  assert.strictEqual(outRest.spinY, 0);
+  assert.strictEqual(outRest.spinZ, 0);
+
+  // 5) casingRestRotation
+  const rot = CORE.casingRestRotation(0.2, 1.5, 0.8);
+  assert.ok(Math.abs(rot.rotX - Math.PI * 0.5) < 1e-4);
+  assert.strictEqual(rot.rotY, 1.5);
+  assert.strictEqual(rot.rotZ, 0);
+
+  // 6) stepMeleeKnifePose
+  const kPose = CORE.stepMeleeKnifePose(0.3);
+  assert.ok(kPose.posX !== undefined);
+  assert.ok(kPose.posY !== undefined);
+  assert.strictEqual(kPose.posZ, -0.3);
+  assert.strictEqual(kPose.rotX, -0.2);
+  const kStart = CORE.stepMeleeKnifePose(0);
+  assert.ok(Math.abs(kStart.posX - 0.22) < 1e-4);
+  assert.ok(Math.abs(kStart.posY - (-0.12)) < 1e-4);
+
+  // 7) meleeGunDodgeOffsets
+  const dStart = CORE.meleeGunDodgeOffsets(0);
+  assert.strictEqual(dStart.posY, 0);
+  assert.strictEqual(dStart.rotX, 0);
+  assert.strictEqual(dStart.rotZ, 0);
+  const dMid = CORE.meleeGunDodgeOffsets(0.5);
+  assert.ok(Math.abs(dMid.posY - (-0.25)) < 1e-4);
+  assert.ok(Math.abs(dMid.rotX - (-0.5)) < 1e-4);
+  assert.ok(Math.abs(dMid.rotZ - 0.4) < 1e-4);
+
+  // 8) stepViewmodelMantle & viewmodelMantleOffsets
+  assert.strictEqual(CORE.stepViewmodelMantle(0, true, 0.05), 0.4);
+  assert.strictEqual(CORE.stepViewmodelMantle(1, false, 0.05), 0.75);
+  const mOffsets = CORE.viewmodelMantleOffsets(1.0);
+  assert.ok(Math.abs(mOffsets.posY - (-0.18)) < 1e-4);
+  assert.ok(Math.abs(mOffsets.rotX - (-0.3)) < 1e-4);
+  assert.ok(Math.abs(mOffsets.rotZ - 0.5) < 1e-4);
+
+  // 9) reloadHandOffsets
+  const handRest = CORE.reloadHandOffsets(0, 0, 0, 0, 0, 0, 0);
+  assert.strictEqual(handRest.posX, 0);
+  assert.strictEqual(handRest.posY, 0);
+  assert.strictEqual(handRest.posZ, 0);
+  const handMid = CORE.reloadHandOffsets(0.4, 0.05, 0, 0.1, 0, 0, 0);
+  assert.ok(handMid.posX !== 0);
+  assert.ok(handMid.posY !== 0);
+  assert.ok(handMid.posZ !== 0);
+
+  // 10) viewmodelLateralSpeed, stepViewmodelTilt, viewmodelLookInertiaTarget
+  assert.ok(Math.abs(CORE.viewmodelLateralSpeed(5, 0, 0) - 5) < 1e-4);
+  assert.ok(Math.abs(CORE.viewmodelLateralSpeed(0, 5, Math.PI / 2) - (-5)) < 1e-4);
+  const tilt = CORE.stepViewmodelTilt(0, 5, 0, 1, 0.05);
+  assert.ok(tilt < 0);
+  const lookX = CORE.viewmodelLookInertiaTarget(0.02, false, 0, 1);
+  assert.ok(lookX > 0);
+  const lookY = CORE.viewmodelLookInertiaTarget(0.02, true, 0, 1);
+  assert.ok(lookY < 0);
+});
