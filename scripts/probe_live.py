@@ -2317,7 +2317,73 @@ def main() -> int:
         }""")
         checks.append(("wave-pacing-and-combat-balance-rules", balance_rules_check))
 
-        # 55) Clean console throughout gameplay.
+        # 55) Surface ballistic impact acoustics, sniper bolt cycle, tactical readiness cues, and weapon draw rules.
+        tactical_acoustics_check = page.evaluate("""() => {
+            if (!CORE ||
+                typeof CORE.surfaceImpactSound !== 'function' ||
+                typeof CORE.sniperBoltSound !== 'function' ||
+                typeof CORE.streakReadySound !== 'function' ||
+                typeof CORE.fieldUpgradeReadySound !== 'function' ||
+                typeof CORE.secondWindSound !== 'function' ||
+                typeof CORE.objectiveCompleteSound !== 'function' ||
+                typeof CORE.weaponDrawSound !== 'function') return false;
+
+            const constsOk = CORE.SPATIAL_IMPACT_MAX_DIST === 55 &&
+                             CORE.SNIPER_BOLT_DELAY_MS === 280;
+
+            const impactOk = CORE.surfaceImpactSound('metal') === 'impact_metal' &&
+                             CORE.surfaceImpactSound('wood') === 'impact_wood' &&
+                             CORE.surfaceImpactSound('glass') === 'impact_glass' &&
+                             CORE.surfaceImpactSound('ground') === 'impact_ground' &&
+                             CORE.surfaceImpactSound('concrete') === 'impact' &&
+                             CORE.surfaceImpactSound('brick') === 'impact' &&
+                             CORE.surfaceImpactSound(null) === 'impact';
+
+            const boltOk = CORE.sniperBoltSound() === 'sniper_bolt';
+
+            const readyOk = CORE.streakReadySound('uav') === 'streak_ready' &&
+                            CORE.streakReadySound('airstrike') === 'streak_ready' &&
+                            CORE.fieldUpgradeReadySound() === 'field_ready' &&
+                            CORE.secondWindSound() === 'second_wind' &&
+                            CORE.objectiveCompleteSound() === 'objective_complete';
+
+            const drawOk = CORE.weaponDrawSound('SR') === 'draw_heavy' &&
+                           CORE.weaponDrawSound('BR') === 'draw_heavy' &&
+                           CORE.weaponDrawSound('SMG') === 'draw_light' &&
+                           CORE.weaponDrawSound('AR') === 'draw' &&
+                           CORE.weaponDrawSound('') === 'draw';
+
+            const recipesOk = typeof SOUND_RECIPES !== 'undefined' &&
+                              Array.isArray(SOUND_RECIPES.impact_metal) &&
+                              Array.isArray(SOUND_RECIPES.impact_wood) &&
+                              Array.isArray(SOUND_RECIPES.impact_glass) &&
+                              Array.isArray(SOUND_RECIPES.impact_ground) &&
+                              Array.isArray(SOUND_RECIPES.sniper_bolt) &&
+                              Array.isArray(SOUND_RECIPES.streak_ready) &&
+                              Array.isArray(SOUND_RECIPES.field_ready) &&
+                              Array.isArray(SOUND_RECIPES.second_wind) &&
+                              Array.isArray(SOUND_RECIPES.objective_complete) &&
+                              Array.isArray(SOUND_RECIPES.draw_heavy) &&
+                              Array.isArray(SOUND_RECIPES.draw_light);
+
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             SOUND_VARIED.impact_metal === 1 &&
+                             SOUND_VARIED.impact_wood === 1 &&
+                             SOUND_VARIED.impact_glass === 1 &&
+                             SOUND_VARIED.impact_ground === 1 &&
+                             SOUND_VARIED.sniper_bolt === 1 &&
+                             SOUND_VARIED.streak_ready === 1 &&
+                             SOUND_VARIED.field_ready === 1 &&
+                             SOUND_VARIED.second_wind === 1 &&
+                             SOUND_VARIED.objective_complete === 1 &&
+                             SOUND_VARIED.draw_heavy === 1 &&
+                             SOUND_VARIED.draw_light === 1;
+
+            return constsOk && impactOk && boltOk && readyOk && drawOk && recipesOk && variedOk;
+        }""")
+        checks.append(("tactical-surface-impact-and-weapon-acoustics-rules", tactical_acoustics_check))
+
+        # 56) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

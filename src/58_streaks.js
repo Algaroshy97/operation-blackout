@@ -43,7 +43,7 @@ function registerStreakKill() {
     streakBank.push(earned[i].key);
     runStreaksEarned++;
     showCenterMsg(earned[i].name + ' READY');
-    playSound('powerup');
+    playSound(CORE.streakReadySound(earned[i].key));
   }
   updateHudStreaks();
 }
@@ -61,7 +61,7 @@ function addFieldCharge(dmg) {
   fieldCharge = CORE.fieldChargeAfter(fieldCharge, dmg);
   if (!was && CORE.fieldReady(fieldCharge)) {
     showCenterMsg(CORE.FIELD_UPGRADE.name + ' READY');
-    playSound('powerup');
+    playSound(CORE.fieldUpgradeReadySound());
   }
   updateHudStreaks();
 }

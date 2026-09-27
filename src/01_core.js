@@ -5238,6 +5238,44 @@ const CORE = (function () {
     return 60 / r;
   }
 
+  // ---- Ballistic surface impact and tactical weapon acoustics (v101) ----
+  const SPATIAL_IMPACT_MAX_DIST = 55;
+  const SNIPER_BOLT_DELAY_MS = 280;
+
+  function surfaceImpactSound(surface) {
+    if (surface === 'metal') return 'impact_metal';
+    if (surface === 'wood') return 'impact_wood';
+    if (surface === 'glass') return 'impact_glass';
+    if (surface === 'ground') return 'impact_ground';
+    return 'impact';
+  }
+
+  function sniperBoltSound() {
+    return 'sniper_bolt';
+  }
+
+  function streakReadySound(key) {
+    return 'streak_ready';
+  }
+
+  function fieldUpgradeReadySound() {
+    return 'field_ready';
+  }
+
+  function secondWindSound() {
+    return 'second_wind';
+  }
+
+  function objectiveCompleteSound() {
+    return 'objective_complete';
+  }
+
+  function weaponDrawSound(weaponType) {
+    if (weaponType === 'SR' || weaponType === 'BR') return 'draw_heavy';
+    if (weaponType === 'SMG') return 'draw_light';
+    return 'draw';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -5946,7 +5984,16 @@ const CORE = (function () {
     canSlideCancel: canSlideCancel,
     isSlideExpired: isSlideExpired,
     stepStationHold: stepStationHold,
-    weaponFireInterval: weaponFireInterval
+    weaponFireInterval: weaponFireInterval,
+    SPATIAL_IMPACT_MAX_DIST: SPATIAL_IMPACT_MAX_DIST,
+    SNIPER_BOLT_DELAY_MS: SNIPER_BOLT_DELAY_MS,
+    surfaceImpactSound: surfaceImpactSound,
+    sniperBoltSound: sniperBoltSound,
+    streakReadySound: streakReadySound,
+    fieldUpgradeReadySound: fieldUpgradeReadySound,
+    secondWindSound: secondWindSound,
+    objectiveCompleteSound: objectiveCompleteSound,
+    weaponDrawSound: weaponDrawSound
   };
 })();
 

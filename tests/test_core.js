@@ -6140,3 +6140,38 @@ test('wave spawn pacing, enemy combat execution, and mobility balance rules gove
   assert.ok(Math.abs(CORE.weaponFireInterval(600) - 0.1) < 1e-4);
   assert.ok(Math.abs(CORE.weaponFireInterval(750) - (60 / 750)) < 1e-4);
 });
+
+test('surface impact acoustics, sniper bolt cycle, tactical readiness cues, and weapon draw govern battlefield acoustics', () => {
+  // 1) Ballistic surface impact acoustics
+  assert.strictEqual(CORE.SPATIAL_IMPACT_MAX_DIST, 55);
+  assert.strictEqual(CORE.surfaceImpactSound('metal'), 'impact_metal');
+  assert.strictEqual(CORE.surfaceImpactSound('wood'), 'impact_wood');
+  assert.strictEqual(CORE.surfaceImpactSound('glass'), 'impact_glass');
+  assert.strictEqual(CORE.surfaceImpactSound('ground'), 'impact_ground');
+  assert.strictEqual(CORE.surfaceImpactSound('concrete'), 'impact');
+  assert.strictEqual(CORE.surfaceImpactSound('brick'), 'impact');
+  assert.strictEqual(CORE.surfaceImpactSound('sand'), 'impact');
+  assert.strictEqual(CORE.surfaceImpactSound(null), 'impact');
+  assert.strictEqual(CORE.surfaceImpactSound(undefined), 'impact');
+
+  // 2) Sniper bolt cycle
+  assert.strictEqual(CORE.SNIPER_BOLT_DELAY_MS, 280);
+  assert.strictEqual(CORE.sniperBoltSound(), 'sniper_bolt');
+
+  // 3) Tactical readiness and mission milestones
+  assert.strictEqual(CORE.streakReadySound('uav'), 'streak_ready');
+  assert.strictEqual(CORE.streakReadySound('airstrike'), 'streak_ready');
+  assert.strictEqual(CORE.streakReadySound('sentry'), 'streak_ready');
+  assert.strictEqual(CORE.fieldUpgradeReadySound(), 'field_ready');
+  assert.strictEqual(CORE.secondWindSound(), 'second_wind');
+  assert.strictEqual(CORE.objectiveCompleteSound(), 'objective_complete');
+
+  // 4) Weapon draw differentiation
+  assert.strictEqual(CORE.weaponDrawSound('SR'), 'draw_heavy');
+  assert.strictEqual(CORE.weaponDrawSound('BR'), 'draw_heavy');
+  assert.strictEqual(CORE.weaponDrawSound('SMG'), 'draw_light');
+  assert.strictEqual(CORE.weaponDrawSound('AR'), 'draw');
+  assert.strictEqual(CORE.weaponDrawSound(''), 'draw');
+  assert.strictEqual(CORE.weaponDrawSound(null), 'draw');
+  assert.strictEqual(CORE.weaponDrawSound(undefined), 'draw');
+});

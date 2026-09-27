@@ -564,7 +564,7 @@ function updateObjective(dt) {
     addCredits(CORE.OBJECTIVE_CREDITS);
     addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
     showCenterMsg('ZONE SECURED');
-    playSound('powerup');
+    playSound(CORE.objectiveCompleteSound());
     clearObjective();
   }
 }

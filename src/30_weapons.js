@@ -112,7 +112,8 @@ function switchWeapon(slot) {
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
   updateHudAmmo();
-  playSound('draw');
+  const curWpn = curW();
+  playSound(CORE.weaponDrawSound(curWpn ? curWpn.type : ''));
 }
 
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
@@ -340,7 +341,15 @@ function fireShot(preserveSchedule) {
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)
-  if (w.type === 'SR') { adsAmount = CORE.sniperUnscopeAds(adsAmount); }
+  if (w.type === 'SR') {
+    adsAmount = CORE.sniperUnscopeAds(adsAmount);
+    const firedRun = runId;
+    setTimeout(function () {
+      if (runId === firedRun && started && !paused && !player.dead) {
+        playSound(CORE.sniperBoltSound());
+      }
+    }, CORE.SNIPER_BOLT_DELAY_MS);
+  }
   // recoil
   // Learnable pattern, not noise. The old model was +/-20% random vertical and a
   // zero-mean random horizontal, so there was no shape to pull against and no

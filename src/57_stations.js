@@ -434,7 +434,7 @@ function downPlayer() {
     updateHudHealth();
     updateHudPerks();
     showCenterMsg('SECOND WIND');
-    playSound('powerup');
+    playSound(CORE.secondWindSound());
     return;
   }
   player.downed = true;

@@ -152,8 +152,11 @@ function spawnImpact(point, normal, obj) {
     _tmpN.copy(normal);
     if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize();
   } else _tmpN.set(0, 1, 0);
-  fxImpact(point, _tmpN, fxSurfaceFor(obj));
-  playSound('impact');
+  const surface = fxSurfaceFor(obj);
+  fxImpact(point, _tmpN, surface);
+  const impSnd = CORE.surfaceImpactSound(surface);
+  if (point && player && player.pos) playSound3D(impSnd, point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
+  else playSound(impSnd);
 }
 
 // ---- Bullet-hole decals (v41): persistent marks on world hits ----
@@ -407,8 +410,11 @@ function setMasterVolume(v) {
 // largest cost in fireShot — larger than both raycasts combined.
 const _sndLast = Object.create(null);
 const SND_MIN_GAP = {
-  impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
-  breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15
+  impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045,
+  casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
+  breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
+  sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
+  draw_heavy: 0.15, draw_light: 0.15
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -503,7 +509,18 @@ const SOUND_RECIPES = {
   breath_hold:       [['noise', 0.18, 0.10, 450, 1.0], ['osc', 'sine', 70, 50, 0.20, 0.08]],
   breath_gasp:       [['noise', 0.22, 0.14, 550, 0.8], ['osc', 'sine', 90, 45, 0.18, 0.10]],
   exhausted:         [['noise', 0.28, 0.16, 420, 0.7], ['osc', 'sine', 110, 45, 0.22, 0.12]],
-  slide_cancel:      [['noise', 0.10, 0.22, 650, 1.4], ['osc', 'sine', 160, 80, 0.08, 0.16]]
+  slide_cancel:      [['noise', 0.10, 0.22, 650, 1.4], ['osc', 'sine', 160, 80, 0.08, 0.16]],
+  impact_metal:      [['noise', 0.04, 0.22, 3400, 3], ['osc', 'sine', 1800, 900, 0.08, 0.18], ['osc', 'square', 880, 440, 0.05, 0.12]],
+  impact_wood:       [['noise', 0.07, 0.24, 750, 1.4], ['osc', 'triangle', 220, 90, 0.06, 0.14]],
+  impact_glass:      [['noise', 0.05, 0.28, 4800, 3.5], ['osc', 'square', 2400, 1200, 0.04, 0.12], ['osc', 'sine', 3200, 1600, 0.06, 0.10]],
+  impact_ground:     [['noise', 0.08, 0.22, 350, 0.8], ['osc', 'sine', 110, 45, 0.07, 0.16]],
+  sniper_bolt:       [['noise', 0.18, 0.32, 1600, 2.2], ['osc', 'square', 260, 130, 0.08, 0.18], ['osc', 'square', 180, 360, 0.09, 0.20], ['osc', 'sine', 140, 60, 0.12, 0.24]],
+  streak_ready:      [['osc', 'sine', 880, 880, 0.08, 0.18], ['osc', 'sine', 1320, 1320, 0.10, 0.22], ['noise', 0.04, 0.08, 3000, 2]],
+  field_ready:       [['osc', 'triangle', 660, 880, 0.10, 0.20], ['osc', 'sine', 880, 1100, 0.12, 0.18]],
+  second_wind:       [['osc', 'sawtooth', 80, 240, 0.28, 0.35], ['osc', 'sine', 55, 110, 0.35, 0.40], ['noise', 0.20, 0.25, 400, 1.0]],
+  objective_complete:[['osc', 'sine', 440, 660, 0.15, 0.22], ['osc', 'sine', 660, 880, 0.18, 0.20], ['osc', 'triangle', 880, 1320, 0.22, 0.16]],
+  draw_heavy:        [['noise', 0.08, 0.22, 1200, 1.8], ['osc', 'square', 180, 90, 0.06, 0.14]],
+  draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -518,7 +535,10 @@ const SOUND_VARIED = {
   mantle: 1, step_crouch: 1,
   armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1,
   powerup_nuke: 1, powerup_ammo: 1, powerup_double: 1, powerup_instakill: 1,
-  claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1
+  claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1,
+  impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
+  sniper_bolt: 1, streak_ready: 1, field_ready: 1,
+  second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1
 };
 
 function recipeDuration(recipe) {

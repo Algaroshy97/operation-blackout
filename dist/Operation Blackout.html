@@ -9918,6 +9918,44 @@ const CORE = (function () {
     return 60 / r;
   }
 
+  // ---- Ballistic surface impact and tactical weapon acoustics (v101) ----
+  const SPATIAL_IMPACT_MAX_DIST = 55;
+  const SNIPER_BOLT_DELAY_MS = 280;
+
+  function surfaceImpactSound(surface) {
+    if (surface === 'metal') return 'impact_metal';
+    if (surface === 'wood') return 'impact_wood';
+    if (surface === 'glass') return 'impact_glass';
+    if (surface === 'ground') return 'impact_ground';
+    return 'impact';
+  }
+
+  function sniperBoltSound() {
+    return 'sniper_bolt';
+  }
+
+  function streakReadySound(key) {
+    return 'streak_ready';
+  }
+
+  function fieldUpgradeReadySound() {
+    return 'field_ready';
+  }
+
+  function secondWindSound() {
+    return 'second_wind';
+  }
+
+  function objectiveCompleteSound() {
+    return 'objective_complete';
+  }
+
+  function weaponDrawSound(weaponType) {
+    if (weaponType === 'SR' || weaponType === 'BR') return 'draw_heavy';
+    if (weaponType === 'SMG') return 'draw_light';
+    return 'draw';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -10626,7 +10664,16 @@ const CORE = (function () {
     canSlideCancel: canSlideCancel,
     isSlideExpired: isSlideExpired,
     stepStationHold: stepStationHold,
-    weaponFireInterval: weaponFireInterval
+    weaponFireInterval: weaponFireInterval,
+    SPATIAL_IMPACT_MAX_DIST: SPATIAL_IMPACT_MAX_DIST,
+    SNIPER_BOLT_DELAY_MS: SNIPER_BOLT_DELAY_MS,
+    surfaceImpactSound: surfaceImpactSound,
+    sniperBoltSound: sniperBoltSound,
+    streakReadySound: streakReadySound,
+    fieldUpgradeReadySound: fieldUpgradeReadySound,
+    secondWindSound: secondWindSound,
+    objectiveCompleteSound: objectiveCompleteSound,
+    weaponDrawSound: weaponDrawSound
   };
 })();
 
@@ -13093,7 +13140,8 @@ function switchWeapon(slot) {
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
   updateHudAmmo();
-  playSound('draw');
+  const curWpn = curW();
+  playSound(CORE.weaponDrawSound(curWpn ? curWpn.type : ''));
 }
 
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
@@ -13321,7 +13369,15 @@ function fireShot(preserveSchedule) {
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion);
   // sniper: brief unscope on shot (recoil re-chamber feel)
-  if (w.type === 'SR') { adsAmount = CORE.sniperUnscopeAds(adsAmount); }
+  if (w.type === 'SR') {
+    adsAmount = CORE.sniperUnscopeAds(adsAmount);
+    const firedRun = runId;
+    setTimeout(function () {
+      if (runId === firedRun && started && !paused && !player.dead) {
+        playSound(CORE.sniperBoltSound());
+      }
+    }, CORE.SNIPER_BOLT_DELAY_MS);
+  }
   // recoil
   // Learnable pattern, not noise. The old model was +/-20% random vertical and a
   // zero-mean random horizontal, so there was no shape to pull against and no
@@ -16277,8 +16333,11 @@ function spawnImpact(point, normal, obj) {
     _tmpN.copy(normal);
     if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize();
   } else _tmpN.set(0, 1, 0);
-  fxImpact(point, _tmpN, fxSurfaceFor(obj));
-  playSound('impact');
+  const surface = fxSurfaceFor(obj);
+  fxImpact(point, _tmpN, surface);
+  const impSnd = CORE.surfaceImpactSound(surface);
+  if (point && player && player.pos) playSound3D(impSnd, point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
+  else playSound(impSnd);
 }
 
 // ---- Bullet-hole decals (v41): persistent marks on world hits ----
@@ -16532,8 +16591,11 @@ function setMasterVolume(v) {
 // largest cost in fireShot — larger than both raycasts combined.
 const _sndLast = Object.create(null);
 const SND_MIN_GAP = {
-  impact: 0.045, casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
-  breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15
+  impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045,
+  casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
+  breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
+  sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
+  draw_heavy: 0.15, draw_light: 0.15
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -16628,7 +16690,18 @@ const SOUND_RECIPES = {
   breath_hold:       [['noise', 0.18, 0.10, 450, 1.0], ['osc', 'sine', 70, 50, 0.20, 0.08]],
   breath_gasp:       [['noise', 0.22, 0.14, 550, 0.8], ['osc', 'sine', 90, 45, 0.18, 0.10]],
   exhausted:         [['noise', 0.28, 0.16, 420, 0.7], ['osc', 'sine', 110, 45, 0.22, 0.12]],
-  slide_cancel:      [['noise', 0.10, 0.22, 650, 1.4], ['osc', 'sine', 160, 80, 0.08, 0.16]]
+  slide_cancel:      [['noise', 0.10, 0.22, 650, 1.4], ['osc', 'sine', 160, 80, 0.08, 0.16]],
+  impact_metal:      [['noise', 0.04, 0.22, 3400, 3], ['osc', 'sine', 1800, 900, 0.08, 0.18], ['osc', 'square', 880, 440, 0.05, 0.12]],
+  impact_wood:       [['noise', 0.07, 0.24, 750, 1.4], ['osc', 'triangle', 220, 90, 0.06, 0.14]],
+  impact_glass:      [['noise', 0.05, 0.28, 4800, 3.5], ['osc', 'square', 2400, 1200, 0.04, 0.12], ['osc', 'sine', 3200, 1600, 0.06, 0.10]],
+  impact_ground:     [['noise', 0.08, 0.22, 350, 0.8], ['osc', 'sine', 110, 45, 0.07, 0.16]],
+  sniper_bolt:       [['noise', 0.18, 0.32, 1600, 2.2], ['osc', 'square', 260, 130, 0.08, 0.18], ['osc', 'square', 180, 360, 0.09, 0.20], ['osc', 'sine', 140, 60, 0.12, 0.24]],
+  streak_ready:      [['osc', 'sine', 880, 880, 0.08, 0.18], ['osc', 'sine', 1320, 1320, 0.10, 0.22], ['noise', 0.04, 0.08, 3000, 2]],
+  field_ready:       [['osc', 'triangle', 660, 880, 0.10, 0.20], ['osc', 'sine', 880, 1100, 0.12, 0.18]],
+  second_wind:       [['osc', 'sawtooth', 80, 240, 0.28, 0.35], ['osc', 'sine', 55, 110, 0.35, 0.40], ['noise', 0.20, 0.25, 400, 1.0]],
+  objective_complete:[['osc', 'sine', 440, 660, 0.15, 0.22], ['osc', 'sine', 660, 880, 0.18, 0.20], ['osc', 'triangle', 880, 1320, 0.22, 0.16]],
+  draw_heavy:        [['noise', 0.08, 0.22, 1200, 1.8], ['osc', 'square', 180, 90, 0.06, 0.14]],
+  draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -16643,7 +16716,10 @@ const SOUND_VARIED = {
   mantle: 1, step_crouch: 1,
   armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1,
   powerup_nuke: 1, powerup_ammo: 1, powerup_double: 1, powerup_instakill: 1,
-  claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1
+  claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1,
+  impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
+  sniper_bolt: 1, streak_ready: 1, field_ready: 1,
+  second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1
 };
 
 function recipeDuration(recipe) {
@@ -18011,7 +18087,7 @@ function downPlayer() {
     updateHudHealth();
     updateHudPerks();
     showCenterMsg('SECOND WIND');
-    playSound('powerup');
+    playSound(CORE.secondWindSound());
     return;
   }
   player.downed = true;
@@ -18176,7 +18252,7 @@ function registerStreakKill() {
     streakBank.push(earned[i].key);
     runStreaksEarned++;
     showCenterMsg(earned[i].name + ' READY');
-    playSound('powerup');
+    playSound(CORE.streakReadySound(earned[i].key));
   }
   updateHudStreaks();
 }
@@ -18194,7 +18270,7 @@ function addFieldCharge(dmg) {
   fieldCharge = CORE.fieldChargeAfter(fieldCharge, dmg);
   if (!was && CORE.fieldReady(fieldCharge)) {
     showCenterMsg(CORE.FIELD_UPGRADE.name + ' READY');
-    playSound('powerup');
+    playSound(CORE.fieldUpgradeReadySound());
   }
   updateHudStreaks();
 }
@@ -18960,7 +19036,7 @@ function updateObjective(dt) {
     addCredits(CORE.OBJECTIVE_CREDITS);
     addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
     showCenterMsg('ZONE SECURED');
-    playSound('powerup');
+    playSound(CORE.objectiveCompleteSound());
     clearObjective();
   }
 }
