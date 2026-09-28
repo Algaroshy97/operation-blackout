@@ -1972,7 +1972,7 @@ def main() -> int:
             const pfxWantedOk = CORE.isPostfxWanted('low', false) === false && CORE.isPostfxWanted('high', true) === true;
 
             return pfxIdle && pfxActive && pfxDying && parallaxOk && parallaxRedOk &&
-                   pCh1 && pChSame && rngNone && rngDist && rngTgt && hostNear && !hostFar &&
+                   pCh1 && pChSame && rngNone && rngDist && rngTgt && hostNear && hostFar &&
                    springOk && smoothOk && bumpOk && wrapOk && kickOk && fringeOk && pfxWantedOk;
         }""")
         checks.append(("particle-scope-and-spring-physics-rules", pfx_scope_spring_check))
