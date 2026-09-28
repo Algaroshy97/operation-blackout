@@ -2079,23 +2079,31 @@ const CORE = (function () {
     if (fieldReady) return 'field';
     return 'empty';
   }
+  // Evaluates the next owned weapon slot index in cycle order, skipping negative/unowned slots.
+  // Returns -1 if no alternate weapon is owned.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapNextSlot(curSlot, weaponsOwned) {
+    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return -1;
+    const n = weaponsOwned.length;
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? ((curSlot % n) + n) % n : 0;
+    for (let k = 1; k < n; k++) {
+      const ns = (slot + k) % n;
+      const wid = weaponsOwned[ns];
+      if (typeof wid === 'number' && isFinite(wid) && wid >= 0) return ns;
+    }
+    return -1;
+  }
   // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
   // or 'ready' when a reserve weapon is owned and can be switched to.
   function touchSwapState(curSlot, weaponsOwned) {
-    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return 'empty';
-    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
-    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
-    const wid = weaponsOwned[other];
-    if (typeof wid !== 'number' || !isFinite(wid) || wid < 0) return 'empty';
-    return 'ready';
+    return touchSwapNextSlot(curSlot, weaponsOwned) >= 0 ? 'ready' : 'empty';
   }
   // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
   // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
   function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
-    if (touchSwapState(curSlot, weaponsOwned) === 'empty') return 'SWAP';
-    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
-    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
-    const wid = weaponsOwned[other];
+    const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
+    if (nextSlot < 0) return 'SWAP';
+    const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
       return weaponsList[wid].type;
     }
@@ -2363,6 +2371,124 @@ const CORE = (function () {
     if (a <= 0 && r <= 0) return 'EMPTY';
     if (a <= 0 && r > 0) return 'RELOAD';
     return 'RLD';
+  }
+
+  const TOUCH_BUTTON_DEFAULT_SIZE = 56;
+  const TOUCH_FIRE_DEFAULT_SIZE = 84;
+  const TOUCH_PAUSE_DEFAULT_SIZE = 44;
+
+  const TOUCH_CONTROL_NAMES = {
+    'tbtn-fire': 'FIRE',
+    'tbtn-ads': 'ADS',
+    'tbtn-jump': 'JUMP',
+    'tbtn-slide': 'SLIDE',
+    'tbtn-reload': 'RELOAD',
+    'tbtn-nade': 'LETHAL',
+    'tbtn-swap': 'SWAP',
+    'tbtn-melee': 'MELEE',
+    'tbtn-use': 'USE',
+    'tbtn-plate': 'ARMOR',
+    'tbtn-tactical': 'TACTICAL',
+    'tbtn-streak': 'STREAK',
+    'tbtn-pause': 'PAUSE',
+    'joy-base': 'JOYSTICK'
+  };
+
+  // Maps a touch control element identifier to a human-readable uppercase label for the layout editor.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchControlName(elementId) {
+    if (typeof elementId !== 'string') return 'CONTROL';
+    if (TOUCH_CONTROL_NAMES[elementId]) return TOUCH_CONTROL_NAMES[elementId];
+    return elementId.replace(/^tbtn-/, '').toUpperCase();
+  }
+
+  // Clamps mobile touch layout editor positioning coordinates to viewport boundaries [0, maxPct].
+  // Pure: no side effects, no DOM, no THREE.
+  function touchLayoutClampPercent(clientCoord, elementDim, viewportSpan) {
+    const span = typeof viewportSpan === 'number' && viewportSpan > 0 ? viewportSpan : 1;
+    const dim = typeof elementDim === 'number' && isFinite(elementDim) ? elementDim : 0;
+    const coord = typeof clientCoord === 'number' && isFinite(clientCoord) ? clientCoord : 0;
+    const maxPct = Math.max(0, 100 - (dim / span * 100));
+    const targetPct = (coord - dim / 2) / span * 100;
+    return Math.max(0, Math.min(maxPct, targetPct));
+  }
+
+  // Change-detection for mobile touch fire button to prevent redundant DOM updates.
+  function touchFireChanged(lastState, fireState, fireLabel) {
+    if (!lastState) return true;
+    return lastState.fireState !== fireState || lastState.fireLabel !== fireLabel;
+  }
+  // In-place cache synchronizer for mobile touch fire button state.
+  function syncTouchFireState(lastState, fireState, fireLabel) {
+    if (!lastState) return { fireState: fireState, fireLabel: fireLabel };
+    lastState.fireState = fireState;
+    lastState.fireLabel = fireLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch reload button to prevent redundant DOM updates.
+  function touchReloadChanged(lastState, reloadState, reloadLabel) {
+    if (!lastState) return true;
+    return lastState.reloadState !== reloadState || lastState.reloadLabel !== reloadLabel;
+  }
+  // In-place cache synchronizer for mobile touch reload button state.
+  function syncTouchReloadState(lastState, reloadState, reloadLabel) {
+    if (!lastState) return { reloadState: reloadState, reloadLabel: reloadLabel };
+    lastState.reloadState = reloadState;
+    lastState.reloadLabel = reloadLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch plate button to prevent redundant DOM updates.
+  function touchPlateChanged(lastState, plateState, plateLabel) {
+    if (!lastState) return true;
+    return lastState.plateState !== plateState || lastState.plateLabel !== plateLabel;
+  }
+  // In-place cache synchronizer for mobile touch plate button state.
+  function syncTouchPlateState(lastState, plateState, plateLabel) {
+    if (!lastState) return { plateState: plateState, plateLabel: plateLabel };
+    lastState.plateState = plateState;
+    lastState.plateLabel = plateLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch equipment buttons (lethal and tactical).
+  function touchEquipmentChanged(lastState, eqState, eqLabel) {
+    if (!lastState) return true;
+    return lastState.eqState !== eqState || lastState.eqLabel !== eqLabel;
+  }
+  // In-place cache synchronizer for mobile touch equipment button state.
+  function syncTouchEquipmentState(lastState, eqState, eqLabel) {
+    if (!lastState) return { eqState: eqState, eqLabel: eqLabel };
+    lastState.eqState = eqState;
+    lastState.eqLabel = eqLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch scorestreak / field upgrade button.
+  function touchStreakChanged(lastState, streakState, streakLabel) {
+    if (!lastState) return true;
+    return lastState.streakState !== streakState || lastState.streakLabel !== streakLabel;
+  }
+  // In-place cache synchronizer for mobile touch scorestreak button state.
+  function syncTouchStreakState(lastState, streakState, streakLabel) {
+    if (!lastState) return { streakState: streakState, streakLabel: streakLabel };
+    lastState.streakState = streakState;
+    lastState.streakLabel = streakLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch weapon swap button.
+  function touchSwapChanged(lastState, swapState, swapLabel) {
+    if (!lastState) return true;
+    return lastState.swapState !== swapState || lastState.swapLabel !== swapLabel;
+  }
+  // In-place cache synchronizer for mobile touch weapon swap button state.
+  function syncTouchSwapState(lastState, swapState, swapLabel) {
+    if (!lastState) return { swapState: swapState, swapLabel: swapLabel };
+    lastState.swapState = swapState;
+    lastState.swapLabel = swapLabel;
+    return lastState;
   }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
@@ -5688,6 +5814,24 @@ const CORE = (function () {
     touchFireState: touchFireState,
     touchFireLabel: touchFireLabel,
     touchReloadLabel: touchReloadLabel,
+    TOUCH_BUTTON_DEFAULT_SIZE: TOUCH_BUTTON_DEFAULT_SIZE,
+    TOUCH_FIRE_DEFAULT_SIZE: TOUCH_FIRE_DEFAULT_SIZE,
+    TOUCH_PAUSE_DEFAULT_SIZE: TOUCH_PAUSE_DEFAULT_SIZE,
+    touchControlName: touchControlName,
+    touchLayoutClampPercent: touchLayoutClampPercent,
+    touchFireChanged: touchFireChanged,
+    syncTouchFireState: syncTouchFireState,
+    touchReloadChanged: touchReloadChanged,
+    syncTouchReloadState: syncTouchReloadState,
+    touchPlateChanged: touchPlateChanged,
+    syncTouchPlateState: syncTouchPlateState,
+    touchEquipmentChanged: touchEquipmentChanged,
+    syncTouchEquipmentState: syncTouchEquipmentState,
+    touchStreakChanged: touchStreakChanged,
+    syncTouchStreakState: syncTouchStreakState,
+    touchSwapChanged: touchSwapChanged,
+    syncTouchSwapState: syncTouchSwapState,
+    touchSwapNextSlot: touchSwapNextSlot,
     FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
     FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
     FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,

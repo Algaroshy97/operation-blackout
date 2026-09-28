@@ -249,13 +249,20 @@ function openTouchLayoutEditor() {
     if (!document.body.classList.contains('touch-editing')) return;
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
-    bar.dataset.selected = el.id; bar.querySelector('#touch-editor-name').textContent = el.id.replace('tbtn-', '').toUpperCase();
+    bar.dataset.selected = el.id;
+    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
+      ? CORE.touchControlName(el.id)
+      : el.id.replace('tbtn-', '').toUpperCase();
     size.value = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();
-        const left = Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
-        const top = Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
+        const left = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+          ? CORE.touchLayoutClampPercent(mt.clientX, r.width, innerWidth)
+          : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
+        const top = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+          ? CORE.touchLayoutClampPercent(mt.clientY, r.height, innerHeight)
+          : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
         el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
         touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {}; touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
       }

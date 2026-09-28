@@ -231,6 +231,7 @@ function updateStreaks(dt) {
 }
 
 // ---- HUD ---------------------------------------------------------------------
+let _touchStreakCache = { streakState: null, streakLabel: null };
 function updateHudStreaks() {
   const el = $id('streak-hud');
   if (el) {
@@ -251,12 +252,15 @@ function updateHudStreaks() {
       const hasStreak = streakBank.length > 0;
       const fReady = CORE.fieldReady(fieldCharge);
       const sState = CORE.touchStreakState(hasStreak, fReady);
-      tbtnStreak.classList.toggle('streak', sState === 'streak');
-      tbtnStreak.classList.toggle('field', sState === 'field');
-      tbtnStreak.classList.toggle('empty', sState === 'empty');
       const topStreak = hasStreak ? streakBank[0] : null;
       const sLabel = CORE.touchStreakLabel(topStreak, fReady);
-      if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
+      if (CORE.touchStreakChanged(_touchStreakCache, sState, sLabel)) {
+        CORE.syncTouchStreakState(_touchStreakCache, sState, sLabel);
+        tbtnStreak.classList.toggle('streak', sState === 'streak');
+        tbtnStreak.classList.toggle('field', sState === 'field');
+        tbtnStreak.classList.toggle('empty', sState === 'empty');
+        if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
+      }
     }
   }
 }

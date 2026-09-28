@@ -260,6 +260,7 @@
   body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
   body.touch #tbtn-fire.dry{background:rgba(180,60,20,.45);border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.28),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-fire.reloading{background:rgba(120,80,20,.4);border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-fire.empty{background:rgba(60,20,20,.35);border-color:rgba(180,50,40,.3);color:rgba(220,100,90,.45);opacity:.5}
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-ads.active{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.18)}
   body.touch #tbtn-ads.scoped{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 4px rgba(80,180,255,.35),inset 0 0 14px rgba(80,180,255,.3)}
@@ -276,6 +277,7 @@
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
   body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-reload.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
@@ -304,6 +306,7 @@
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
   body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
+  body.touch-layout-left.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom left}
   body.touch-layout-left #joy-base{left:auto;right:calc(26px + var(--sa-r))}
   body.touch-layout-left #look-zone{left:0;right:auto}
   body.touch-layout-left #tbtn-fire{left:calc(26px + var(--sa-l));right:auto;bottom:calc(56px + var(--sa-b))}
@@ -311,6 +314,14 @@
   body.touch-layout-left #tbtn-slide{left:calc(118px + var(--sa-l));right:auto}
   body.touch-layout-left #tbtn-jump{left:calc(26px + var(--sa-l));right:auto}
   body.touch-layout-left #tbtn-reload{left:calc(92px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-nade{left:auto;right:calc(150px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-swap{left:auto;right:calc(150px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-melee{left:auto;right:calc(216px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-use{left:auto;right:calc(216px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-plate{left:auto;right:calc(282px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-tactical{left:auto;right:calc(282px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-streak{left:auto;right:calc(150px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
+  body.touch-layout-left #tbtn-pause{left:calc(14px + var(--sa-l));right:auto}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it

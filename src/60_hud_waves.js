@@ -42,6 +42,7 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 // cheaper than the DOM writes, class-list toggles, and touch-plate text checks that the
 // full body performs. Force-flush callers (resupply, deploy, reset) pass force=true.
 const _hudHealthState = { hp: -1, maxHp: -1, armor: -1, plates: -1, plateInserting: null };
+let _touchPlateCache = { plateState: null, plateLabel: null };
 function updateHudHealth(force) {
   const hp = Math.max(0, Math.round(player.health));
   const maxHp = typeof playerMaxHealth === 'function' ? playerMaxHealth() : CFG.player.health;
@@ -83,12 +84,15 @@ function updateHudHealth(force) {
     const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
     if (tbtnPlate) {
       const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
-      tbtnPlate.classList.toggle('empty', plateState === 'empty');
-      tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
-      tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
-      tbtnPlate.classList.toggle('ready', plateState === 'ready');
       const plateLabel = CORE.touchPlateLabel(curPlates, isIns);
-      if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
+      if (CORE.touchPlateChanged(_touchPlateCache, plateState, plateLabel)) {
+        CORE.syncTouchPlateState(_touchPlateCache, plateState, plateLabel);
+        tbtnPlate.classList.toggle('empty', plateState === 'empty');
+        tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
+        tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+        tbtnPlate.classList.toggle('ready', plateState === 'ready');
+        if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
+      }
     }
   }
   updateHudMobility();
@@ -117,6 +121,11 @@ const _hudAmmoState = {
   ammo: -1, reserve: -1, reloading: null, isLow: null, isEmpty: null,
   prompt: null, weaponName: null, lethalCount: -1, tacCount: -1, isCharging: false
 };
+let _touchFireCache = { fireState: null, fireLabel: null };
+let _touchReloadCache = { reloadState: null, reloadLabel: null };
+let _touchNadeCache = { eqState: null, eqLabel: null };
+let _touchTacCache = { eqState: null, eqLabel: null };
+let _touchSwapCache = { swapState: null, swapLabel: null };
 function updateHudAmmo(force) {
   const s = curS();
   if (!s) {
@@ -160,52 +169,60 @@ function updateHudAmmo(force) {
     const tbtnFire = hud.tbtnFire || (hud.tbtnFire = $id('tbtn-fire'));
     if (tbtnFire) {
       const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading);
-      tbtnFire.classList.toggle('empty', fireState === 'empty');
-      tbtnFire.classList.toggle('dry', fireState === 'dry');
-      tbtnFire.classList.toggle('reloading', fireState === 'reloading');
       const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire);
-      if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+      if (CORE.touchFireChanged(_touchFireCache, fireState, fireLabel)) {
+        CORE.syncTouchFireState(_touchFireCache, fireState, fireLabel);
+        tbtnFire.classList.toggle('empty', fireState === 'empty');
+        tbtnFire.classList.toggle('dry', fireState === 'dry');
+        tbtnFire.classList.toggle('reloading', fireState === 'reloading');
+        if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+      }
     }
     const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
     if (tbtnReload) {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
-      tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
-      tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
-      tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
       const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading);
-      if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
+      if (CORE.touchReloadChanged(_touchReloadCache, reloadState, reloadLabel)) {
+        CORE.syncTouchReloadState(_touchReloadCache, reloadState, reloadLabel);
+        tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
+        tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+        tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
+        if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
+      }
     }
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
       const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
-      tbtnNade.classList.toggle('empty', nadeState === 'empty');
-      tbtnNade.classList.toggle('charging', nadeState === 'charging');
-      tbtnNade.classList.toggle('ready', nadeState === 'ready');
       const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
-      if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
+      if (CORE.touchEquipmentChanged(_touchNadeCache, nadeState, nadeLabel)) {
+        CORE.syncTouchEquipmentState(_touchNadeCache, nadeState, nadeLabel);
+        tbtnNade.classList.toggle('empty', nadeState === 'empty');
+        tbtnNade.classList.toggle('charging', nadeState === 'charging');
+        tbtnNade.classList.toggle('ready', nadeState === 'ready');
+        if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
+      }
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
-      tbtnTac.classList.toggle('empty', tacState === 'empty');
-      tbtnTac.classList.toggle('ready', tacState === 'ready');
       const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
-      if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
+      if (CORE.touchEquipmentChanged(_touchTacCache, tacState, tacLabel)) {
+        CORE.syncTouchEquipmentState(_touchTacCache, tacState, tacLabel);
+        tbtnTac.classList.toggle('empty', tacState === 'empty');
+        tbtnTac.classList.toggle('ready', tacState === 'ready');
+        if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
+      }
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
-    if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {
-      // SWAP cycles every owned slot (the marksman rifle rides in slot 3), so the
-      // state and label follow the weapon it will actually bring up.
-      let nextSlot = -1;
-      for (let k = 1; k < weaponsOwned.length; k++) {
-        const ns = (curWeapon + k) % weaponsOwned.length;
-        if (weaponsOwned[ns] >= 0) { nextSlot = ns; break; }
+    if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null);
+      if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
+        CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
+        tbtnSwap.classList.toggle('empty', swapState === 'empty');
+        tbtnSwap.classList.toggle('ready', swapState === 'ready');
+        if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
       }
-      const swapState = nextSlot >= 0 ? 'ready' : 'empty';
-      tbtnSwap.classList.toggle('empty', swapState === 'empty');
-      tbtnSwap.classList.toggle('ready', swapState === 'ready');
-      const swapLabel = nextSlot >= 0 ? CFG.weapons[weaponsOwned[nextSlot]].type : 'SWAP';
-      if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
     }
   }
 }

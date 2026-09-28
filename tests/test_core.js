@@ -6175,3 +6175,135 @@ test('surface impact acoustics, sniper bolt cycle, tactical readiness cues, and 
   assert.strictEqual(CORE.weaponDrawSound(null), 'draw');
   assert.strictEqual(CORE.weaponDrawSound(undefined), 'draw');
 });
+
+test('mobile touch action button change-detection, weapon swap cycling, layout clamping, and control labeling rules govern mobile UI polish', () => {
+  // 1) Default touch dimensions
+  assert.strictEqual(CORE.TOUCH_BUTTON_DEFAULT_SIZE, 56);
+  assert.strictEqual(CORE.TOUCH_FIRE_DEFAULT_SIZE, 84);
+  assert.strictEqual(CORE.TOUCH_PAUSE_DEFAULT_SIZE, 44);
+
+  // 2) Change-detection for touch fire button
+  assert.strictEqual(CORE.touchFireChanged(null, 'ready', 'FIRE'), true);
+  assert.strictEqual(CORE.touchFireChanged(undefined, 'ready', 'FIRE'), true);
+  const fCache = CORE.syncTouchFireState(null, 'ready', 'FIRE');
+  assert.strictEqual(fCache.fireState, 'ready');
+  assert.strictEqual(fCache.fireLabel, 'FIRE');
+  assert.strictEqual(CORE.touchFireChanged(fCache, 'ready', 'FIRE'), false);
+  assert.strictEqual(CORE.touchFireChanged(fCache, 'empty', 'FIRE'), true);
+  assert.strictEqual(CORE.touchFireChanged(fCache, 'ready', 'ADS+FIRE'), true);
+  const fSync = CORE.syncTouchFireState(fCache, 'dry', 'RELOAD');
+  assert.strictEqual(fSync, fCache);
+  assert.strictEqual(fCache.fireState, 'dry');
+  assert.strictEqual(fCache.fireLabel, 'RELOAD');
+  assert.strictEqual(CORE.touchFireChanged(fCache, 'dry', 'RELOAD'), false);
+
+  // 3) Change-detection for touch reload button
+  assert.strictEqual(CORE.touchReloadChanged(null, '', 'RLD'), true);
+  const rCache = CORE.syncTouchReloadState(null, '', 'RLD');
+  assert.strictEqual(rCache.reloadState, '');
+  assert.strictEqual(rCache.reloadLabel, 'RLD');
+  assert.strictEqual(CORE.touchReloadChanged(rCache, '', 'RLD'), false);
+  assert.strictEqual(CORE.touchReloadChanged(rCache, 'urgent', 'RLD'), true);
+  assert.strictEqual(CORE.touchReloadChanged(rCache, '', 'RELOAD'), true);
+  CORE.syncTouchReloadState(rCache, 'reloading', 'WAIT');
+  assert.strictEqual(rCache.reloadState, 'reloading');
+  assert.strictEqual(rCache.reloadLabel, 'WAIT');
+  assert.strictEqual(CORE.touchReloadChanged(rCache, 'reloading', 'WAIT'), false);
+
+  // 4) Change-detection for touch armor plate button
+  assert.strictEqual(CORE.touchPlateChanged(null, 'ready', 'PLATE 2'), true);
+  const pCache = CORE.syncTouchPlateState(null, 'ready', 'PLATE 2');
+  assert.strictEqual(pCache.plateState, 'ready');
+  assert.strictEqual(pCache.plateLabel, 'PLATE 2');
+  assert.strictEqual(CORE.touchPlateChanged(pCache, 'ready', 'PLATE 2'), false);
+  assert.strictEqual(CORE.touchPlateChanged(pCache, 'urgent', 'PLATE 2'), true);
+  assert.strictEqual(CORE.touchPlateChanged(pCache, 'ready', 'PLATE 1'), true);
+  CORE.syncTouchPlateState(pCache, 'inserting', 'PLATE 2');
+  assert.strictEqual(pCache.plateState, 'inserting');
+  assert.strictEqual(CORE.touchPlateChanged(pCache, 'inserting', 'PLATE 2'), false);
+
+  // 5) Change-detection for touch equipment button (lethal / tactical)
+  assert.strictEqual(CORE.touchEquipmentChanged(null, 'ready', 'FRAG 2'), true);
+  const eCache = CORE.syncTouchEquipmentState(null, 'ready', 'FRAG 2');
+  assert.strictEqual(eCache.eqState, 'ready');
+  assert.strictEqual(eCache.eqLabel, 'FRAG 2');
+  assert.strictEqual(CORE.touchEquipmentChanged(eCache, 'ready', 'FRAG 2'), false);
+  assert.strictEqual(CORE.touchEquipmentChanged(eCache, 'charging', 'FRAG 2'), true);
+  assert.strictEqual(CORE.touchEquipmentChanged(eCache, 'ready', 'FRAG 1'), true);
+  CORE.syncTouchEquipmentState(eCache, 'empty', 'FRAG 0');
+  assert.strictEqual(eCache.eqState, 'empty');
+  assert.strictEqual(eCache.eqLabel, 'FRAG 0');
+  assert.strictEqual(CORE.touchEquipmentChanged(eCache, 'empty', 'FRAG 0'), false);
+
+  // 6) Change-detection for touch streak button
+  assert.strictEqual(CORE.touchStreakChanged(null, 'empty', 'STRK'), true);
+  const sCache = CORE.syncTouchStreakState(null, 'empty', 'STRK');
+  assert.strictEqual(sCache.streakState, 'empty');
+  assert.strictEqual(sCache.streakLabel, 'STRK');
+  assert.strictEqual(CORE.touchStreakChanged(sCache, 'empty', 'STRK'), false);
+  assert.strictEqual(CORE.touchStreakChanged(sCache, 'streak', 'STRK'), true);
+  assert.strictEqual(CORE.touchStreakChanged(sCache, 'empty', 'UAV'), true);
+  CORE.syncTouchStreakState(sCache, 'field', 'FLD');
+  assert.strictEqual(sCache.streakState, 'field');
+  assert.strictEqual(sCache.streakLabel, 'FLD');
+  assert.strictEqual(CORE.touchStreakChanged(sCache, 'field', 'FLD'), false);
+
+  // 7) Change-detection for touch swap button
+  assert.strictEqual(CORE.touchSwapChanged(null, 'empty', 'SWAP'), true);
+  const swCache = CORE.syncTouchSwapState(null, 'empty', 'SWAP');
+  assert.strictEqual(swCache.swapState, 'empty');
+  assert.strictEqual(swCache.swapLabel, 'SWAP');
+  assert.strictEqual(CORE.touchSwapChanged(swCache, 'empty', 'SWAP'), false);
+  assert.strictEqual(CORE.touchSwapChanged(swCache, 'ready', 'SWAP'), true);
+  assert.strictEqual(CORE.touchSwapChanged(swCache, 'empty', 'SMG'), true);
+  CORE.syncTouchSwapState(swCache, 'ready', 'SMG');
+  assert.strictEqual(swCache.swapState, 'ready');
+  assert.strictEqual(swCache.swapLabel, 'SMG');
+  assert.strictEqual(CORE.touchSwapChanged(swCache, 'ready', 'SMG'), false);
+
+  // 8) Weapon cycle next slot resolution
+  assert.strictEqual(CORE.touchSwapNextSlot(0, null), -1);
+  assert.strictEqual(CORE.touchSwapNextSlot(0, []), -1);
+  assert.strictEqual(CORE.touchSwapNextSlot(0, [0]), -1);
+  assert.strictEqual(CORE.touchSwapNextSlot(0, [0, -1]), -1);
+  assert.strictEqual(CORE.touchSwapNextSlot(0, [0, 1]), 1);
+  assert.strictEqual(CORE.touchSwapNextSlot(1, [0, 1]), 0);
+  // Handles 3-slot loadouts (e.g. primary in slot 0, sniper in slot 2)
+  assert.strictEqual(CORE.touchSwapNextSlot(0, [0, -1, 3]), 2);
+  assert.strictEqual(CORE.touchSwapNextSlot(2, [0, -1, 3]), 0);
+  assert.strictEqual(CORE.touchSwapNextSlot(0, [0, 1, 2]), 1);
+  assert.strictEqual(CORE.touchSwapNextSlot(1, [0, 1, 2]), 2);
+  assert.strictEqual(CORE.touchSwapNextSlot(2, [0, 1, 2]), 0);
+
+  // 9) Touch control human-readable labels for layout editor
+  assert.strictEqual(CORE.touchControlName('tbtn-fire'), 'FIRE');
+  assert.strictEqual(CORE.touchControlName('tbtn-ads'), 'ADS');
+  assert.strictEqual(CORE.touchControlName('tbtn-jump'), 'JUMP');
+  assert.strictEqual(CORE.touchControlName('tbtn-slide'), 'SLIDE');
+  assert.strictEqual(CORE.touchControlName('tbtn-reload'), 'RELOAD');
+  assert.strictEqual(CORE.touchControlName('tbtn-nade'), 'LETHAL');
+  assert.strictEqual(CORE.touchControlName('tbtn-swap'), 'SWAP');
+  assert.strictEqual(CORE.touchControlName('tbtn-melee'), 'MELEE');
+  assert.strictEqual(CORE.touchControlName('tbtn-use'), 'USE');
+  assert.strictEqual(CORE.touchControlName('tbtn-plate'), 'ARMOR');
+  assert.strictEqual(CORE.touchControlName('tbtn-tactical'), 'TACTICAL');
+  assert.strictEqual(CORE.touchControlName('tbtn-streak'), 'STREAK');
+  assert.strictEqual(CORE.touchControlName('tbtn-pause'), 'PAUSE');
+  assert.strictEqual(CORE.touchControlName('joy-base'), 'JOYSTICK');
+  assert.strictEqual(CORE.touchControlName('tbtn-custom'), 'CUSTOM');
+  assert.strictEqual(CORE.touchControlName(null), 'CONTROL');
+  assert.strictEqual(CORE.touchControlName(undefined), 'CONTROL');
+
+  // 10) Layout editor boundary clamping
+  // Element size 56px in 1000px viewport: maxPct = 100 - (56/1000 * 100) = 94.4%
+  // Centered touch at x=500: targetPct = (500 - 28) / 1000 * 100 = 47.2%
+  assert.ok(Math.abs(CORE.touchLayoutClampPercent(500, 56, 1000) - 47.2) < 1e-4);
+  // Touch off-screen to left: clamped to 0%
+  assert.strictEqual(CORE.touchLayoutClampPercent(-50, 56, 1000), 0);
+  assert.strictEqual(CORE.touchLayoutClampPercent(20, 56, 1000), 0);
+  // Touch off-screen to right: clamped to maxPct
+  assert.ok(Math.abs(CORE.touchLayoutClampPercent(1050, 56, 1000) - 94.4) < 1e-4);
+  // Zero / negative viewport dimension fallback
+  assert.strictEqual(CORE.touchLayoutClampPercent(50, 56, 0), 0);
+  assert.strictEqual(CORE.touchLayoutClampPercent(50, 56, -100), 0);
+});

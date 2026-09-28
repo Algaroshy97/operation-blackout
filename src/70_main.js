@@ -200,6 +200,13 @@ function resetGame() {
   if (typeof _touchAdsCache !== 'undefined' && _touchAdsCache) _touchAdsCache.adsState = null;
   if (typeof _touchSlideCache !== 'undefined' && _touchSlideCache) _touchSlideCache.slideState = null;
   if (typeof _touchMeleeCache !== 'undefined' && _touchMeleeCache) _touchMeleeCache.meleeState = null;
+  if (typeof _touchPlateCache !== 'undefined' && _touchPlateCache) _touchPlateCache.plateState = null;
+  if (typeof _touchFireCache !== 'undefined' && _touchFireCache) _touchFireCache.fireState = null;
+  if (typeof _touchReloadCache !== 'undefined' && _touchReloadCache) _touchReloadCache.reloadState = null;
+  if (typeof _touchNadeCache !== 'undefined' && _touchNadeCache) _touchNadeCache.eqState = null;
+  if (typeof _touchTacCache !== 'undefined' && _touchTacCache) _touchTacCache.eqState = null;
+  if (typeof _touchSwapCache !== 'undefined' && _touchSwapCache) _touchSwapCache.swapState = null;
+  if (typeof _touchStreakCache !== 'undefined' && _touchStreakCache) _touchStreakCache.streakState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;

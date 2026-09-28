@@ -260,6 +260,7 @@
   body.touch #tbtn-fire.on{background:rgba(220,40,30,.65);border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,90,70,.3),inset 0 0 14px rgba(255,220,200,.25)}
   body.touch #tbtn-fire.dry{background:rgba(180,60,20,.45);border-color:#ffaa3a;color:#ffdf8a;box-shadow:0 0 0 3px rgba(255,170,58,.28),inset 0 0 10px rgba(255,170,58,.2)}
   body.touch #tbtn-fire.reloading{background:rgba(120,80,20,.4);border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-fire.empty{background:rgba(60,20,20,.35);border-color:rgba(180,50,40,.3);color:rgba(220,100,90,.45);opacity:.5}
   body.touch #tbtn-ads{right:calc(118px + var(--sa-r));bottom:calc(60px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
   body.touch #tbtn-ads.active{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.25),inset 0 0 8px rgba(80,180,255,.18)}
   body.touch #tbtn-ads.scoped{background:rgba(80,180,255,.35);border-color:#7cd4ff;color:#fff;box-shadow:0 0 0 4px rgba(80,180,255,.35),inset 0 0 14px rgba(80,180,255,.3)}
@@ -276,6 +277,7 @@
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;box-shadow:0 0 0 3px rgba(255,74,61,.28),inset 0 0 10px rgba(255,74,61,.22)}
   body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-reload.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   /* Left-hand cluster: NADE and SWAP share the column beside the stick, so neither
      reaches the minimap the way a single tall column did. */
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
@@ -304,6 +306,7 @@
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:rgba(0,0,0,.3)}
   body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
   body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
+  body.touch-layout-left.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom left}
   body.touch-layout-left #joy-base{left:auto;right:calc(26px + var(--sa-r))}
   body.touch-layout-left #look-zone{left:0;right:auto}
   body.touch-layout-left #tbtn-fire{left:calc(26px + var(--sa-l));right:auto;bottom:calc(56px + var(--sa-b))}
@@ -311,6 +314,14 @@
   body.touch-layout-left #tbtn-slide{left:calc(118px + var(--sa-l));right:auto}
   body.touch-layout-left #tbtn-jump{left:calc(26px + var(--sa-l));right:auto}
   body.touch-layout-left #tbtn-reload{left:calc(92px + var(--sa-l));right:auto}
+  body.touch-layout-left #tbtn-nade{left:auto;right:calc(150px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-swap{left:auto;right:calc(150px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-melee{left:auto;right:calc(216px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-use{left:auto;right:calc(216px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-plate{left:auto;right:calc(282px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
+  body.touch-layout-left #tbtn-tactical{left:auto;right:calc(282px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
+  body.touch-layout-left #tbtn-streak{left:auto;right:calc(150px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
+  body.touch-layout-left #tbtn-pause{left:calc(14px + var(--sa-l));right:auto}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
@@ -6759,23 +6770,31 @@ const CORE = (function () {
     if (fieldReady) return 'field';
     return 'empty';
   }
+  // Evaluates the next owned weapon slot index in cycle order, skipping negative/unowned slots.
+  // Returns -1 if no alternate weapon is owned.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapNextSlot(curSlot, weaponsOwned) {
+    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return -1;
+    const n = weaponsOwned.length;
+    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? ((curSlot % n) + n) % n : 0;
+    for (let k = 1; k < n; k++) {
+      const ns = (slot + k) % n;
+      const wid = weaponsOwned[ns];
+      if (typeof wid === 'number' && isFinite(wid) && wid >= 0) return ns;
+    }
+    return -1;
+  }
   // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
   // or 'ready' when a reserve weapon is owned and can be switched to.
   function touchSwapState(curSlot, weaponsOwned) {
-    if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return 'empty';
-    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
-    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
-    const wid = weaponsOwned[other];
-    if (typeof wid !== 'number' || !isFinite(wid) || wid < 0) return 'empty';
-    return 'ready';
+    return touchSwapNextSlot(curSlot, weaponsOwned) >= 0 ? 'ready' : 'empty';
   }
   // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
   // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
   function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
-    if (touchSwapState(curSlot, weaponsOwned) === 'empty') return 'SWAP';
-    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? curSlot : 0;
-    const other = ((slot % 2) + 2) % 2 === 0 ? 1 : 0;
-    const wid = weaponsOwned[other];
+    const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
+    if (nextSlot < 0) return 'SWAP';
+    const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
       return weaponsList[wid].type;
     }
@@ -7043,6 +7062,124 @@ const CORE = (function () {
     if (a <= 0 && r <= 0) return 'EMPTY';
     if (a <= 0 && r > 0) return 'RELOAD';
     return 'RLD';
+  }
+
+  const TOUCH_BUTTON_DEFAULT_SIZE = 56;
+  const TOUCH_FIRE_DEFAULT_SIZE = 84;
+  const TOUCH_PAUSE_DEFAULT_SIZE = 44;
+
+  const TOUCH_CONTROL_NAMES = {
+    'tbtn-fire': 'FIRE',
+    'tbtn-ads': 'ADS',
+    'tbtn-jump': 'JUMP',
+    'tbtn-slide': 'SLIDE',
+    'tbtn-reload': 'RELOAD',
+    'tbtn-nade': 'LETHAL',
+    'tbtn-swap': 'SWAP',
+    'tbtn-melee': 'MELEE',
+    'tbtn-use': 'USE',
+    'tbtn-plate': 'ARMOR',
+    'tbtn-tactical': 'TACTICAL',
+    'tbtn-streak': 'STREAK',
+    'tbtn-pause': 'PAUSE',
+    'joy-base': 'JOYSTICK'
+  };
+
+  // Maps a touch control element identifier to a human-readable uppercase label for the layout editor.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchControlName(elementId) {
+    if (typeof elementId !== 'string') return 'CONTROL';
+    if (TOUCH_CONTROL_NAMES[elementId]) return TOUCH_CONTROL_NAMES[elementId];
+    return elementId.replace(/^tbtn-/, '').toUpperCase();
+  }
+
+  // Clamps mobile touch layout editor positioning coordinates to viewport boundaries [0, maxPct].
+  // Pure: no side effects, no DOM, no THREE.
+  function touchLayoutClampPercent(clientCoord, elementDim, viewportSpan) {
+    const span = typeof viewportSpan === 'number' && viewportSpan > 0 ? viewportSpan : 1;
+    const dim = typeof elementDim === 'number' && isFinite(elementDim) ? elementDim : 0;
+    const coord = typeof clientCoord === 'number' && isFinite(clientCoord) ? clientCoord : 0;
+    const maxPct = Math.max(0, 100 - (dim / span * 100));
+    const targetPct = (coord - dim / 2) / span * 100;
+    return Math.max(0, Math.min(maxPct, targetPct));
+  }
+
+  // Change-detection for mobile touch fire button to prevent redundant DOM updates.
+  function touchFireChanged(lastState, fireState, fireLabel) {
+    if (!lastState) return true;
+    return lastState.fireState !== fireState || lastState.fireLabel !== fireLabel;
+  }
+  // In-place cache synchronizer for mobile touch fire button state.
+  function syncTouchFireState(lastState, fireState, fireLabel) {
+    if (!lastState) return { fireState: fireState, fireLabel: fireLabel };
+    lastState.fireState = fireState;
+    lastState.fireLabel = fireLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch reload button to prevent redundant DOM updates.
+  function touchReloadChanged(lastState, reloadState, reloadLabel) {
+    if (!lastState) return true;
+    return lastState.reloadState !== reloadState || lastState.reloadLabel !== reloadLabel;
+  }
+  // In-place cache synchronizer for mobile touch reload button state.
+  function syncTouchReloadState(lastState, reloadState, reloadLabel) {
+    if (!lastState) return { reloadState: reloadState, reloadLabel: reloadLabel };
+    lastState.reloadState = reloadState;
+    lastState.reloadLabel = reloadLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch plate button to prevent redundant DOM updates.
+  function touchPlateChanged(lastState, plateState, plateLabel) {
+    if (!lastState) return true;
+    return lastState.plateState !== plateState || lastState.plateLabel !== plateLabel;
+  }
+  // In-place cache synchronizer for mobile touch plate button state.
+  function syncTouchPlateState(lastState, plateState, plateLabel) {
+    if (!lastState) return { plateState: plateState, plateLabel: plateLabel };
+    lastState.plateState = plateState;
+    lastState.plateLabel = plateLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch equipment buttons (lethal and tactical).
+  function touchEquipmentChanged(lastState, eqState, eqLabel) {
+    if (!lastState) return true;
+    return lastState.eqState !== eqState || lastState.eqLabel !== eqLabel;
+  }
+  // In-place cache synchronizer for mobile touch equipment button state.
+  function syncTouchEquipmentState(lastState, eqState, eqLabel) {
+    if (!lastState) return { eqState: eqState, eqLabel: eqLabel };
+    lastState.eqState = eqState;
+    lastState.eqLabel = eqLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch scorestreak / field upgrade button.
+  function touchStreakChanged(lastState, streakState, streakLabel) {
+    if (!lastState) return true;
+    return lastState.streakState !== streakState || lastState.streakLabel !== streakLabel;
+  }
+  // In-place cache synchronizer for mobile touch scorestreak button state.
+  function syncTouchStreakState(lastState, streakState, streakLabel) {
+    if (!lastState) return { streakState: streakState, streakLabel: streakLabel };
+    lastState.streakState = streakState;
+    lastState.streakLabel = streakLabel;
+    return lastState;
+  }
+
+  // Change-detection for mobile touch weapon swap button.
+  function touchSwapChanged(lastState, swapState, swapLabel) {
+    if (!lastState) return true;
+    return lastState.swapState !== swapState || lastState.swapLabel !== swapLabel;
+  }
+  // In-place cache synchronizer for mobile touch weapon swap button state.
+  function syncTouchSwapState(lastState, swapState, swapLabel) {
+    if (!lastState) return { swapState: swapState, swapLabel: swapLabel };
+    lastState.swapState = swapState;
+    lastState.swapLabel = swapLabel;
+    return lastState;
   }
   function perkReloadMul(owned) { return hasPerk(owned, 'reload') ? 0.6 : 1; }
   function perkBloomMul(owned) { return hasPerk(owned, 'steady') ? 0.55 : 1; }
@@ -10368,6 +10505,24 @@ const CORE = (function () {
     touchFireState: touchFireState,
     touchFireLabel: touchFireLabel,
     touchReloadLabel: touchReloadLabel,
+    TOUCH_BUTTON_DEFAULT_SIZE: TOUCH_BUTTON_DEFAULT_SIZE,
+    TOUCH_FIRE_DEFAULT_SIZE: TOUCH_FIRE_DEFAULT_SIZE,
+    TOUCH_PAUSE_DEFAULT_SIZE: TOUCH_PAUSE_DEFAULT_SIZE,
+    touchControlName: touchControlName,
+    touchLayoutClampPercent: touchLayoutClampPercent,
+    touchFireChanged: touchFireChanged,
+    syncTouchFireState: syncTouchFireState,
+    touchReloadChanged: touchReloadChanged,
+    syncTouchReloadState: syncTouchReloadState,
+    touchPlateChanged: touchPlateChanged,
+    syncTouchPlateState: syncTouchPlateState,
+    touchEquipmentChanged: touchEquipmentChanged,
+    syncTouchEquipmentState: syncTouchEquipmentState,
+    touchStreakChanged: touchStreakChanged,
+    syncTouchStreakState: syncTouchStreakState,
+    touchSwapChanged: touchSwapChanged,
+    syncTouchSwapState: syncTouchSwapState,
+    touchSwapNextSlot: touchSwapNextSlot,
     FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
     FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
     FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,
@@ -12881,13 +13036,20 @@ function openTouchLayoutEditor() {
     if (!document.body.classList.contains('touch-editing')) return;
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
-    bar.dataset.selected = el.id; bar.querySelector('#touch-editor-name').textContent = el.id.replace('tbtn-', '').toUpperCase();
+    bar.dataset.selected = el.id;
+    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
+      ? CORE.touchControlName(el.id)
+      : el.id.replace('tbtn-', '').toUpperCase();
     size.value = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();
-        const left = Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
-        const top = Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
+        const left = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+          ? CORE.touchLayoutClampPercent(mt.clientX, r.width, innerWidth)
+          : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
+        const top = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+          ? CORE.touchLayoutClampPercent(mt.clientY, r.height, innerHeight)
+          : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
         el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
         touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {}; touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
       }
@@ -18440,6 +18602,7 @@ function updateStreaks(dt) {
 }
 
 // ---- HUD ---------------------------------------------------------------------
+let _touchStreakCache = { streakState: null, streakLabel: null };
 function updateHudStreaks() {
   const el = $id('streak-hud');
   if (el) {
@@ -18460,12 +18623,15 @@ function updateHudStreaks() {
       const hasStreak = streakBank.length > 0;
       const fReady = CORE.fieldReady(fieldCharge);
       const sState = CORE.touchStreakState(hasStreak, fReady);
-      tbtnStreak.classList.toggle('streak', sState === 'streak');
-      tbtnStreak.classList.toggle('field', sState === 'field');
-      tbtnStreak.classList.toggle('empty', sState === 'empty');
       const topStreak = hasStreak ? streakBank[0] : null;
       const sLabel = CORE.touchStreakLabel(topStreak, fReady);
-      if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
+      if (CORE.touchStreakChanged(_touchStreakCache, sState, sLabel)) {
+        CORE.syncTouchStreakState(_touchStreakCache, sState, sLabel);
+        tbtnStreak.classList.toggle('streak', sState === 'streak');
+        tbtnStreak.classList.toggle('field', sState === 'field');
+        tbtnStreak.classList.toggle('empty', sState === 'empty');
+        if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
+      }
     }
   }
 }
@@ -18514,6 +18680,7 @@ function updateHudGrenadeCharge(visible, pct, speed) {
 // cheaper than the DOM writes, class-list toggles, and touch-plate text checks that the
 // full body performs. Force-flush callers (resupply, deploy, reset) pass force=true.
 const _hudHealthState = { hp: -1, maxHp: -1, armor: -1, plates: -1, plateInserting: null };
+let _touchPlateCache = { plateState: null, plateLabel: null };
 function updateHudHealth(force) {
   const hp = Math.max(0, Math.round(player.health));
   const maxHp = typeof playerMaxHealth === 'function' ? playerMaxHealth() : CFG.player.health;
@@ -18555,12 +18722,15 @@ function updateHudHealth(force) {
     const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
     if (tbtnPlate) {
       const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
-      tbtnPlate.classList.toggle('empty', plateState === 'empty');
-      tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
-      tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
-      tbtnPlate.classList.toggle('ready', plateState === 'ready');
       const plateLabel = CORE.touchPlateLabel(curPlates, isIns);
-      if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
+      if (CORE.touchPlateChanged(_touchPlateCache, plateState, plateLabel)) {
+        CORE.syncTouchPlateState(_touchPlateCache, plateState, plateLabel);
+        tbtnPlate.classList.toggle('empty', plateState === 'empty');
+        tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
+        tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
+        tbtnPlate.classList.toggle('ready', plateState === 'ready');
+        if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
+      }
     }
   }
   updateHudMobility();
@@ -18589,6 +18759,11 @@ const _hudAmmoState = {
   ammo: -1, reserve: -1, reloading: null, isLow: null, isEmpty: null,
   prompt: null, weaponName: null, lethalCount: -1, tacCount: -1, isCharging: false
 };
+let _touchFireCache = { fireState: null, fireLabel: null };
+let _touchReloadCache = { reloadState: null, reloadLabel: null };
+let _touchNadeCache = { eqState: null, eqLabel: null };
+let _touchTacCache = { eqState: null, eqLabel: null };
+let _touchSwapCache = { swapState: null, swapLabel: null };
 function updateHudAmmo(force) {
   const s = curS();
   if (!s) {
@@ -18632,52 +18807,60 @@ function updateHudAmmo(force) {
     const tbtnFire = hud.tbtnFire || (hud.tbtnFire = $id('tbtn-fire'));
     if (tbtnFire) {
       const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading);
-      tbtnFire.classList.toggle('empty', fireState === 'empty');
-      tbtnFire.classList.toggle('dry', fireState === 'dry');
-      tbtnFire.classList.toggle('reloading', fireState === 'reloading');
       const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire);
-      if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+      if (CORE.touchFireChanged(_touchFireCache, fireState, fireLabel)) {
+        CORE.syncTouchFireState(_touchFireCache, fireState, fireLabel);
+        tbtnFire.classList.toggle('empty', fireState === 'empty');
+        tbtnFire.classList.toggle('dry', fireState === 'dry');
+        tbtnFire.classList.toggle('reloading', fireState === 'reloading');
+        if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
+      }
     }
     const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
     if (tbtnReload) {
       const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
-      tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
-      tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
-      tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
       const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading);
-      if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
+      if (CORE.touchReloadChanged(_touchReloadCache, reloadState, reloadLabel)) {
+        CORE.syncTouchReloadState(_touchReloadCache, reloadState, reloadLabel);
+        tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
+        tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
+        tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
+        if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
+      }
     }
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
       const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
-      tbtnNade.classList.toggle('empty', nadeState === 'empty');
-      tbtnNade.classList.toggle('charging', nadeState === 'charging');
-      tbtnNade.classList.toggle('ready', nadeState === 'ready');
       const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
-      if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
+      if (CORE.touchEquipmentChanged(_touchNadeCache, nadeState, nadeLabel)) {
+        CORE.syncTouchEquipmentState(_touchNadeCache, nadeState, nadeLabel);
+        tbtnNade.classList.toggle('empty', nadeState === 'empty');
+        tbtnNade.classList.toggle('charging', nadeState === 'charging');
+        tbtnNade.classList.toggle('ready', nadeState === 'ready');
+        if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
+      }
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
       const tacState = CORE.touchEquipmentState(tacCount, false);
-      tbtnTac.classList.toggle('empty', tacState === 'empty');
-      tbtnTac.classList.toggle('ready', tacState === 'ready');
       const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
-      if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
+      if (CORE.touchEquipmentChanged(_touchTacCache, tacState, tacLabel)) {
+        CORE.syncTouchEquipmentState(_touchTacCache, tacState, tacLabel);
+        tbtnTac.classList.toggle('empty', tacState === 'empty');
+        tbtnTac.classList.toggle('ready', tacState === 'ready');
+        if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
+      }
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
-    if (tbtnSwap && typeof weaponsOwned !== 'undefined' && typeof CFG !== 'undefined') {
-      // SWAP cycles every owned slot (the marksman rifle rides in slot 3), so the
-      // state and label follow the weapon it will actually bring up.
-      let nextSlot = -1;
-      for (let k = 1; k < weaponsOwned.length; k++) {
-        const ns = (curWeapon + k) % weaponsOwned.length;
-        if (weaponsOwned[ns] >= 0) { nextSlot = ns; break; }
+    if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null);
+      if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
+        CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
+        tbtnSwap.classList.toggle('empty', swapState === 'empty');
+        tbtnSwap.classList.toggle('ready', swapState === 'ready');
+        if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
       }
-      const swapState = nextSlot >= 0 ? 'ready' : 'empty';
-      tbtnSwap.classList.toggle('empty', swapState === 'empty');
-      tbtnSwap.classList.toggle('ready', swapState === 'ready');
-      const swapLabel = nextSlot >= 0 ? CFG.weapons[weaponsOwned[nextSlot]].type : 'SWAP';
-      if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
     }
   }
 }
@@ -19759,6 +19942,13 @@ function resetGame() {
   if (typeof _touchAdsCache !== 'undefined' && _touchAdsCache) _touchAdsCache.adsState = null;
   if (typeof _touchSlideCache !== 'undefined' && _touchSlideCache) _touchSlideCache.slideState = null;
   if (typeof _touchMeleeCache !== 'undefined' && _touchMeleeCache) _touchMeleeCache.meleeState = null;
+  if (typeof _touchPlateCache !== 'undefined' && _touchPlateCache) _touchPlateCache.plateState = null;
+  if (typeof _touchFireCache !== 'undefined' && _touchFireCache) _touchFireCache.fireState = null;
+  if (typeof _touchReloadCache !== 'undefined' && _touchReloadCache) _touchReloadCache.reloadState = null;
+  if (typeof _touchNadeCache !== 'undefined' && _touchNadeCache) _touchNadeCache.eqState = null;
+  if (typeof _touchTacCache !== 'undefined' && _touchTacCache) _touchTacCache.eqState = null;
+  if (typeof _touchSwapCache !== 'undefined' && _touchSwapCache) _touchSwapCache.swapState = null;
+  if (typeof _touchStreakCache !== 'undefined' && _touchStreakCache) _touchStreakCache.streakState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
   waveQueue = 0; waveActive = false; gameEnded = false;
   betweenWaveT = CFG.wave.startDelay;

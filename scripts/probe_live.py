@@ -2383,7 +2383,83 @@ def main() -> int:
         }""")
         checks.append(("tactical-surface-impact-and-weapon-acoustics-rules", tactical_acoustics_check))
 
-        # 56) Clean console throughout gameplay.
+        # 56) Mobile touch action button change-detection, weapon swap cycling, layout clamping, and control labeling rules.
+        mobile_polish_check = page.evaluate("""() => {
+            if (!CORE ||
+                typeof CORE.touchFireChanged !== 'function' ||
+                typeof CORE.syncTouchFireState !== 'function' ||
+                typeof CORE.touchReloadChanged !== 'function' ||
+                typeof CORE.syncTouchReloadState !== 'function' ||
+                typeof CORE.touchPlateChanged !== 'function' ||
+                typeof CORE.syncTouchPlateState !== 'function' ||
+                typeof CORE.touchEquipmentChanged !== 'function' ||
+                typeof CORE.syncTouchEquipmentState !== 'function' ||
+                typeof CORE.touchStreakChanged !== 'function' ||
+                typeof CORE.syncTouchStreakState !== 'function' ||
+                typeof CORE.touchSwapChanged !== 'function' ||
+                typeof CORE.syncTouchSwapState !== 'function' ||
+                typeof CORE.touchSwapNextSlot !== 'function' ||
+                typeof CORE.touchControlName !== 'function' ||
+                typeof CORE.touchLayoutClampPercent !== 'function') return false;
+
+            const constsOk = CORE.TOUCH_BUTTON_DEFAULT_SIZE === 56 &&
+                             CORE.TOUCH_FIRE_DEFAULT_SIZE === 84 &&
+                             CORE.TOUCH_PAUSE_DEFAULT_SIZE === 44;
+
+            const fCache = { fireState: 'ready', fireLabel: 'FIRE' };
+            const fSame = CORE.touchFireChanged(fCache, 'ready', 'FIRE') === false;
+            const fDiff = CORE.touchFireChanged(fCache, 'empty', 'EMPTY') === true;
+            CORE.syncTouchFireState(fCache, 'empty', 'EMPTY');
+            const fSyncOk = fCache.fireState === 'empty' && fCache.fireLabel === 'EMPTY';
+
+            const rCache = { reloadState: '', reloadLabel: 'RLD' };
+            const rSame = CORE.touchReloadChanged(rCache, '', 'RLD') === false;
+            const rDiff = CORE.touchReloadChanged(rCache, 'urgent', 'RELOAD') === true;
+            CORE.syncTouchReloadState(rCache, 'urgent', 'RELOAD');
+            const rSyncOk = rCache.reloadState === 'urgent' && rCache.reloadLabel === 'RELOAD';
+
+            const pCache = { plateState: '', plateLabel: 'PLATE' };
+            const pDiff = CORE.touchPlateChanged(pCache, 'urgent', 'PLATE 3') === true;
+            CORE.syncTouchPlateState(pCache, 'urgent', 'PLATE 3');
+            const pSame = CORE.touchPlateChanged(pCache, 'urgent', 'PLATE 3') === false;
+
+            const eCache = { eqState: 'ready', eqLabel: 'FRAG 2' };
+            const eDiff = CORE.touchEquipmentChanged(eCache, 'charging', 'FRAG 2') === true;
+            CORE.syncTouchEquipmentState(eCache, 'charging', 'FRAG 2');
+            const eSame = CORE.touchEquipmentChanged(eCache, 'charging', 'FRAG 2') === false;
+
+            const sCache = { streakState: 'empty', streakLabel: 'STRK' };
+            const sDiff = CORE.touchStreakChanged(sCache, 'streak', 'UAV') === true;
+            CORE.syncTouchStreakState(sCache, 'streak', 'UAV');
+            const sSame = CORE.touchStreakChanged(sCache, 'streak', 'UAV') === false;
+
+            const swCache = { swapState: 'empty', swapLabel: 'SWAP' };
+            const swDiff = CORE.touchSwapChanged(swCache, 'ready', 'SMG') === true;
+            CORE.syncTouchSwapState(swCache, 'ready', 'SMG');
+            const swSame = CORE.touchSwapChanged(swCache, 'ready', 'SMG') === false;
+
+            const nextSlotOk = CORE.touchSwapNextSlot(0, [0, -1, 2]) === 2 &&
+                               CORE.touchSwapNextSlot(2, [0, -1, 2]) === 0 &&
+                               CORE.touchSwapNextSlot(0, [0, -1]) === -1;
+
+            const ctrlNameOk = CORE.touchControlName('tbtn-fire') === 'FIRE' &&
+                               CORE.touchControlName('tbtn-nade') === 'LETHAL' &&
+                               CORE.touchControlName('joy-base') === 'JOYSTICK' &&
+                               CORE.touchControlName('tbtn-pause') === 'PAUSE' &&
+                               CORE.touchControlName('tbtn-plate') === 'ARMOR';
+
+            const clampOk = Math.abs(CORE.touchLayoutClampPercent(500, 56, 1000) - 47.2) < 1e-4 &&
+                            CORE.touchLayoutClampPercent(-50, 56, 1000) === 0 &&
+                            Math.abs(CORE.touchLayoutClampPercent(1050, 56, 1000) - 94.4) < 1e-4;
+
+            return constsOk && fSame && fDiff && fSyncOk &&
+                   rSame && rDiff && rSyncOk && pDiff && pSame &&
+                   eDiff && eSame && sDiff && sSame && swDiff && swSame &&
+                   nextSlotOk && ctrlNameOk && clampOk;
+        }""")
+        checks.append(("touch-action-buttons-and-layout-mobile-rules", mobile_polish_check))
+
+        # 57) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
