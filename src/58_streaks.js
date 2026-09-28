@@ -253,7 +253,9 @@ function updateHudStreaks() {
       const fReady = CORE.fieldReady(fieldCharge);
       const sState = CORE.touchStreakState(hasStreak, fReady);
       const topStreak = hasStreak ? streakBank[0] : null;
-      const sLabel = CORE.touchStreakLabel(topStreak, fReady);
+      const fieldChargePct = CORE.FIELD_UPGRADE && CORE.FIELD_UPGRADE.charge > 0
+        ? fieldCharge / CORE.FIELD_UPGRADE.charge * 100 : 0;
+      const sLabel = CORE.touchStreakLabel(topStreak, fReady, fieldChargePct);
       if (CORE.touchStreakChanged(_touchStreakCache, sState, sLabel)) {
         CORE.syncTouchStreakState(_touchStreakCache, sState, sLabel);
         tbtnStreak.classList.toggle('streak', sState === 'streak');

@@ -2229,8 +2229,11 @@ const CORE = (function () {
     return 'NADE';
   }
   // Mobile touch scorestreak / field upgrade button label: displays 'UAV', 'AIR', 'TUR'
-  // for active banked streaks, 'BOX' when munitions field upgrade is ready, or 'STRK' fallback.
-  function touchStreakLabel(topStreakKey, fieldReady) {
+  // for active banked streaks, 'BOX' when munitions field upgrade is ready, a charge
+  // percentage (e.g. '73%') when field is charging and no streak is banked, or 'STRK'
+  // fallback. Optional third argument fieldChargePct (0–100) enables the progress label;
+  // omitting it preserves the previous two-argument behaviour exactly.
+  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct) {
     if (topStreakKey) {
       if (topStreakKey === 'uav') return 'UAV';
       if (topStreakKey === 'airstrike') return 'AIR';
@@ -2240,6 +2243,11 @@ const CORE = (function () {
       return 'STRK';
     }
     if (fieldReady) return 'BOX';
+    // Show charge progress when the field upgrade is actively charging (>5%) so
+    // mobile players can see how close they are without looking at the streak HUD.
+    if (typeof fieldChargePct === 'number' && isFinite(fieldChargePct) && fieldChargePct >= 5) {
+      return Math.min(99, Math.floor(fieldChargePct)) + '%';
+    }
     return 'STRK';
   }
   // Mobile touch melee button state: returns 'cooldown' while melee swing recovers,

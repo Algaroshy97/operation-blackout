@@ -4546,6 +4546,19 @@ test('touchPlateLabel, touchTacticalLabel, touchLethalLabel, touchStreakLabel, t
   assert.strictEqual(CORE.touchStreakLabel(undefined, true), 'BOX');
   assert.strictEqual(CORE.touchStreakLabel(null, false), 'STRK');
   assert.strictEqual(CORE.touchStreakLabel(undefined, false), 'STRK');
+  // fieldChargePct progress label: shown when >= 5% and field not ready
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 73.9), '73%');
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 5), '5%');
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 99.9), '99%');   // floor + cap at 99
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 100), '99%');   // floor(100)=100 → capped at 99
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 4.9), 'STRK');  // below threshold: silent
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 0), 'STRK');
+  assert.strictEqual(CORE.touchStreakLabel(null, false, -1), 'STRK');
+  // banked streak always wins over charge progress
+  assert.strictEqual(CORE.touchStreakLabel('uav', false, 73), 'UAV');
+  // field ready always wins over charge progress
+  assert.strictEqual(CORE.touchStreakLabel(null, true, 73), 'BOX');
+
 
   // touchMeleeState
   assert.strictEqual(CORE.touchMeleeState(true, 0), 'ready');
