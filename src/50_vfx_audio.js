@@ -134,7 +134,7 @@ function spawnTracer(from, to, mat) {
   m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push({ m: m, life: 0.06 });
+  vfx.tracers.push({ m: m, life: CORE.TRACER_LIFETIME, maxLife: CORE.TRACER_LIFETIME, len: len });
 }
 
 const _tmpN = new THREE.Vector3();
@@ -163,37 +163,68 @@ function spawnImpact(point, normal, obj) {
 // One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
 // zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
 // so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
-const decalGeo = new THREE.CircleGeometry(0.075, 8);   // 15 cm hole — reads at 15–40 m engagement range
+const decalGeo = new THREE.CircleGeometry(CORE.DECAL_BASE_RADIUS, 8);   // 15 cm base hole — reads at 15–40 m engagement range
 const decalMat = new THREE.MeshBasicMaterial({
   color: 0x14161a, transparent: true, opacity: 0.9,
   depthWrite: false,                                  // draw like a decal, not a solid
   polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
 });
-const DECAL = { max: 48, live: [], pool: [] };
+const DECAL = { max: CORE.DECAL_MAX, live: [], pool: [] };
 const _tmpD = new THREE.Vector3();
 const _tmpD2 = new THREE.Vector3();
-function spawnDecal(point, normal, obj) {
+function spawnDecal(point, normal, obj, weaponType) {
   let d;
-  if (DECAL.pool.length) { d = DECAL.pool.pop(); d.m.visible = true; }
-  else if (DECAL.live.length >= DECAL.max) { d = DECAL.live.shift(); }
-  else {
+  if (DECAL.pool.length) {
+    d = DECAL.pool.pop();
+    d.m.visible = true;
+  } else if (DECAL.live.length >= CORE.DECAL_MAX) {
+    d = DECAL.live.shift();
+  } else {
     const m = new THREE.Mesh(decalGeo, decalMat);
     m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
     m.userData.decal = true;
     m.renderOrder = 1;
     scene.add(m);
-    d = { m: m };
+    d = { m: m, life: CORE.DECAL_LIFETIME, weaponType: 'AR', surface: 'default' };
   }
   DECAL.live.push(d);
   _tmpD.copy(normal);
   if (obj && obj.matrixWorld) _tmpD.transformDirection(obj.matrixWorld).normalize();
-  d.m.position.copy(point).addScaledVector(_tmpD, 0.012);
+  d.m.position.copy(point).addScaledVector(_tmpD, CORE.DECAL_STANDOFF);
   _tmpD2.copy(point).add(_tmpD);
   d.m.lookAt(_tmpD2);
+  d.m.rotateZ(CORE.decalRotationAngle(Math.random()));
+  const surface = fxSurfaceFor(obj);
+  d.weaponType = weaponType || 'AR';
+  d.surface = surface;
+  d.life = CORE.DECAL_LIFETIME;
+  const s = CORE.decalScale(d.weaponType, d.surface, d.life, CORE.DECAL_LIFETIME, CORE.DECAL_FADE_DURATION);
+  d.m.scale.set(s, s, 1);
   d.t = gameT;
 }
+function updateDecals(dt) {
+  for (let i = DECAL.live.length - 1; i >= 0; i--) {
+    const d = DECAL.live[i];
+    d.life = CORE.stepDecalLife(d.life, dt);
+    if (CORE.isDecalExpired(d.life)) {
+      d.m.visible = false;
+      d.m.scale.set(1, 1, 1);
+      DECAL.pool.push(d);
+      DECAL.live.splice(i, 1);
+      continue;
+    }
+    if (d.life < CORE.DECAL_FADE_DURATION) {
+      const s = CORE.decalScale(d.weaponType, d.surface, d.life, CORE.DECAL_LIFETIME, CORE.DECAL_FADE_DURATION);
+      d.m.scale.set(s, s, 1);
+    }
+  }
+}
 function clearDecals() {
-  for (let i = 0; i < DECAL.live.length; i++) { DECAL.live[i].m.visible = false; DECAL.pool.push(DECAL.live[i]); }
+  for (let i = 0; i < DECAL.live.length; i++) {
+    DECAL.live[i].m.visible = false;
+    DECAL.live[i].m.scale.set(1, 1, 1);
+    DECAL.pool.push(DECAL.live[i]);
+  }
   DECAL.live.length = 0;
 }
 
@@ -333,14 +364,19 @@ function updateMuzzleLight(dt) {
   }
 }
 function updateVfx(dt) {
+  updateDecals(dt);
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
     t.life -= dt;
     if (t.life <= 0) {
       scene.remove(t.m);
       t.m.visible = false;
+      t.m.scale.set(1, 1, 1);
       tracerPool.push(t.m);
       vfx.tracers.splice(i, 1);
+    } else {
+      const thick = CORE.tracerThicknessScale(t.life, t.maxLife);
+      t.m.scale.set(thick, thick, t.len);
     }
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {

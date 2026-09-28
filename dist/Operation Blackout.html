@@ -10093,6 +10093,114 @@ const CORE = (function () {
     return 'draw';
   }
 
+  // ---- Ballistic bullet hole decals, viewmodel muzzle flash dynamics, and tracer kinematics (v103) ----
+  const DECAL_MAX = 48;
+  const DECAL_LIFETIME = 25;
+  const DECAL_FADE_DURATION = 3.5;
+  const DECAL_BASE_RADIUS = 0.075;
+  const DECAL_STANDOFF = 0.012;
+  const MUZZLE_FLASH_SUPPRESSED_SCALE = 0.22;
+  const TRACER_LIFETIME = 0.065;
+
+  function decalCaliberScale(weaponType) {
+    if (weaponType === 'SMG') return 0.72;
+    if (weaponType === 'BR') return 1.25;
+    if (weaponType === 'SR') return 1.5;
+    return 1.0;
+  }
+
+  function decalSurfaceMultiplier(surface) {
+    if (surface === 'glass') return 1.25;
+    if (surface === 'wood') return 1.1;
+    if (surface === 'metal') return 0.82;
+    return 1.0;
+  }
+
+  function decalScale(weaponType, surface, life, maxLife, fadeDuration) {
+    const cal = decalCaliberScale(weaponType);
+    const surf = decalSurfaceMultiplier(surface);
+    const base = cal * surf;
+    const maxL = (typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0) ? maxLife : DECAL_LIFETIME;
+    const curL = (typeof life === 'number' && isFinite(life)) ? Math.max(0, Math.min(maxL, life)) : 0;
+    const fade = (typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0) ? fadeDuration : DECAL_FADE_DURATION;
+    if (curL <= 0) return 0.001;
+    if (curL < fade) {
+      const t = curL / fade;
+      const decay = 1 - (1 - t) * (1 - t) * (1 - t);
+      return Math.max(0.001, base * decay);
+    }
+    return base;
+  }
+
+  function decalRotationAngle(randomVal) {
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? randomVal : 0;
+    return (r % 1) * Math.PI * 2;
+  }
+
+  function stepDecalLife(life, dt) {
+    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, cur - delta);
+  }
+
+  function isDecalExpired(life) {
+    return !(typeof life === 'number' && isFinite(life) && life > 0);
+  }
+
+  function muzzleFlashRotation(randomVal) {
+    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? randomVal : 0;
+    return (r % 1) * Math.PI;
+  }
+
+  function muzzleFlashBaseScale(weaponType, isSuppressed, randK, randZ, out) {
+    const rk = (typeof randK === 'number' && isFinite(randK)) ? randK : 0.5;
+    const rz = (typeof randZ === 'number' && isFinite(randZ)) ? randZ : 0.5;
+    const res = out || { k: 1, z: 1 };
+    if (isSuppressed) {
+      res.k = MUZZLE_FLASH_SUPPRESSED_SCALE * (0.8 + rk * 0.4);
+      res.z = MUZZLE_FLASH_SUPPRESSED_SCALE * (0.8 + rz * 0.4);
+      return res;
+    }
+    if (weaponType === 'SMG') {
+      res.k = 0.65 + rk * 0.25;
+      res.z = 0.60 + rz * 0.30;
+    } else if (weaponType === 'BR') {
+      res.k = 1.15 + rk * 0.45;
+      res.z = 1.10 + rz * 0.50;
+    } else if (weaponType === 'SR') {
+      res.k = 1.50 + rk * 0.50;
+      res.z = 1.40 + rz * 0.60;
+    } else {
+      res.k = 0.85 + rk * 0.35;
+      res.z = 0.80 + rz * 0.40;
+    }
+    return res;
+  }
+
+  function stepMuzzleFlashScale(baseK, baseZ, flashT, out) {
+    const res = out || { x: 1, y: 1, z: 1 };
+    const ft = (typeof flashT === 'number' && isFinite(flashT)) ? Math.max(0, Math.min(1, flashT)) : 0;
+    const kMul = Math.min(1, ft * 1.25);
+    const zMul = Math.min(1, ft * 1.1);
+    const bk = (typeof baseK === 'number' && isFinite(baseK)) ? baseK : 1;
+    const bz = (typeof baseZ === 'number' && isFinite(baseZ)) ? baseZ : 1;
+    res.x = bk * kMul;
+    res.y = bk * kMul;
+    res.z = bz * zMul;
+    return res;
+  }
+
+  function tracerThicknessScale(life, maxLife) {
+    const maxL = (typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0) ? maxLife : TRACER_LIFETIME;
+    const curL = (typeof life === 'number' && isFinite(life)) ? Math.max(0, Math.min(maxL, life)) : 0;
+    const t = curL / maxL;
+    return Math.max(0.1, t);
+  }
+
+  function tracerColor(isEnemy) {
+    return isEnemy ? 0xff8844 : 0xffe9a0;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -10828,7 +10936,25 @@ const CORE = (function () {
     fieldUpgradeReadySound: fieldUpgradeReadySound,
     secondWindSound: secondWindSound,
     objectiveCompleteSound: objectiveCompleteSound,
-    weaponDrawSound: weaponDrawSound
+    weaponDrawSound: weaponDrawSound,
+    DECAL_MAX: DECAL_MAX,
+    DECAL_LIFETIME: DECAL_LIFETIME,
+    DECAL_FADE_DURATION: DECAL_FADE_DURATION,
+    DECAL_BASE_RADIUS: DECAL_BASE_RADIUS,
+    DECAL_STANDOFF: DECAL_STANDOFF,
+    MUZZLE_FLASH_SUPPRESSED_SCALE: MUZZLE_FLASH_SUPPRESSED_SCALE,
+    TRACER_LIFETIME: TRACER_LIFETIME,
+    decalCaliberScale: decalCaliberScale,
+    decalSurfaceMultiplier: decalSurfaceMultiplier,
+    decalScale: decalScale,
+    decalRotationAngle: decalRotationAngle,
+    stepDecalLife: stepDecalLife,
+    isDecalExpired: isDecalExpired,
+    muzzleFlashRotation: muzzleFlashRotation,
+    muzzleFlashBaseScale: muzzleFlashBaseScale,
+    stepMuzzleFlashScale: stepMuzzleFlashScale,
+    tracerThicknessScale: tracerThicknessScale,
+    tracerColor: tracerColor
   };
 })();
 
@@ -13525,7 +13651,7 @@ function fireShot(preserveSchedule) {
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
-    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
   // shell casing eject
@@ -13553,7 +13679,8 @@ function fireShot(preserveSchedule) {
   player.recoilY += w.recoilH * rk.x;
   shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
-  triggerMuzzleFlash();
+  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();
   kickViewmodel(w, vmTune);
   if (muzzleFlash) fxMuzzle(muzzleWorldPos(_muzzleW), _shootDir, w.type === 'SR' || w.type === 'BR');
@@ -13642,7 +13769,12 @@ function updateViewmodel(dt) {
   // muzzle flash decay
   if (muzzleFlash && muzzleFlash.visible) {
     flashT = CORE.stepMuzzleFlash(flashT, dt, CORE.VIEWMODEL_MUZZLE_FLASH_DECAY);
-    if (flashT <= 0) muzzleFlash.visible = false;
+    if (flashT <= 0) {
+      muzzleFlash.visible = false;
+    } else {
+      const ms = CORE.stepMuzzleFlashScale(_flashBaseScale.k, _flashBaseScale.z, flashT, _flashDecayScaleOut);
+      muzzleFlash.scale.set(ms.x, ms.y, ms.z);
+    }
   }
   // scope overlay for BR / SR
   const isSr = w.type === 'SR';
@@ -13731,12 +13863,16 @@ function updateMarksmanScope(dt) {
   _scopeRangeEl.classList.toggle('tgt', hostile);
 }
 let flashT = 0;
-function triggerMuzzleFlash() {
+let _flashBaseScale = { k: 1, z: 1 };
+const _flashScaleOut = { k: 1, z: 1 };
+const _flashDecayScaleOut = { x: 1, y: 1, z: 1 };
+
+function triggerMuzzleFlash(weaponType, isSuppressed) {
   if (!muzzleFlash) return;
   muzzleFlash.visible = true;
-  muzzleFlash.rotation.z = Math.random() * Math.PI;
-  const k = 0.8 + Math.random() * 0.5;
-  muzzleFlash.scale.set(k, k, 0.8 + Math.random() * 0.6);
+  muzzleFlash.rotation.z = CORE.muzzleFlashRotation(Math.random());
+  _flashBaseScale = CORE.muzzleFlashBaseScale(weaponType, isSuppressed, Math.random(), Math.random(), _flashScaleOut);
+  muzzleFlash.scale.set(_flashBaseScale.k, _flashBaseScale.k, _flashBaseScale.z);
   flashT = 1;
 }
 
@@ -16477,7 +16613,7 @@ function spawnTracer(from, to, mat) {
   m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push({ m: m, life: 0.06 });
+  vfx.tracers.push({ m: m, life: CORE.TRACER_LIFETIME, maxLife: CORE.TRACER_LIFETIME, len: len });
 }
 
 const _tmpN = new THREE.Vector3();
@@ -16506,37 +16642,68 @@ function spawnImpact(point, normal, obj) {
 // One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
 // zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
 // so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
-const decalGeo = new THREE.CircleGeometry(0.075, 8);   // 15 cm hole — reads at 15–40 m engagement range
+const decalGeo = new THREE.CircleGeometry(CORE.DECAL_BASE_RADIUS, 8);   // 15 cm base hole — reads at 15–40 m engagement range
 const decalMat = new THREE.MeshBasicMaterial({
   color: 0x14161a, transparent: true, opacity: 0.9,
   depthWrite: false,                                  // draw like a decal, not a solid
   polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
 });
-const DECAL = { max: 48, live: [], pool: [] };
+const DECAL = { max: CORE.DECAL_MAX, live: [], pool: [] };
 const _tmpD = new THREE.Vector3();
 const _tmpD2 = new THREE.Vector3();
-function spawnDecal(point, normal, obj) {
+function spawnDecal(point, normal, obj, weaponType) {
   let d;
-  if (DECAL.pool.length) { d = DECAL.pool.pop(); d.m.visible = true; }
-  else if (DECAL.live.length >= DECAL.max) { d = DECAL.live.shift(); }
-  else {
+  if (DECAL.pool.length) {
+    d = DECAL.pool.pop();
+    d.m.visible = true;
+  } else if (DECAL.live.length >= CORE.DECAL_MAX) {
+    d = DECAL.live.shift();
+  } else {
     const m = new THREE.Mesh(decalGeo, decalMat);
     m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
     m.userData.decal = true;
     m.renderOrder = 1;
     scene.add(m);
-    d = { m: m };
+    d = { m: m, life: CORE.DECAL_LIFETIME, weaponType: 'AR', surface: 'default' };
   }
   DECAL.live.push(d);
   _tmpD.copy(normal);
   if (obj && obj.matrixWorld) _tmpD.transformDirection(obj.matrixWorld).normalize();
-  d.m.position.copy(point).addScaledVector(_tmpD, 0.012);
+  d.m.position.copy(point).addScaledVector(_tmpD, CORE.DECAL_STANDOFF);
   _tmpD2.copy(point).add(_tmpD);
   d.m.lookAt(_tmpD2);
+  d.m.rotateZ(CORE.decalRotationAngle(Math.random()));
+  const surface = fxSurfaceFor(obj);
+  d.weaponType = weaponType || 'AR';
+  d.surface = surface;
+  d.life = CORE.DECAL_LIFETIME;
+  const s = CORE.decalScale(d.weaponType, d.surface, d.life, CORE.DECAL_LIFETIME, CORE.DECAL_FADE_DURATION);
+  d.m.scale.set(s, s, 1);
   d.t = gameT;
 }
+function updateDecals(dt) {
+  for (let i = DECAL.live.length - 1; i >= 0; i--) {
+    const d = DECAL.live[i];
+    d.life = CORE.stepDecalLife(d.life, dt);
+    if (CORE.isDecalExpired(d.life)) {
+      d.m.visible = false;
+      d.m.scale.set(1, 1, 1);
+      DECAL.pool.push(d);
+      DECAL.live.splice(i, 1);
+      continue;
+    }
+    if (d.life < CORE.DECAL_FADE_DURATION) {
+      const s = CORE.decalScale(d.weaponType, d.surface, d.life, CORE.DECAL_LIFETIME, CORE.DECAL_FADE_DURATION);
+      d.m.scale.set(s, s, 1);
+    }
+  }
+}
 function clearDecals() {
-  for (let i = 0; i < DECAL.live.length; i++) { DECAL.live[i].m.visible = false; DECAL.pool.push(DECAL.live[i]); }
+  for (let i = 0; i < DECAL.live.length; i++) {
+    DECAL.live[i].m.visible = false;
+    DECAL.live[i].m.scale.set(1, 1, 1);
+    DECAL.pool.push(DECAL.live[i]);
+  }
   DECAL.live.length = 0;
 }
 
@@ -16676,14 +16843,19 @@ function updateMuzzleLight(dt) {
   }
 }
 function updateVfx(dt) {
+  updateDecals(dt);
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
     t.life -= dt;
     if (t.life <= 0) {
       scene.remove(t.m);
       t.m.visible = false;
+      t.m.scale.set(1, 1, 1);
       tracerPool.push(t.m);
       vfx.tracers.splice(i, 1);
+    } else {
+      const thick = CORE.tracerThicknessScale(t.life, t.maxLife);
+      t.m.scale.set(thick, thick, t.len);
     }
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {

@@ -6307,3 +6307,91 @@ test('mobile touch action button change-detection, weapon swap cycling, layout c
   assert.strictEqual(CORE.touchLayoutClampPercent(50, 56, 0), 0);
   assert.strictEqual(CORE.touchLayoutClampPercent(50, 56, -100), 0);
 });
+
+test('ballistic decal scaling and lifecycle, viewmodel muzzle flash dynamics, and tracer kinematics visual rules', () => {
+  // 1) Decal constants & bounds
+  assert.strictEqual(CORE.DECAL_MAX, 48);
+  assert.strictEqual(CORE.DECAL_LIFETIME, 25);
+  assert.strictEqual(CORE.DECAL_FADE_DURATION, 3.5);
+  assert.strictEqual(CORE.DECAL_BASE_RADIUS, 0.075);
+  assert.strictEqual(CORE.DECAL_STANDOFF, 0.012);
+  assert.strictEqual(CORE.MUZZLE_FLASH_SUPPRESSED_SCALE, 0.22);
+  assert.strictEqual(CORE.TRACER_LIFETIME, 0.065);
+
+  // 2) Decal caliber scaling
+  assert.strictEqual(CORE.decalCaliberScale('SMG'), 0.72);
+  assert.strictEqual(CORE.decalCaliberScale('AR'), 1.0);
+  assert.strictEqual(CORE.decalCaliberScale('BR'), 1.25);
+  assert.strictEqual(CORE.decalCaliberScale('SR'), 1.5);
+  assert.strictEqual(CORE.decalCaliberScale('UNKNOWN'), 1.0);
+
+  // 3) Decal surface multipliers
+  assert.strictEqual(CORE.decalSurfaceMultiplier('glass'), 1.25);
+  assert.strictEqual(CORE.decalSurfaceMultiplier('wood'), 1.1);
+  assert.strictEqual(CORE.decalSurfaceMultiplier('metal'), 0.82);
+  assert.strictEqual(CORE.decalSurfaceMultiplier('concrete'), 1.0);
+  assert.strictEqual(CORE.decalSurfaceMultiplier('brick'), 1.0);
+
+  // 4) Decal scale combining caliber, surface, and despawn decay
+  const arConcreteFull = CORE.decalScale('AR', 'concrete', 25, 25, 3.5);
+  assert.strictEqual(arConcreteFull, 1.0);
+
+  const smgGlassFull = CORE.decalScale('SMG', 'glass', 25, 25, 3.5);
+  assert.ok(Math.abs(smgGlassFull - (0.72 * 1.25)) < 1e-4);
+
+  const srMetalFull = CORE.decalScale('SR', 'metal', 25, 25, 3.5);
+  assert.ok(Math.abs(srMetalFull - (1.5 * 0.82)) < 1e-4);
+
+  // Fade decay during final 3.5s
+  const arFadeHalf = CORE.decalScale('AR', 'concrete', 1.75, 25, 3.5);
+  assert.ok(arFadeHalf < 1.0 && arFadeHalf > 0.001);
+
+  const arZeroLife = CORE.decalScale('AR', 'concrete', 0, 25, 3.5);
+  assert.strictEqual(arZeroLife, 0.001);
+
+  // 5) Decal rotation angle & lifecycle stepping
+  assert.strictEqual(CORE.decalRotationAngle(0), 0);
+  assert.ok(Math.abs(CORE.decalRotationAngle(0.5) - Math.PI) < 1e-4);
+  assert.ok(Math.abs(CORE.decalRotationAngle(1.5) - Math.PI) < 1e-4);
+
+  assert.strictEqual(CORE.stepDecalLife(25, 1.0), 24.0);
+  assert.strictEqual(CORE.stepDecalLife(0.5, 1.0), 0);
+  assert.strictEqual(CORE.isDecalExpired(24), false);
+  assert.strictEqual(CORE.isDecalExpired(0), true);
+  assert.strictEqual(CORE.isDecalExpired(-1), true);
+
+  // 6) Muzzle flash rotation and archetype base scale
+  assert.strictEqual(CORE.muzzleFlashRotation(0), 0);
+  assert.ok(Math.abs(CORE.muzzleFlashRotation(0.5) - Math.PI * 0.5) < 1e-4);
+
+  const smgFlash = CORE.muzzleFlashBaseScale('SMG', false, 0.5, 0.5);
+  assert.ok(Math.abs(smgFlash.k - (0.65 + 0.5 * 0.25)) < 1e-4);
+  assert.ok(Math.abs(smgFlash.z - (0.60 + 0.5 * 0.30)) < 1e-4);
+
+  const srFlash = CORE.muzzleFlashBaseScale('SR', false, 0, 0);
+  assert.strictEqual(srFlash.k, 1.50);
+  assert.strictEqual(srFlash.z, 1.40);
+
+  const suppFlash = CORE.muzzleFlashBaseScale('AR', true, 0.5, 0.5);
+  assert.ok(suppFlash.k < 0.3 && suppFlash.z < 0.3);
+
+  // 7) Dynamic muzzle flash collapse during decay
+  const msPeak = CORE.stepMuzzleFlashScale(1.0, 1.0, 1.0);
+  assert.strictEqual(msPeak.x, 1.0);
+  assert.strictEqual(msPeak.z, 1.0);
+
+  const msMid = CORE.stepMuzzleFlashScale(1.0, 1.0, 0.5);
+  assert.ok(Math.abs(msMid.x - 0.625) < 1e-4);
+  assert.ok(Math.abs(msMid.z - 0.55) < 1e-4);
+
+  const msZero = CORE.stepMuzzleFlashScale(1.0, 1.0, 0);
+  assert.strictEqual(msZero.x, 0);
+  assert.strictEqual(msZero.z, 0);
+
+  // 8) Ballistic tracer thickness taper and palette
+  assert.strictEqual(CORE.tracerThicknessScale(0.065, 0.065), 1.0);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.0325, 0.065) - 0.5) < 1e-4);
+  assert.strictEqual(CORE.tracerThicknessScale(0, 0.065), 0.1);
+  assert.strictEqual(CORE.tracerColor(false), 0xffe9a0);
+  assert.strictEqual(CORE.tracerColor(true), 0xff8844);
+});

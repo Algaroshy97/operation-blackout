@@ -335,7 +335,7 @@ function fireShot(preserveSchedule) {
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
-    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object);   // v41: persistent bullet hole
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
   // shell casing eject
@@ -363,7 +363,8 @@ function fireShot(preserveSchedule) {
   player.recoilY += w.recoilH * rk.x;
   shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
-  triggerMuzzleFlash();
+  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();
   kickViewmodel(w, vmTune);
   if (muzzleFlash) fxMuzzle(muzzleWorldPos(_muzzleW), _shootDir, w.type === 'SR' || w.type === 'BR');
@@ -452,7 +453,12 @@ function updateViewmodel(dt) {
   // muzzle flash decay
   if (muzzleFlash && muzzleFlash.visible) {
     flashT = CORE.stepMuzzleFlash(flashT, dt, CORE.VIEWMODEL_MUZZLE_FLASH_DECAY);
-    if (flashT <= 0) muzzleFlash.visible = false;
+    if (flashT <= 0) {
+      muzzleFlash.visible = false;
+    } else {
+      const ms = CORE.stepMuzzleFlashScale(_flashBaseScale.k, _flashBaseScale.z, flashT, _flashDecayScaleOut);
+      muzzleFlash.scale.set(ms.x, ms.y, ms.z);
+    }
   }
   // scope overlay for BR / SR
   const isSr = w.type === 'SR';
@@ -541,11 +547,15 @@ function updateMarksmanScope(dt) {
   _scopeRangeEl.classList.toggle('tgt', hostile);
 }
 let flashT = 0;
-function triggerMuzzleFlash() {
+let _flashBaseScale = { k: 1, z: 1 };
+const _flashScaleOut = { k: 1, z: 1 };
+const _flashDecayScaleOut = { x: 1, y: 1, z: 1 };
+
+function triggerMuzzleFlash(weaponType, isSuppressed) {
   if (!muzzleFlash) return;
   muzzleFlash.visible = true;
-  muzzleFlash.rotation.z = Math.random() * Math.PI;
-  const k = 0.8 + Math.random() * 0.5;
-  muzzleFlash.scale.set(k, k, 0.8 + Math.random() * 0.6);
+  muzzleFlash.rotation.z = CORE.muzzleFlashRotation(Math.random());
+  _flashBaseScale = CORE.muzzleFlashBaseScale(weaponType, isSuppressed, Math.random(), Math.random(), _flashScaleOut);
+  muzzleFlash.scale.set(_flashBaseScale.k, _flashBaseScale.k, _flashBaseScale.z);
   flashT = 1;
 }

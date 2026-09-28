@@ -2459,7 +2459,67 @@ def main() -> int:
         }""")
         checks.append(("touch-action-buttons-and-layout-mobile-rules", mobile_polish_check))
 
-        # 57) Clean console throughout gameplay.
+        # 57) Ballistic bullet hole decals, viewmodel muzzle flash dynamics, and tracer kinematics visual rules.
+        decal_muzzle_tracer_visual_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.decalCaliberScale !== 'function' ||
+                typeof CORE.decalSurfaceMultiplier !== 'function' ||
+                typeof CORE.decalScale !== 'function' ||
+                typeof CORE.decalRotationAngle !== 'function' ||
+                typeof CORE.stepDecalLife !== 'function' ||
+                typeof CORE.isDecalExpired !== 'function' ||
+                typeof CORE.muzzleFlashRotation !== 'function' ||
+                typeof CORE.muzzleFlashBaseScale !== 'function' ||
+                typeof CORE.stepMuzzleFlashScale !== 'function' ||
+                typeof CORE.tracerThicknessScale !== 'function' ||
+                typeof CORE.tracerColor !== 'function') return false;
+
+            const constsOk = CORE.DECAL_MAX === 48 &&
+                             CORE.DECAL_LIFETIME === 25 &&
+                             CORE.DECAL_FADE_DURATION === 3.5 &&
+                             CORE.DECAL_BASE_RADIUS === 0.075 &&
+                             CORE.DECAL_STANDOFF === 0.012 &&
+                             CORE.MUZZLE_FLASH_SUPPRESSED_SCALE === 0.22 &&
+                             CORE.TRACER_LIFETIME === 0.065;
+
+            const calSmg = CORE.decalCaliberScale('SMG') === 0.72;
+            const calSr = CORE.decalCaliberScale('SR') === 1.5;
+            const surfGlass = CORE.decalSurfaceMultiplier('glass') === 1.25;
+            const surfMetal = CORE.decalSurfaceMultiplier('metal') === 0.82;
+
+            const scaleFull = CORE.decalScale('AR', 'concrete', 25, 25, 3.5) === 1.0;
+            const scaleFade = CORE.decalScale('AR', 'concrete', 1.75, 25, 3.5) < 1.0;
+            const scaleZero = CORE.decalScale('AR', 'concrete', 0, 25, 3.5) === 0.001;
+
+            const rotOk = Math.abs(CORE.decalRotationAngle(0.5) - Math.PI) < 1e-4;
+            const lifeStep = CORE.stepDecalLife(25, 1.0) === 24 &&
+                             CORE.isDecalExpired(24) === false &&
+                             CORE.isDecalExpired(0) === true;
+
+            const flashSmg = CORE.muzzleFlashBaseScale('SMG', false, 0.5, 0.5);
+            const smgFlashOk = Math.abs(flashSmg.k - 0.775) < 1e-4 && Math.abs(flashSmg.z - 0.75) < 1e-4;
+            const flashSr = CORE.muzzleFlashBaseScale('SR', false, 0, 0);
+            const srFlashOk = flashSr.k === 1.5 && flashSr.z === 1.4;
+            const flashSupp = CORE.muzzleFlashBaseScale('AR', true, 0.5, 0.5);
+            const suppFlashOk = flashSupp.k < 0.3 && flashSupp.z < 0.3;
+
+            const msPeak = CORE.stepMuzzleFlashScale(1.0, 1.0, 1.0);
+            const msMid = CORE.stepMuzzleFlashScale(1.0, 1.0, 0.5);
+            const msZero = CORE.stepMuzzleFlashScale(1.0, 1.0, 0);
+            const flashDecayOk = msPeak.x === 1.0 && Math.abs(msMid.x - 0.625) < 1e-4 && msZero.x === 0;
+
+            const tracerOk = CORE.tracerThicknessScale(0.065, 0.065) === 1.0 &&
+                             Math.abs(CORE.tracerThicknessScale(0.0325, 0.065) - 0.5) < 1e-4 &&
+                             CORE.tracerColor(false) === 0xffe9a0 &&
+                             CORE.tracerColor(true) === 0xff8844;
+
+            return constsOk && calSmg && calSr && surfGlass && surfMetal &&
+                   scaleFull && scaleFade && scaleZero && rotOk && lifeStep &&
+                   smgFlashOk && srFlashOk && suppFlashOk && flashDecayOk && tracerOk;
+        }""")
+        checks.append(("ballistic-decal-muzzle-and-tracer-visual-rules", decal_muzzle_tracer_visual_check))
+
+        # 58) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()
