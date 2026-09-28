@@ -6489,3 +6489,148 @@ test('zero-alloc recoil absorption and patterns, collision relevance pruning, mo
   assert.strictEqual(CORE.viewmodelNarrowOffset(0.75, 0.2, 0), 0, 'hipK=0 gives zero offset');
 });
 
+test('enemy combat kinematics, slide steering kinetics, tactical sprint gating, bleedout lifecycle, and objective progress balance rules govern gameplay dynamics', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.STEP_HEIGHT, 0.60);
+  assert.strictEqual(CORE.SLIDE_STEER_RATE, 2.2);
+  assert.strictEqual(CORE.TAC_TAP_WINDOW, 0.32);
+  assert.strictEqual(CORE.TAC_DURATION, 2.5);
+  assert.strictEqual(CORE.GRENADE_BOUNCE_LAT_DAMP, 0.55);
+  assert.strictEqual(CORE.GRENADE_ROLL_LAT_DAMP, 0.30);
+
+  // 2) Enemy archetype scales, collider radius, and head height
+  assert.strictEqual(CORE.enemyScale(0), 1.0);
+  assert.strictEqual(CORE.enemyScale(1), 1.0);
+  assert.strictEqual(CORE.enemyScale(2), 1.25);
+  assert.strictEqual(CORE.enemyScale(3), 1.1);
+  assert.strictEqual(CORE.enemyScale(4), 0.88);
+  assert.strictEqual(CORE.enemyScale(5), 1.0);
+
+  assert.strictEqual(CORE.enemyColliderRadius(0), 0.4);
+  assert.strictEqual(CORE.enemyColliderRadius(1), 0.4);
+  assert.ok(Math.abs(CORE.enemyColliderRadius(2) - 0.56) < 1e-4);
+  assert.strictEqual(CORE.enemyColliderRadius(3), 0.4);
+
+  assert.strictEqual(CORE.enemyHeadHeight(0, 0), 1.85);
+  assert.strictEqual(CORE.enemyHeadHeight(1.0, 0), 2.85);
+  assert.strictEqual(CORE.enemyHeadHeight(0, 2), 2.3);
+  assert.strictEqual(CORE.enemyHeadHeight(2.0, 2), 4.3);
+
+  // 3) Spawn speed multiplier and flanking determination
+  assert.strictEqual(CORE.enemySpawnSpeedMultiplier(0, false, 1.0), 0.85);
+  assert.strictEqual(CORE.enemySpawnSpeedMultiplier(1, false, 1.0), 1.15);
+  const eliteMul = CORE.enemySpawnSpeedMultiplier(0.5, true, 1.0);
+  assert.ok(Math.abs(eliteMul - (1.0 * CORE.ELITE.speedMul)) < 1e-4);
+  assert.strictEqual(CORE.enemySpawnSpeedMultiplier(0.5, false, 1.5), 1.5);
+
+  assert.strictEqual(CORE.isEnemyFlanker(4, false, 0.9), true, 'scout always flanks');
+  assert.strictEqual(CORE.isEnemyFlanker(3, true, 0.1), false, 'shield never flanks');
+  assert.strictEqual(CORE.isEnemyFlanker(5, true, 0.1), false, 'grenadier never flanks');
+  assert.strictEqual(CORE.isEnemyFlanker(1, false, 0.1), false, 'waveFlanking off prevents flanking');
+  assert.strictEqual(CORE.isEnemyFlanker(1, true, 0.3), true, 'rifleman flanks when rolled');
+  assert.strictEqual(CORE.isEnemyFlanker(1, true, 0.6), false, 'rifleman does not flank when roll exceeds 0.45');
+
+  // 4) Enemy steering velocities and strafe duration
+  const fbOut = { x: 0, z: 0 };
+  const fbRes = CORE.enemyFallbackVelocity(0, 1, 1, fbOut);
+  assert.strictEqual(fbRes, fbOut, 'fallback velocity reuses out object');
+  assert.ok(Math.abs(fbOut.z - (-0.8)) < 0.05, 'backs away from player');
+  assert.ok(Math.abs(Math.hypot(fbOut.x, fbOut.z) - 1.0) < 1e-4, 'normalized velocity');
+
+  const strOut = { x: 0, z: 0 };
+  const strRes = CORE.enemyStrafeVelocity(0, 1, 1, strOut);
+  assert.strictEqual(strRes, strOut, 'strafe velocity reuses out object');
+  assert.ok(Math.abs(strOut.x - (-1.0)) < 1e-4, 'moves perpendicular');
+  assert.ok(Math.abs(strOut.z) < 1e-4);
+
+  assert.strictEqual(CORE.enemyStrafeDuration(0), 1.5);
+  assert.strictEqual(CORE.enemyStrafeDuration(1), 3.5);
+
+  // 5) Enemy grenade throwing distance windows
+  assert.strictEqual(CORE.canEnemyThrowGrenade(5, 20, false), true);
+  assert.strictEqual(CORE.canEnemyThrowGrenade(5, 5, false), false, 'too close for grenadier');
+  assert.strictEqual(CORE.canEnemyThrowGrenade(5, 40, false), false, 'too far for grenadier');
+  assert.strictEqual(CORE.canEnemyThrowGrenade(5, 20, true), false, 'cannot throw when player dead');
+  assert.strictEqual(CORE.canEnemyThrowGrenade(1, 15, false), true);
+  assert.strictEqual(CORE.canEnemyThrowGrenade(1, 5, false), false, 'too close for rifleman');
+  assert.strictEqual(CORE.canEnemyThrowGrenade(1, 35, false), false, 'too far for rifleman');
+  assert.strictEqual(CORE.canEnemyThrowGrenade(0, 15, false), false, 'runners do not throw');
+
+  // 6) Enemy footstep rates and interval
+  assert.strictEqual(CORE.enemyFootstepRate(0), 1.7);
+  assert.strictEqual(CORE.enemyFootstepRate(2), 0.9);
+  assert.strictEqual(CORE.enemyFootstepRate(1), 1.1);
+  assert.strictEqual(CORE.enemyFootstepInterval(1.0), 0.55);
+  assert.strictEqual(CORE.enemyFootstepInterval(2.0), 0.275);
+
+  // 7) Relocation facing alignment and candidate scoring
+  const behindAlign = CORE.relocateFacingAlignment(0, 10, 0, -1, 10);
+  assert.strictEqual(behindAlign, 1.0, 'target is directly behind player');
+  const frontAlign = CORE.relocateFacingAlignment(0, -10, 0, -1, 10);
+  assert.strictEqual(frontAlign, -1.0, 'target is in front of player');
+  const scoreBehind = CORE.relocateCandidateScore(20, 1.0);
+  assert.strictEqual(scoreBehind, 5.0);
+  const scoreOffset = CORE.relocateCandidateScore(28, 0);
+  assert.strictEqual(scoreOffset, -8.0);
+
+  // 8) Slide steering kinetics
+  const slideDirOut = { x: 0, z: -1 };
+  const steerRes = CORE.stepSlideSteering(slideDirOut.x, slideDirOut.z, 1, 0, 0.05, 2.2, slideDirOut);
+  assert.strictEqual(steerRes, slideDirOut, 'steer reuses out object');
+  assert.ok(slideDirOut.x > 0, 'steers to the right with A/D input');
+  assert.ok(Math.abs(Math.hypot(slideDirOut.x, slideDirOut.z) - 1.0) < 1e-4, 'normalized steering dir');
+  const noSteer = CORE.stepSlideSteering(0, -1, 0, 0, 0.05, 2.2);
+  assert.strictEqual(noSteer.x, 0);
+  assert.strictEqual(noSteer.z, -1);
+
+  // 9) Tactical sprint double-tap gating
+  assert.strictEqual(CORE.isTacSprintTriggered(10.2, 10.0, false, 0.32), true);
+  assert.strictEqual(CORE.isTacSprintTriggered(10.5, 10.0, false, 0.32), false, 'outside window');
+  assert.strictEqual(CORE.isTacSprintTriggered(10.2, 10.0, true, 0.32), false, 'exhausted');
+
+  // 10) Grenade ground bounce velocity and rest detection
+  const bounceOut = { x: 0, y: 0, z: 0 };
+  const b1 = CORE.stepGrenadeBounceVelocity(4.0, -6.0, 2.0, 0.45, 1, bounceOut);
+  assert.strictEqual(b1, bounceOut);
+  assert.ok(Math.abs(b1.y - 2.7) < 1e-4, 'inverts vy with bounce factor');
+  assert.ok(Math.abs(b1.x - 2.2) < 1e-4, 'first bounce applies 0.55 lateral damping');
+  const b2 = CORE.stepGrenadeBounceVelocity(2.2, -2.7, 1.1, 0.45, 2, bounceOut);
+  assert.ok(Math.abs(b2.x - (2.2 * 0.55 * 0.30)) < 1e-4, 'subsequent rolling applies heavy 0.30 friction');
+
+  assert.strictEqual(CORE.isGrenadeAtRest(0.04, 0.05, 0.10, 2), true);
+  assert.strictEqual(CORE.isGrenadeAtRest(0.2, 0.05, 0.10, 2), false, 'moving too fast horizontally');
+  assert.strictEqual(CORE.isGrenadeAtRest(0.04, 0.3, 0.10, 2), false, 'moving too fast vertically');
+  assert.strictEqual(CORE.isGrenadeAtRest(0.04, 0.05, 0.10, 1), false, 'not grounded enough times');
+
+  // 11) Bleedout countdown formatting
+  assert.strictEqual(CORE.downBleedoutLabel(9.43), 'BLEEDING OUT — 9.4s');
+  assert.strictEqual(CORE.downBleedoutLabel(0), 'BLEEDING OUT — 0.0s');
+  assert.strictEqual(CORE.downBleedoutLabel(-2), 'BLEEDING OUT — 0.0s');
+
+  // 12) Multi-kill bonus scaling
+  assert.strictEqual(CORE.multikillBonus(60, 1), 0);
+  assert.strictEqual(CORE.multikillBonus(60, 2), 60);
+  assert.strictEqual(CORE.multikillBonus(60, 3), 120);
+  assert.strictEqual(CORE.multikillBonus(60, 4), 180);
+
+  // 13) Wave countdown label and wave banners
+  assert.strictEqual(CORE.waveCountdownLabel(0, 3.2), 'COMBAT IN 4');
+  assert.strictEqual(CORE.waveCountdownLabel(3, 2.1), 'NEXT WAVE IN 3');
+
+  const bReady = CORE.waveBannerLabels(0, false, 15);
+  assert.strictEqual(bReady.big, 'GET READY');
+  assert.strictEqual(bReady.sub, '');
+
+  const bClear = CORE.waveBannerLabels(5, true, 15);
+  assert.strictEqual(bClear.big, 'WAVE 5 CLEARED');
+  assert.strictEqual(bClear.sub, '');
+
+  const bMid = CORE.waveBannerLabels(5, false, 15);
+  assert.strictEqual(bMid.big, 'WAVE 5');
+  assert.strictEqual(bMid.sub, 'HOSTILES INBOUND');
+
+  const bFinal = CORE.waveBannerLabels(15, false, 15);
+  assert.strictEqual(bFinal.big, 'WAVE 15');
+  assert.strictEqual(bFinal.sub, 'FINAL WAVE');
+});
+

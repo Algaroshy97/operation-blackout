@@ -10293,6 +10293,192 @@ const CORE = (function () {
     return px * 0.6 * narrow * hk;
   }
 
+  // ---- Combat kinematics & balance rules (balance tuning) ---------------------
+  const STEP_HEIGHT = 0.60;
+  const SLIDE_STEER_RATE = 2.2;
+  const TAC_TAP_WINDOW = 0.32;
+  const TAC_DURATION = 2.5;
+  const GRENADE_BOUNCE_LAT_DAMP = 0.55;
+  const GRENADE_ROLL_LAT_DAMP = 0.30;
+
+  function enemyScale(kind) {
+    return kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1.0;
+  }
+
+  function enemyColliderRadius(kind) {
+    return 0.4 * (kind === 2 ? 1.4 : 1.0);
+  }
+
+  function enemyHeadHeight(posY, kind) {
+    const y = (typeof posY === 'number' && isFinite(posY)) ? posY : 0;
+    return y + (kind === 2 ? 2.3 : 1.85);
+  }
+
+  function enemySpawnSpeedMultiplier(rand, isElite, specialSpeedMul) {
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    const base = 0.85 + r * 0.3;
+    const eliteK = isElite ? ELITE.speedMul : 1.0;
+    const specK = (typeof specialSpeedMul === 'number' && isFinite(specialSpeedMul) && specialSpeedMul > 0) ? specialSpeedMul : 1.0;
+    return base * eliteK * specK;
+  }
+
+  function isEnemyFlanker(kind, waveFlanking, rand) {
+    if (kind === 4) return true;
+    if (kind === 3 || kind === 5) return false;
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    return !!waveFlanking && r < 0.45;
+  }
+
+  function enemyFallbackVelocity(toX, toZ, strafeDir, out) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const sDir = (typeof strafeDir === 'number' && strafeDir < 0) ? -1 : 1;
+    const vx = -tx * 0.8 - tz * 0.6 * sDir;
+    const vz = -tz * 0.8 + tx * 0.6 * sDir;
+    const l = Math.hypot(vx, vz) || 1;
+    const target = (out && typeof out === 'object') ? out : { x: 0, z: 0 };
+    target.x = vx / l;
+    target.z = vz / l;
+    return target;
+  }
+
+  function enemyStrafeVelocity(toX, toZ, strafeDir, out) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const sDir = (typeof strafeDir === 'number' && strafeDir < 0) ? -1 : 1;
+    const vx = -tz * sDir;
+    const vz = tx * sDir;
+    const l = Math.hypot(vx, vz) || 1;
+    const target = (out && typeof out === 'object') ? out : { x: 0, z: 0 };
+    target.x = vx / l;
+    target.z = vz / l;
+    return target;
+  }
+
+  function enemyStrafeDuration(rand) {
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    return 1.5 + r * 2.0;
+  }
+
+  function canEnemyThrowGrenade(kind, dist, isPlayerDead) {
+    if (isPlayerDead) return false;
+    const d = (typeof dist === 'number' && isFinite(dist)) ? dist : 0;
+    if (kind === 5) return d > 9 && d < 36;
+    if (kind === 1) return d > 8 && d < 32;
+    return false;
+  }
+
+  function enemyFootstepRate(kind) {
+    return kind === 0 ? 1.7 : kind === 2 ? 0.9 : 1.1;
+  }
+
+  function enemyFootstepInterval(speedMul) {
+    const mul = (typeof speedMul === 'number' && isFinite(speedMul) && speedMul > 0.05) ? speedMul : 1.0;
+    return 0.55 / mul;
+  }
+
+  function relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const fx = (typeof fwdX === 'number' && isFinite(fwdX)) ? fwdX : 0;
+    const fz = (typeof fwdZ === 'number' && isFinite(fwdZ)) ? fwdZ : 0;
+    const r = (typeof rad === 'number' && isFinite(rad) && rad > 0) ? rad : 1;
+    return -(tx * fx + tz * fz) / r;
+  }
+
+  function relocateCandidateScore(rad, behindAlignment) {
+    const r = (typeof rad === 'number' && isFinite(rad)) ? rad : 20;
+    const b = (typeof behindAlignment === 'number' && isFinite(behindAlignment)) ? behindAlignment : 0;
+    return -Math.abs(r - 20) + b * 5;
+  }
+
+  function stepSlideSteering(dirX, dirZ, inputX, yaw, dt, steerRate, out) {
+    const dx = (typeof dirX === 'number' && isFinite(dirX)) ? dirX : 0;
+    const dz = (typeof dirZ === 'number' && isFinite(dirZ)) ? dirZ : 0;
+    const target = (out && typeof out === 'object') ? out : { x: dx, z: dz };
+    const ix = (typeof inputX === 'number' && isFinite(inputX)) ? inputX : 0;
+    const deltaT = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    if (!ix || deltaT <= 0) {
+      target.x = dx;
+      target.z = dz;
+      return target;
+    }
+    const rate = (typeof steerRate === 'number' && isFinite(steerRate) && steerRate > 0) ? steerRate : SLIDE_STEER_RATE;
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const sy = Math.sin(y), cy = Math.cos(y);
+    const wx = ix * cy, wz = -ix * sy;
+    let nx = dx + wx * rate * deltaT;
+    let nz = dz + wz * rate * deltaT;
+    const l = Math.hypot(nx, nz) || 1;
+    target.x = nx / l;
+    target.z = nz / l;
+    return target;
+  }
+
+  function isTacSprintTriggered(gameT, lastSprintTap, isExhausted, windowSec) {
+    const gt = (typeof gameT === 'number' && isFinite(gameT)) ? gameT : 0;
+    const lst = (typeof lastSprintTap === 'number' && isFinite(lastSprintTap)) ? lastSprintTap : -99;
+    const w = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : TAC_TAP_WINDOW;
+    return (gt - lst) < w && !isExhausted;
+  }
+
+  function stepGrenadeBounceVelocity(vx, vy, vz, bounce, groundedCount, out) {
+    const x = (typeof vx === 'number' && isFinite(vx)) ? vx : 0;
+    const y = (typeof vy === 'number' && isFinite(vy)) ? vy : 0;
+    const z = (typeof vz === 'number' && isFinite(vz)) ? vz : 0;
+    const b = (typeof bounce === 'number' && isFinite(bounce) && bounce >= 0) ? bounce : 0.45;
+    const gCount = (typeof groundedCount === 'number' && isFinite(groundedCount)) ? groundedCount : 0;
+    const target = (out && typeof out === 'object') ? out : { x: x, y: y, z: z };
+    target.y = -y * b;
+    let latDamp = GRENADE_BOUNCE_LAT_DAMP;
+    if (gCount > 1) latDamp *= GRENADE_ROLL_LAT_DAMP;
+    target.x = x * latDamp;
+    target.z = z * latDamp;
+    return target;
+  }
+
+  function isGrenadeAtRest(hSpeedSq, vy, posY, groundedCount) {
+    const hs = (typeof hSpeedSq === 'number' && isFinite(hSpeedSq)) ? hSpeedSq : 0;
+    const yVel = (typeof vy === 'number' && isFinite(vy)) ? vy : 0;
+    const yPos = (typeof posY === 'number' && isFinite(posY)) ? posY : 0;
+    const gCount = (typeof groundedCount === 'number' && isFinite(groundedCount)) ? groundedCount : 0;
+    return gCount > 1 && hs < 0.1 && Math.abs(yVel) < 0.2 && yPos <= 0.12;
+  }
+
+  function downBleedoutLabel(remainingSec) {
+    const left = Math.max(0, (typeof remainingSec === 'number' && isFinite(remainingSec)) ? remainingSec : 0);
+    return 'BLEEDING OUT — ' + left.toFixed(1) + 's';
+  }
+
+  function multikillBonus(baseBonus, killStreak) {
+    const ks = (typeof killStreak === 'number' && isFinite(killStreak)) ? Math.floor(killStreak) : 0;
+    if (ks < 2) return 0;
+    const b = (typeof baseBonus === 'number' && isFinite(baseBonus) && baseBonus > 0) ? baseBonus : 60;
+    return b * (ks - 1);
+  }
+
+  function waveCountdownLabel(waveNum, betweenWaveT) {
+    const wn = (typeof waveNum === 'number' && isFinite(waveNum)) ? waveNum : 0;
+    const t = (typeof betweenWaveT === 'number' && isFinite(betweenWaveT)) ? betweenWaveT : 0;
+    const n = Math.max(1, Math.ceil(t));
+    return (wn === 0) ? ('COMBAT IN ' + n) : ('NEXT WAVE IN ' + n);
+  }
+
+  function waveBannerLabels(waveNum, isCleared, victoryWave) {
+    const n = (typeof waveNum === 'number' && isFinite(waveNum)) ? waveNum : 0;
+    const vic = (typeof victoryWave === 'number' && isFinite(victoryWave)) ? victoryWave : 15;
+    if (n === 0) {
+      return { big: 'GET READY', sub: '' };
+    }
+    if (isCleared) {
+      return { big: 'WAVE ' + n + ' CLEARED', sub: '' };
+    }
+    return {
+      big: 'WAVE ' + n,
+      sub: n === vic ? 'FINAL WAVE' : 'HOSTILES INBOUND'
+    };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -11056,7 +11242,34 @@ const CORE = (function () {
     countAliveEnemies: countAliveEnemies,
     hostilesRemainingLabel: hostilesRemainingLabel,
     gunCameraFov: gunCameraFov,
-    viewmodelNarrowOffset: viewmodelNarrowOffset
+    viewmodelNarrowOffset: viewmodelNarrowOffset,
+    STEP_HEIGHT: STEP_HEIGHT,
+    SLIDE_STEER_RATE: SLIDE_STEER_RATE,
+    TAC_TAP_WINDOW: TAC_TAP_WINDOW,
+    TAC_DURATION: TAC_DURATION,
+    GRENADE_BOUNCE_LAT_DAMP: GRENADE_BOUNCE_LAT_DAMP,
+    GRENADE_ROLL_LAT_DAMP: GRENADE_ROLL_LAT_DAMP,
+    enemyScale: enemyScale,
+    enemyColliderRadius: enemyColliderRadius,
+    enemyHeadHeight: enemyHeadHeight,
+    enemySpawnSpeedMultiplier: enemySpawnSpeedMultiplier,
+    isEnemyFlanker: isEnemyFlanker,
+    enemyFallbackVelocity: enemyFallbackVelocity,
+    enemyStrafeVelocity: enemyStrafeVelocity,
+    enemyStrafeDuration: enemyStrafeDuration,
+    canEnemyThrowGrenade: canEnemyThrowGrenade,
+    enemyFootstepRate: enemyFootstepRate,
+    enemyFootstepInterval: enemyFootstepInterval,
+    relocateFacingAlignment: relocateFacingAlignment,
+    relocateCandidateScore: relocateCandidateScore,
+    stepSlideSteering: stepSlideSteering,
+    isTacSprintTriggered: isTacSprintTriggered,
+    stepGrenadeBounceVelocity: stepGrenadeBounceVelocity,
+    isGrenadeAtRest: isGrenadeAtRest,
+    downBleedoutLabel: downBleedoutLabel,
+    multikillBonus: multikillBonus,
+    waveCountdownLabel: waveCountdownLabel,
+    waveBannerLabels: waveBannerLabels
   };
 })();
 
@@ -12632,7 +12845,7 @@ function playerMaxHealth() { return CORE.perkMaxHealth(CFG.player.health, perks)
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
-const STEP_H = 0.60;
+const STEP_H = CORE.STEP_HEIGHT;
 // Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
 // route and the arena's scattered cover could not be used as one.
 const MANTLE_TIME = 0.35;
@@ -12640,8 +12853,8 @@ const MANTLE_REACH = 0.9;
 const MANTLE_MAX_RISE = 1.7;
 // Tactical sprint: a short burst at higher speed, paid for with a faster stamina
 // burn. Sprint was one speed, which made every rotation feel the same length.
-const TAC_TAP_WINDOW = 0.32;
-const TAC_DURATION = 2.5;
+const TAC_TAP_WINDOW = CORE.TAC_TAP_WINDOW;
+const TAC_DURATION = CORE.TAC_DURATION;
 const TAC_MUL = CORE.TAC_SPRINT_SPEED_MUL;
 const TAC_DRAIN = 2.2;
 let lastSprintTap = -99;
@@ -12760,15 +12973,11 @@ function updatePlayer(dt) {
   if (player.sliding) {
     player.slideT += dt;
     // steering: A/D curve the slide
-    const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
     let ix = 0;
     if (keys['KeyA']) ix -= 1;
     if (keys['KeyD']) ix += 1;
     if (ix) {
-      const wx = ix * cy, wz = -ix * sy;
-      player.slideDir.x += wx * 2.2 * dt;
-      player.slideDir.z += wz * 2.2 * dt;
-      player.slideDir.normalize();
+      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, ix, player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
     }
     // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
     const sprintBase = CFG.player.speed * CFG.player.sprintMul;
@@ -12820,7 +13029,7 @@ function updatePlayer(dt) {
   // stamina & sprint (movingInput already declared in slide block above)
   // Tactical sprint: a double-tap inside TAC_TAP_WINDOW opens a short burst.
   if (pressed['ShiftLeft'] || pressed['__tacsprint']) {
-    if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
+    if (CORE.isTacSprintTriggered(gameT, lastSprintTap, player.exhausted, TAC_TAP_WINDOW)) player.tacT = TAC_DURATION;
     lastSprintTap = gameT;
   }
   const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown()
@@ -15330,7 +15539,7 @@ function spawnEnemy(kind, x, z, opts) {
   } else {
     parts = makeEnemyMesh(kind);
   }
-  const scale = kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1;
+  const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
@@ -15358,17 +15567,15 @@ function spawnEnemy(kind, x, z, opts) {
     // (their whole point is a frontal push you have to get around).
     // Scouts flank by definition — that is their whole job. Shielded units and
     // grenadiers never do. Everyone else flanks once the wave-8 behaviour unlocks.
-    flanker: kind === 4 ? true
-      : (kind === 3 || kind === 5) ? false
-      : !!(typeof waveBehaviours !== 'undefined' && waveBehaviours.flanking) && Math.random() < 0.45,
+    flanker: CORE.isEnemyFlanker(kind, typeof waveBehaviours !== 'undefined' && waveBehaviours.flanking, Math.random()),
     // Flank for a while, then commit. Without a window a fast flanker orbits forever.
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
     // speedMul is the single knob every movement state multiplies through, so a
     // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
-    speedMul: (0.85 + Math.random() * 0.3) * (isElite ? CORE.ELITE.speedMul : 1)
-      * ((typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
+    speedMul: CORE.enemySpawnSpeedMultiplier(Math.random(), isElite,
+      (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
     attackT: 0,
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
@@ -15537,6 +15744,8 @@ function updateFlowField(dt) {
 const _enResolveOut = { axis: 'x', val: 0 };
 // Reusable output object for CORE.resolveSeparationPush to eliminate per-frame GC allocations
 const _sepOut = { pushX: 0, pushZ: 0, applied: false };
+const _fallbackOut = { x: 0, z: 0 };
+const _strafeOut = { x: 0, z: 0 };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -15567,21 +15776,21 @@ function moveEnemy(en, dt) {
     }
   } else if (en.state === 'fallback') {
     // straight back, with a sideways bias so it does not reverse into a corner
-    mvx = -toPlayer.x * 0.8 - toPlayer.z * 0.6 * en.strafeDir;
-    mvz = -toPlayer.z * 0.8 + toPlayer.x * 0.6 * en.strafeDir;
-    const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
+    const fv = CORE.enemyFallbackVelocity(toPlayer.x, toPlayer.z, en.strafeDir, _fallbackOut);
+    mvx = fv.x; mvz = fv.z;
   } else if (en.state === 'strafe') {
     // circle-strafe the player
-    mvx = -toPlayer.z * en.strafeDir; mvz = toPlayer.x * en.strafeDir;
+    const sv = CORE.enemyStrafeVelocity(toPlayer.x, toPlayer.z, en.strafeDir, _strafeOut);
+    mvx = sv.x; mvz = sv.z;
     en.strafeT -= dt;
-    if (en.strafeT <= 0) { en.strafeDir *= -1; en.strafeT = 1.5 + Math.random() * 2; }
+    if (en.strafeT <= 0) { en.strafeDir *= -1; en.strafeT = CORE.enemyStrafeDuration(Math.random()); }
   }
   en.vel.x = mvx * speed;
   en.vel.z = mvz * speed;
   // obstacle pushout (AABB vs point with radius) + step-up allowance
-  const r = 0.4 * (en.kind === 2 ? 1.4 : 1);
-  const stepH = 0.60;
-  const head = en.pos.y + (en.kind === 2 ? 2.3 : 1.85);
+  const r = CORE.enemyColliderRadius(en.kind);
+  const stepH = CORE.STEP_HEIGHT;
+  const head = CORE.enemyHeadHeight(en.pos.y, en.kind);
   // Sub-stepped for the same reason the player is: a 0.1 s frame at chase speed
   // is half a metre of travel against 0.8 m walls.
   const nSteps = CORE.subStepCount(speed, dt, 0.3);
@@ -15779,10 +15988,10 @@ function updateEnemies(dt) {
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
     if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
     if (en.state !== 'spawn' && dist < 30 && !en.dead) {
-      en.stepT -= dt * (en.kind === 0 ? 1.7 : en.kind === 2 ? 0.9 : 1.1);
+      en.stepT -= dt * CORE.enemyFootstepRate(en.kind);
       if (en.stepT <= 0) {
         if (gameT > nextEstepT) { playSound3D('estep', en.pos.x, en.pos.y, en.pos.z); nextEstepT = gameT + 0.08; }
-        en.stepT = 0.55 / (en.speedMul || 1);
+        en.stepT = CORE.enemyFootstepInterval(en.speedMul);
       }
     }
     // face player
@@ -15854,14 +16063,14 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (en.kind === 5 && !player.dead && dist > 9 && dist < 36 && gameT > (en.nextNade || 3)) {
+    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, player.dead) && gameT > (en.nextNade || 3)) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a player who is actually behind cover.
-    if (waveBehaviours.enemyNades && en.kind === 1 && !player.dead &&
-        dist > 8 && dist < 32 && gameT > (en.nextNade || 6)) {
+    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, player.dead) &&
+        gameT > (en.nextNade || 6)) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
@@ -15900,8 +16109,8 @@ function relocateStuckEnemy(en) {
       // prefer roughly 20 m out, and behind the player's current facing
       const toX = x - player.pos.x, toZ = z - player.pos.z;
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
-      const behind = -(toX * fwdX + toZ * fwdZ) / (rad || 1);
-      const score = -Math.abs(rad - 20) + behind * 5;
+      const behind = CORE.relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad);
+      const score = CORE.relocateCandidateScore(rad, behind);
       if (score > bestScore) { bestScore = score; best = [x, z]; }
     }
   }
@@ -17708,15 +17917,14 @@ function updateGrenades(dt) {
       const cs = CORE.grenadeContactSound(def.sticky, g.vel.y);
       if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; }
       if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
-      g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
-      g.vel.x *= 0.55; g.vel.z *= 0.55;
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
-      if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
+      const bnc = def.bounce === undefined ? CFG.grenade.bounce : def.bounce;
+      CORE.stepGrenadeBounceVelocity(g.vel.x, g.vel.y, g.vel.z, bnc, g.grounded, g.vel);
     }
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
-    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+    if (!g.atRest && CORE.isGrenadeAtRest(hSpeedSq, g.vel.y, g.m.position.y, g.grounded)) {
       g.atRest = true;
       g.restFuse = Math.max(0.1, g.fuse);
       const ring = getBlastRing();
@@ -18539,7 +18747,7 @@ function updateDowned(dt) {
   const el = $id('down-timer');
   if (el) {
     el.style.opacity = '1';
-    el.textContent = 'BLEEDING OUT — ' + left.toFixed(1) + 's';
+    el.textContent = CORE.downBleedoutLabel(left);
   }
   if (left <= 0) { clearDowned(); killPlayer(); }
 }
@@ -19292,7 +19500,7 @@ function registerKillT() {
   lastKillT = gameT;
   const label = CORE.multikillLabel(killStreak);
   if (label) {
-    addScore(CFG.score.multikill * (killStreak - 1), label + ' x' + killStreak);
+    addScore(CORE.multikillBonus(CFG.score.multikill, killStreak), label + ' x' + killStreak);
     const s = CORE.multikillSound(killStreak);
     if (s) playSound(s);
   }
@@ -19664,8 +19872,9 @@ function unlockSecondary() {
 function showWaveBanner(n, cleared) {
   // n = wave number; cleared = shown after clearing wave n (stays up for the countdown);
   // n = 0 = pre-battle "GET READY" banner at deploy (stays up until wave 1 starts).
-  hud.waveBig.textContent = n === 0 ? 'GET READY' : (cleared ? 'WAVE ' + n + ' CLEARED' : 'WAVE ' + n);
-  hud.waveSub.textContent = (cleared || n === 0) ? '' : (n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND');
+  const banners = CORE.waveBannerLabels(n, cleared, CFG.wave.victoryWave);
+  hud.waveBig.textContent = banners.big;
+  hud.waveSub.textContent = banners.sub;
   hud.waveBanner.style.opacity = 1;
   clearTimeout(hud.waveBanner._t);
   // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
@@ -19675,9 +19884,7 @@ function showWaveBanner(n, cleared) {
 // Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
 // pause with no feedback). Runs from updateWaves only while playing.
 function updateWaveCountdown() {
-  const n = Math.max(1, Math.ceil(betweenWaveT));
-  if (waveNum === 0) hud.waveSub.textContent = 'COMBAT IN ' + n;
-  else hud.waveSub.textContent = 'NEXT WAVE IN ' + n;
+  hud.waveSub.textContent = CORE.waveCountdownLabel(waveNum, betweenWaveT);
 }
 function showCenterMsg(txt) {
   hud.centerMsg.textContent = txt;

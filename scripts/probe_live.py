@@ -2568,7 +2568,97 @@ def main() -> int:
         }""")
         checks.append(("zero-alloc-recoil-and-hud-canvas-perf-rules", zero_alloc_hud_perf_check))
 
-        # 59) Clean console throughout gameplay.
+        # 59) Balance: enemy combat kinematics, slide steering kinetics, tactical sprint gating, bleedout lifecycle, and objective progress balance rules.
+        combat_kinematics_balance_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.enemyScale !== 'function' ||
+                typeof CORE.enemyColliderRadius !== 'function' ||
+                typeof CORE.enemyHeadHeight !== 'function' ||
+                typeof CORE.enemySpawnSpeedMultiplier !== 'function' ||
+                typeof CORE.isEnemyFlanker !== 'function' ||
+                typeof CORE.enemyFallbackVelocity !== 'function' ||
+                typeof CORE.enemyStrafeVelocity !== 'function' ||
+                typeof CORE.enemyStrafeDuration !== 'function' ||
+                typeof CORE.canEnemyThrowGrenade !== 'function' ||
+                typeof CORE.enemyFootstepRate !== 'function' ||
+                typeof CORE.enemyFootstepInterval !== 'function' ||
+                typeof CORE.relocateFacingAlignment !== 'function' ||
+                typeof CORE.relocateCandidateScore !== 'function' ||
+                typeof CORE.stepSlideSteering !== 'function' ||
+                typeof CORE.isTacSprintTriggered !== 'function' ||
+                typeof CORE.stepGrenadeBounceVelocity !== 'function' ||
+                typeof CORE.isGrenadeAtRest !== 'function' ||
+                typeof CORE.downBleedoutLabel !== 'function' ||
+                typeof CORE.multikillBonus !== 'function' ||
+                typeof CORE.waveCountdownLabel !== 'function' ||
+                typeof CORE.waveBannerLabels !== 'function') return false;
+
+            const constsOk = CORE.STEP_HEIGHT === 0.60 &&
+                             CORE.SLIDE_STEER_RATE === 2.2 &&
+                             CORE.TAC_TAP_WINDOW === 0.32 &&
+                             CORE.TAC_DURATION === 2.5 &&
+                             CORE.GRENADE_BOUNCE_LAT_DAMP === 0.55 &&
+                             CORE.GRENADE_ROLL_LAT_DAMP === 0.30;
+
+            const scaleOk = CORE.enemyScale(0) === 1.0 &&
+                            CORE.enemyScale(2) === 1.25 &&
+                            CORE.enemyScale(3) === 1.1 &&
+                            CORE.enemyScale(4) === 0.88;
+
+            const radOk = CORE.enemyColliderRadius(0) === 0.4 &&
+                          Math.abs(CORE.enemyColliderRadius(2) - 0.56) < 1e-4;
+
+            const headOk = CORE.enemyHeadHeight(0, 0) === 1.85 &&
+                           CORE.enemyHeadHeight(1, 2) === 3.3;
+
+            const flankOk = CORE.isEnemyFlanker(4, false, 0.9) === true &&
+                            CORE.isEnemyFlanker(3, true, 0.1) === false &&
+                            CORE.isEnemyFlanker(1, true, 0.2) === true &&
+                            CORE.isEnemyFlanker(1, true, 0.7) === false;
+
+            const fbOut = { x: 0, z: 0 };
+            const fbRes = CORE.enemyFallbackVelocity(0, 1, 1, fbOut);
+            const fbOk = fbRes === fbOut && fbOut.z < -0.7;
+
+            const strOut = { x: 0, z: 0 };
+            const strRes = CORE.enemyStrafeVelocity(0, 1, 1, strOut);
+            const strOk = strRes === strOut && strOut.x === -1.0;
+
+            const nadeOk = CORE.canEnemyThrowGrenade(5, 20, false) === true &&
+                           CORE.canEnemyThrowGrenade(5, 5, false) === false &&
+                           CORE.canEnemyThrowGrenade(1, 15, false) === true &&
+                           CORE.canEnemyThrowGrenade(1, 15, true) === false;
+
+            const stepOk = CORE.enemyFootstepRate(0) === 1.7 &&
+                           CORE.enemyFootstepRate(2) === 0.9 &&
+                           CORE.enemyFootstepInterval(1.0) === 0.55;
+
+            const steerOut = { x: 0, z: -1 };
+            const steerRes = CORE.stepSlideSteering(0, -1, 1, 0, 0.05, 2.2, steerOut);
+            const steerOk = steerRes === steerOut && steerOut.x > 0;
+
+            const tacOk = CORE.isTacSprintTriggered(5.2, 5.0, false, 0.32) === true &&
+                          CORE.isTacSprintTriggered(5.5, 5.0, false, 0.32) === false;
+
+            const bncOut = { x: 0, y: 0, z: 0 };
+            const bncRes = CORE.stepGrenadeBounceVelocity(4, -6, 2, 0.45, 1, bncOut);
+            const bncOk = bncRes === bncOut && Math.abs(bncOut.y - 2.7) < 1e-4 && Math.abs(bncOut.x - 2.2) < 1e-4;
+
+            const restOk = CORE.isGrenadeAtRest(0.04, 0.05, 0.10, 2) === true &&
+                           CORE.isGrenadeAtRest(0.2, 0.05, 0.10, 2) === false;
+
+            const hudLabelsOk = CORE.downBleedoutLabel(8.5) === 'BLEEDING OUT — 8.5s' &&
+                                CORE.multikillBonus(60, 3) === 120 &&
+                                CORE.waveCountdownLabel(0, 3.2) === 'COMBAT IN 4' &&
+                                CORE.waveBannerLabels(5, true, 15).big === 'WAVE 5 CLEARED';
+
+            return constsOk && scaleOk && radOk && headOk && flankOk &&
+                   fbOk && strOk && nadeOk && stepOk && steerOk &&
+                   tacOk && bncOk && restOk && hudLabelsOk;
+        }""")
+        checks.append(("combat-kinematics-and-balance-rules", combat_kinematics_balance_check))
+
+        # 60) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

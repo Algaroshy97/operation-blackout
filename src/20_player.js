@@ -83,7 +83,7 @@ function playerMaxHealth() { return CORE.perkMaxHealth(CFG.player.health, perks)
 function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.player.height; }
 
 // Ground/step height for horizontal collision: we can step onto ledges up to 0.60m
-const STEP_H = 0.60;
+const STEP_H = CORE.STEP_HEIGHT;
 // Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
 // route and the arena's scattered cover could not be used as one.
 const MANTLE_TIME = 0.35;
@@ -91,8 +91,8 @@ const MANTLE_REACH = 0.9;
 const MANTLE_MAX_RISE = 1.7;
 // Tactical sprint: a short burst at higher speed, paid for with a faster stamina
 // burn. Sprint was one speed, which made every rotation feel the same length.
-const TAC_TAP_WINDOW = 0.32;
-const TAC_DURATION = 2.5;
+const TAC_TAP_WINDOW = CORE.TAC_TAP_WINDOW;
+const TAC_DURATION = CORE.TAC_DURATION;
 const TAC_MUL = CORE.TAC_SPRINT_SPEED_MUL;
 const TAC_DRAIN = 2.2;
 let lastSprintTap = -99;
@@ -211,15 +211,11 @@ function updatePlayer(dt) {
   if (player.sliding) {
     player.slideT += dt;
     // steering: A/D curve the slide
-    const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
     let ix = 0;
     if (keys['KeyA']) ix -= 1;
     if (keys['KeyD']) ix += 1;
     if (ix) {
-      const wx = ix * cy, wz = -ix * sy;
-      player.slideDir.x += wx * 2.2 * dt;
-      player.slideDir.z += wz * 2.2 * dt;
-      player.slideDir.normalize();
+      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, ix, player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
     }
     // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
     const sprintBase = CFG.player.speed * CFG.player.sprintMul;
@@ -271,7 +267,7 @@ function updatePlayer(dt) {
   // stamina & sprint (movingInput already declared in slide block above)
   // Tactical sprint: a double-tap inside TAC_TAP_WINDOW opens a short burst.
   if (pressed['ShiftLeft'] || pressed['__tacsprint']) {
-    if (gameT - lastSprintTap < TAC_TAP_WINDOW && !player.exhausted) player.tacT = TAC_DURATION;
+    if (CORE.isTacSprintTriggered(gameT, lastSprintTap, player.exhausted, TAC_TAP_WINDOW)) player.tacT = TAC_DURATION;
     lastSprintTap = gameT;
   }
   const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown()

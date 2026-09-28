@@ -88,7 +88,7 @@ function spawnEnemy(kind, x, z, opts) {
   } else {
     parts = makeEnemyMesh(kind);
   }
-  const scale = kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1;
+  const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
   const curWave = typeof getWaveNum === 'function' ? getWaveNum() : (typeof waveNum !== 'undefined' ? waveNum : 1);
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
@@ -116,17 +116,15 @@ function spawnEnemy(kind, x, z, opts) {
     // (their whole point is a frontal push you have to get around).
     // Scouts flank by definition — that is their whole job. Shielded units and
     // grenadiers never do. Everyone else flanks once the wave-8 behaviour unlocks.
-    flanker: kind === 4 ? true
-      : (kind === 3 || kind === 5) ? false
-      : !!(typeof waveBehaviours !== 'undefined' && waveBehaviours.flanking) && Math.random() < 0.45,
+    flanker: CORE.isEnemyFlanker(kind, typeof waveBehaviours !== 'undefined' && waveBehaviours.flanking, Math.random()),
     // Flank for a while, then commit. Without a window a fast flanker orbits forever.
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
     // speedMul is the single knob every movement state multiplies through, so a
     // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
-    speedMul: (0.85 + Math.random() * 0.3) * (isElite ? CORE.ELITE.speedMul : 1)
-      * ((typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
+    speedMul: CORE.enemySpawnSpeedMultiplier(Math.random(), isElite,
+      (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.speedMul) ? waveSpecial.speedMul : 1),
     attackT: 0,
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
@@ -295,6 +293,8 @@ function updateFlowField(dt) {
 const _enResolveOut = { axis: 'x', val: 0 };
 // Reusable output object for CORE.resolveSeparationPush to eliminate per-frame GC allocations
 const _sepOut = { pushX: 0, pushZ: 0, applied: false };
+const _fallbackOut = { x: 0, z: 0 };
+const _strafeOut = { x: 0, z: 0 };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -325,21 +325,21 @@ function moveEnemy(en, dt) {
     }
   } else if (en.state === 'fallback') {
     // straight back, with a sideways bias so it does not reverse into a corner
-    mvx = -toPlayer.x * 0.8 - toPlayer.z * 0.6 * en.strafeDir;
-    mvz = -toPlayer.z * 0.8 + toPlayer.x * 0.6 * en.strafeDir;
-    const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
+    const fv = CORE.enemyFallbackVelocity(toPlayer.x, toPlayer.z, en.strafeDir, _fallbackOut);
+    mvx = fv.x; mvz = fv.z;
   } else if (en.state === 'strafe') {
     // circle-strafe the player
-    mvx = -toPlayer.z * en.strafeDir; mvz = toPlayer.x * en.strafeDir;
+    const sv = CORE.enemyStrafeVelocity(toPlayer.x, toPlayer.z, en.strafeDir, _strafeOut);
+    mvx = sv.x; mvz = sv.z;
     en.strafeT -= dt;
-    if (en.strafeT <= 0) { en.strafeDir *= -1; en.strafeT = 1.5 + Math.random() * 2; }
+    if (en.strafeT <= 0) { en.strafeDir *= -1; en.strafeT = CORE.enemyStrafeDuration(Math.random()); }
   }
   en.vel.x = mvx * speed;
   en.vel.z = mvz * speed;
   // obstacle pushout (AABB vs point with radius) + step-up allowance
-  const r = 0.4 * (en.kind === 2 ? 1.4 : 1);
-  const stepH = 0.60;
-  const head = en.pos.y + (en.kind === 2 ? 2.3 : 1.85);
+  const r = CORE.enemyColliderRadius(en.kind);
+  const stepH = CORE.STEP_HEIGHT;
+  const head = CORE.enemyHeadHeight(en.pos.y, en.kind);
   // Sub-stepped for the same reason the player is: a 0.1 s frame at chase speed
   // is half a metre of travel against 0.8 m walls.
   const nSteps = CORE.subStepCount(speed, dt, 0.3);
@@ -537,10 +537,10 @@ function updateEnemies(dt) {
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
     if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
     if (en.state !== 'spawn' && dist < 30 && !en.dead) {
-      en.stepT -= dt * (en.kind === 0 ? 1.7 : en.kind === 2 ? 0.9 : 1.1);
+      en.stepT -= dt * CORE.enemyFootstepRate(en.kind);
       if (en.stepT <= 0) {
         if (gameT > nextEstepT) { playSound3D('estep', en.pos.x, en.pos.y, en.pos.z); nextEstepT = gameT + 0.08; }
-        en.stepT = 0.55 / (en.speedMul || 1);
+        en.stepT = CORE.enemyFootstepInterval(en.speedMul);
       }
     }
     // face player
@@ -612,14 +612,14 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (en.kind === 5 && !player.dead && dist > 9 && dist < 36 && gameT > (en.nextNade || 3)) {
+    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, player.dead) && gameT > (en.nextNade || 3)) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a player who is actually behind cover.
-    if (waveBehaviours.enemyNades && en.kind === 1 && !player.dead &&
-        dist > 8 && dist < 32 && gameT > (en.nextNade || 6)) {
+    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, player.dead) &&
+        gameT > (en.nextNade || 6)) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
@@ -658,8 +658,8 @@ function relocateStuckEnemy(en) {
       // prefer roughly 20 m out, and behind the player's current facing
       const toX = x - player.pos.x, toZ = z - player.pos.z;
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
-      const behind = -(toX * fwdX + toZ * fwdZ) / (rad || 1);
-      const score = -Math.abs(rad - 20) + behind * 5;
+      const behind = CORE.relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad);
+      const score = CORE.relocateCandidateScore(rad, behind);
       if (score > bestScore) { bestScore = score; best = [x, z]; }
     }
   }

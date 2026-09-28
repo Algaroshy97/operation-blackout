@@ -319,15 +319,14 @@ function updateGrenades(dt) {
       const cs = CORE.grenadeContactSound(def.sticky, g.vel.y);
       if (def.sticky) { g.vel.set(0, 0, 0); g.stuck = true; g.atRest = true; }
       if (cs) playSound3D(cs, g.m.position.x, g.m.position.y, g.m.position.z);
-      g.vel.y = -g.vel.y * (def.bounce === undefined ? CFG.grenade.bounce : def.bounce);
-      g.vel.x *= 0.55; g.vel.z *= 0.55;
       if (g.grounded === undefined) g.grounded = 0;
       g.grounded++;
-      if (g.grounded > 1) { g.vel.x *= 0.3; g.vel.z *= 0.3; }  // heavy friction once rolling
+      const bnc = def.bounce === undefined ? CFG.grenade.bounce : def.bounce;
+      CORE.stepGrenadeBounceVelocity(g.vel.x, g.vel.y, g.vel.z, bnc, g.grounded, g.vel);
     }
     // detect when grenade comes to rest on ground
     const hSpeedSq = g.vel.x * g.vel.x + g.vel.z * g.vel.z;
-    if (!g.atRest && g.grounded && g.grounded > 1 && hSpeedSq < 0.1 && Math.abs(g.vel.y) < 0.2 && g.m.position.y <= 0.12) {
+    if (!g.atRest && CORE.isGrenadeAtRest(hSpeedSq, g.vel.y, g.m.position.y, g.grounded)) {
       g.atRest = true;
       g.restFuse = Math.max(0.1, g.fuse);
       const ring = getBlastRing();

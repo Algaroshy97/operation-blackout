@@ -456,7 +456,7 @@ function updateDowned(dt) {
   const el = $id('down-timer');
   if (el) {
     el.style.opacity = '1';
-    el.textContent = 'BLEEDING OUT — ' + left.toFixed(1) + 's';
+    el.textContent = CORE.downBleedoutLabel(left);
   }
   if (left <= 0) { clearDowned(); killPlayer(); }
 }

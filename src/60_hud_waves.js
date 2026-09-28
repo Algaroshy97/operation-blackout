@@ -386,7 +386,7 @@ function registerKillT() {
   lastKillT = gameT;
   const label = CORE.multikillLabel(killStreak);
   if (label) {
-    addScore(CFG.score.multikill * (killStreak - 1), label + ' x' + killStreak);
+    addScore(CORE.multikillBonus(CFG.score.multikill, killStreak), label + ' x' + killStreak);
     const s = CORE.multikillSound(killStreak);
     if (s) playSound(s);
   }
@@ -758,8 +758,9 @@ function unlockSecondary() {
 function showWaveBanner(n, cleared) {
   // n = wave number; cleared = shown after clearing wave n (stays up for the countdown);
   // n = 0 = pre-battle "GET READY" banner at deploy (stays up until wave 1 starts).
-  hud.waveBig.textContent = n === 0 ? 'GET READY' : (cleared ? 'WAVE ' + n + ' CLEARED' : 'WAVE ' + n);
-  hud.waveSub.textContent = (cleared || n === 0) ? '' : (n === CFG.wave.victoryWave ? 'FINAL WAVE' : 'HOSTILES INBOUND');
+  const banners = CORE.waveBannerLabels(n, cleared, CFG.wave.victoryWave);
+  hud.waveBig.textContent = banners.big;
+  hud.waveSub.textContent = banners.sub;
   hud.waveBanner.style.opacity = 1;
   clearTimeout(hud.waveBanner._t);
   // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
@@ -769,9 +770,7 @@ function showWaveBanner(n, cleared) {
 // Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
 // pause with no feedback). Runs from updateWaves only while playing.
 function updateWaveCountdown() {
-  const n = Math.max(1, Math.ceil(betweenWaveT));
-  if (waveNum === 0) hud.waveSub.textContent = 'COMBAT IN ' + n;
-  else hud.waveSub.textContent = 'NEXT WAVE IN ' + n;
+  hud.waveSub.textContent = CORE.waveCountdownLabel(waveNum, betweenWaveT);
 }
 function showCenterMsg(txt) {
   hud.centerMsg.textContent = txt;

@@ -5602,6 +5602,192 @@ const CORE = (function () {
     return px * 0.6 * narrow * hk;
   }
 
+  // ---- Combat kinematics & balance rules (balance tuning) ---------------------
+  const STEP_HEIGHT = 0.60;
+  const SLIDE_STEER_RATE = 2.2;
+  const TAC_TAP_WINDOW = 0.32;
+  const TAC_DURATION = 2.5;
+  const GRENADE_BOUNCE_LAT_DAMP = 0.55;
+  const GRENADE_ROLL_LAT_DAMP = 0.30;
+
+  function enemyScale(kind) {
+    return kind === 2 ? 1.25 : kind === 3 ? 1.1 : kind === 4 ? 0.88 : 1.0;
+  }
+
+  function enemyColliderRadius(kind) {
+    return 0.4 * (kind === 2 ? 1.4 : 1.0);
+  }
+
+  function enemyHeadHeight(posY, kind) {
+    const y = (typeof posY === 'number' && isFinite(posY)) ? posY : 0;
+    return y + (kind === 2 ? 2.3 : 1.85);
+  }
+
+  function enemySpawnSpeedMultiplier(rand, isElite, specialSpeedMul) {
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    const base = 0.85 + r * 0.3;
+    const eliteK = isElite ? ELITE.speedMul : 1.0;
+    const specK = (typeof specialSpeedMul === 'number' && isFinite(specialSpeedMul) && specialSpeedMul > 0) ? specialSpeedMul : 1.0;
+    return base * eliteK * specK;
+  }
+
+  function isEnemyFlanker(kind, waveFlanking, rand) {
+    if (kind === 4) return true;
+    if (kind === 3 || kind === 5) return false;
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    return !!waveFlanking && r < 0.45;
+  }
+
+  function enemyFallbackVelocity(toX, toZ, strafeDir, out) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const sDir = (typeof strafeDir === 'number' && strafeDir < 0) ? -1 : 1;
+    const vx = -tx * 0.8 - tz * 0.6 * sDir;
+    const vz = -tz * 0.8 + tx * 0.6 * sDir;
+    const l = Math.hypot(vx, vz) || 1;
+    const target = (out && typeof out === 'object') ? out : { x: 0, z: 0 };
+    target.x = vx / l;
+    target.z = vz / l;
+    return target;
+  }
+
+  function enemyStrafeVelocity(toX, toZ, strafeDir, out) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const sDir = (typeof strafeDir === 'number' && strafeDir < 0) ? -1 : 1;
+    const vx = -tz * sDir;
+    const vz = tx * sDir;
+    const l = Math.hypot(vx, vz) || 1;
+    const target = (out && typeof out === 'object') ? out : { x: 0, z: 0 };
+    target.x = vx / l;
+    target.z = vz / l;
+    return target;
+  }
+
+  function enemyStrafeDuration(rand) {
+    const r = (typeof rand === 'number' && isFinite(rand)) ? Math.max(0, Math.min(1, rand)) : 0.5;
+    return 1.5 + r * 2.0;
+  }
+
+  function canEnemyThrowGrenade(kind, dist, isPlayerDead) {
+    if (isPlayerDead) return false;
+    const d = (typeof dist === 'number' && isFinite(dist)) ? dist : 0;
+    if (kind === 5) return d > 9 && d < 36;
+    if (kind === 1) return d > 8 && d < 32;
+    return false;
+  }
+
+  function enemyFootstepRate(kind) {
+    return kind === 0 ? 1.7 : kind === 2 ? 0.9 : 1.1;
+  }
+
+  function enemyFootstepInterval(speedMul) {
+    const mul = (typeof speedMul === 'number' && isFinite(speedMul) && speedMul > 0.05) ? speedMul : 1.0;
+    return 0.55 / mul;
+  }
+
+  function relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad) {
+    const tx = (typeof toX === 'number' && isFinite(toX)) ? toX : 0;
+    const tz = (typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0;
+    const fx = (typeof fwdX === 'number' && isFinite(fwdX)) ? fwdX : 0;
+    const fz = (typeof fwdZ === 'number' && isFinite(fwdZ)) ? fwdZ : 0;
+    const r = (typeof rad === 'number' && isFinite(rad) && rad > 0) ? rad : 1;
+    return -(tx * fx + tz * fz) / r;
+  }
+
+  function relocateCandidateScore(rad, behindAlignment) {
+    const r = (typeof rad === 'number' && isFinite(rad)) ? rad : 20;
+    const b = (typeof behindAlignment === 'number' && isFinite(behindAlignment)) ? behindAlignment : 0;
+    return -Math.abs(r - 20) + b * 5;
+  }
+
+  function stepSlideSteering(dirX, dirZ, inputX, yaw, dt, steerRate, out) {
+    const dx = (typeof dirX === 'number' && isFinite(dirX)) ? dirX : 0;
+    const dz = (typeof dirZ === 'number' && isFinite(dirZ)) ? dirZ : 0;
+    const target = (out && typeof out === 'object') ? out : { x: dx, z: dz };
+    const ix = (typeof inputX === 'number' && isFinite(inputX)) ? inputX : 0;
+    const deltaT = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    if (!ix || deltaT <= 0) {
+      target.x = dx;
+      target.z = dz;
+      return target;
+    }
+    const rate = (typeof steerRate === 'number' && isFinite(steerRate) && steerRate > 0) ? steerRate : SLIDE_STEER_RATE;
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const sy = Math.sin(y), cy = Math.cos(y);
+    const wx = ix * cy, wz = -ix * sy;
+    let nx = dx + wx * rate * deltaT;
+    let nz = dz + wz * rate * deltaT;
+    const l = Math.hypot(nx, nz) || 1;
+    target.x = nx / l;
+    target.z = nz / l;
+    return target;
+  }
+
+  function isTacSprintTriggered(gameT, lastSprintTap, isExhausted, windowSec) {
+    const gt = (typeof gameT === 'number' && isFinite(gameT)) ? gameT : 0;
+    const lst = (typeof lastSprintTap === 'number' && isFinite(lastSprintTap)) ? lastSprintTap : -99;
+    const w = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : TAC_TAP_WINDOW;
+    return (gt - lst) < w && !isExhausted;
+  }
+
+  function stepGrenadeBounceVelocity(vx, vy, vz, bounce, groundedCount, out) {
+    const x = (typeof vx === 'number' && isFinite(vx)) ? vx : 0;
+    const y = (typeof vy === 'number' && isFinite(vy)) ? vy : 0;
+    const z = (typeof vz === 'number' && isFinite(vz)) ? vz : 0;
+    const b = (typeof bounce === 'number' && isFinite(bounce) && bounce >= 0) ? bounce : 0.45;
+    const gCount = (typeof groundedCount === 'number' && isFinite(groundedCount)) ? groundedCount : 0;
+    const target = (out && typeof out === 'object') ? out : { x: x, y: y, z: z };
+    target.y = -y * b;
+    let latDamp = GRENADE_BOUNCE_LAT_DAMP;
+    if (gCount > 1) latDamp *= GRENADE_ROLL_LAT_DAMP;
+    target.x = x * latDamp;
+    target.z = z * latDamp;
+    return target;
+  }
+
+  function isGrenadeAtRest(hSpeedSq, vy, posY, groundedCount) {
+    const hs = (typeof hSpeedSq === 'number' && isFinite(hSpeedSq)) ? hSpeedSq : 0;
+    const yVel = (typeof vy === 'number' && isFinite(vy)) ? vy : 0;
+    const yPos = (typeof posY === 'number' && isFinite(posY)) ? posY : 0;
+    const gCount = (typeof groundedCount === 'number' && isFinite(groundedCount)) ? groundedCount : 0;
+    return gCount > 1 && hs < 0.1 && Math.abs(yVel) < 0.2 && yPos <= 0.12;
+  }
+
+  function downBleedoutLabel(remainingSec) {
+    const left = Math.max(0, (typeof remainingSec === 'number' && isFinite(remainingSec)) ? remainingSec : 0);
+    return 'BLEEDING OUT — ' + left.toFixed(1) + 's';
+  }
+
+  function multikillBonus(baseBonus, killStreak) {
+    const ks = (typeof killStreak === 'number' && isFinite(killStreak)) ? Math.floor(killStreak) : 0;
+    if (ks < 2) return 0;
+    const b = (typeof baseBonus === 'number' && isFinite(baseBonus) && baseBonus > 0) ? baseBonus : 60;
+    return b * (ks - 1);
+  }
+
+  function waveCountdownLabel(waveNum, betweenWaveT) {
+    const wn = (typeof waveNum === 'number' && isFinite(waveNum)) ? waveNum : 0;
+    const t = (typeof betweenWaveT === 'number' && isFinite(betweenWaveT)) ? betweenWaveT : 0;
+    const n = Math.max(1, Math.ceil(t));
+    return (wn === 0) ? ('COMBAT IN ' + n) : ('NEXT WAVE IN ' + n);
+  }
+
+  function waveBannerLabels(waveNum, isCleared, victoryWave) {
+    const n = (typeof waveNum === 'number' && isFinite(waveNum)) ? waveNum : 0;
+    const vic = (typeof victoryWave === 'number' && isFinite(victoryWave)) ? victoryWave : 15;
+    if (n === 0) {
+      return { big: 'GET READY', sub: '' };
+    }
+    if (isCleared) {
+      return { big: 'WAVE ' + n + ' CLEARED', sub: '' };
+    }
+    return {
+      big: 'WAVE ' + n,
+      sub: n === vic ? 'FINAL WAVE' : 'HOSTILES INBOUND'
+    };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -6365,7 +6551,34 @@ const CORE = (function () {
     countAliveEnemies: countAliveEnemies,
     hostilesRemainingLabel: hostilesRemainingLabel,
     gunCameraFov: gunCameraFov,
-    viewmodelNarrowOffset: viewmodelNarrowOffset
+    viewmodelNarrowOffset: viewmodelNarrowOffset,
+    STEP_HEIGHT: STEP_HEIGHT,
+    SLIDE_STEER_RATE: SLIDE_STEER_RATE,
+    TAC_TAP_WINDOW: TAC_TAP_WINDOW,
+    TAC_DURATION: TAC_DURATION,
+    GRENADE_BOUNCE_LAT_DAMP: GRENADE_BOUNCE_LAT_DAMP,
+    GRENADE_ROLL_LAT_DAMP: GRENADE_ROLL_LAT_DAMP,
+    enemyScale: enemyScale,
+    enemyColliderRadius: enemyColliderRadius,
+    enemyHeadHeight: enemyHeadHeight,
+    enemySpawnSpeedMultiplier: enemySpawnSpeedMultiplier,
+    isEnemyFlanker: isEnemyFlanker,
+    enemyFallbackVelocity: enemyFallbackVelocity,
+    enemyStrafeVelocity: enemyStrafeVelocity,
+    enemyStrafeDuration: enemyStrafeDuration,
+    canEnemyThrowGrenade: canEnemyThrowGrenade,
+    enemyFootstepRate: enemyFootstepRate,
+    enemyFootstepInterval: enemyFootstepInterval,
+    relocateFacingAlignment: relocateFacingAlignment,
+    relocateCandidateScore: relocateCandidateScore,
+    stepSlideSteering: stepSlideSteering,
+    isTacSprintTriggered: isTacSprintTriggered,
+    stepGrenadeBounceVelocity: stepGrenadeBounceVelocity,
+    isGrenadeAtRest: isGrenadeAtRest,
+    downBleedoutLabel: downBleedoutLabel,
+    multikillBonus: multikillBonus,
+    waveCountdownLabel: waveCountdownLabel,
+    waveBannerLabels: waveBannerLabels
   };
 })();
 
