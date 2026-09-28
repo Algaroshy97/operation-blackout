@@ -589,12 +589,13 @@ function updateObjective(dt) {
 function updateWaves(dt) {
   updateObjective(dt);
   if (gameEnded || player.dead) return;
+  const living = aliveEnemies();
   if (waveActive) {
     // spawn queue drains in bursts of 3-4 enemies, respecting max active
     if (waveQueue > 0) {
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
-        const canSpawn = Math.max(0, CFG.wave.maxActive - aliveEnemies());
+        const canSpawn = Math.max(0, CFG.wave.maxActive - living);
         if (canSpawn > 0) {
           // Burst size and cadence scale with how much of the wave is still
           // queued: wave 15 used to need ~37 s of pure spawn gating before kill
@@ -609,7 +610,7 @@ function updateWaves(dt) {
           spawnTimer = 0.5;
         }
       }
-    } else if (aliveEnemies() === 0) {
+    } else if (living === 0) {
       // wave cleared
       waveActive = false;
       betweenWaveT = 4;
@@ -628,12 +629,12 @@ function updateWaves(dt) {
     updateWaveCountdown();
     if (betweenWaveT <= 0) startWave(waveNum + 1);
   }
-  let left = waveQueue + aliveEnemies();
+  let left = waveQueue + living;
   // Between waves the queue is empty; show what is coming, not "0 HOSTILES".
   if (!waveActive && left === 0) left = CORE.waveEnemyCount(waveNum + 1, CFG.wave.baseCount, CFG.wave.growth);
   if (left !== _hudEnemiesLeft) {
     _hudEnemiesLeft = left;
-    hud.enemiesLeft.textContent = left + ' HOSTILE' + (left === 1 ? '' : 'S');
+    hud.enemiesLeft.textContent = CORE.hostilesRemainingLabel(left);
   }
 }
 let _hudEnemiesLeft = -1;
@@ -667,9 +668,7 @@ function updateAmmoRelief(dt) {
 }
 
 function aliveEnemies() {
-  let n = 0;
-  for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) n++;
-  return n;
+  return CORE.countAliveEnemies(enemies);
 }
 
 // spawn points ring the arena; pick far from player

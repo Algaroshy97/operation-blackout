@@ -111,9 +111,7 @@ function resolveXZ(pos, r) {
   const feet = pos.y - eyeHeight();
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
-    if (c.min.y >= pos.y + 0.2) continue;            // collider is entirely above the player's head
-    if (c.max.y <= feet + STEP_H) continue;         // low obstacle can be stepped onto; vertical resolver lifts us
-    if (feet >= c.max.y - 0.001) continue;         // standing above it
+    if (!CORE.isColliderRelevantXZ(c.min.y, c.max.y, feet, pos.y, STEP_H)) continue;
     if (CORE.resolveAabbXZ(pos.x, pos.z, r, c, _resolveOut)) {
       if (_resolveOut.axis === 'x') { pos.x = _resolveOut.val; player.vel.x = 0; }
       else { pos.z = _resolveOut.val; player.vel.z = 0; }
@@ -148,6 +146,9 @@ const tmpV = new THREE.Vector3();
 const _assistFrom = new THREE.Vector3();
 const _assistDir = new THREE.Vector3();
 const _velOut = { x: 0, z: 0 };
+const _targetVelOut = { x: 0, z: 0 };
+const _absYOut = { offset: 0, delta: 0 };
+const _absPOut = { offset: 0, delta: 0 };
 const _bobStepOut = { phase: 0, amp: 0 };
 const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
 function updatePlayer(dt) {
@@ -176,13 +177,13 @@ function updatePlayer(dt) {
   // aiming at the floor: the kick went away, their compensation did not.
   const yawDelta = -mouseX * sens;
   const pitchDelta = -mouseY * sens * invertY;
-  const absY = CORE.absorbRecoil(player.recoilY, yawDelta);
-  const absP = CORE.absorbRecoil(player.recoilP, pitchDelta);
-  player.recoilY = absY.offset;
-  player.recoilP = absP.offset;
-  player.yaw += absY.delta;
+  CORE.absorbRecoil(player.recoilY, yawDelta, _absYOut);
+  CORE.absorbRecoil(player.recoilP, pitchDelta, _absPOut);
+  player.recoilY = _absYOut.offset;
+  player.recoilP = _absPOut.offset;
+  player.yaw += _absYOut.delta;
   player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
-  player.pitch += absP.delta;
+  player.pitch += _absPOut.delta;
   player.pitch += assistPitch * 3.5 * dt;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
   mouseX = 0; mouseY = 0;
@@ -325,12 +326,8 @@ function updatePlayer(dt) {
     CFG.player.crouchMul,
     cw ? cw.moveMul : 1
   );
-  const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
-  // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
-  // ix=+1 (D) -> right; iz=+1 (W) -> forward
-  const wx = ix * cy + iz * (-sy);
-  const wz = ix * (-sy) + iz * (-cy);
-  const targetVX = wx * speed, targetVZ = wz * speed;
+  CORE.movementTargetVelocity(ix, iz, player.yaw, speed, _targetVelOut);
+  const targetVX = _targetVelOut.x, targetVZ = _targetVelOut.z;
   // air control: partial authority while airborne (not while sliding)
   const rate = CORE.movementAccelRate(player.onGround, player.sliding, len > 0, CFG.player.accel, CFG.player.decel);
   if (!player.sliding) {

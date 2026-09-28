@@ -785,9 +785,9 @@ function frame(now) {
     // forces an immediate redraw so snappy turns remain responsive.
     hudRedrawT += dt;
     const yawMoved = Math.abs(player.yaw - lastHudYaw);
-    if (hudRedrawT >= 0.05 || (yawMoved > 0.15 && gameT - hudFlickT > 0.12)) {
+    if (CORE.shouldRedrawHudCanvas(hudRedrawT, yawMoved, gameT - hudFlickT, CORE.HUD_REDRAW_INTERVAL, CORE.HUD_FLICK_YAW_THRESHOLD, CORE.HUD_FLICK_COOLDOWN)) {
       hudRedrawT = 0; lastHudYaw = player.yaw;
-      if (yawMoved > 0.15) hudFlickT = gameT;
+      if (yawMoved > CORE.HUD_FLICK_YAW_THRESHOLD) hudFlickT = gameT;
       drawMinimap();
       drawCompass();
     }

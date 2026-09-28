@@ -2519,7 +2519,56 @@ def main() -> int:
         }""")
         checks.append(("ballistic-decal-muzzle-and-tracer-visual-rules", decal_muzzle_tracer_visual_check))
 
-        # 58) Clean console throughout gameplay.
+        # 58) Perf: zero-alloc recoil absorption & pattern sampling, collider relevance pruning, movement velocity synthesis, and HUD canvas throttling rules.
+        zero_alloc_hud_perf_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const colAbove = CORE.isColliderRelevantXZ(2.1, 4.0, 0, 1.8, 0.6) === false;
+            const colBelow = CORE.isColliderRelevantXZ(0, 0.5, 0, 1.8, 0.6) === false;
+            const colUnder = CORE.isColliderRelevantXZ(-2.0, 0.0, 0, 1.8, 0.6) === false;
+            const colHit = CORE.isColliderRelevantXZ(0, 2.5, 0, 1.8, 0.6) === true;
+            const colNan = CORE.isColliderRelevantXZ(NaN, 1.0, 0, 1.8, 0.6) === false;
+
+            const rkOut = { x: 0, y: 0 };
+            const rkRes = CORE.recoilAt('ar', 0, 0, 0, rkOut);
+            const rkMutates = rkRes === rkOut && typeof rkRes.x === 'number';
+
+            const absOut = { offset: 0, delta: 0 };
+            const absRes = CORE.absorbRecoil(0.05, -0.02, absOut);
+            const absMutates = absRes === absOut && Math.round(absOut.offset * 1000) / 1000 === 0.03 && absOut.delta === 0;
+
+            const velOut = { x: 0, z: 0 };
+            const velRes = CORE.movementTargetVelocity(0, 1, 0, 6.0, velOut);
+            const velMutates = velRes === velOut && Math.abs(velOut.x) < 1e-4 && Math.abs(velOut.z - (-6.0)) < 1e-4;
+
+            const hudConsts = CORE.HUD_REDRAW_INTERVAL === 0.05 &&
+                              CORE.HUD_FLICK_YAW_THRESHOLD === 0.15 &&
+                              CORE.HUD_FLICK_COOLDOWN === 0.12;
+            const hudElapsed = CORE.shouldRedrawHudCanvas(0.051, 0.01, 1.0) === true;
+            const hudHold = CORE.shouldRedrawHudCanvas(0.02, 0.05, 1.0) === false;
+            const hudFlick = CORE.shouldRedrawHudCanvas(0.01, 0.20, 0.15) === true;
+            const hudFlickCd = CORE.shouldRedrawHudCanvas(0.01, 0.20, 0.05) === false;
+
+            const enemiesList = [{ dead: false }, { dead: true }, { dead: false }, null, { dead: false }];
+            const countAlive = CORE.countAliveEnemies(enemiesList) === 3 && CORE.countAliveEnemies([]) === 0;
+            const labelsOk = CORE.hostilesRemainingLabel(0) === '0 HOSTILES' &&
+                             CORE.hostilesRemainingLabel(1) === '1 HOSTILE' &&
+                             CORE.hostilesRemainingLabel(4) === '4 HOSTILES';
+
+            const gunFovOk = CORE.gunCameraFov(0, 'AR') === 58 &&
+                             CORE.gunCameraFov(1, 'AR') === 46 &&
+                             CORE.gunCameraFov(1, 'SR') === 40;
+            const narrowOk = CORE.viewmodelNarrowOffset(1.77, 0.2, 1.0) === 0 &&
+                             CORE.viewmodelNarrowOffset(0.75, 0.2, 1.0) > 0;
+
+            return colAbove && colBelow && colUnder && colHit && colNan &&
+                   rkMutates && absMutates && velMutates && hudConsts &&
+                   hudElapsed && hudHold && hudFlick && hudFlickCd &&
+                   countAlive && labelsOk && gunFovOk && narrowOk;
+        }""")
+        checks.append(("zero-alloc-recoil-and-hud-canvas-perf-rules", zero_alloc_hud_perf_check))
+
+        # 59) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

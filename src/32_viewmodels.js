@@ -548,14 +548,12 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
     }
   }
   // narrow screens: pull the hip pose toward the centre so the gun stays on screen
-  const asp = camera.aspect || 1;
-  const narrow = Math.max(0, Math.min(1, (1.2 - asp) / 0.7));
-  px -= px * 0.6 * narrow * hipK;
+  px -= CORE.viewmodelNarrowOffset(camera.aspect || 1, px, hipK);
   g.position.set(px, py, pz);
   g.rotation.set(rx, ry, rz);
   if (P.laser) P.laser.visible = ads < 0.5;
   // the gun's lens narrows while aiming, for a magnified feel
-  const gunFov = 58 - ads * (w.type === 'SR' ? 18 : 12);
+  const gunFov = CORE.gunCameraFov(ads, w.type);
   if (Math.abs(gunCamera.fov - gunFov) > 0.05) { gunCamera.fov = gunFov; gunCamera.updateProjectionMatrix(); }
   updateGunLighting();
 }

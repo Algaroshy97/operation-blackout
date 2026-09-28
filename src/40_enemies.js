@@ -350,9 +350,7 @@ function moveEnemy(en, dt) {
     const feet = en.pos.y;
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
-      if (c.min.y >= head + 0.2) continue;
-      if (c.max.y <= feet + stepH) continue;
-      if (feet >= c.max.y - 0.001) continue;
+      if (!CORE.isColliderRelevantXZ(c.min.y, c.max.y, feet, head, stepH)) continue;
       if (CORE.resolveAabbXZ(en.pos.x, en.pos.z, r, c, _enResolveOut)) {
         if (_enResolveOut.axis === 'x') en.pos.x = _enResolveOut.val;
         else en.pos.z = _enResolveOut.val;

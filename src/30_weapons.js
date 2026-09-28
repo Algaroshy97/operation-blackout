@@ -272,6 +272,7 @@ function magnetizeBullet(dir, from) {
 
 const _shotTargets = [];
 const _tracerMissEnd = new THREE.Vector3();
+const _recoilOut = { x: 0, y: 0 };
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -357,10 +358,10 @@ function fireShot(preserveSchedule) {
   // shape every time, with a few percent of jitter so it is not mechanical.
   recoilShot = CORE.recoilShotIndex(recoilShot, gameT - lastShotT);
   lastShotT = gameT;
-  const rk = CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
-    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
-  player.recoilP += w.recoilV * rk.y;
-  player.recoilY += w.recoilH * rk.x;
+  CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
+    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, _recoilOut);
+  player.recoilP += w.recoilV * _recoilOut.y;
+  player.recoilY += w.recoilH * _recoilOut.x;
   shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');

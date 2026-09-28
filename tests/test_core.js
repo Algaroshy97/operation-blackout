@@ -6395,3 +6395,97 @@ test('ballistic decal scaling and lifecycle, viewmodel muzzle flash dynamics, an
   assert.strictEqual(CORE.tracerColor(false), 0xffe9a0);
   assert.strictEqual(CORE.tracerColor(true), 0xff8844);
 });
+
+test('zero-alloc recoil absorption and patterns, collision relevance pruning, movement velocity synthesis, and HUD canvas throttling rules', () => {
+  // 1) Horizontal collision relevance pruning
+  // Feet at 0, head at 1.8, step height 0.60
+  // Slabs above head (> 2.0) are irrelevant
+  assert.strictEqual(CORE.isColliderRelevantXZ(2.1, 4.0, 0, 1.8, 0.6), false);
+  // Curbs below step height (<= 0.60) are stepped over vertically
+  assert.strictEqual(CORE.isColliderRelevantXZ(0, 0.5, 0, 1.8, 0.6), false);
+  // Standing above slab (feet >= max.y - 0.001)
+  assert.strictEqual(CORE.isColliderRelevantXZ(-2.0, 0.0, 0, 1.8, 0.6), false);
+  // Obstacle intersecting player torso/legs is relevant
+  assert.strictEqual(CORE.isColliderRelevantXZ(0, 2.5, 0, 1.8, 0.6), true);
+  assert.strictEqual(CORE.isColliderRelevantXZ(0.5, 1.5, 0, 1.8, 0.6), true);
+  // Graceful handling of invalid inputs
+  assert.strictEqual(CORE.isColliderRelevantXZ(NaN, 1.0, 0, 1.8, 0.6), false);
+  assert.strictEqual(CORE.isColliderRelevantXZ(0, NaN, 0, 1.8, 0.6), false);
+
+  // 2) Zero-alloc recoil pattern lookup
+  const outRk = { x: 0, y: 0 };
+  const retRk = CORE.recoilAt('ar', 0, 0, 0, outRk);
+  assert.strictEqual(retRk, outRk, 'mutates and returns provided out object');
+  assert.ok(typeof retRk.x === 'number' && typeof retRk.y === 'number');
+  const allocRk = CORE.recoilAt('ar', 0, 0, 0);
+  assert.strictEqual(allocRk.x, retRk.x);
+  assert.strictEqual(allocRk.y, retRk.y);
+
+  // 3) Zero-alloc recoil absorption
+  const outAbs = { offset: 0, delta: 0 };
+  // Counter-input against recoil offset
+  const retAbs = CORE.absorbRecoil(0.05, -0.02, outAbs);
+  assert.strictEqual(retAbs, outAbs, 'mutates and returns out object');
+  assert.strictEqual(Math.round(outAbs.offset * 1000) / 1000, 0.03);
+  assert.strictEqual(outAbs.delta, 0);
+  // Full counter-input overshoot passes remaining delta
+  CORE.absorbRecoil(0.02, -0.05, outAbs);
+  assert.strictEqual(outAbs.offset, 0);
+  assert.strictEqual(Math.round(outAbs.delta * 1000) / 1000, -0.03);
+  // Backward compatibility when out omitted
+  const noOutAbs = CORE.absorbRecoil(0.05, -0.02);
+  assert.strictEqual(Math.round(noOutAbs.offset * 1000) / 1000, 0.03);
+  assert.strictEqual(noOutAbs.delta, 0);
+
+  // 4) Locomotion movement target velocity synthesis
+  const outVel = { x: 0, z: 0 };
+  // Forward along yaw=0 (toward -Z in three.js coordinate system)
+  const retVel = CORE.movementTargetVelocity(0, 1, 0, 6.0, outVel);
+  assert.strictEqual(retVel, outVel, 'mutates and returns out object');
+  assert.ok(Math.abs(outVel.x) < 1e-4);
+  assert.ok(Math.abs(outVel.z - (-6.0)) < 1e-4);
+  // Strafe right along yaw=0 (toward +X)
+  CORE.movementTargetVelocity(1, 0, 0, 6.0, outVel);
+  assert.ok(Math.abs(outVel.x - 6.0) < 1e-4);
+  assert.ok(Math.abs(outVel.z) < 1e-4);
+
+  // 5) HUD canvas redraw throttling and quick-flick responsiveness
+  assert.strictEqual(CORE.HUD_REDRAW_INTERVAL, 0.05);
+  assert.strictEqual(CORE.HUD_FLICK_YAW_THRESHOLD, 0.15);
+  assert.strictEqual(CORE.HUD_FLICK_COOLDOWN, 0.12);
+  // Redraw when base interval elapsed (20 Hz)
+  assert.strictEqual(CORE.shouldRedrawHudCanvas(0.051, 0.01, 1.0), true);
+  // Suppress redraw when not enough time has elapsed and no flick
+  assert.strictEqual(CORE.shouldRedrawHudCanvas(0.02, 0.05, 1.0), false);
+  // Quick flick (yaw delta > 0.15 rads) forces redraw if flick cooldown elapsed
+  assert.strictEqual(CORE.shouldRedrawHudCanvas(0.01, 0.20, 0.15), true);
+  // Quick flick throttled if recent flick already triggered within cooldown
+  assert.strictEqual(CORE.shouldRedrawHudCanvas(0.01, 0.20, 0.05), false);
+
+  // 6) Alive enemy counting and hostile labels
+  const testEnemies = [
+    { dead: false },
+    { dead: true },
+    { dead: false },
+    null,
+    { dead: false }
+  ];
+  assert.strictEqual(CORE.countAliveEnemies(testEnemies), 3);
+  assert.strictEqual(CORE.countAliveEnemies([]), 0);
+  assert.strictEqual(CORE.countAliveEnemies(null), 0);
+  assert.strictEqual(CORE.hostilesRemainingLabel(0), '0 HOSTILES');
+  assert.strictEqual(CORE.hostilesRemainingLabel(1), '1 HOSTILE');
+  assert.strictEqual(CORE.hostilesRemainingLabel(5), '5 HOSTILES');
+
+  // 7) Optics FOV and narrow screen viewmodel offset
+  assert.strictEqual(CORE.gunCameraFov(0, 'AR'), 58);
+  assert.strictEqual(CORE.gunCameraFov(1, 'AR'), 46);
+  assert.strictEqual(CORE.gunCameraFov(1, 'SR'), 40);
+  // Narrow aspect ratio adjustment
+  const wideOffset = CORE.viewmodelNarrowOffset(1.77, 0.2, 1.0);
+  assert.strictEqual(wideOffset, 0);
+  const narrowOffset = CORE.viewmodelNarrowOffset(0.75, 0.2, 1.0);
+  assert.ok(narrowOffset > 0, 'pulls viewmodel toward center on narrow aspect');
+  assert.strictEqual(CORE.viewmodelNarrowOffset(0.75, 0.2, 0), 0, 'hipK=0 gives zero offset');
+});
+

@@ -318,6 +318,20 @@ const CORE = (function () {
     return true;
   }
 
+  // True when an obstacle AABB is relevant for horizontal collision resolution.
+  // Rejects colliders entirely above head height, low curbs below step-up height,
+  // or slabs underneath feet.
+  function isColliderRelevantXZ(cMinY, cMaxY, feetY, headY, stepH) {
+    if (typeof cMinY !== 'number' || typeof cMaxY !== 'number' || !isFinite(cMinY) || !isFinite(cMaxY)) return false;
+    const step = (typeof stepH === 'number' && isFinite(stepH) && stepH >= 0) ? stepH : 0.6;
+    const feet = (typeof feetY === 'number' && isFinite(feetY)) ? feetY : 0;
+    const head = (typeof headY === 'number' && isFinite(headY)) ? headY : feet + 1.8;
+    if (cMinY >= head + 0.2) return false;
+    if (cMaxY <= feet + step) return false;
+    if (feet >= cMaxY - 0.001) return false;
+    return true;
+  }
+
   // ---- Settings ---------------------------------------------------------------
   // Schema-driven so the UI, the persistence layer and the validator cannot drift
   // apart. Stored values are never trusted: localStorage is editable, survives
@@ -1605,15 +1619,23 @@ const CORE = (function () {
     return RECOIL_PATTERNS[k] ? k : 'ar';
   }
   // jx / jy are in [-1, 1]; pass 0 for a deterministic trace.
-  function recoilAt(pattern, shotIndex, jx, jy) {
+  // When out is provided, mutates and returns out without heap allocation.
+  function recoilAt(pattern, shotIndex, jx, jy, out) {
     const p = RECOIL_PATTERNS[pattern] || RECOIL_PATTERNS.ar;
     let i = Math.floor(shotIndex);
     if (!(i >= 0)) i = 0;
     if (i >= p.length) i = p.length - 1;
     const ax = jx === undefined ? 0 : jx, ay = jy === undefined ? 0 : jy;
+    const rx = p[i][0] * (1 + ax * RECOIL_JITTER);
+    const ry = p[i][1] * (1 + ay * RECOIL_JITTER);
+    if (out && typeof out === 'object') {
+      out.x = rx;
+      out.y = ry;
+      return out;
+    }
     return {
-      x: p[i][0] * (1 + ax * RECOIL_JITTER),
-      y: p[i][1] * (1 + ay * RECOIL_JITTER)
+      x: rx,
+      y: ry
     };
   }
   // The pattern only means anything if the index resets between bursts: a player
@@ -1631,16 +1653,24 @@ const CORE = (function () {
   // not. Spend counter-input against the outstanding offset first and pass only
   // the remainder through to the aim. Same-sign input is the player choosing to
   // move and is never absorbed.
-  function absorbRecoil(offset, lookDelta) {
+  // When out is provided, mutates and returns out without heap allocation.
+  function absorbRecoil(offset, lookDelta, out) {
+    let off = offset, del = lookDelta;
     if (offset > 0 && lookDelta < 0) {
       const used = Math.min(offset, -lookDelta);
-      return { offset: offset - used, delta: lookDelta + used };
-    }
-    if (offset < 0 && lookDelta > 0) {
+      off = offset - used;
+      del = lookDelta + used;
+    } else if (offset < 0 && lookDelta > 0) {
       const used = Math.min(-offset, lookDelta);
-      return { offset: offset + used, delta: lookDelta - used };
+      off = offset + used;
+      del = lookDelta - used;
     }
-    return { offset: offset, delta: lookDelta };
+    if (out && typeof out === 'object') {
+      out.offset = off;
+      out.delta = del;
+      return out;
+    }
+    return { offset: off, delta: del };
   }
 
   // ---- Hipfire bloom ----------------------------------------------------------
@@ -5510,6 +5540,68 @@ const CORE = (function () {
     return isEnemy ? 0xff8844 : 0xffe9a0;
   }
 
+  // ---- Locomotion velocity synthesis & collision relevance (perf win) --------
+  function movementTargetVelocity(ix, iz, yaw, speed, out) {
+    const inputX = (typeof ix === 'number' && isFinite(ix)) ? ix : 0;
+    const inputZ = (typeof iz === 'number' && isFinite(iz)) ? iz : 0;
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const spd = (typeof speed === 'number' && isFinite(speed) && speed >= 0) ? speed : 0;
+    const sy = Math.sin(y), cy = Math.cos(y);
+    const vx = (inputX * cy - inputZ * sy) * spd;
+    const vz = (-inputX * sy - inputZ * cy) * spd;
+    if (out && typeof out === 'object') {
+      out.x = vx;
+      out.z = vz;
+      return out;
+    }
+    return { x: vx, z: vz };
+  }
+
+  // ---- HUD canvas redraw throttling & alive enemy counting (perf win) --------
+  const HUD_REDRAW_INTERVAL = 0.05;      // 20 Hz base throttle
+  const HUD_FLICK_YAW_THRESHOLD = 0.15;   // ~8.6 degrees rotation flick trigger
+  const HUD_FLICK_COOLDOWN = 0.12;       // minimum interval between flick-forced redraws
+
+  function shouldRedrawHudCanvas(elapsedT, yawMoved, flickElapsed, interval, flickThreshold, flickCooldown) {
+    const elapsed = (typeof elapsedT === 'number' && isFinite(elapsedT)) ? elapsedT : 0;
+    const ym = (typeof yawMoved === 'number' && isFinite(yawMoved)) ? Math.abs(yawMoved) : 0;
+    const fe = (typeof flickElapsed === 'number' && isFinite(flickElapsed)) ? flickElapsed : 0;
+    const int = (typeof interval === 'number' && isFinite(interval) && interval > 0) ? interval : HUD_REDRAW_INTERVAL;
+    const th = (typeof flickThreshold === 'number' && isFinite(flickThreshold) && flickThreshold > 0) ? flickThreshold : HUD_FLICK_YAW_THRESHOLD;
+    const cd = (typeof flickCooldown === 'number' && isFinite(flickCooldown) && flickCooldown > 0) ? flickCooldown : HUD_FLICK_COOLDOWN;
+    return (elapsed >= int) || (ym > th && fe > cd);
+  }
+
+  function countAliveEnemies(enemies) {
+    if (!enemies || !enemies.length) return 0;
+    let n = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (e && !e.dead) n++;
+    }
+    return n;
+  }
+
+  function hostilesRemainingLabel(count) {
+    const n = (typeof count === 'number' && isFinite(count) && count >= 0) ? Math.floor(count) : 0;
+    return n + ' HOSTILE' + (n === 1 ? '' : 'S');
+  }
+
+  // ---- Viewmodel optics FOV & responsive narrow-screen centering (perf win) ---
+  function gunCameraFov(adsAmount, weaponType) {
+    const ads = (typeof adsAmount === 'number' && isFinite(adsAmount)) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const isSr = weaponType === 'SR';
+    return 58 - ads * (isSr ? 18 : 12);
+  }
+
+  function viewmodelNarrowOffset(aspectRatio, posX, hipK) {
+    const asp = (typeof aspectRatio === 'number' && isFinite(aspectRatio) && aspectRatio > 0) ? aspectRatio : 1.0;
+    const px = (typeof posX === 'number' && isFinite(posX)) ? posX : 0;
+    const hk = (typeof hipK === 'number' && isFinite(hipK)) ? Math.max(0, Math.min(1, hipK)) : 1.0;
+    const narrow = Math.max(0, Math.min(1, (1.2 - asp) / 0.7));
+    return px * 0.6 * narrow * hk;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -6263,7 +6355,17 @@ const CORE = (function () {
     muzzleFlashBaseScale: muzzleFlashBaseScale,
     stepMuzzleFlashScale: stepMuzzleFlashScale,
     tracerThicknessScale: tracerThicknessScale,
-    tracerColor: tracerColor
+    tracerColor: tracerColor,
+    isColliderRelevantXZ: isColliderRelevantXZ,
+    movementTargetVelocity: movementTargetVelocity,
+    HUD_REDRAW_INTERVAL: HUD_REDRAW_INTERVAL,
+    HUD_FLICK_YAW_THRESHOLD: HUD_FLICK_YAW_THRESHOLD,
+    HUD_FLICK_COOLDOWN: HUD_FLICK_COOLDOWN,
+    shouldRedrawHudCanvas: shouldRedrawHudCanvas,
+    countAliveEnemies: countAliveEnemies,
+    hostilesRemainingLabel: hostilesRemainingLabel,
+    gunCameraFov: gunCameraFov,
+    viewmodelNarrowOffset: viewmodelNarrowOffset
   };
 })();
 
