@@ -17485,6 +17485,8 @@ function playSound(name, dest) {
 
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
+// A distance-scaled lowpass filter simulates high-frequency air absorption:
+// nearby sounds are full-spectrum; distant sounds become progressively muffled.
 function playSound3D(name, x, y, z, maxDist) {
   const ctx = audioCtx();
   if (!ctx) return;
@@ -17492,18 +17494,28 @@ function playSound3D(name, x, y, z, maxDist) {
   const dx = x - player.pos.x, dz = z - player.pos.z;
   const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
   if (!spatial.audible) return;
+  const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0)
+    ? maxDist : 55;
+  // Cutoff: 8000 Hz at point-blank → 500 Hz at full range (linear interp).
+  const cutoff = 8000 - 7500 * Math.min(1, spatial.dist / maxD);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = cutoff;
+  lp.Q.value = 0.5;          // gentle slope — no resonant peak
   const g = ctx.createGain();
   g.gain.value = spatial.vol;
+  g.connect(lp);
   let p = null;
   if (ctx.createStereoPanner) {
     p = ctx.createStereoPanner();
     p.pan.value = spatial.pan;
-    g.connect(p); p.connect(audioMaster() || ctx.destination);
-  } else g.connect(audioMaster() || ctx.destination);
+    lp.connect(p); p.connect(audioMaster() || ctx.destination);
+  } else lp.connect(audioMaster() || ctx.destination);
   playSound(name, g);
   setTimeout(() => {
     try {
       if (p) p.disconnect();
+      lp.disconnect();
       g.disconnect();
     } catch (e) {}
   }, 800);
