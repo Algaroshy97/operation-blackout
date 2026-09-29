@@ -5707,6 +5707,16 @@ test('canReload, effectiveReloadDuration, isReloadComplete, completeReload, muni
   assert.strictEqual(CORE.isPickupVisible(26, 20, 25), false, 'despawned after max life');
   assert.strictEqual(typeof CORE.isPickupVisible(21, 20, 25), 'boolean', 'blinking phase returns boolean');
 
+  // pickupBlinkOpacity: smooth opacity for despawn blink window
+  assert.strictEqual(CORE.pickupBlinkOpacity(10, 20, 25), 1, 'fully opaque before blink window');
+  assert.strictEqual(CORE.pickupBlinkOpacity(25, 20, 25), 0, 'zero at maxLife');
+  assert.strictEqual(CORE.pickupBlinkOpacity(30, 20, 25), 0, 'zero past maxLife');
+  const midBlink = CORE.pickupBlinkOpacity(22.5, 20, 25);
+  assert.ok(midBlink >= 0.08 && midBlink <= 1, 'mid-blink opacity in [0.08, 1], got ' + midBlink);
+  // Edge cases
+  assert.strictEqual(CORE.pickupBlinkOpacity(0, 20, 25), 1, 'zero time = fully opaque');
+  assert.strictEqual(CORE.pickupBlinkOpacity(NaN, 20, 25), 1, 'NaN time treated as 0');
+
   assert.strictEqual(CORE.canCollectPickup(0, 0, 0.5, 0.5, 1.3), true);
   assert.strictEqual(CORE.canCollectPickup(0, 0, 2, 2, 1.3), false);
 

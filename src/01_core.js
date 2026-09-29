@@ -4819,6 +4819,28 @@ const CORE = (function () {
     return true;
   }
 
+  // Smooth pickup despawn fade: pulsing opacity during the blink window instead of
+  // a binary on/off toggle. Returns a value in [0,1].
+  //   - Before blinkStart: 1.0 (fully opaque).
+  //   - In the blink window: sin²-based pulse that accelerates as the pickup nears
+  //     expiry so the urgency is legible without being harsh.
+  //   - At or past maxLife: 0 (invisible).
+  function pickupBlinkOpacity(t, blinkStart, maxLife) {
+    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const life = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    if (time >= life) return 0;
+    const blink = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    if (time <= blink) return 1;
+    // Ramp up blink frequency linearly from 3 Hz at blinkStart to 7 Hz at maxLife.
+    const progress = (time - blink) / Math.max(0.001, life - blink); // 0→1
+    const freq = 3 + progress * 4;                                   // 3→7 Hz
+    const phase = (time - blink) * freq * Math.PI * 2;
+    const s = Math.sin(phase);
+    // sin² gives a smooth "on-dip-on" pattern; minimum opacity 0.08 so the pickup
+    // never vanishes completely (still visible as a faint ghost, not a pop-out).
+    return Math.max(0.08, s * s);
+  }
+
   function canCollectPickup(pickupX, pickupZ, playerX, playerZ, radius) {
     if (typeof pickupX !== 'number' || !isFinite(pickupX) ||
         typeof pickupZ !== 'number' || !isFinite(pickupZ) ||
@@ -6420,6 +6442,7 @@ const CORE = (function () {
     enemyBurstInterval: enemyBurstInterval,
     pickupBobHeight: pickupBobHeight,
     isPickupVisible: isPickupVisible,
+    pickupBlinkOpacity: pickupBlinkOpacity,
     canCollectPickup: canCollectPickup,
     grenadeBlinkVisible: grenadeBlinkVisible,
     flashOverlayOpacity: flashOverlayOpacity,

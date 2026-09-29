@@ -579,10 +579,10 @@ function explodeGrenade(pos, scale) {
 // ---- Pickups: ammo + medkit drops from enemies ----
 const pickups = [];
 const pickupAmmoGeo = new THREE.BoxGeometry(0.35, 0.22, 0.25);
-const pickupAmmoMat = new THREE.MeshStandardMaterial({ color: 0x8a6d2f, roughness: 0.7, metalness: 0.2 });
+const pickupAmmoMat = new THREE.MeshStandardMaterial({ color: 0x8a6d2f, roughness: 0.7, metalness: 0.2, transparent: true });
 const pickupMedGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-const pickupMedMat = new THREE.MeshStandardMaterial({ color: 0xd8d8e0, roughness: 0.4 });
-const medCrossMat = new THREE.MeshBasicMaterial({ color: 0xff3030 });
+const pickupMedMat = new THREE.MeshStandardMaterial({ color: 0xd8d8e0, roughness: 0.4, transparent: true });
+const medCrossMat = new THREE.MeshBasicMaterial({ color: 0xff3030, transparent: true });
 // shared cross geometry (was allocated per-drop, never disposed — GPU leak over long sessions)
 const medCrossGeo1 = new THREE.BoxGeometry(0.16, 0.05, 0.31);
 const medCrossGeo2 = new THREE.BoxGeometry(0.05, 0.16, 0.31);
@@ -624,7 +624,7 @@ const POWER_COLOR = { maxammo: 0x6fa8ff, double: 0xffd24a, instakill: 0xff4030, 
 const powerMats = {};
 function powerMaterial(key) {
   if (!powerMats[key]) {
-    powerMats[key] = new THREE.MeshBasicMaterial({ color: POWER_COLOR[key] || 0xffffff });
+    powerMats[key] = new THREE.MeshBasicMaterial({ color: POWER_COLOR[key] || 0xffffff, transparent: true });
   }
   return powerMats[key];
 }
@@ -684,8 +684,16 @@ function updatePickups(dt) {
       pickups.splice(i, 1);
       continue;
     }
-    // blink during the last seconds so despawn never looks like a bug
-    p.m.visible = CORE.isPickupVisible(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
+    // Smooth opacity blink during the final PICKUP_LIFE-PICKUP_BLINK_START seconds.
+    // The pulse accelerates toward expiry; the pickup never fully disappears until
+    // despawn so it always has a presence even at the end of the blink window.
+    const op = CORE.pickupBlinkOpacity(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
+    p.m.material.opacity = op;
+    // Propagate opacity to child meshes (medkit cross arms share a separate material).
+    for (let c = 0; c < p.m.children.length; c++) {
+      if (p.m.children[c].material) p.m.children[c].material.opacity = op;
+    }
+    p.m.visible = op > 0.01;
     // despawn after PICKUP_LIFE seconds
     if (p.t > CORE.PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
