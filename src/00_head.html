@@ -285,6 +285,7 @@
   body.touch #tbtn-nade.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-swap.switching{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.24),inset 0 0 8px rgba(80,180,255,.15)}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-melee.ready{border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,95,74,.3),inset 0 0 10px rgba(255,95,74,.2)}
   body.touch #tbtn-melee.cooldown{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
@@ -322,6 +323,12 @@
   body.touch-layout-left #tbtn-tactical{left:auto;right:calc(282px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
   body.touch-layout-left #tbtn-streak{left:auto;right:calc(150px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
   body.touch-layout-left #tbtn-pause{left:calc(14px + var(--sa-l));right:auto}
+  body.touch-layout-left #minimap{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #score-hud{right:auto;left:calc(16px + var(--sa-l))}
+  body.touch-layout-left #killfeed{right:auto;left:calc(16px + var(--sa-l))}
+  body.touch-layout-left #health-container{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #armor-container{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #fps-counter{left:auto;right:calc(8px + var(--sa-r))}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it

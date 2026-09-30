@@ -2803,7 +2803,25 @@ def main() -> int:
         }""")
         checks.append(("ballistic-spread-aim-assist-and-combat-kinematics-balance-rules", ballistic_balance_check))
 
-        # 62) Clean console throughout gameplay.
+        # 62) Mobile touch weapon swap draw state, layout editor labels, and left-handed HUD symmetry.
+        mobile_touch_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const mockWpns = [{ type: 'AR' }, { type: 'SMG' }];
+            const swapSwitchOk = CORE.touchSwapState(0, [0, 1], true) === 'switching' &&
+                                 CORE.touchSwapState(0, [0, 1], false) === 'ready' &&
+                                 CORE.touchSwapState(0, [0, -1], true) === 'empty';
+            const swapLabelOk = CORE.touchSwapLabel(0, [0, 1], mockWpns, true) === 'DRAW' &&
+                                CORE.touchSwapLabel(0, [0, 1], mockWpns, false) === 'SMG' &&
+                                CORE.touchSwapLabel(0, [0, -1], mockWpns, true) === 'SWAP';
+            const edLabelOk = CORE.touchEditorControlLabel('tbtn-fire', 84) === 'FIRE (84px)' &&
+                              CORE.touchEditorControlLabel('joy-base', 112) === 'JOYSTICK (112px)' &&
+                              CORE.touchEditorControlLabel(null) === 'Select a button' &&
+                              CORE.touchEditorControlLabel('tbtn-swap') === 'SWAP';
+            return swapSwitchOk && swapLabelOk && edLabelOk;
+        }""")
+        checks.append(("mobile-touch-swap-switching-and-layout-polish-rules", mobile_touch_polish_check))
+
+        # 63) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

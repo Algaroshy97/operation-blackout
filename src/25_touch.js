@@ -187,7 +187,7 @@ let joyBaseEl = null;
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
-    if (started && !paused) pauseGame();
+    if (started && !paused && (!player || !player.dead)) pauseGame();
   }, { passive: false });
 })();
 
@@ -226,7 +226,12 @@ function openTouchLayoutEditor() {
     document.body.appendChild(bar);
     bar.querySelector('#touch-editor-reset').addEventListener('click', function () {
       touchLayoutPositions = {};
+      try { localStorage.removeItem(TOUCH_LAYOUT_KEY); } catch (e) {}
       document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = ''; el.style.width = ''; el.style.height = ''; });
+      bar.dataset.selected = '';
+      bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+        ? CORE.touchEditorControlLabel(null)
+        : 'Select a button';
       applyTouchLayoutPositions();
     });
     bar.querySelector('#touch-editor-done').addEventListener('click', function () {
@@ -236,8 +241,14 @@ function openTouchLayoutEditor() {
     });
     bar.querySelector('#touch-editor-size').addEventListener('input', function (e) {
       const id = bar.dataset.selected; const el = id && document.getElementById(id);
-      if (!el) return; const size = Number(e.target.value); el.style.width = size + 'px'; el.style.height = size + 'px';
-      touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = size;
+      if (!el) return; const sizeVal = Number(e.target.value); el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
+      touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = sizeVal;
+      const nameEl = bar.querySelector('#touch-editor-name');
+      if (nameEl) {
+        nameEl.textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+          ? CORE.touchEditorControlLabel(id, sizeVal)
+          : id.replace('tbtn-', '').toUpperCase() + ' (' + sizeVal + 'px)';
+      }
     });
   }
   const size = bar.querySelector('#touch-editor-size');
@@ -250,10 +261,13 @@ function openTouchLayoutEditor() {
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
-    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
-      ? CORE.touchControlName(el.id)
-      : el.id.replace('tbtn-', '').toUpperCase();
-    size.value = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    size.value = curSize;
+    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+      ? CORE.touchEditorControlLabel(el.id, curSize)
+      : (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
+        ? CORE.touchControlName(el.id) + ' (' + curSize + 'px)'
+        : el.id.replace('tbtn-', '').toUpperCase() + ' (' + curSize + 'px)';
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();

@@ -285,6 +285,7 @@
   body.touch #tbtn-nade.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;box-shadow:0 0 0 2px rgba(255,210,74,.24),inset 0 0 8px rgba(255,210,74,.15)}
+  body.touch #tbtn-swap.switching{border-color:#50b4ff;color:#50b4ff;box-shadow:0 0 0 2px rgba(80,180,255,.24),inset 0 0 8px rgba(80,180,255,.15)}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;transition:border-color .15s,color .15s,box-shadow .15s,opacity .15s}
   body.touch #tbtn-melee.ready{border-color:#ff5f4a;color:#fff;box-shadow:0 0 0 3px rgba(255,95,74,.3),inset 0 0 10px rgba(255,95,74,.2)}
   body.touch #tbtn-melee.cooldown{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
@@ -322,6 +323,12 @@
   body.touch-layout-left #tbtn-tactical{left:auto;right:calc(282px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
   body.touch-layout-left #tbtn-streak{left:auto;right:calc(150px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
   body.touch-layout-left #tbtn-pause{left:calc(14px + var(--sa-l));right:auto}
+  body.touch-layout-left #minimap{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #score-hud{right:auto;left:calc(16px + var(--sa-l))}
+  body.touch-layout-left #killfeed{right:auto;left:calc(16px + var(--sa-l))}
+  body.touch-layout-left #health-container{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #armor-container{left:auto;right:calc(16px + var(--sa-r))}
+  body.touch-layout-left #fps-counter{left:auto;right:calc(8px + var(--sa-r))}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
@@ -6814,16 +6821,25 @@ const CORE = (function () {
     }
     return -1;
   }
-  // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
-  // or 'ready' when a reserve weapon is owned and can be switched to.
-  function touchSwapState(curSlot, weaponsOwned) {
-    return touchSwapNextSlot(curSlot, weaponsOwned) >= 0 ? 'ready' : 'empty';
+  // Mobile touch weapon swap button state: returns 'switching' while weapon is raising,
+  // 'empty' when no secondary weapon is available, or 'ready' when a reserve weapon is owned
+  // and can be switched to.
+  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapState(curSlot, weaponsOwned, isSwitching) {
+    if (touchSwapNextSlot(curSlot, weaponsOwned) < 0) return 'empty';
+    if (isSwitching) return 'switching';
+    return 'ready';
   }
-  // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
-  // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
-  function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
+  // Mobile touch weapon swap button label: returns 'DRAW' while weapon is raising, the weapon type
+  // of the reserve weapon (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned,
+  // or 'SWAP' when empty/unowned.
+  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching) {
     const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
     if (nextSlot < 0) return 'SWAP';
+    if (isSwitching) return 'DRAW';
     const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
       return weaponsList[wid].type;
@@ -7129,6 +7145,18 @@ const CORE = (function () {
     if (typeof elementId !== 'string') return 'CONTROL';
     if (TOUCH_CONTROL_NAMES[elementId]) return TOUCH_CONTROL_NAMES[elementId];
     return elementId.replace(/^tbtn-/, '').toUpperCase();
+  }
+
+  // Formats human-readable control name and optional size dimension for mobile layout editor.
+  // Returns 'Select a button' when elementId is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchEditorControlLabel(elementId, size) {
+    if (!elementId || typeof elementId !== 'string') return 'Select a button';
+    const name = touchControlName(elementId);
+    if (typeof size === 'number' && isFinite(size) && size > 0) {
+      return name + ' (' + Math.round(size) + 'px)';
+    }
+    return name;
   }
 
   // Clamps mobile touch layout editor positioning coordinates to viewport boundaries [0, maxPct].
@@ -11205,6 +11233,7 @@ const CORE = (function () {
     TOUCH_FIRE_DEFAULT_SIZE: TOUCH_FIRE_DEFAULT_SIZE,
     TOUCH_PAUSE_DEFAULT_SIZE: TOUCH_PAUSE_DEFAULT_SIZE,
     touchControlName: touchControlName,
+    touchEditorControlLabel: touchEditorControlLabel,
     touchLayoutClampPercent: touchLayoutClampPercent,
     touchFireChanged: touchFireChanged,
     syncTouchFireState: syncTouchFireState,
@@ -13765,7 +13794,7 @@ let joyBaseEl = null;
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
-    if (started && !paused) pauseGame();
+    if (started && !paused && (!player || !player.dead)) pauseGame();
   }, { passive: false });
 })();
 
@@ -13804,7 +13833,12 @@ function openTouchLayoutEditor() {
     document.body.appendChild(bar);
     bar.querySelector('#touch-editor-reset').addEventListener('click', function () {
       touchLayoutPositions = {};
+      try { localStorage.removeItem(TOUCH_LAYOUT_KEY); } catch (e) {}
       document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = ''; el.style.width = ''; el.style.height = ''; });
+      bar.dataset.selected = '';
+      bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+        ? CORE.touchEditorControlLabel(null)
+        : 'Select a button';
       applyTouchLayoutPositions();
     });
     bar.querySelector('#touch-editor-done').addEventListener('click', function () {
@@ -13814,8 +13848,14 @@ function openTouchLayoutEditor() {
     });
     bar.querySelector('#touch-editor-size').addEventListener('input', function (e) {
       const id = bar.dataset.selected; const el = id && document.getElementById(id);
-      if (!el) return; const size = Number(e.target.value); el.style.width = size + 'px'; el.style.height = size + 'px';
-      touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = size;
+      if (!el) return; const sizeVal = Number(e.target.value); el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
+      touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = sizeVal;
+      const nameEl = bar.querySelector('#touch-editor-name');
+      if (nameEl) {
+        nameEl.textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+          ? CORE.touchEditorControlLabel(id, sizeVal)
+          : id.replace('tbtn-', '').toUpperCase() + ' (' + sizeVal + 'px)';
+      }
     });
   }
   const size = bar.querySelector('#touch-editor-size');
@@ -13828,10 +13868,13 @@ function openTouchLayoutEditor() {
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
-    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
-      ? CORE.touchControlName(el.id)
-      : el.id.replace('tbtn-', '').toUpperCase();
-    size.value = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    size.value = curSize;
+    bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
+      ? CORE.touchEditorControlLabel(el.id, curSize)
+      : (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
+        ? CORE.touchControlName(el.id) + ' (' + curSize + 'px)'
+        : el.id.replace('tbtn-', '').toUpperCase() + ' (' + curSize + 'px)';
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();
@@ -19723,12 +19766,14 @@ function updateHudAmmo(force) {
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
-      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
-      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null);
+      const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching);
       if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
         CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
         tbtnSwap.classList.toggle('empty', swapState === 'empty');
         tbtnSwap.classList.toggle('ready', swapState === 'ready');
+        tbtnSwap.classList.toggle('switching', swapState === 'switching');
         if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
       }
     }

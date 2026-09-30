@@ -2123,16 +2123,25 @@ const CORE = (function () {
     }
     return -1;
   }
-  // Mobile touch weapon swap button state: returns 'empty' when no secondary weapon is available,
-  // or 'ready' when a reserve weapon is owned and can be switched to.
-  function touchSwapState(curSlot, weaponsOwned) {
-    return touchSwapNextSlot(curSlot, weaponsOwned) >= 0 ? 'ready' : 'empty';
+  // Mobile touch weapon swap button state: returns 'switching' while weapon is raising,
+  // 'empty' when no secondary weapon is available, or 'ready' when a reserve weapon is owned
+  // and can be switched to.
+  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapState(curSlot, weaponsOwned, isSwitching) {
+    if (touchSwapNextSlot(curSlot, weaponsOwned) < 0) return 'empty';
+    if (isSwitching) return 'switching';
+    return 'ready';
   }
-  // Mobile touch weapon swap button label: returns the weapon type of the reserve weapon
-  // (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned, or 'SWAP' when empty/unowned.
-  function touchSwapLabel(curSlot, weaponsOwned, weaponsList) {
+  // Mobile touch weapon swap button label: returns 'DRAW' while weapon is raising, the weapon type
+  // of the reserve weapon (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned,
+  // or 'SWAP' when empty/unowned.
+  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching) {
     const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
     if (nextSlot < 0) return 'SWAP';
+    if (isSwitching) return 'DRAW';
     const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
       return weaponsList[wid].type;
@@ -2438,6 +2447,18 @@ const CORE = (function () {
     if (typeof elementId !== 'string') return 'CONTROL';
     if (TOUCH_CONTROL_NAMES[elementId]) return TOUCH_CONTROL_NAMES[elementId];
     return elementId.replace(/^tbtn-/, '').toUpperCase();
+  }
+
+  // Formats human-readable control name and optional size dimension for mobile layout editor.
+  // Returns 'Select a button' when elementId is omitted or falsy.
+  // Pure: no side effects, no DOM, no THREE.
+  function touchEditorControlLabel(elementId, size) {
+    if (!elementId || typeof elementId !== 'string') return 'Select a button';
+    const name = touchControlName(elementId);
+    if (typeof size === 'number' && isFinite(size) && size > 0) {
+      return name + ' (' + Math.round(size) + 'px)';
+    }
+    return name;
   }
 
   // Clamps mobile touch layout editor positioning coordinates to viewport boundaries [0, maxPct].
@@ -6514,6 +6535,7 @@ const CORE = (function () {
     TOUCH_FIRE_DEFAULT_SIZE: TOUCH_FIRE_DEFAULT_SIZE,
     TOUCH_PAUSE_DEFAULT_SIZE: TOUCH_PAUSE_DEFAULT_SIZE,
     touchControlName: touchControlName,
+    touchEditorControlLabel: touchEditorControlLabel,
     touchLayoutClampPercent: touchLayoutClampPercent,
     touchFireChanged: touchFireChanged,
     syncTouchFireState: syncTouchFireState,

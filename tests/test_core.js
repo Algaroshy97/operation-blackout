@@ -4142,6 +4142,14 @@ test('touchSwapState and touchSwapLabel resolve weapon switch feedback and reser
   assert.strictEqual(CORE.touchSwapState(1, [-1, 2]), 'empty');
   assert.strictEqual(CORE.touchSwapLabel(0, null, mockWeapons), 'SWAP');
   assert.strictEqual(CORE.touchSwapLabel(0, [0, 99], mockWeapons), 'SWAP');
+
+  // Weapon drawing / switching feedback
+  assert.strictEqual(CORE.touchSwapState(0, [0, 3], true), 'switching', 'switching with reserve owned returns switching state');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 3], mockWeapons, true), 'DRAW', 'switching with reserve owned returns DRAW label');
+  assert.strictEqual(CORE.touchSwapState(0, [0, -1], true), 'empty', 'switching with empty reserve remains empty state');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, -1], mockWeapons, true), 'SWAP', 'switching with empty reserve remains SWAP label');
+  assert.strictEqual(CORE.touchSwapState(1, [0, 3], false), 'ready', 'explicit false isSwitching returns ready');
+  assert.strictEqual(CORE.touchSwapLabel(1, [0, 3], mockWeapons, false), 'AR', 'explicit false isSwitching returns weapon type');
 });
 
 test('buyPromptPrefix and touchUseState provide platform-accurate station prompts and interaction states', () => {
@@ -6313,9 +6321,21 @@ test('mobile touch action button change-detection, weapon swap cycling, layout c
   assert.strictEqual(CORE.touchControlName('tbtn-streak'), 'STREAK');
   assert.strictEqual(CORE.touchControlName('tbtn-pause'), 'PAUSE');
   assert.strictEqual(CORE.touchControlName('joy-base'), 'JOYSTICK');
-  assert.strictEqual(CORE.touchControlName('tbtn-custom'), 'CUSTOM');
   assert.strictEqual(CORE.touchControlName(null), 'CONTROL');
   assert.strictEqual(CORE.touchControlName(undefined), 'CONTROL');
+
+  // 9b) Touch editor control label formatting with optional pixel size
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-fire', 84), 'FIRE (84px)');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-ads', 56), 'ADS (56px)');
+  assert.strictEqual(CORE.touchEditorControlLabel('joy-base', 112), 'JOYSTICK (112px)');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-custom', 72), 'CUSTOM (72px)');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-fire'), 'FIRE');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-fire', 0), 'FIRE');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-fire', -10), 'FIRE');
+  assert.strictEqual(CORE.touchEditorControlLabel('tbtn-fire', NaN), 'FIRE');
+  assert.strictEqual(CORE.touchEditorControlLabel(null), 'Select a button');
+  assert.strictEqual(CORE.touchEditorControlLabel(''), 'Select a button');
+  assert.strictEqual(CORE.touchEditorControlLabel(undefined), 'Select a button');
 
   // 10) Layout editor boundary clamping
   // Element size 56px in 1000px viewport: maxPct = 100 - (56/1000 * 100) = 94.4%

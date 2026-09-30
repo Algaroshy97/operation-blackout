@@ -215,12 +215,14 @@ function updateHudAmmo(force) {
     }
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
-      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned);
-      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null);
+      const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching);
       if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
         CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
         tbtnSwap.classList.toggle('empty', swapState === 'empty');
         tbtnSwap.classList.toggle('ready', swapState === 'ready');
+        tbtnSwap.classList.toggle('switching', swapState === 'switching');
         if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
       }
     }
