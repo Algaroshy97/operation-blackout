@@ -2712,7 +2712,98 @@ def main() -> int:
         }""")
         checks.append(("tracer-impact-pooling-and-sentry-kinematics-perf-rules", tracer_impact_sentry_perf_check))
 
-        # 61) Clean console throughout gameplay.
+        # 61) Balance: ballistic spread cone, aim assist dynamics, enemy combat state kinetics, mantle & grenade loft rules.
+        ballistic_balance_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.ballisticSpreadVector !== 'function' ||
+                typeof CORE.bulletPenetrationPower !== 'function' ||
+                typeof CORE.isAimAssistHeadCandidate !== 'function' ||
+                typeof CORE.aimAssistAngularDeltas !== 'function' ||
+                typeof CORE.stepAimAssistLook !== 'function' ||
+                typeof CORE.enemyAiNextState !== 'function' ||
+                typeof CORE.stepFlankVelocity !== 'function' ||
+                typeof CORE.playerPushoutOffset !== 'function' ||
+                typeof CORE.enemyAimTargetY !== 'function' ||
+                typeof CORE.stepMantleProgress !== 'function' ||
+                typeof CORE.grenadeThrowVelocity !== 'function' ||
+                typeof CORE.playerSelfFlashDuration !== 'function') return false;
+
+            const constsOk = CORE.SPREAD_LONGITUDINAL_SCALE === 0.3 &&
+                             CORE.AIM_ASSIST_HEAD_THRESHOLD === 0.55 &&
+                             CORE.AIM_ASSIST_HEAD_PRIORITY === 1.8 &&
+                             CORE.AIM_ASSIST_PULL_WEIGHT === 0.25 &&
+                             CORE.AIM_ASSIST_TRACK_RATE === 3.5 &&
+                             CORE.AIM_ASSIST_CHEST_OFFSET === 1.0 &&
+                             CORE.AIM_ASSIST_HEAD_OFFSET === 1.68 &&
+                             CORE.BULLET_MAGNET_Y_OFFSET === 1.1 &&
+                             CORE.ENEMY_SPAWN_DURATION === 0.5 &&
+                             CORE.ENEMY_STRAFE_MAX_T === 6.0 &&
+                             CORE.GRENADIER_STRAFE_RANGE === 34 &&
+                             CORE.GRENADIER_STRAFE_DURATION === 2.5 &&
+                             CORE.RIFLEMAN_STRAFE_DURATION === 2.0 &&
+                             CORE.RIFLEMAN_LOS_RETRY_DELAY === 0.4 &&
+                             CORE.FLANK_STEER_WEIGHT === 0.45 &&
+                             CORE.ENEMY_OVERLAP_MIN_DIST === 0.05 &&
+                             CORE.ENEMY_SHOT_CHEST_Y_OFFSET === 0.2 &&
+                             CORE.MANTLE_DURATION === 0.35 &&
+                             CORE.MANTLE_COYOTE_GRACE === 0.12 &&
+                             CORE.GRENADE_PITCH_LOFT === 0.45 &&
+                             CORE.GRENADE_COOLDOWN === 0.8 &&
+                             CORE.TACTICAL_SPEED_MUL === 1.15 &&
+                             CORE.PLAYER_FLASH_SELF_MUL === 0.6;
+
+            const spOut = { x: 0, y: 0, z: 0 };
+            const spRes = CORE.ballisticSpreadVector(0, 0, -1, 0.1, 1.0, 0.5, 0.5, spOut);
+            const expLen = Math.hypot(0.1, 0, -1);
+            const spreadOk = spRes === spOut && Math.abs(spOut.x - (0.1 / expLen)) < 1e-4 && Math.abs(spOut.z - (-1 / expLen)) < 1e-4;
+
+            const penOk = CORE.bulletPenetrationPower('sr', 1.0) === 1.6 &&
+                          CORE.bulletPenetrationPower('smg', 1.0) === 0.4 &&
+                          CORE.bulletPenetrationPower('ar', 1.0) === 0.75;
+
+            const headOk = CORE.isAimAssistHeadCandidate(0.2, 0.5) === true &&
+                           CORE.isAimAssistHeadCandidate(0.3, 0.5) === false;
+
+            const angOut = { yawDelta: 0, pitchDelta: 0 };
+            const angRes = CORE.aimAssistAngularDeltas(-1, 0, 0, 0, 0, -1, angOut);
+            const angOk = angRes === angOut && Math.abs(angOut.yawDelta - Math.PI / 2) < 1e-4 && Math.abs(angOut.pitchDelta) < 1e-4;
+
+            const lookOut = { yaw: 0, pitch: 0 };
+            const lookRes = CORE.stepAimAssistLook(0, 0, 0.2, 0.1, 0.05, 3.5, lookOut);
+            const lookOk = lookRes === lookOut && Math.abs(lookOut.yaw - 0.035) < 1e-4 && Math.abs(lookOut.pitch - 0.0175) < 1e-4;
+
+            const sOut = { state: '', stateT: 0, strafeT: 0, resetStateT: false };
+            const stateSpawnOk = CORE.enemyAiNextState(0, 'spawn', 0.55, 10, true, 44, 16, sOut).state === 'chase' && sOut.resetStateT === true;
+            const stateRifleStrafeOk = CORE.enemyAiNextState(1, 'chase', 1.0, 20, true, 44, 16, sOut).state === 'strafe' && sOut.strafeT === 2.0;
+            const stateGrenFallbackOk = CORE.enemyAiNextState(5, 'chase', 1.0, 10, true, 44, 16, sOut).state === 'fallback';
+
+            const flankOut = { x: 0, z: 0 };
+            const flankRes = CORE.stepFlankVelocity(0, -1, 1, 1.0, flankOut);
+            const flankOk = flankRes === flankOut && flankOut.x > 0 && flankOut.z < 0;
+
+            const pushOut = { pushX: 0, pushZ: 0, applied: false };
+            const pushRes = CORE.playerPushoutOffset(0.2, 0, 0, 0, 0, 0.2, 0.5, pushOut);
+            const pushOk = pushRes === pushOut && pushOut.applied && Math.abs(pushOut.pushX - 0.3) < 1e-4;
+
+            const enemyAimOk = CORE.enemyAimTargetY(1.7, 0.2) === 1.5 &&
+                               CORE.enemyAimTargetY(1.7) === 1.5;
+
+            const mantleProgressOk = Math.abs(CORE.stepMantleProgress(0.35, 0.175, 0.35).progressK - 0.5) < 1e-4 &&
+                                     CORE.stepMantleProgress(0.1, 0.2, 0.35).completed === true;
+
+            const throwOut = { x: 0, y: 0, z: 0 };
+            const throwRes = CORE.grenadeThrowVelocity(0, 0, -1, 10, 0, throwOut);
+            const throwOk = throwRes === throwOut && throwOut.x === 0 && throwOut.y === 0 && throwOut.z === -10;
+
+            const flashSelfOk = Math.abs(CORE.playerSelfFlashDuration(1.0, 3.0, 0.6) - CORE.flashDuration(1.0, 1.8)) < 1e-4;
+
+            return constsOk && spreadOk && penOk && headOk && angOk && lookOk &&
+                   stateSpawnOk && stateRifleStrafeOk && stateGrenFallbackOk && flankOk &&
+                   pushOk && enemyAimOk && mantleProgressOk && throwOk && flashSelfOk;
+        }""")
+        checks.append(("ballistic-spread-aim-assist-and-combat-kinematics-balance-rules", ballistic_balance_check))
+
+        # 62) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

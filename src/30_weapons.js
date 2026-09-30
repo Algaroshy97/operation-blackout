@@ -228,7 +228,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.0, en.pos.z);   // chest centre of the corrected box
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
     if (ang < bestAng) {
@@ -237,18 +237,18 @@ function applyAimAssist(dir, from) {
       hasBest = true;
     }
     // head magnet (smaller box)
-    _aimTgt.set(en.pos.x, en.pos.y + 1.68, en.pos.z);   // head centre
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);   // head centre
     _assistToH.subVectors(_aimTgt, from).normalize();
     const angH = dir.angleTo(_assistToH);
-    if (angH < bestAng * 0.55) {
-      bestAng = angH * 1.8;
+    if (CORE.isAimAssistHeadCandidate(angH, bestAng, CORE.AIM_ASSIST_HEAD_THRESHOLD)) {
+      bestAng = angH * CORE.AIM_ASSIST_HEAD_PRIORITY;
       _assistBestTo.copy(_assistToH);
       hasBest = true;
     }
   }
   if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
-  const pull = CORE.aimAssistPull(CFG.assist.strength, 0.25);
+  const pull = CORE.aimAssistPull(CFG.assist.strength, CORE.AIM_ASSIST_PULL_WEIGHT);
   _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
   return _assistNudged;
 }
@@ -262,7 +262,7 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.1, en.pos.z);    // centre mass
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_magTo);
     if (ang < bestAng) { bestAng = ang; _magBest.copy(_magTo); found = true; }
@@ -273,6 +273,7 @@ function magnetizeBullet(dir, from) {
 const _shotTargets = [];
 const _tracerMissEnd = new THREE.Vector3();
 const _recoilOut = { x: 0, y: 0 };
+const _spreadOut = { x: 0, y: 0, z: 0 };
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -293,10 +294,8 @@ function fireShot(preserveSchedule) {
   camera.getWorldPosition(_from);
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _shootDir.x += (Math.random() - 0.5) * 2 * spreadNow;
-  _shootDir.y += (Math.random() - 0.5) * 2 * spreadNow;
-  _shootDir.z += (Math.random() - 0.5) * 2 * spreadNow * 0.3;
-  _shootDir.normalize();
+  CORE.ballisticSpreadVector(_shootDir.x, _shootDir.y, _shootDir.z, spreadNow, Math.random(), Math.random(), Math.random(), _spreadOut);
+  _shootDir.set(_spreadOut.x, _spreadOut.y, _spreadOut.z);
   // bullet magnetism (small snap onto enemy center-mass)
   _shootDir.copy(magnetizeBullet(_shootDir, _from));
   raycaster.set(_from, _shootDir);
@@ -315,7 +314,7 @@ function fireShot(preserveSchedule) {
   // mesh raycast reports the entry AND exit faces of every box in a batch and
   // cannot tell one wall from two. The colliders are one entry per box and carry
   // the material tag.
-  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
+  const penStart = CORE.bulletPenetrationPower(w.type, w.penetration);
   const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
     _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
   let hit = null, isEnemy = false, isHead = false, penMul = 1;

@@ -295,6 +295,9 @@ const _enResolveOut = { axis: 'x', val: 0 };
 const _sepOut = { pushX: 0, pushZ: 0, applied: false };
 const _fallbackOut = { x: 0, z: 0 };
 const _strafeOut = { x: 0, z: 0 };
+const _flankOut = { x: 0, z: 0 };
+const _enemyStateOut = { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
+const _pushoutOut = { pushX: 0, pushZ: 0, applied: false };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -316,12 +319,9 @@ function moveEnemy(en, dt) {
     // arriving as one clump down a single corridor.
     if (en.flanker) {
       en.flankT -= dt;
-      const bias = CORE.flankBiasNow(en.flankT, dist) * 0.45;
-      if (bias > 0.001) {
-        const px = -mvz * en.strafeDir, pz = mvx * en.strafeDir;
-        mvx = mvx * (1 - bias) + px * bias; mvz = mvz * (1 - bias) + pz * bias;
-        const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
-      }
+      const bias = CORE.flankBiasNow(en.flankT, dist);
+      CORE.stepFlankVelocity(mvx, mvz, en.strafeDir, bias, _flankOut);
+      mvx = _flankOut.x; mvz = _flankOut.z;
     }
   } else if (en.state === 'fallback') {
     // straight back, with a sideways bias so it does not reverse into a corner
@@ -477,33 +477,10 @@ function updateEnemies(dt) {
       animateEnemy(en, dt, dist);
       continue;
     }
-    if (en.state === 'spawn') {
-      if (en.stateT > 0.5) { en.state = 'chase'; en.stateT = 0; }
-    } else if (en.kind === 0) {
-      // runner: always chase + melee
-      en.state = 'chase';
-    } else if (en.kind === 1) {
-      // rifleman: chase until in range & LOS, then strafe-shoot
-      if (dist < CFG.ai.rangedRange && hasLOS(en)) {
-        if (en.state !== 'strafe' && en.state !== 'shoot') { en.state = 'strafe'; en.strafeT = 2; }
-      } else if (en.state !== 'chase') { en.state = 'chase'; }
-      if (en.state === 'strafe' && en.stateT > 6) { en.state = 'chase'; en.stateT = 0; }
-    } else if (en.kind === 3) {
-      // shielded advancer: walks straight at you, plate forward, never strafes
-      en.state = 'chase';
-    } else if (en.kind === 4) {
-      // scout: pure rusher, but flanks the whole way in
-      en.state = 'chase';
-    } else if (en.kind === 5) {
-      // grenadier: holds a throwing distance and lobs. Push it and it RETREATS —
-      // it must never close, or it ends up standing on top of the player.
-      if (dist < CORE.enemyPreferredRange(5)) en.state = 'fallback';
-      else if (dist < 34 && hasLOS(en)) { if (en.state !== 'strafe') { en.state = 'strafe'; en.strafeT = 2.5; } }
-      else en.state = 'chase';
-    } else {
-      // tank: slow chase always
-      en.state = 'chase';
-    }
+    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    en.state = nxt.state;
+    if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
+    if (nxt.resetStateT) en.stateT = 0;
     moveEnemy(en, dt);
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
@@ -554,16 +531,9 @@ function updateEnemies(dt) {
     // vertical gate a player upstairs shoves agents around on the floor below —
     // measured at 1.83 m of displacement through a concrete slab.
     if (CORE.withinReach(dist, vertGapToPlayer(en), stopDist)) {
-      // back off slightly if overlapping the player capsule
-      const overlap = stopDist - dist;
-      if (overlap > 0) {
-        // dist is horizontal, so a body-overlap really is a near-zero separation:
-        // fall back to the enemy's own facing rather than dividing by ~0 and
-        // producing a garbage normal that leaves it standing inside the player.
-        let nx, nz;
-        if (dist > 0.05) { nx = (en.pos.x - player.pos.x) / dist; nz = (en.pos.z - player.pos.z) / dist; }
-        else { nx = -Math.sin(en.yaw); nz = -Math.cos(en.yaw); }
-        en.pos.x += nx * overlap; en.pos.z += nz * overlap;
+      if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, player.pos.x, player.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
+        en.pos.x += _pushoutOut.pushX;
+        en.pos.z += _pushoutOut.pushZ;
       }
     }
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
@@ -606,7 +576,7 @@ function updateEnemies(dt) {
         }
         enemyShoot(en, dist);
       } else {
-        en.nextShot = gameT + 0.4;
+        en.nextShot = gameT + CORE.RIFLEMAN_LOS_RETRY_DELAY;
         en.burst = 0;
       }
     }
@@ -716,7 +686,7 @@ function enemyShoot(en, dist) {
     fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
   }
   const to = _eshotTo.copy(player.pos);
-  to.y -= 0.2;
+  to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);
   spawnTracer(from, to, 0xff8844);
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;

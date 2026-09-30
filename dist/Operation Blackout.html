@@ -10569,6 +10569,226 @@ const CORE = (function () {
     return horizDist(px, pz, bx, bz) < r;
   }
 
+  // ---- Ballistic spread, aim assist dynamics, enemy AI state kinetics, mantle & grenade loft balance rules (v110 balance tuning) ----
+  const SPREAD_LONGITUDINAL_SCALE = 0.3;
+  const AIM_ASSIST_HEAD_THRESHOLD = 0.55;
+  const AIM_ASSIST_HEAD_PRIORITY = 1.8;
+  const AIM_ASSIST_PULL_WEIGHT = 0.25;
+  const AIM_ASSIST_TRACK_RATE = 3.5;
+  const AIM_ASSIST_CHEST_OFFSET = 1.0;
+  const AIM_ASSIST_HEAD_OFFSET = 1.68;
+  const BULLET_MAGNET_Y_OFFSET = 1.1;
+  const ENEMY_SPAWN_DURATION = 0.5;
+  const ENEMY_STRAFE_MAX_T = 6.0;
+  const GRENADIER_STRAFE_RANGE = 34;
+  const GRENADIER_STRAFE_DURATION = 2.5;
+  const RIFLEMAN_STRAFE_DURATION = 2.0;
+  const RIFLEMAN_LOS_RETRY_DELAY = 0.4;
+  const FLANK_STEER_WEIGHT = 0.45;
+  const ENEMY_OVERLAP_MIN_DIST = 0.05;
+  const ENEMY_SHOT_CHEST_Y_OFFSET = 0.2;
+  const MANTLE_DURATION = 0.35;
+  const MANTLE_COYOTE_GRACE = 0.12;
+  const GRENADE_PITCH_LOFT = 0.45;
+  const GRENADE_COOLDOWN = 0.8;
+  const TACTICAL_SPEED_MUL = 1.15;
+  const PLAYER_FLASH_SELF_MUL = 0.6;
+
+  function ballisticSpreadVector(dirX, dirY, dirZ, spread, randX, randY, randZ, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const s = typeof spread === 'number' && isFinite(spread) ? Math.max(0, spread) : 0;
+    const rx = typeof randX === 'number' && isFinite(randX) ? randX : 0.5;
+    const ry = typeof randY === 'number' && isFinite(randY) ? randY : 0.5;
+    const rz = typeof randZ === 'number' && isFinite(randZ) ? randZ : 0.5;
+    const jx = (rx - 0.5) * 2 * s;
+    const jy = (ry - 0.5) * 2 * s;
+    const jz = (rz - 0.5) * 2 * s * SPREAD_LONGITUDINAL_SCALE;
+    const x = (typeof dirX === 'number' && isFinite(dirX) ? dirX : 0) + jx;
+    const y = (typeof dirY === 'number' && isFinite(dirY) ? dirY : 0) + jy;
+    const z = (typeof dirZ === 'number' && isFinite(dirZ) ? dirZ : -1) + jz;
+    const len = Math.hypot(x, y, z) || 1;
+    o.x = x / len;
+    o.y = y / len;
+    o.z = z / len;
+    return o;
+  }
+
+  function bulletPenetrationPower(weaponType, weaponPenModifier) {
+    const base = penetrationPower(weaponType);
+    const mul = typeof weaponPenModifier === 'number' && isFinite(weaponPenModifier) && weaponPenModifier > 0
+      ? weaponPenModifier : 1;
+    return base * mul;
+  }
+
+  function isAimAssistHeadCandidate(headAngle, bestAngle, threshold) {
+    const ha = typeof headAngle === 'number' && isFinite(headAngle) ? headAngle : Infinity;
+    const ba = typeof bestAngle === 'number' && isFinite(bestAngle) ? bestAngle : 0;
+    const th = typeof threshold === 'number' && isFinite(threshold) ? threshold : AIM_ASSIST_HEAD_THRESHOLD;
+    return ha < ba * th;
+  }
+
+  function aimAssistAngularDeltas(targetFwdX, targetFwdY, targetFwdZ, curFwdX, curFwdY, curFwdZ, out) {
+    const o = out || { yawDelta: 0, pitchDelta: 0 };
+    const tx = typeof targetFwdX === 'number' && isFinite(targetFwdX) ? targetFwdX : 0;
+    const ty = typeof targetFwdY === 'number' && isFinite(targetFwdY) ? targetFwdY : 0;
+    const tz = typeof targetFwdZ === 'number' && isFinite(targetFwdZ) ? targetFwdZ : -1;
+    const cx = typeof curFwdX === 'number' && isFinite(curFwdX) ? curFwdX : 0;
+    const cy = typeof curFwdY === 'number' && isFinite(curFwdY) ? curFwdY : 0;
+    const cz = typeof curFwdZ === 'number' && isFinite(curFwdZ) ? curFwdZ : -1;
+    let dyaw = Math.atan2(-tx, -tz) - Math.atan2(-cx, -cz);
+    const dpitch = Math.asin(Math.max(-1, Math.min(1, ty))) - Math.asin(Math.max(-1, Math.min(1, cy)));
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    o.yawDelta = dyaw;
+    o.pitchDelta = dpitch;
+    return o;
+  }
+
+  function stepAimAssistLook(yaw, pitch, yawDelta, pitchDelta, dt, trackRate, out) {
+    const o = out || { yaw: 0, pitch: 0 };
+    const rate = typeof trackRate === 'number' && isFinite(trackRate) ? trackRate : AIM_ASSIST_TRACK_RATE;
+    const dSec = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const y = typeof yaw === 'number' && isFinite(yaw) ? yaw : 0;
+    const p = typeof pitch === 'number' && isFinite(pitch) ? pitch : 0;
+    const yd = typeof yawDelta === 'number' && isFinite(yawDelta) ? yawDelta : 0;
+    const pd = typeof pitchDelta === 'number' && isFinite(pitchDelta) ? pitchDelta : 0;
+    o.yaw = y + yd * rate * dSec;
+    o.pitch = Math.max(-1.45, Math.min(1.45, p + pd * rate * dSec));
+    return o;
+  }
+
+  function enemyAiNextState(kind, curState, stateT, dist, hasLOS, rangedRange, preferredRange, out) {
+    const o = out || { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
+    const k = typeof kind === 'number' ? kind : 0;
+    const s = curState || 'chase';
+    const st = typeof stateT === 'number' && isFinite(stateT) ? stateT : 0;
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : 0;
+    const los = !!hasLOS;
+    const rr = typeof rangedRange === 'number' && isFinite(rangedRange) ? rangedRange : 44;
+    const pr = typeof preferredRange === 'number' && isFinite(preferredRange) ? preferredRange : 16;
+
+    o.state = s;
+    o.strafeT = 0;
+    o.resetStateT = false;
+
+    if (s === 'spawn') {
+      if (st > ENEMY_SPAWN_DURATION) {
+        o.state = 'chase';
+        o.resetStateT = true;
+      }
+    } else if (k === 1) {
+      if (d < rr && los) {
+        if (s !== 'strafe' && s !== 'shoot') {
+          o.state = 'strafe';
+          o.strafeT = RIFLEMAN_STRAFE_DURATION;
+        }
+      } else if (s !== 'chase') {
+        o.state = 'chase';
+      }
+      if (o.state === 'strafe' && st > ENEMY_STRAFE_MAX_T) {
+        o.state = 'chase';
+        o.resetStateT = true;
+      }
+    } else if (k === 5) {
+      if (d < pr) {
+        o.state = 'fallback';
+      } else if (d < GRENADIER_STRAFE_RANGE && los) {
+        if (s !== 'strafe') {
+          o.state = 'strafe';
+          o.strafeT = GRENADIER_STRAFE_DURATION;
+        }
+      } else {
+        o.state = 'chase';
+      }
+    } else {
+      o.state = 'chase';
+    }
+    return o;
+  }
+
+  function stepFlankVelocity(mvx, mvz, strafeDir, bias, out) {
+    const o = out || { x: 0, z: 0 };
+    const rawBias = typeof bias === 'number' && isFinite(bias) ? bias : 0;
+    const b = Math.max(0, Math.min(1, rawBias * FLANK_STEER_WEIGHT));
+    const vx = typeof mvx === 'number' && isFinite(mvx) ? mvx : 0;
+    const vz = typeof mvz === 'number' && isFinite(mvz) ? mvz : 0;
+    if (b <= 0.001) {
+      o.x = vx;
+      o.z = vz;
+      return o;
+    }
+    const sDir = strafeDir === -1 ? -1 : 1;
+    const px = -vz * sDir;
+    const pz = vx * sDir;
+    const nx = vx * (1 - b) + px * b;
+    const nz = vz * (1 - b) + pz * b;
+    const len = Math.hypot(nx, nz) || 1;
+    o.x = nx / len;
+    o.z = nz / len;
+    return o;
+  }
+
+  function playerPushoutOffset(enemyX, enemyZ, playerX, playerZ, enemyYaw, dist, stopDist, out) {
+    const o = out || { pushX: 0, pushZ: 0, applied: false };
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : 0;
+    const sd = typeof stopDist === 'number' && isFinite(stopDist) ? stopDist : 1.9;
+    const overlap = sd - d;
+    if (overlap <= 0) {
+      o.pushX = 0;
+      o.pushZ = 0;
+      o.applied = false;
+      return o;
+    }
+    let nx, nz;
+    if (d > ENEMY_OVERLAP_MIN_DIST) {
+      nx = (enemyX - playerX) / d;
+      nz = (enemyZ - playerZ) / d;
+    } else {
+      const yaw = typeof enemyYaw === 'number' && isFinite(enemyYaw) ? enemyYaw : 0;
+      nx = -Math.sin(yaw);
+      nz = -Math.cos(yaw);
+    }
+    o.pushX = nx * overlap;
+    o.pushZ = nz * overlap;
+    o.applied = true;
+    return o;
+  }
+
+  function enemyAimTargetY(playerPosY, chestOffset) {
+    const py = typeof playerPosY === 'number' && isFinite(playerPosY) ? playerPosY : 1.7;
+    const off = typeof chestOffset === 'number' && isFinite(chestOffset) ? chestOffset : ENEMY_SHOT_CHEST_Y_OFFSET;
+    return py - off;
+  }
+
+  function stepMantleProgress(mantleT, dt, duration) {
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : MANTLE_DURATION;
+    const t = typeof mantleT === 'number' && isFinite(mantleT) ? mantleT : dur;
+    const d = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const remaining = Math.max(0, t - d);
+    const k = Math.max(0, Math.min(1, 1 - remaining / dur));
+    return { remainingT: remaining, progressK: k, completed: remaining === 0 };
+  }
+
+  function grenadeThrowVelocity(fwdX, fwdY, fwdZ, speed, loft, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const l = typeof loft === 'number' && isFinite(loft) ? loft : GRENADE_PITCH_LOFT;
+    const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0, speed) : 9.5;
+    const vx = typeof fwdX === 'number' && isFinite(fwdX) ? fwdX : 0;
+    const vy = (typeof fwdY === 'number' && isFinite(fwdY) ? fwdY : 0) + l;
+    const vz = typeof fwdZ === 'number' && isFinite(fwdZ) ? fwdZ : -1;
+    const len = Math.hypot(vx, vy, vz) || 1;
+    o.x = (vx / len) * spd;
+    o.y = (vy / len) * spd;
+    o.z = (vz / len) * spd;
+    return o;
+  }
+
+  function playerSelfFlashDuration(flashStrength, baseDur, selfMultiplier) {
+    const mul = typeof selfMultiplier === 'number' && isFinite(selfMultiplier) ? selfMultiplier : PLAYER_FLASH_SELF_MUL;
+    const dur = typeof baseDur === 'number' && isFinite(baseDur) ? baseDur * mul : 2.5 * mul;
+    return flashDuration(flashStrength, dur);
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -11371,7 +11591,42 @@ const CORE = (function () {
     stepSentryTimers: stepSentryTimers,
     sentryAimTargetY: sentryAimTargetY,
     burnTickDamage: burnTickDamage,
-    isPointInBurnRadius: isPointInBurnRadius
+    isPointInBurnRadius: isPointInBurnRadius,
+    SPREAD_LONGITUDINAL_SCALE: SPREAD_LONGITUDINAL_SCALE,
+    AIM_ASSIST_HEAD_THRESHOLD: AIM_ASSIST_HEAD_THRESHOLD,
+    AIM_ASSIST_HEAD_PRIORITY: AIM_ASSIST_HEAD_PRIORITY,
+    AIM_ASSIST_PULL_WEIGHT: AIM_ASSIST_PULL_WEIGHT,
+    AIM_ASSIST_TRACK_RATE: AIM_ASSIST_TRACK_RATE,
+    AIM_ASSIST_CHEST_OFFSET: AIM_ASSIST_CHEST_OFFSET,
+    AIM_ASSIST_HEAD_OFFSET: AIM_ASSIST_HEAD_OFFSET,
+    BULLET_MAGNET_Y_OFFSET: BULLET_MAGNET_Y_OFFSET,
+    ENEMY_SPAWN_DURATION: ENEMY_SPAWN_DURATION,
+    ENEMY_STRAFE_MAX_T: ENEMY_STRAFE_MAX_T,
+    GRENADIER_STRAFE_RANGE: GRENADIER_STRAFE_RANGE,
+    GRENADIER_STRAFE_DURATION: GRENADIER_STRAFE_DURATION,
+    RIFLEMAN_STRAFE_DURATION: RIFLEMAN_STRAFE_DURATION,
+    RIFLEMAN_LOS_RETRY_DELAY: RIFLEMAN_LOS_RETRY_DELAY,
+    FLANK_STEER_WEIGHT: FLANK_STEER_WEIGHT,
+    ENEMY_OVERLAP_MIN_DIST: ENEMY_OVERLAP_MIN_DIST,
+    ENEMY_SHOT_CHEST_Y_OFFSET: ENEMY_SHOT_CHEST_Y_OFFSET,
+    MANTLE_DURATION: MANTLE_DURATION,
+    MANTLE_COYOTE_GRACE: MANTLE_COYOTE_GRACE,
+    GRENADE_PITCH_LOFT: GRENADE_PITCH_LOFT,
+    GRENADE_COOLDOWN: GRENADE_COOLDOWN,
+    TACTICAL_SPEED_MUL: TACTICAL_SPEED_MUL,
+    PLAYER_FLASH_SELF_MUL: PLAYER_FLASH_SELF_MUL,
+    ballisticSpreadVector: ballisticSpreadVector,
+    bulletPenetrationPower: bulletPenetrationPower,
+    isAimAssistHeadCandidate: isAimAssistHeadCandidate,
+    aimAssistAngularDeltas: aimAssistAngularDeltas,
+    stepAimAssistLook: stepAimAssistLook,
+    enemyAiNextState: enemyAiNextState,
+    stepFlankVelocity: stepFlankVelocity,
+    playerPushoutOffset: playerPushoutOffset,
+    enemyAimTargetY: enemyAimTargetY,
+    stepMantleProgress: stepMantleProgress,
+    grenadeThrowVelocity: grenadeThrowVelocity,
+    playerSelfFlashDuration: playerSelfFlashDuration
   };
 })();
 
@@ -12950,7 +13205,7 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 const STEP_H = CORE.STEP_HEIGHT;
 // Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
 // route and the arena's scattered cover could not be used as one.
-const MANTLE_TIME = 0.35;
+const MANTLE_TIME = CORE.MANTLE_DURATION;
 const MANTLE_REACH = 0.9;
 const MANTLE_MAX_RISE = 1.7;
 // Tactical sprint: a short burst at higher speed, paid for with a faster stamina
@@ -13015,6 +13270,8 @@ const _absYOut = { offset: 0, delta: 0 };
 const _absPOut = { offset: 0, delta: 0 };
 const _bobStepOut = { phase: 0, amp: 0 };
 const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
+const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
+const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
   // mobile: joystick axes -> keys/look accumulators
@@ -13029,11 +13286,9 @@ function updatePlayer(dt) {
     _assistDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     const nudged = applyAimAssist(_assistDir, _assistFrom);
     // convert nudge into small yaw/pitch deltas (applied as look rotation offset, not permanent)
-    assistYaw = (Math.atan2(-nudged.x, -nudged.z) - Math.atan2(-_assistDir.x, -_assistDir.z));
-    assistPitch = (Math.asin(nudged.y) - Math.asin(_assistDir.y));
-    // wrap
-    if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
-    if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
+    CORE.aimAssistAngularDeltas(nudged.x, nudged.y, nudged.z, _assistDir.x, _assistDir.y, _assistDir.z, _assistDeltasOut);
+    assistYaw = _assistDeltasOut.yawDelta;
+    assistPitch = _assistDeltasOut.pitchDelta;
   }
   // Counter-input spends the outstanding recoil BEFORE it moves the real aim.
   // Recoil is an additive camera offset that decays back to zero, so a player who
@@ -13046,10 +13301,10 @@ function updatePlayer(dt) {
   player.recoilY = _absYOut.offset;
   player.recoilP = _absPOut.offset;
   player.yaw += _absYOut.delta;
-  player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
   player.pitch += _absPOut.delta;
-  player.pitch += assistPitch * 3.5 * dt;
-  player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
+  CORE.stepAimAssistLook(player.yaw, player.pitch, assistYaw, assistPitch, dt, CORE.AIM_ASSIST_TRACK_RATE, _assistLookOut);
+  player.yaw = _assistLookOut.yaw;
+  player.pitch = _assistLookOut.pitch;
   mouseX = 0; mouseY = 0;
   // recoil decay — now only what the player did NOT compensate for
   player.recoilP = CORE.recoilDecay(player.recoilP, dt, CORE.RECOIL_DECAY_RATE);
@@ -13058,11 +13313,11 @@ function updatePlayer(dt) {
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
   if (player.mantleT > 0) {
-    player.mantleT = Math.max(0, player.mantleT - dt);
-    const k = 1 - player.mantleT / MANTLE_TIME;
-    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, k < 1 ? k : 1);
+    const step = CORE.stepMantleProgress(player.mantleT, dt, MANTLE_TIME);
+    player.mantleT = step.remainingT;
+    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, step.progressK);
     player.vel.set(0, 0, 0);
-    if (player.mantleT === 0) { player.onGround = true; player.coyoteT = 0.12; }
+    if (step.completed) { player.onGround = true; player.coyoteT = CORE.MANTLE_COYOTE_GRACE; }
     return;
   }
 
@@ -13954,7 +14209,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.0, en.pos.z);   // chest centre of the corrected box
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
     if (ang < bestAng) {
@@ -13963,18 +14218,18 @@ function applyAimAssist(dir, from) {
       hasBest = true;
     }
     // head magnet (smaller box)
-    _aimTgt.set(en.pos.x, en.pos.y + 1.68, en.pos.z);   // head centre
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);   // head centre
     _assistToH.subVectors(_aimTgt, from).normalize();
     const angH = dir.angleTo(_assistToH);
-    if (angH < bestAng * 0.55) {
-      bestAng = angH * 1.8;
+    if (CORE.isAimAssistHeadCandidate(angH, bestAng, CORE.AIM_ASSIST_HEAD_THRESHOLD)) {
+      bestAng = angH * CORE.AIM_ASSIST_HEAD_PRIORITY;
       _assistBestTo.copy(_assistToH);
       hasBest = true;
     }
   }
   if (!hasBest) return dir;
   // blend: partial pull per shot (bullet magnetism) + persistent visual nudge
-  const pull = CORE.aimAssistPull(CFG.assist.strength, 0.25);
+  const pull = CORE.aimAssistPull(CFG.assist.strength, CORE.AIM_ASSIST_PULL_WEIGHT);
   _assistNudged.copy(dir).lerp(_assistBestTo, pull).normalize();
   return _assistNudged;
 }
@@ -13988,7 +14243,7 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + 1.1, en.pos.z);    // centre mass
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_magTo);
     if (ang < bestAng) { bestAng = ang; _magBest.copy(_magTo); found = true; }
@@ -13999,6 +14254,7 @@ function magnetizeBullet(dir, from) {
 const _shotTargets = [];
 const _tracerMissEnd = new THREE.Vector3();
 const _recoilOut = { x: 0, y: 0 };
+const _spreadOut = { x: 0, y: 0, z: 0 };
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -14019,10 +14275,8 @@ function fireShot(preserveSchedule) {
   camera.getWorldPosition(_from);
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _shootDir.x += (Math.random() - 0.5) * 2 * spreadNow;
-  _shootDir.y += (Math.random() - 0.5) * 2 * spreadNow;
-  _shootDir.z += (Math.random() - 0.5) * 2 * spreadNow * 0.3;
-  _shootDir.normalize();
+  CORE.ballisticSpreadVector(_shootDir.x, _shootDir.y, _shootDir.z, spreadNow, Math.random(), Math.random(), Math.random(), _spreadOut);
+  _shootDir.set(_spreadOut.x, _spreadOut.y, _spreadOut.z);
   // bullet magnetism (small snap onto enemy center-mass)
   _shootDir.copy(magnetizeBullet(_shootDir, _from));
   raycaster.set(_from, _shootDir);
@@ -14041,7 +14295,7 @@ function fireShot(preserveSchedule) {
   // mesh raycast reports the entry AND exit faces of every box in a batch and
   // cannot tell one wall from two. The colliders are one entry per box and carry
   // the material tag.
-  const penStart = CORE.penetrationPower(w.type) * (w.penetration || 1);
+  const penStart = CORE.bulletPenetrationPower(w.type, w.penetration);
   const penWalk = CORE.penetrationWalk(_from.x, _from.y, _from.z,
     _shootDir.x, _shootDir.y, _shootDir.z, w.range, colliders, penStart);
   let hit = null, isEnemy = false, isHead = false, penMul = 1;
@@ -15848,6 +16102,9 @@ const _enResolveOut = { axis: 'x', val: 0 };
 const _sepOut = { pushX: 0, pushZ: 0, applied: false };
 const _fallbackOut = { x: 0, z: 0 };
 const _strafeOut = { x: 0, z: 0 };
+const _flankOut = { x: 0, z: 0 };
+const _enemyStateOut = { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
+const _pushoutOut = { pushX: 0, pushZ: 0, applied: false };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
@@ -15869,12 +16126,9 @@ function moveEnemy(en, dt) {
     // arriving as one clump down a single corridor.
     if (en.flanker) {
       en.flankT -= dt;
-      const bias = CORE.flankBiasNow(en.flankT, dist) * 0.45;
-      if (bias > 0.001) {
-        const px = -mvz * en.strafeDir, pz = mvx * en.strafeDir;
-        mvx = mvx * (1 - bias) + px * bias; mvz = mvz * (1 - bias) + pz * bias;
-        const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l;
-      }
+      const bias = CORE.flankBiasNow(en.flankT, dist);
+      CORE.stepFlankVelocity(mvx, mvz, en.strafeDir, bias, _flankOut);
+      mvx = _flankOut.x; mvz = _flankOut.z;
     }
   } else if (en.state === 'fallback') {
     // straight back, with a sideways bias so it does not reverse into a corner
@@ -16030,33 +16284,10 @@ function updateEnemies(dt) {
       animateEnemy(en, dt, dist);
       continue;
     }
-    if (en.state === 'spawn') {
-      if (en.stateT > 0.5) { en.state = 'chase'; en.stateT = 0; }
-    } else if (en.kind === 0) {
-      // runner: always chase + melee
-      en.state = 'chase';
-    } else if (en.kind === 1) {
-      // rifleman: chase until in range & LOS, then strafe-shoot
-      if (dist < CFG.ai.rangedRange && hasLOS(en)) {
-        if (en.state !== 'strafe' && en.state !== 'shoot') { en.state = 'strafe'; en.strafeT = 2; }
-      } else if (en.state !== 'chase') { en.state = 'chase'; }
-      if (en.state === 'strafe' && en.stateT > 6) { en.state = 'chase'; en.stateT = 0; }
-    } else if (en.kind === 3) {
-      // shielded advancer: walks straight at you, plate forward, never strafes
-      en.state = 'chase';
-    } else if (en.kind === 4) {
-      // scout: pure rusher, but flanks the whole way in
-      en.state = 'chase';
-    } else if (en.kind === 5) {
-      // grenadier: holds a throwing distance and lobs. Push it and it RETREATS —
-      // it must never close, or it ends up standing on top of the player.
-      if (dist < CORE.enemyPreferredRange(5)) en.state = 'fallback';
-      else if (dist < 34 && hasLOS(en)) { if (en.state !== 'strafe') { en.state = 'strafe'; en.strafeT = 2.5; } }
-      else en.state = 'chase';
-    } else {
-      // tank: slow chase always
-      en.state = 'chase';
-    }
+    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    en.state = nxt.state;
+    if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
+    if (nxt.resetStateT) en.stateT = 0;
     moveEnemy(en, dt);
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
@@ -16107,16 +16338,9 @@ function updateEnemies(dt) {
     // vertical gate a player upstairs shoves agents around on the floor below —
     // measured at 1.83 m of displacement through a concrete slab.
     if (CORE.withinReach(dist, vertGapToPlayer(en), stopDist)) {
-      // back off slightly if overlapping the player capsule
-      const overlap = stopDist - dist;
-      if (overlap > 0) {
-        // dist is horizontal, so a body-overlap really is a near-zero separation:
-        // fall back to the enemy's own facing rather than dividing by ~0 and
-        // producing a garbage normal that leaves it standing inside the player.
-        let nx, nz;
-        if (dist > 0.05) { nx = (en.pos.x - player.pos.x) / dist; nz = (en.pos.z - player.pos.z) / dist; }
-        else { nx = -Math.sin(en.yaw); nz = -Math.cos(en.yaw); }
-        en.pos.x += nx * overlap; en.pos.z += nz * overlap;
+      if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, player.pos.x, player.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
+        en.pos.x += _pushoutOut.pushX;
+        en.pos.z += _pushoutOut.pushZ;
       }
     }
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
@@ -16159,7 +16383,7 @@ function updateEnemies(dt) {
         }
         enemyShoot(en, dist);
       } else {
-        en.nextShot = gameT + 0.4;
+        en.nextShot = gameT + CORE.RIFLEMAN_LOS_RETRY_DELAY;
         en.burst = 0;
       }
     }
@@ -16269,7 +16493,7 @@ function enemyShoot(en, dist) {
     fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
   }
   const to = _eshotTo.copy(player.pos);
-  to.y -= 0.2;
+  to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);
   spawnTracer(from, to, 0xff8844);
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
@@ -17845,6 +18069,7 @@ const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
 const _blastPlayerTarget = new THREE.Vector3();
 const _burnHitPoint = new THREE.Vector3();
+const _throwVelOut = { x: 0, y: 0, z: 0 };
 // Colliders within reach of the throw arc, refreshed once per preview frame
 // instead of scanning all of them at every one of the 28 sample points.
 const previewNear = [];
@@ -17865,15 +18090,14 @@ function updateGrenadePreview(speed) {
   }
   refreshPreviewNear(camera.position.x, camera.position.z);
   _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _prevDir.y += 0.45;
-  _prevDir.normalize();
+  CORE.grenadeThrowVelocity(_prevDir.x, _prevDir.y, _prevDir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
 
   let px = camera.position.x;
   let py = camera.position.y - 0.1;
   let pz = camera.position.z;
-  let vx = _prevDir.x * speed;
-  let vy = _prevDir.y * speed;
-  let vz = _prevDir.z * speed;
+  let vx = _throwVelOut.x;
+  let vy = _throwVelOut.y;
+  let vz = _throwVelOut.z;
   const dtStep = 0.04;
 
   let bounces = 0;
@@ -17940,7 +18164,7 @@ function throwGrenade(customSpeed, def) {
   } else if (grenades.count <= 0) return;
   if (grenades.cd > 0 || player.dead) return;
   if (tactical) tacticalCount--; else grenades.count--;
-  grenades.cd = 0.8;
+  grenades.cd = CORE.GRENADE_COOLDOWN;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
   const m = new THREE.Mesh(grenadeGeo, equipMaterial(d.key));
   // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
@@ -17952,7 +18176,7 @@ function throwGrenade(customSpeed, def) {
   m.castShadow = true;
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  dir.y += 0.45; dir.normalize();
+  CORE.grenadeThrowVelocity(dir.x, dir.y, dir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
   // A claymore has no fuse at all: it arms where it lands and waits. Everything
   // else counts down from its own value, not the frag's.
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
@@ -17966,7 +18190,7 @@ function throwGrenade(customSpeed, def) {
   const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
   liveGrenades.push({
     m: m,
-    vel: dir.multiplyScalar(speed),
+    vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
     fuse: fuse,
     blink: blink,
     atRest: false,
@@ -17998,7 +18222,7 @@ function updateGrenades(dt) {
   // a second thing to learn.
   if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
       && !player.dead && started && !paused) {
-    throwGrenade(CFG.grenade.speed * 1.15, tacticalDef());
+    throwGrenade(CFG.grenade.speed * CORE.TACTICAL_SPEED_MUL, tacticalDef());
     updateHudAmmo();
   }
   updateEquipmentEffects(dt);
@@ -18171,7 +18395,7 @@ function applyTactical(def, pos) {
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
       const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
       const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
-      playerFlashT = Math.max(playerFlashT, CORE.flashDuration(s, def.dur * 0.6));
+      playerFlashT = Math.max(playerFlashT, CORE.playerSelfFlashDuration(s, def.dur, CORE.PLAYER_FLASH_SELF_MUL));
     }
   }
 }

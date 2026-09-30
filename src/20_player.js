@@ -86,7 +86,7 @@ function eyeHeight() { return player.crouching ? CFG.player.crouchHeight : CFG.p
 const STEP_H = CORE.STEP_HEIGHT;
 // Mantle: step-up alone caps at STEP_H, so a 1 m crate was scenery rather than a
 // route and the arena's scattered cover could not be used as one.
-const MANTLE_TIME = 0.35;
+const MANTLE_TIME = CORE.MANTLE_DURATION;
 const MANTLE_REACH = 0.9;
 const MANTLE_MAX_RISE = 1.7;
 // Tactical sprint: a short burst at higher speed, paid for with a faster stamina
@@ -151,6 +151,8 @@ const _absYOut = { offset: 0, delta: 0 };
 const _absPOut = { offset: 0, delta: 0 };
 const _bobStepOut = { phase: 0, amp: 0 };
 const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
+const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
+const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
   // mobile: joystick axes -> keys/look accumulators
@@ -165,11 +167,9 @@ function updatePlayer(dt) {
     _assistDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     const nudged = applyAimAssist(_assistDir, _assistFrom);
     // convert nudge into small yaw/pitch deltas (applied as look rotation offset, not permanent)
-    assistYaw = (Math.atan2(-nudged.x, -nudged.z) - Math.atan2(-_assistDir.x, -_assistDir.z));
-    assistPitch = (Math.asin(nudged.y) - Math.asin(_assistDir.y));
-    // wrap
-    if (assistYaw > Math.PI) assistYaw -= Math.PI * 2;
-    if (assistYaw < -Math.PI) assistYaw += Math.PI * 2;
+    CORE.aimAssistAngularDeltas(nudged.x, nudged.y, nudged.z, _assistDir.x, _assistDir.y, _assistDir.z, _assistDeltasOut);
+    assistYaw = _assistDeltasOut.yawDelta;
+    assistPitch = _assistDeltasOut.pitchDelta;
   }
   // Counter-input spends the outstanding recoil BEFORE it moves the real aim.
   // Recoil is an additive camera offset that decays back to zero, so a player who
@@ -182,10 +182,10 @@ function updatePlayer(dt) {
   player.recoilY = _absYOut.offset;
   player.recoilP = _absPOut.offset;
   player.yaw += _absYOut.delta;
-  player.yaw += assistYaw * 3.5 * dt;              // assist pull (per-second rate)
   player.pitch += _absPOut.delta;
-  player.pitch += assistPitch * 3.5 * dt;
-  player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
+  CORE.stepAimAssistLook(player.yaw, player.pitch, assistYaw, assistPitch, dt, CORE.AIM_ASSIST_TRACK_RATE, _assistLookOut);
+  player.yaw = _assistLookOut.yaw;
+  player.pitch = _assistLookOut.pitch;
   mouseX = 0; mouseY = 0;
   // recoil decay — now only what the player did NOT compensate for
   player.recoilP = CORE.recoilDecay(player.recoilP, dt, CORE.RECOIL_DECAY_RATE);
@@ -194,11 +194,11 @@ function updatePlayer(dt) {
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
   if (player.mantleT > 0) {
-    player.mantleT = Math.max(0, player.mantleT - dt);
-    const k = 1 - player.mantleT / MANTLE_TIME;
-    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, k < 1 ? k : 1);
+    const step = CORE.stepMantleProgress(player.mantleT, dt, MANTLE_TIME);
+    player.mantleT = step.remainingT;
+    player.pos.lerpVectors(player.mantleFrom, player.mantleTo, step.progressK);
     player.vel.set(0, 0, 0);
-    if (player.mantleT === 0) { player.onGround = true; player.coyoteT = 0.12; }
+    if (step.completed) { player.onGround = true; player.coyoteT = CORE.MANTLE_COYOTE_GRACE; }
     return;
   }
 

@@ -6727,3 +6727,156 @@ test('ballistic tracer & impact lifecycle, sentry kinematics, and thermite burn 
   assert.strictEqual(CORE.isPointInBurnRadius(NaN, 0, 1, 1, 3.2), false);
 });
 
+test('ballistic spread cone, aim assist dynamics, enemy combat state kinetics, mantle & grenade loft rules govern weapon handling, targeting, and mobility balance (v110 balance tuning)', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.SPREAD_LONGITUDINAL_SCALE, 0.3);
+  assert.strictEqual(CORE.AIM_ASSIST_HEAD_THRESHOLD, 0.55);
+  assert.strictEqual(CORE.AIM_ASSIST_HEAD_PRIORITY, 1.8);
+  assert.strictEqual(CORE.AIM_ASSIST_PULL_WEIGHT, 0.25);
+  assert.strictEqual(CORE.AIM_ASSIST_TRACK_RATE, 3.5);
+  assert.strictEqual(CORE.AIM_ASSIST_CHEST_OFFSET, 1.0);
+  assert.strictEqual(CORE.AIM_ASSIST_HEAD_OFFSET, 1.68);
+  assert.strictEqual(CORE.BULLET_MAGNET_Y_OFFSET, 1.1);
+  assert.strictEqual(CORE.ENEMY_SPAWN_DURATION, 0.5);
+  assert.strictEqual(CORE.ENEMY_STRAFE_MAX_T, 6.0);
+  assert.strictEqual(CORE.GRENADIER_STRAFE_RANGE, 34);
+  assert.strictEqual(CORE.GRENADIER_STRAFE_DURATION, 2.5);
+  assert.strictEqual(CORE.RIFLEMAN_STRAFE_DURATION, 2.0);
+  assert.strictEqual(CORE.RIFLEMAN_LOS_RETRY_DELAY, 0.4);
+  assert.strictEqual(CORE.FLANK_STEER_WEIGHT, 0.45);
+  assert.strictEqual(CORE.ENEMY_OVERLAP_MIN_DIST, 0.05);
+  assert.strictEqual(CORE.ENEMY_SHOT_CHEST_Y_OFFSET, 0.2);
+  assert.strictEqual(CORE.MANTLE_DURATION, 0.35);
+  assert.strictEqual(CORE.MANTLE_COYOTE_GRACE, 0.12);
+  assert.strictEqual(CORE.GRENADE_PITCH_LOFT, 0.45);
+  assert.strictEqual(CORE.GRENADE_COOLDOWN, 0.8);
+  assert.strictEqual(CORE.TACTICAL_SPEED_MUL, 1.15);
+  assert.strictEqual(CORE.PLAYER_FLASH_SELF_MUL, 0.6);
+
+  // 2) Ballistic spread vector & penetration power
+  const spOut = { x: 0, y: 0, z: 0 };
+  const spRes = CORE.ballisticSpreadVector(0, 0, -1, 0, 0.5, 0.5, 0.5, spOut);
+  assert.strictEqual(spRes, spOut, 'ballisticSpreadVector mutates out parameter');
+  assert.strictEqual(spOut.x, 0);
+  assert.strictEqual(spOut.y, 0);
+  assert.strictEqual(spOut.z, -1);
+
+  CORE.ballisticSpreadVector(0, 0, -1, 0.1, 1.0, 0.5, 0.5, spOut);
+  const expectedLen = Math.hypot(0.1, 0, -1);
+  assert.ok(Math.abs(spOut.x - (0.1 / expectedLen)) < 1e-4);
+  assert.ok(Math.abs(spOut.y - 0) < 1e-4);
+  assert.ok(Math.abs(spOut.z - (-1 / expectedLen)) < 1e-4);
+
+  // Default allocation when out is omitted
+  const spAlloc = CORE.ballisticSpreadVector(0, 0, -1, 0, 0.5, 0.5, 0.5);
+  assert.strictEqual(spAlloc.z, -1);
+
+  // Bullet penetration power
+  assert.strictEqual(CORE.bulletPenetrationPower('sr', 1.0), 1.6);
+  assert.strictEqual(CORE.bulletPenetrationPower('sr', 1.25), 2.0);
+  assert.strictEqual(CORE.bulletPenetrationPower('smg', 1.0), 0.4);
+  assert.strictEqual(CORE.bulletPenetrationPower('ar', 1.0), 0.75);
+  assert.strictEqual(CORE.bulletPenetrationPower('br', 1.0), 1.0);
+  assert.strictEqual(CORE.bulletPenetrationPower('unknown', 1.0), 0.75, 'unknown weapons default to AR base');
+
+  // 3) Aim assist: head candidate, angular deltas, and look tracking
+  assert.strictEqual(CORE.isAimAssistHeadCandidate(0.2, 0.5), true);
+  assert.strictEqual(CORE.isAimAssistHeadCandidate(0.3, 0.5), false);
+  assert.strictEqual(CORE.isAimAssistHeadCandidate(0.1, 0.5, 0.4), true);
+
+  const angOut = { yawDelta: 0, pitchDelta: 0 };
+  const angRes = CORE.aimAssistAngularDeltas(-1, 0, 0, 0, 0, -1, angOut);
+  assert.strictEqual(angRes, angOut, 'aimAssistAngularDeltas mutates out parameter');
+  assert.ok(Math.abs(angOut.yawDelta - Math.PI / 2) < 1e-4);
+  assert.ok(Math.abs(angOut.pitchDelta) < 1e-4);
+
+  const lookOut = { yaw: 0, pitch: 0 };
+  const lookRes = CORE.stepAimAssistLook(0, 0, 0.2, 0.1, 0.05, 3.5, lookOut);
+  assert.strictEqual(lookRes, lookOut, 'stepAimAssistLook mutates out parameter');
+  assert.ok(Math.abs(lookOut.yaw - 0.035) < 1e-4);
+  assert.ok(Math.abs(lookOut.pitch - 0.0175) < 1e-4);
+
+  // 4) Enemy AI state machine & kinematics
+  const sOut = { state: '', stateT: 0, strafeT: 0, resetStateT: false };
+  CORE.enemyAiNextState(0, 'spawn', 0.4, 10, true, 44, 16, sOut);
+  assert.strictEqual(sOut.state, 'spawn');
+  assert.strictEqual(sOut.resetStateT, false);
+
+  CORE.enemyAiNextState(0, 'spawn', 0.55, 10, true, 44, 16, sOut);
+  assert.strictEqual(sOut.state, 'chase');
+  assert.strictEqual(sOut.resetStateT, true);
+
+  // Rifleman (kind 1) strafe transition
+  CORE.enemyAiNextState(1, 'chase', 1.0, 20, true, 44, 16, sOut);
+  assert.strictEqual(sOut.state, 'strafe');
+  assert.strictEqual(sOut.strafeT, CORE.RIFLEMAN_STRAFE_DURATION);
+
+  // Grenadier (kind 5) fallback transition when too close
+  CORE.enemyAiNextState(5, 'chase', 1.0, 10, true, 44, 16, sOut);
+  assert.strictEqual(sOut.state, 'fallback');
+
+  // Grenadier strafe transition
+  CORE.enemyAiNextState(5, 'chase', 1.0, 25, true, 44, 16, sOut);
+  assert.strictEqual(sOut.state, 'strafe');
+  assert.strictEqual(sOut.strafeT, CORE.GRENADIER_STRAFE_DURATION);
+
+  // Flank steering velocity
+  const flOut = { x: 0, z: 0 };
+  const flRes = CORE.stepFlankVelocity(0, -1, 1, 1.0, flOut);
+  assert.strictEqual(flRes, flOut, 'stepFlankVelocity mutates out parameter');
+  assert.ok(flOut.x > 0);
+  assert.ok(flOut.z < 0);
+
+  // Zero bias flank velocity returns original
+  CORE.stepFlankVelocity(0, -1, 1, 0, flOut);
+  assert.strictEqual(flOut.x, 0);
+  assert.strictEqual(flOut.z, -1);
+
+  // Player pushout separation
+  const pushOut = { pushX: 0, pushZ: 0, applied: false };
+  const pushRes = CORE.playerPushoutOffset(0.2, 0, 0, 0, 0, 0.2, 0.5, pushOut);
+  assert.strictEqual(pushRes, pushOut, 'playerPushoutOffset mutates out parameter');
+  assert.strictEqual(pushOut.applied, true);
+  assert.ok(Math.abs(pushOut.pushX - 0.3) < 1e-4);
+  assert.strictEqual(pushOut.pushZ, 0);
+
+  // No overlap case
+  CORE.playerPushoutOffset(1.0, 0, 0, 0, 0, 1.0, 0.5, pushOut);
+  assert.strictEqual(pushOut.applied, false);
+  assert.strictEqual(pushOut.pushX, 0);
+  assert.strictEqual(pushOut.pushZ, 0);
+
+  // Enemy aim target Y
+  assert.strictEqual(CORE.enemyAimTargetY(1.7, 0.2), 1.5);
+  assert.strictEqual(CORE.enemyAimTargetY(1.7), 1.5);
+  assert.strictEqual(CORE.enemyAimTargetY(2.0, 0.5), 1.5);
+
+  // 5) Mantle kinematics & grenade loft balance rules
+  const m1 = CORE.stepMantleProgress(0.35, 0.175, 0.35);
+  assert.strictEqual(m1.completed, false);
+  assert.ok(Math.abs(m1.progressK - 0.5) < 1e-4);
+  assert.ok(Math.abs(m1.remainingT - 0.175) < 1e-4);
+
+  const m2 = CORE.stepMantleProgress(0.1, 0.2, 0.35);
+  assert.strictEqual(m2.completed, true);
+  assert.strictEqual(m2.progressK, 1.0);
+  assert.strictEqual(m2.remainingT, 0);
+
+  // Grenade throw velocity with pitch loft
+  const gOut = { x: 0, y: 0, z: 0 };
+  const gRes = CORE.grenadeThrowVelocity(0, 0, -1, 10, 0, gOut);
+  assert.strictEqual(gRes, gOut, 'grenadeThrowVelocity mutates out parameter');
+  assert.strictEqual(gOut.x, 0);
+  assert.strictEqual(gOut.y, 0);
+  assert.strictEqual(gOut.z, -10);
+
+  CORE.grenadeThrowVelocity(0, 0, -1, 10, 0.45, gOut);
+  const loftLen = Math.hypot(0, 0.45, -1);
+  assert.strictEqual(gOut.x, 0);
+  assert.ok(Math.abs(gOut.y - (0.45 / loftLen * 10)) < 1e-4);
+  assert.ok(Math.abs(gOut.z - (-1 / loftLen * 10)) < 1e-4);
+
+  // Self flash duration multiplier
+  assert.ok(Math.abs(CORE.playerSelfFlashDuration(1.0, 3.0, 0.6) - CORE.flashDuration(1.0, 1.8)) < 1e-4);
+});
+

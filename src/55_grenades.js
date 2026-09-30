@@ -97,6 +97,7 @@ const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
 const _blastPlayerTarget = new THREE.Vector3();
 const _burnHitPoint = new THREE.Vector3();
+const _throwVelOut = { x: 0, y: 0, z: 0 };
 // Colliders within reach of the throw arc, refreshed once per preview frame
 // instead of scanning all of them at every one of the 28 sample points.
 const previewNear = [];
@@ -117,15 +118,14 @@ function updateGrenadePreview(speed) {
   }
   refreshPreviewNear(camera.position.x, camera.position.z);
   _prevDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  _prevDir.y += 0.45;
-  _prevDir.normalize();
+  CORE.grenadeThrowVelocity(_prevDir.x, _prevDir.y, _prevDir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
 
   let px = camera.position.x;
   let py = camera.position.y - 0.1;
   let pz = camera.position.z;
-  let vx = _prevDir.x * speed;
-  let vy = _prevDir.y * speed;
-  let vz = _prevDir.z * speed;
+  let vx = _throwVelOut.x;
+  let vy = _throwVelOut.y;
+  let vz = _throwVelOut.z;
   const dtStep = 0.04;
 
   let bounces = 0;
@@ -192,7 +192,7 @@ function throwGrenade(customSpeed, def) {
   } else if (grenades.count <= 0) return;
   if (grenades.cd > 0 || player.dead) return;
   if (tactical) tacticalCount--; else grenades.count--;
-  grenades.cd = 0.8;
+  grenades.cd = CORE.GRENADE_COOLDOWN;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
   const m = new THREE.Mesh(grenadeGeo, equipMaterial(d.key));
   // Shared, not per-throw: this used to allocate a fresh SphereGeometry on every
@@ -204,7 +204,7 @@ function throwGrenade(customSpeed, def) {
   m.castShadow = true;
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  dir.y += 0.45; dir.normalize();
+  CORE.grenadeThrowVelocity(dir.x, dir.y, dir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
   // A claymore has no fuse at all: it arms where it lands and waits. Everything
   // else counts down from its own value, not the frag's.
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
@@ -218,7 +218,7 @@ function throwGrenade(customSpeed, def) {
   const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
   liveGrenades.push({
     m: m,
-    vel: dir.multiplyScalar(speed),
+    vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
     fuse: fuse,
     blink: blink,
     atRest: false,
@@ -250,7 +250,7 @@ function updateGrenades(dt) {
   // a second thing to learn.
   if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
       && !player.dead && started && !paused) {
-    throwGrenade(CFG.grenade.speed * 1.15, tacticalDef());
+    throwGrenade(CFG.grenade.speed * CORE.TACTICAL_SPEED_MUL, tacticalDef());
     updateHudAmmo();
   }
   updateEquipmentEffects(dt);
@@ -423,7 +423,7 @@ function applyTactical(def, pos) {
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
       const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
       const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
-      playerFlashT = Math.max(playerFlashT, CORE.flashDuration(s, def.dur * 0.6));
+      playerFlashT = Math.max(playerFlashT, CORE.playerSelfFlashDuration(s, def.dur, CORE.PLAYER_FLASH_SELF_MUL));
     }
   }
 }

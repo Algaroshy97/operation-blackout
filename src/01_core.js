@@ -5878,6 +5878,226 @@ const CORE = (function () {
     return horizDist(px, pz, bx, bz) < r;
   }
 
+  // ---- Ballistic spread, aim assist dynamics, enemy AI state kinetics, mantle & grenade loft balance rules (v110 balance tuning) ----
+  const SPREAD_LONGITUDINAL_SCALE = 0.3;
+  const AIM_ASSIST_HEAD_THRESHOLD = 0.55;
+  const AIM_ASSIST_HEAD_PRIORITY = 1.8;
+  const AIM_ASSIST_PULL_WEIGHT = 0.25;
+  const AIM_ASSIST_TRACK_RATE = 3.5;
+  const AIM_ASSIST_CHEST_OFFSET = 1.0;
+  const AIM_ASSIST_HEAD_OFFSET = 1.68;
+  const BULLET_MAGNET_Y_OFFSET = 1.1;
+  const ENEMY_SPAWN_DURATION = 0.5;
+  const ENEMY_STRAFE_MAX_T = 6.0;
+  const GRENADIER_STRAFE_RANGE = 34;
+  const GRENADIER_STRAFE_DURATION = 2.5;
+  const RIFLEMAN_STRAFE_DURATION = 2.0;
+  const RIFLEMAN_LOS_RETRY_DELAY = 0.4;
+  const FLANK_STEER_WEIGHT = 0.45;
+  const ENEMY_OVERLAP_MIN_DIST = 0.05;
+  const ENEMY_SHOT_CHEST_Y_OFFSET = 0.2;
+  const MANTLE_DURATION = 0.35;
+  const MANTLE_COYOTE_GRACE = 0.12;
+  const GRENADE_PITCH_LOFT = 0.45;
+  const GRENADE_COOLDOWN = 0.8;
+  const TACTICAL_SPEED_MUL = 1.15;
+  const PLAYER_FLASH_SELF_MUL = 0.6;
+
+  function ballisticSpreadVector(dirX, dirY, dirZ, spread, randX, randY, randZ, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const s = typeof spread === 'number' && isFinite(spread) ? Math.max(0, spread) : 0;
+    const rx = typeof randX === 'number' && isFinite(randX) ? randX : 0.5;
+    const ry = typeof randY === 'number' && isFinite(randY) ? randY : 0.5;
+    const rz = typeof randZ === 'number' && isFinite(randZ) ? randZ : 0.5;
+    const jx = (rx - 0.5) * 2 * s;
+    const jy = (ry - 0.5) * 2 * s;
+    const jz = (rz - 0.5) * 2 * s * SPREAD_LONGITUDINAL_SCALE;
+    const x = (typeof dirX === 'number' && isFinite(dirX) ? dirX : 0) + jx;
+    const y = (typeof dirY === 'number' && isFinite(dirY) ? dirY : 0) + jy;
+    const z = (typeof dirZ === 'number' && isFinite(dirZ) ? dirZ : -1) + jz;
+    const len = Math.hypot(x, y, z) || 1;
+    o.x = x / len;
+    o.y = y / len;
+    o.z = z / len;
+    return o;
+  }
+
+  function bulletPenetrationPower(weaponType, weaponPenModifier) {
+    const base = penetrationPower(weaponType);
+    const mul = typeof weaponPenModifier === 'number' && isFinite(weaponPenModifier) && weaponPenModifier > 0
+      ? weaponPenModifier : 1;
+    return base * mul;
+  }
+
+  function isAimAssistHeadCandidate(headAngle, bestAngle, threshold) {
+    const ha = typeof headAngle === 'number' && isFinite(headAngle) ? headAngle : Infinity;
+    const ba = typeof bestAngle === 'number' && isFinite(bestAngle) ? bestAngle : 0;
+    const th = typeof threshold === 'number' && isFinite(threshold) ? threshold : AIM_ASSIST_HEAD_THRESHOLD;
+    return ha < ba * th;
+  }
+
+  function aimAssistAngularDeltas(targetFwdX, targetFwdY, targetFwdZ, curFwdX, curFwdY, curFwdZ, out) {
+    const o = out || { yawDelta: 0, pitchDelta: 0 };
+    const tx = typeof targetFwdX === 'number' && isFinite(targetFwdX) ? targetFwdX : 0;
+    const ty = typeof targetFwdY === 'number' && isFinite(targetFwdY) ? targetFwdY : 0;
+    const tz = typeof targetFwdZ === 'number' && isFinite(targetFwdZ) ? targetFwdZ : -1;
+    const cx = typeof curFwdX === 'number' && isFinite(curFwdX) ? curFwdX : 0;
+    const cy = typeof curFwdY === 'number' && isFinite(curFwdY) ? curFwdY : 0;
+    const cz = typeof curFwdZ === 'number' && isFinite(curFwdZ) ? curFwdZ : -1;
+    let dyaw = Math.atan2(-tx, -tz) - Math.atan2(-cx, -cz);
+    const dpitch = Math.asin(Math.max(-1, Math.min(1, ty))) - Math.asin(Math.max(-1, Math.min(1, cy)));
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    o.yawDelta = dyaw;
+    o.pitchDelta = dpitch;
+    return o;
+  }
+
+  function stepAimAssistLook(yaw, pitch, yawDelta, pitchDelta, dt, trackRate, out) {
+    const o = out || { yaw: 0, pitch: 0 };
+    const rate = typeof trackRate === 'number' && isFinite(trackRate) ? trackRate : AIM_ASSIST_TRACK_RATE;
+    const dSec = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const y = typeof yaw === 'number' && isFinite(yaw) ? yaw : 0;
+    const p = typeof pitch === 'number' && isFinite(pitch) ? pitch : 0;
+    const yd = typeof yawDelta === 'number' && isFinite(yawDelta) ? yawDelta : 0;
+    const pd = typeof pitchDelta === 'number' && isFinite(pitchDelta) ? pitchDelta : 0;
+    o.yaw = y + yd * rate * dSec;
+    o.pitch = Math.max(-1.45, Math.min(1.45, p + pd * rate * dSec));
+    return o;
+  }
+
+  function enemyAiNextState(kind, curState, stateT, dist, hasLOS, rangedRange, preferredRange, out) {
+    const o = out || { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
+    const k = typeof kind === 'number' ? kind : 0;
+    const s = curState || 'chase';
+    const st = typeof stateT === 'number' && isFinite(stateT) ? stateT : 0;
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : 0;
+    const los = !!hasLOS;
+    const rr = typeof rangedRange === 'number' && isFinite(rangedRange) ? rangedRange : 44;
+    const pr = typeof preferredRange === 'number' && isFinite(preferredRange) ? preferredRange : 16;
+
+    o.state = s;
+    o.strafeT = 0;
+    o.resetStateT = false;
+
+    if (s === 'spawn') {
+      if (st > ENEMY_SPAWN_DURATION) {
+        o.state = 'chase';
+        o.resetStateT = true;
+      }
+    } else if (k === 1) {
+      if (d < rr && los) {
+        if (s !== 'strafe' && s !== 'shoot') {
+          o.state = 'strafe';
+          o.strafeT = RIFLEMAN_STRAFE_DURATION;
+        }
+      } else if (s !== 'chase') {
+        o.state = 'chase';
+      }
+      if (o.state === 'strafe' && st > ENEMY_STRAFE_MAX_T) {
+        o.state = 'chase';
+        o.resetStateT = true;
+      }
+    } else if (k === 5) {
+      if (d < pr) {
+        o.state = 'fallback';
+      } else if (d < GRENADIER_STRAFE_RANGE && los) {
+        if (s !== 'strafe') {
+          o.state = 'strafe';
+          o.strafeT = GRENADIER_STRAFE_DURATION;
+        }
+      } else {
+        o.state = 'chase';
+      }
+    } else {
+      o.state = 'chase';
+    }
+    return o;
+  }
+
+  function stepFlankVelocity(mvx, mvz, strafeDir, bias, out) {
+    const o = out || { x: 0, z: 0 };
+    const rawBias = typeof bias === 'number' && isFinite(bias) ? bias : 0;
+    const b = Math.max(0, Math.min(1, rawBias * FLANK_STEER_WEIGHT));
+    const vx = typeof mvx === 'number' && isFinite(mvx) ? mvx : 0;
+    const vz = typeof mvz === 'number' && isFinite(mvz) ? mvz : 0;
+    if (b <= 0.001) {
+      o.x = vx;
+      o.z = vz;
+      return o;
+    }
+    const sDir = strafeDir === -1 ? -1 : 1;
+    const px = -vz * sDir;
+    const pz = vx * sDir;
+    const nx = vx * (1 - b) + px * b;
+    const nz = vz * (1 - b) + pz * b;
+    const len = Math.hypot(nx, nz) || 1;
+    o.x = nx / len;
+    o.z = nz / len;
+    return o;
+  }
+
+  function playerPushoutOffset(enemyX, enemyZ, playerX, playerZ, enemyYaw, dist, stopDist, out) {
+    const o = out || { pushX: 0, pushZ: 0, applied: false };
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : 0;
+    const sd = typeof stopDist === 'number' && isFinite(stopDist) ? stopDist : 1.9;
+    const overlap = sd - d;
+    if (overlap <= 0) {
+      o.pushX = 0;
+      o.pushZ = 0;
+      o.applied = false;
+      return o;
+    }
+    let nx, nz;
+    if (d > ENEMY_OVERLAP_MIN_DIST) {
+      nx = (enemyX - playerX) / d;
+      nz = (enemyZ - playerZ) / d;
+    } else {
+      const yaw = typeof enemyYaw === 'number' && isFinite(enemyYaw) ? enemyYaw : 0;
+      nx = -Math.sin(yaw);
+      nz = -Math.cos(yaw);
+    }
+    o.pushX = nx * overlap;
+    o.pushZ = nz * overlap;
+    o.applied = true;
+    return o;
+  }
+
+  function enemyAimTargetY(playerPosY, chestOffset) {
+    const py = typeof playerPosY === 'number' && isFinite(playerPosY) ? playerPosY : 1.7;
+    const off = typeof chestOffset === 'number' && isFinite(chestOffset) ? chestOffset : ENEMY_SHOT_CHEST_Y_OFFSET;
+    return py - off;
+  }
+
+  function stepMantleProgress(mantleT, dt, duration) {
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : MANTLE_DURATION;
+    const t = typeof mantleT === 'number' && isFinite(mantleT) ? mantleT : dur;
+    const d = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const remaining = Math.max(0, t - d);
+    const k = Math.max(0, Math.min(1, 1 - remaining / dur));
+    return { remainingT: remaining, progressK: k, completed: remaining === 0 };
+  }
+
+  function grenadeThrowVelocity(fwdX, fwdY, fwdZ, speed, loft, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const l = typeof loft === 'number' && isFinite(loft) ? loft : GRENADE_PITCH_LOFT;
+    const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0, speed) : 9.5;
+    const vx = typeof fwdX === 'number' && isFinite(fwdX) ? fwdX : 0;
+    const vy = (typeof fwdY === 'number' && isFinite(fwdY) ? fwdY : 0) + l;
+    const vz = typeof fwdZ === 'number' && isFinite(fwdZ) ? fwdZ : -1;
+    const len = Math.hypot(vx, vy, vz) || 1;
+    o.x = (vx / len) * spd;
+    o.y = (vy / len) * spd;
+    o.z = (vz / len) * spd;
+    return o;
+  }
+
+  function playerSelfFlashDuration(flashStrength, baseDur, selfMultiplier) {
+    const mul = typeof selfMultiplier === 'number' && isFinite(selfMultiplier) ? selfMultiplier : PLAYER_FLASH_SELF_MUL;
+    const dur = typeof baseDur === 'number' && isFinite(baseDur) ? baseDur * mul : 2.5 * mul;
+    return flashDuration(flashStrength, dur);
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -6680,7 +6900,42 @@ const CORE = (function () {
     stepSentryTimers: stepSentryTimers,
     sentryAimTargetY: sentryAimTargetY,
     burnTickDamage: burnTickDamage,
-    isPointInBurnRadius: isPointInBurnRadius
+    isPointInBurnRadius: isPointInBurnRadius,
+    SPREAD_LONGITUDINAL_SCALE: SPREAD_LONGITUDINAL_SCALE,
+    AIM_ASSIST_HEAD_THRESHOLD: AIM_ASSIST_HEAD_THRESHOLD,
+    AIM_ASSIST_HEAD_PRIORITY: AIM_ASSIST_HEAD_PRIORITY,
+    AIM_ASSIST_PULL_WEIGHT: AIM_ASSIST_PULL_WEIGHT,
+    AIM_ASSIST_TRACK_RATE: AIM_ASSIST_TRACK_RATE,
+    AIM_ASSIST_CHEST_OFFSET: AIM_ASSIST_CHEST_OFFSET,
+    AIM_ASSIST_HEAD_OFFSET: AIM_ASSIST_HEAD_OFFSET,
+    BULLET_MAGNET_Y_OFFSET: BULLET_MAGNET_Y_OFFSET,
+    ENEMY_SPAWN_DURATION: ENEMY_SPAWN_DURATION,
+    ENEMY_STRAFE_MAX_T: ENEMY_STRAFE_MAX_T,
+    GRENADIER_STRAFE_RANGE: GRENADIER_STRAFE_RANGE,
+    GRENADIER_STRAFE_DURATION: GRENADIER_STRAFE_DURATION,
+    RIFLEMAN_STRAFE_DURATION: RIFLEMAN_STRAFE_DURATION,
+    RIFLEMAN_LOS_RETRY_DELAY: RIFLEMAN_LOS_RETRY_DELAY,
+    FLANK_STEER_WEIGHT: FLANK_STEER_WEIGHT,
+    ENEMY_OVERLAP_MIN_DIST: ENEMY_OVERLAP_MIN_DIST,
+    ENEMY_SHOT_CHEST_Y_OFFSET: ENEMY_SHOT_CHEST_Y_OFFSET,
+    MANTLE_DURATION: MANTLE_DURATION,
+    MANTLE_COYOTE_GRACE: MANTLE_COYOTE_GRACE,
+    GRENADE_PITCH_LOFT: GRENADE_PITCH_LOFT,
+    GRENADE_COOLDOWN: GRENADE_COOLDOWN,
+    TACTICAL_SPEED_MUL: TACTICAL_SPEED_MUL,
+    PLAYER_FLASH_SELF_MUL: PLAYER_FLASH_SELF_MUL,
+    ballisticSpreadVector: ballisticSpreadVector,
+    bulletPenetrationPower: bulletPenetrationPower,
+    isAimAssistHeadCandidate: isAimAssistHeadCandidate,
+    aimAssistAngularDeltas: aimAssistAngularDeltas,
+    stepAimAssistLook: stepAimAssistLook,
+    enemyAiNextState: enemyAiNextState,
+    stepFlankVelocity: stepFlankVelocity,
+    playerPushoutOffset: playerPushoutOffset,
+    enemyAimTargetY: enemyAimTargetY,
+    stepMantleProgress: stepMantleProgress,
+    grenadeThrowVelocity: grenadeThrowVelocity,
+    playerSelfFlashDuration: playerSelfFlashDuration
   };
 })();
 
