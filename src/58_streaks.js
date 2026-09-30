@@ -126,6 +126,8 @@ const sentryBarrelGeo = new THREE.BoxGeometry(0.12, 0.12, 0.8);
 const sentryMat = new THREE.MeshStandardMaterial({ color: 0x3a4a58, roughness: 0.5, metalness: 0.6 });
 const _sentryFrom = new THREE.Vector3();
 const _sentryTo = new THREE.Vector3();
+const _sentryHitPoint = new THREE.Vector3();
+const _sentryTimerOut = { t: 0, cd: 0, expired: false, readyToFire: false };
 
 function deploySentry() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
@@ -147,9 +149,10 @@ function deploySentry() {
 function updateSentries(dt) {
   for (let i = sentries.length - 1; i >= 0; i--) {
     const s = sentries[i];
-    s.t -= dt;
-    s.cd -= dt;
-    if (s.t <= 0) { scene.remove(s.m); sentries.splice(i, 1); continue; }
+    CORE.stepSentryTimers(s.t, s.cd, dt, _sentryTimerOut);
+    s.t = _sentryTimerOut.t;
+    s.cd = _sentryTimerOut.cd;
+    if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     // Nearest enemy it can actually see. Same analytic slab test the AI uses,
     // pointed the other way — including through smoke, which cuts both ways.
     let best = null, bestD = SENTRY_RANGE;
@@ -159,7 +162,7 @@ function updateSentries(dt) {
       if (en.dead) continue;
       const d = CORE.horizDist(en.pos.x, en.pos.z, s.m.position.x, s.m.position.z);
       if (d >= bestD) continue;
-      _sentryTo.set(en.pos.x, en.pos.y + 1.1, en.pos.z);
+      _sentryTo.set(en.pos.x, CORE.sentryAimTargetY(en.pos.y, CORE.SENTRY_AIM_Y_OFFSET), en.pos.z);
       if (CORE.segmentBlocked(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
           _sentryTo.x, _sentryTo.y, _sentryTo.z, colliders, 0.25)) continue;
       if (CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
@@ -167,12 +170,13 @@ function updateSentries(dt) {
       best = en; bestD = d;
     }
     if (!best) continue;
-    s.m.rotation.y = Math.atan2(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z) + Math.PI;
-    if (s.cd > 0) continue;
+    s.m.rotation.y = CORE.sentryTargetYaw(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z);
+    if (!_sentryTimerOut.readyToFire) continue;
     s.cd = SENTRY_ROF;
-    _sentryTo.set(best.pos.x, best.pos.y + 1.1, best.pos.z);
+    _sentryTo.set(best.pos.x, CORE.sentryAimTargetY(best.pos.y, CORE.SENTRY_AIM_Y_OFFSET), best.pos.z);
     spawnTracer(_sentryFrom, _sentryTo);
-    damageEnemy(best, SENTRY_DMG, _sentryTo.clone(), false);
+    _sentryHitPoint.copy(_sentryTo);
+    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }

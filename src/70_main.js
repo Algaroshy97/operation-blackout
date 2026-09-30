@@ -116,6 +116,7 @@ function resetGame() {
     scene.remove(t.m);
     t.m.visible = false;
     tracerPool.push(t.m);
+    if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
   }
   vfx.tracers.length = 0;
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
@@ -130,6 +131,7 @@ function resetGame() {
       if (im.m.geometry) im.m.geometry.dispose();
       if (im.m.material) im.m.material.dispose();
     }
+    if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
   }
   vfx.impacts.length = 0;
   for (let i = vfx.blood.length - 1; i >= 0; i--) {

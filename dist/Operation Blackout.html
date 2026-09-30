@@ -10509,6 +10509,66 @@ const CORE = (function () {
     };
   }
 
+  // ---- Ballistic tracer & impact lifecycle, sentry kinematics, thermite burn (perf win) ----
+  const SENTRY_AIM_Y_OFFSET = 1.1;
+  const BURN_TICK_INTERVAL = 0.25;
+
+  function stepTracerLife(life, dt) {
+    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, cur - delta);
+  }
+
+  function isTracerExpired(life) {
+    return !(typeof life === 'number' && isFinite(life) && life > 0);
+  }
+
+  function stepImpactLife(life, dt) {
+    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, cur - delta);
+  }
+
+  function isImpactExpired(life) {
+    return !(typeof life === 'number' && isFinite(life) && life > 0);
+  }
+
+  function sentryTargetYaw(dx, dz) {
+    const x = (typeof dx === 'number' && isFinite(dx)) ? dx : 0;
+    const z = (typeof dz === 'number' && isFinite(dz)) ? dz : 0;
+    return Math.atan2(x, z) + Math.PI;
+  }
+
+  function stepSentryTimers(t, cd, dt, out) {
+    const res = out || { t: 0, cd: 0, expired: false, readyToFire: false };
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const curT = (typeof t === 'number' && isFinite(t)) ? t - delta : 0;
+    const curCd = (typeof cd === 'number' && isFinite(cd)) ? cd - delta : 0;
+    res.t = curT;
+    res.cd = curCd;
+    res.expired = curT <= 0;
+    res.readyToFire = curCd <= 0;
+    return res;
+  }
+
+  function sentryAimTargetY(enemyY, offset) {
+    const base = (typeof enemyY === 'number' && isFinite(enemyY)) ? enemyY : 0;
+    const off = (typeof offset === 'number' && isFinite(offset)) ? offset : SENTRY_AIM_Y_OFFSET;
+    return base + off;
+  }
+
+  function burnTickDamage(dps, interval) {
+    const d = (typeof dps === 'number' && isFinite(dps)) ? Math.max(0, dps) : 0;
+    const i = (typeof interval === 'number' && isFinite(interval)) ? Math.max(0, interval) : BURN_TICK_INTERVAL;
+    return d * i;
+  }
+
+  function isPointInBurnRadius(px, pz, bx, bz, radius) {
+    const r = (typeof radius === 'number' && isFinite(radius)) ? radius : 0;
+    if (r <= 0) return false;
+    return horizDist(px, pz, bx, bz) < r;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -11300,7 +11360,18 @@ const CORE = (function () {
     downBleedoutLabel: downBleedoutLabel,
     multikillBonus: multikillBonus,
     waveCountdownLabel: waveCountdownLabel,
-    waveBannerLabels: waveBannerLabels
+    waveBannerLabels: waveBannerLabels,
+    SENTRY_AIM_Y_OFFSET: SENTRY_AIM_Y_OFFSET,
+    BURN_TICK_INTERVAL: BURN_TICK_INTERVAL,
+    stepTracerLife: stepTracerLife,
+    isTracerExpired: isTracerExpired,
+    stepImpactLife: stepImpactLife,
+    isImpactExpired: isImpactExpired,
+    sentryTargetYaw: sentryTargetYaw,
+    stepSentryTimers: stepSentryTimers,
+    sentryAimTargetY: sentryAimTargetY,
+    burnTickDamage: burnTickDamage,
+    isPointInBurnRadius: isPointInBurnRadius
   };
 })();
 
@@ -16840,8 +16911,10 @@ const sparkPool = [];
 const bloodPool = [];
 const casingPool = [];
 const dustPool = [];
-// Particle record pool: reuse wrapper objects and Vector3 instances to eliminate GC churn
+// Record pools: reuse wrapper objects and Vector3 instances to eliminate GC churn
 const particlePool = [];
+const tracerRecPool = [];
+const impactRecPool = [];
 const _tmpSparkV = new THREE.Vector3();
 const _particleOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
 
@@ -16850,11 +16923,13 @@ function warmupVfx() {
     const m = new THREE.Mesh(tracerGeo, tracerMat);
     m.userData.vfx = true; m.visible = false;
     tracerPool.push(m);
+    tracerRecPool.push({ m: null, life: 0, maxLife: 0, len: 0 });
   }
   for (let i = 0; i < 25; i++) {
     const m = new THREE.Mesh(impactGeo, impactMat);
     m.userData.vfx = true; m.visible = false;
     impactPool.push(m);
+    impactRecPool.push({ m: null, life: 0, isBulletImpact: false, isBlastFlash: false });
   }
   for (let i = 0; i < 60; i++) {
     const m = new THREE.Mesh(sparkGeo, sparkMat);
@@ -16884,6 +16959,36 @@ function warmupVfx() {
   }
 }
 warmupVfx();
+
+function getTracerRecord(m, life, maxLife, len) {
+  const r = tracerRecPool.length > 0 ? tracerRecPool.pop() : { m: null, life: 0, maxLife: 0, len: 0 };
+  r.m = m;
+  r.life = life;
+  r.maxLife = maxLife;
+  r.len = len;
+  return r;
+}
+
+function releaseTracerRecord(t) {
+  if (!t) return;
+  t.m = null;
+  tracerRecPool.push(t);
+}
+
+function getImpactRecord(m, life, isBulletImpact, isBlastFlash) {
+  const r = impactRecPool.length > 0 ? impactRecPool.pop() : { m: null, life: 0, isBulletImpact: false, isBlastFlash: false };
+  r.m = m;
+  r.life = life;
+  r.isBulletImpact = !!isBulletImpact;
+  r.isBlastFlash = !!isBlastFlash;
+  return r;
+}
+
+function releaseImpactRecord(im) {
+  if (!im) return;
+  im.m = null;
+  impactRecPool.push(im);
+}
 
 function getParticleRecord(m, vx, vy, vz, life, grav, isSpark, isBlood, isDust) {
   const p = particlePool.length > 0 ? particlePool.pop() : {
@@ -16949,7 +17054,7 @@ function spawnTracer(from, to, mat) {
   m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push({ m: m, life: CORE.TRACER_LIFETIME, maxLife: CORE.TRACER_LIFETIME, len: len });
+  vfx.tracers.push(getTracerRecord(m, CORE.TRACER_LIFETIME, CORE.TRACER_LIFETIME, len));
 }
 
 const _tmpN = new THREE.Vector3();
@@ -16960,7 +17065,7 @@ function spawnImpact(point, normal, obj) {
   m.scale.set(1, 1, 1);
   m.userData.isBulletImpact = true;
   scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
+  vfx.impacts.push(getImpactRecord(m, CORE.IMPACT_VFX_LIFETIME, true, false));
   // dust, chips and sparks per surface (48_particles.js). The raycast normal is
   // in the hit object's space; the static batches sit at the origin, props do not.
   if (normal) {
@@ -17182,12 +17287,13 @@ function updateVfx(dt) {
   updateDecals(dt);
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
-    t.life -= dt;
-    if (t.life <= 0) {
+    t.life = CORE.stepTracerLife(t.life, dt);
+    if (CORE.isTracerExpired(t.life)) {
       scene.remove(t.m);
       t.m.visible = false;
       t.m.scale.set(1, 1, 1);
       tracerPool.push(t.m);
+      releaseTracerRecord(t);
       vfx.tracers.splice(i, 1);
     } else {
       const thick = CORE.tracerThicknessScale(t.life, t.maxLife);
@@ -17196,9 +17302,9 @@ function updateVfx(dt) {
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
-    im.life -= dt;
+    im.life = CORE.stepImpactLife(im.life, dt);
     im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME));
-    if (im.life <= 0) {
+    if (CORE.isImpactExpired(im.life)) {
       scene.remove(im.m);
       im.m.visible = false;
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
@@ -17209,6 +17315,7 @@ function updateVfx(dt) {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
       }
+      releaseImpactRecord(im);
       vfx.impacts.splice(i, 1);
     }
   }
@@ -17737,6 +17844,7 @@ const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
 const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
 const _blastPlayerTarget = new THREE.Vector3();
+const _burnHitPoint = new THREE.Vector3();
 // Colliders within reach of the throw arc, refreshed once per preview frame
 // instead of scanning all of them at every one of the 28 sample points.
 const previewNear = [];
@@ -18104,12 +18212,14 @@ function updateEquipmentEffects(dt) {
     b.tick -= dt;
     b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
     if (b.tick <= 0) {
-      b.tick = 0.25;
+      b.tick = CORE.BURN_TICK_INTERVAL;
       for (let e = 0; e < enemies.length; e++) {
         const en = enemies[e];
         if (en.dead) continue;
-        if (CORE.horizDist(en.pos.x, en.pos.z, b.x, b.z) < b.r) {
-          damageEnemy(en, b.dps * 0.25, en.pos.clone().setY(en.pos.y + 1), false);
+        if (CORE.isPointInBurnRadius(en.pos.x, en.pos.z, b.x, b.z, b.r)) {
+          _burnHitPoint.set(en.pos.x, en.pos.y + 1, en.pos.z);
+          const dmg = CORE.burnTickDamage(b.dps, CORE.BURN_TICK_INTERVAL);
+          damageEnemy(en, dmg, _burnHitPoint, false);
         }
       }
     }
@@ -18186,7 +18296,10 @@ function explodeGrenade(pos, scale) {
   flash.visible = true;
   flash.position.copy(pos);
   scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
+  const impRec = typeof getImpactRecord === 'function'
+    ? getImpactRecord(flash, 0.35, false, true)
+    : { m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true };
+  vfx.impacts.push(impRec);
   // fireball, embers, smoke column, dust ring and debris (48_particles.js)
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
   noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved
@@ -19024,6 +19137,8 @@ const sentryBarrelGeo = new THREE.BoxGeometry(0.12, 0.12, 0.8);
 const sentryMat = new THREE.MeshStandardMaterial({ color: 0x3a4a58, roughness: 0.5, metalness: 0.6 });
 const _sentryFrom = new THREE.Vector3();
 const _sentryTo = new THREE.Vector3();
+const _sentryHitPoint = new THREE.Vector3();
+const _sentryTimerOut = { t: 0, cd: 0, expired: false, readyToFire: false };
 
 function deploySentry() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
@@ -19045,9 +19160,10 @@ function deploySentry() {
 function updateSentries(dt) {
   for (let i = sentries.length - 1; i >= 0; i--) {
     const s = sentries[i];
-    s.t -= dt;
-    s.cd -= dt;
-    if (s.t <= 0) { scene.remove(s.m); sentries.splice(i, 1); continue; }
+    CORE.stepSentryTimers(s.t, s.cd, dt, _sentryTimerOut);
+    s.t = _sentryTimerOut.t;
+    s.cd = _sentryTimerOut.cd;
+    if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     // Nearest enemy it can actually see. Same analytic slab test the AI uses,
     // pointed the other way — including through smoke, which cuts both ways.
     let best = null, bestD = SENTRY_RANGE;
@@ -19057,7 +19173,7 @@ function updateSentries(dt) {
       if (en.dead) continue;
       const d = CORE.horizDist(en.pos.x, en.pos.z, s.m.position.x, s.m.position.z);
       if (d >= bestD) continue;
-      _sentryTo.set(en.pos.x, en.pos.y + 1.1, en.pos.z);
+      _sentryTo.set(en.pos.x, CORE.sentryAimTargetY(en.pos.y, CORE.SENTRY_AIM_Y_OFFSET), en.pos.z);
       if (CORE.segmentBlocked(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
           _sentryTo.x, _sentryTo.y, _sentryTo.z, colliders, 0.25)) continue;
       if (CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
@@ -19065,12 +19181,13 @@ function updateSentries(dt) {
       best = en; bestD = d;
     }
     if (!best) continue;
-    s.m.rotation.y = Math.atan2(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z) + Math.PI;
-    if (s.cd > 0) continue;
+    s.m.rotation.y = CORE.sentryTargetYaw(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z);
+    if (!_sentryTimerOut.readyToFire) continue;
     s.cd = SENTRY_ROF;
-    _sentryTo.set(best.pos.x, best.pos.y + 1.1, best.pos.z);
+    _sentryTo.set(best.pos.x, CORE.sentryAimTargetY(best.pos.y, CORE.SENTRY_AIM_Y_OFFSET), best.pos.z);
     spawnTracer(_sentryFrom, _sentryTo);
-    damageEnemy(best, SENTRY_DMG, _sentryTo.clone(), false);
+    _sentryHitPoint.copy(_sentryTo);
+    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }
@@ -20385,6 +20502,7 @@ function resetGame() {
     scene.remove(t.m);
     t.m.visible = false;
     tracerPool.push(t.m);
+    if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
   }
   vfx.tracers.length = 0;
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
@@ -20399,6 +20517,7 @@ function resetGame() {
       if (im.m.geometry) im.m.geometry.dispose();
       if (im.m.material) im.m.material.dispose();
     }
+    if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
   }
   vfx.impacts.length = 0;
   for (let i = vfx.blood.length - 1; i >= 0; i--) {

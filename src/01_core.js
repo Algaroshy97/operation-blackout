@@ -5818,6 +5818,66 @@ const CORE = (function () {
     };
   }
 
+  // ---- Ballistic tracer & impact lifecycle, sentry kinematics, thermite burn (perf win) ----
+  const SENTRY_AIM_Y_OFFSET = 1.1;
+  const BURN_TICK_INTERVAL = 0.25;
+
+  function stepTracerLife(life, dt) {
+    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, cur - delta);
+  }
+
+  function isTracerExpired(life) {
+    return !(typeof life === 'number' && isFinite(life) && life > 0);
+  }
+
+  function stepImpactLife(life, dt) {
+    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, cur - delta);
+  }
+
+  function isImpactExpired(life) {
+    return !(typeof life === 'number' && isFinite(life) && life > 0);
+  }
+
+  function sentryTargetYaw(dx, dz) {
+    const x = (typeof dx === 'number' && isFinite(dx)) ? dx : 0;
+    const z = (typeof dz === 'number' && isFinite(dz)) ? dz : 0;
+    return Math.atan2(x, z) + Math.PI;
+  }
+
+  function stepSentryTimers(t, cd, dt, out) {
+    const res = out || { t: 0, cd: 0, expired: false, readyToFire: false };
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const curT = (typeof t === 'number' && isFinite(t)) ? t - delta : 0;
+    const curCd = (typeof cd === 'number' && isFinite(cd)) ? cd - delta : 0;
+    res.t = curT;
+    res.cd = curCd;
+    res.expired = curT <= 0;
+    res.readyToFire = curCd <= 0;
+    return res;
+  }
+
+  function sentryAimTargetY(enemyY, offset) {
+    const base = (typeof enemyY === 'number' && isFinite(enemyY)) ? enemyY : 0;
+    const off = (typeof offset === 'number' && isFinite(offset)) ? offset : SENTRY_AIM_Y_OFFSET;
+    return base + off;
+  }
+
+  function burnTickDamage(dps, interval) {
+    const d = (typeof dps === 'number' && isFinite(dps)) ? Math.max(0, dps) : 0;
+    const i = (typeof interval === 'number' && isFinite(interval)) ? Math.max(0, interval) : BURN_TICK_INTERVAL;
+    return d * i;
+  }
+
+  function isPointInBurnRadius(px, pz, bx, bz, radius) {
+    const r = (typeof radius === 'number' && isFinite(radius)) ? radius : 0;
+    if (r <= 0) return false;
+    return horizDist(px, pz, bx, bz) < r;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -6609,7 +6669,18 @@ const CORE = (function () {
     downBleedoutLabel: downBleedoutLabel,
     multikillBonus: multikillBonus,
     waveCountdownLabel: waveCountdownLabel,
-    waveBannerLabels: waveBannerLabels
+    waveBannerLabels: waveBannerLabels,
+    SENTRY_AIM_Y_OFFSET: SENTRY_AIM_Y_OFFSET,
+    BURN_TICK_INTERVAL: BURN_TICK_INTERVAL,
+    stepTracerLife: stepTracerLife,
+    isTracerExpired: isTracerExpired,
+    stepImpactLife: stepImpactLife,
+    isImpactExpired: isImpactExpired,
+    sentryTargetYaw: sentryTargetYaw,
+    stepSentryTimers: stepSentryTimers,
+    sentryAimTargetY: sentryAimTargetY,
+    burnTickDamage: burnTickDamage,
+    isPointInBurnRadius: isPointInBurnRadius
   };
 })();
 

@@ -96,6 +96,7 @@ const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
 const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
 const _blastPlayerTarget = new THREE.Vector3();
+const _burnHitPoint = new THREE.Vector3();
 // Colliders within reach of the throw arc, refreshed once per preview frame
 // instead of scanning all of them at every one of the 28 sample points.
 const previewNear = [];
@@ -463,12 +464,14 @@ function updateEquipmentEffects(dt) {
     b.tick -= dt;
     b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
     if (b.tick <= 0) {
-      b.tick = 0.25;
+      b.tick = CORE.BURN_TICK_INTERVAL;
       for (let e = 0; e < enemies.length; e++) {
         const en = enemies[e];
         if (en.dead) continue;
-        if (CORE.horizDist(en.pos.x, en.pos.z, b.x, b.z) < b.r) {
-          damageEnemy(en, b.dps * 0.25, en.pos.clone().setY(en.pos.y + 1), false);
+        if (CORE.isPointInBurnRadius(en.pos.x, en.pos.z, b.x, b.z, b.r)) {
+          _burnHitPoint.set(en.pos.x, en.pos.y + 1, en.pos.z);
+          const dmg = CORE.burnTickDamage(b.dps, CORE.BURN_TICK_INTERVAL);
+          damageEnemy(en, dmg, _burnHitPoint, false);
         }
       }
     }
@@ -545,7 +548,10 @@ function explodeGrenade(pos, scale) {
   flash.visible = true;
   flash.position.copy(pos);
   scene.add(flash);
-  vfx.impacts.push({ m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true });
+  const impRec = typeof getImpactRecord === 'function'
+    ? getImpactRecord(flash, 0.35, false, true)
+    : { m: flash, life: 0.35, isBulletImpact: false, isBlastFlash: true };
+  vfx.impacts.push(impRec);
   // fireball, embers, smoke column, dust ring and debris (48_particles.js)
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
   noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved

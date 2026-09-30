@@ -2658,7 +2658,61 @@ def main() -> int:
         }""")
         checks.append(("combat-kinematics-and-balance-rules", combat_kinematics_balance_check))
 
-        # 60) Clean console throughout gameplay.
+        # 60) Perf: ballistic tracer & impact lifecycle, sentry kinematics, and thermite burn rules.
+        tracer_impact_sentry_perf_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.stepTracerLife !== 'function' ||
+                typeof CORE.isTracerExpired !== 'function' ||
+                typeof CORE.stepImpactLife !== 'function' ||
+                typeof CORE.isImpactExpired !== 'function' ||
+                typeof CORE.sentryTargetYaw !== 'function' ||
+                typeof CORE.stepSentryTimers !== 'function' ||
+                typeof CORE.sentryAimTargetY !== 'function' ||
+                typeof CORE.burnTickDamage !== 'function' ||
+                typeof CORE.isPointInBurnRadius !== 'function') return false;
+
+            const constsOk = CORE.SENTRY_AIM_Y_OFFSET === 1.1 &&
+                             CORE.BURN_TICK_INTERVAL === 0.25;
+
+            const tracerOk = CORE.stepTracerLife(0.065, 0.02) === 0.045 &&
+                             CORE.stepTracerLife(0.01, 0.02) === 0 &&
+                             CORE.isTracerExpired(0.045) === false &&
+                             CORE.isTracerExpired(0) === true;
+
+            const impactOk = Math.abs(CORE.stepImpactLife(0.25, 0.05) - 0.20) < 1e-4 &&
+                             CORE.stepImpactLife(0.02, 0.05) === 0 &&
+                             CORE.isImpactExpired(0.15) === false &&
+                             CORE.isImpactExpired(0) === true;
+
+            const yawOk = Math.abs(CORE.sentryTargetYaw(0, 10) - Math.PI) < 1e-4 &&
+                          Math.abs(CORE.sentryTargetYaw(0, -10) - Math.PI * 2) < 1e-4 &&
+                          CORE.wrapAngle(CORE.sentryTargetYaw(0, -10)) === 0;
+
+            const sentryOut = { t: 0, cd: 0, expired: false, readyToFire: false };
+            const sRes = CORE.stepSentryTimers(10.0, 0.08, 0.05, sentryOut);
+            const timerOk = sRes === sentryOut &&
+                            Math.abs(sentryOut.t - 9.95) < 1e-4 &&
+                            Math.abs(sentryOut.cd - 0.03) < 1e-4 &&
+                            sentryOut.expired === false &&
+                            sentryOut.readyToFire === false;
+
+            CORE.stepSentryTimers(9.95, 0.02, 0.05, sentryOut);
+            const fireOk = sentryOut.readyToFire === true;
+
+            const aimYOk = CORE.sentryAimTargetY(0) === 1.1 &&
+                           CORE.sentryAimTargetY(2.0) === 3.1;
+
+            const burnDmgOk = CORE.burnTickDamage(40, 0.25) === 10 &&
+                              CORE.burnTickDamage(60) === 15;
+
+            const burnRadOk = CORE.isPointInBurnRadius(0, 0, 1, 1, 3.2) === true &&
+                              CORE.isPointInBurnRadius(0, 0, 4, 4, 3.2) === false;
+
+            return constsOk && tracerOk && impactOk && yawOk && timerOk && fireOk && aimYOk && burnDmgOk && burnRadOk;
+        }""")
+        checks.append(("tracer-impact-pooling-and-sentry-kinematics-perf-rules", tracer_impact_sentry_perf_check))
+
+        # 61) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

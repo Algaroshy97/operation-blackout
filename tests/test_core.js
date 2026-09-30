@@ -6657,3 +6657,73 @@ test('enemy combat kinematics, slide steering kinetics, tactical sprint gating, 
   assert.strictEqual(bFinal.sub, 'FINAL WAVE');
 });
 
+test('ballistic tracer & impact lifecycle, sentry kinematics, and thermite burn rules govern battlefield VFX and scorestreak performance', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.SENTRY_AIM_Y_OFFSET, 1.1);
+  assert.strictEqual(CORE.BURN_TICK_INTERVAL, 0.25);
+
+  // 2) Tracer lifecycle stepping and expiration
+  assert.strictEqual(CORE.stepTracerLife(0.065, 0.02), 0.045);
+  assert.strictEqual(CORE.stepTracerLife(0.01, 0.02), 0);
+  assert.strictEqual(CORE.stepTracerLife(0, 0.01), 0);
+  assert.strictEqual(CORE.stepTracerLife(-0.5, 0.01), 0);
+  assert.strictEqual(CORE.stepTracerLife(NaN, 0.01), 0);
+  assert.strictEqual(CORE.isTracerExpired(0.045), false);
+  assert.strictEqual(CORE.isTracerExpired(0), true);
+  assert.strictEqual(CORE.isTracerExpired(-0.01), true);
+  assert.strictEqual(CORE.isTracerExpired(NaN), true);
+
+  // 3) Impact lifecycle stepping and expiration
+  assert.strictEqual(CORE.stepImpactLife(0.25, 0.05), 0.20);
+  assert.strictEqual(CORE.stepImpactLife(0.02, 0.05), 0);
+  assert.strictEqual(CORE.stepImpactLife(0, 0.05), 0);
+  assert.strictEqual(CORE.stepImpactLife(NaN, 0.05), 0);
+  assert.strictEqual(CORE.isImpactExpired(0.15), false);
+  assert.strictEqual(CORE.isImpactExpired(0), true);
+  assert.strictEqual(CORE.isImpactExpired(-0.05), true);
+  assert.strictEqual(CORE.isImpactExpired(NaN), true);
+
+  // 4) Sentry kinematics: target yaw, timer stepping, and aim target elevation
+  assert.ok(Math.abs(CORE.sentryTargetYaw(0, 10) - (0 + Math.PI)) < 1e-4);
+  assert.ok(Math.abs(CORE.sentryTargetYaw(10, 0) - (Math.PI / 2 + Math.PI)) < 1e-4);
+  assert.ok(Math.abs(CORE.sentryTargetYaw(0, -10) - Math.PI * 2) < 1e-4);
+  assert.strictEqual(CORE.wrapAngle(CORE.sentryTargetYaw(0, -10)), 0);
+  assert.strictEqual(CORE.sentryTargetYaw(NaN, 0), Math.PI);
+
+  const sentryTimerOut = { t: 0, cd: 0, expired: false, readyToFire: false };
+  const sRes = CORE.stepSentryTimers(15.0, 0.08, 0.05, sentryTimerOut);
+  assert.strictEqual(sRes, sentryTimerOut, 'stepSentryTimers mutates out object');
+  assert.ok(Math.abs(sentryTimerOut.t - 14.95) < 1e-4);
+  assert.ok(Math.abs(sentryTimerOut.cd - 0.03) < 1e-4);
+  assert.strictEqual(sentryTimerOut.expired, false);
+  assert.strictEqual(sentryTimerOut.readyToFire, false);
+
+  CORE.stepSentryTimers(14.95, 0.03, 0.05, sentryTimerOut);
+  assert.ok(Math.abs(sentryTimerOut.t - 14.90) < 1e-4);
+  assert.ok(Math.abs(sentryTimerOut.cd - (-0.02)) < 1e-4);
+  assert.strictEqual(sentryTimerOut.expired, false);
+  assert.strictEqual(sentryTimerOut.readyToFire, true, 'ready to fire when cooldown <= 0');
+
+  CORE.stepSentryTimers(0.02, 0.1, 0.05, sentryTimerOut);
+  assert.strictEqual(sentryTimerOut.expired, true, 'expired when t <= 0');
+
+  assert.strictEqual(CORE.sentryAimTargetY(0), 1.1);
+  assert.strictEqual(CORE.sentryAimTargetY(1.5), 2.6);
+  assert.strictEqual(CORE.sentryAimTargetY(0, 1.4), 1.4);
+  assert.strictEqual(CORE.sentryAimTargetY(NaN), 1.1);
+
+  // 5) Thermite burn tick damage and radius detection
+  assert.strictEqual(CORE.burnTickDamage(40, 0.25), 10);
+  assert.strictEqual(CORE.burnTickDamage(60, 0.25), 15);
+  assert.strictEqual(CORE.burnTickDamage(40), 10, 'defaults to BURN_TICK_INTERVAL');
+  assert.strictEqual(CORE.burnTickDamage(0, 0.25), 0);
+  assert.strictEqual(CORE.burnTickDamage(NaN, 0.25), 0);
+
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 1, 1, 3.2), true);
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 4, 4, 3.2), false);
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 0, 0, 3.2), true);
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 1, 1, 0), false);
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 1, 1, -1), false);
+  assert.strictEqual(CORE.isPointInBurnRadius(NaN, 0, 1, 1, 3.2), false);
+});
+

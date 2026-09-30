@@ -25,8 +25,10 @@ const sparkPool = [];
 const bloodPool = [];
 const casingPool = [];
 const dustPool = [];
-// Particle record pool: reuse wrapper objects and Vector3 instances to eliminate GC churn
+// Record pools: reuse wrapper objects and Vector3 instances to eliminate GC churn
 const particlePool = [];
+const tracerRecPool = [];
+const impactRecPool = [];
 const _tmpSparkV = new THREE.Vector3();
 const _particleOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
 
@@ -35,11 +37,13 @@ function warmupVfx() {
     const m = new THREE.Mesh(tracerGeo, tracerMat);
     m.userData.vfx = true; m.visible = false;
     tracerPool.push(m);
+    tracerRecPool.push({ m: null, life: 0, maxLife: 0, len: 0 });
   }
   for (let i = 0; i < 25; i++) {
     const m = new THREE.Mesh(impactGeo, impactMat);
     m.userData.vfx = true; m.visible = false;
     impactPool.push(m);
+    impactRecPool.push({ m: null, life: 0, isBulletImpact: false, isBlastFlash: false });
   }
   for (let i = 0; i < 60; i++) {
     const m = new THREE.Mesh(sparkGeo, sparkMat);
@@ -69,6 +73,36 @@ function warmupVfx() {
   }
 }
 warmupVfx();
+
+function getTracerRecord(m, life, maxLife, len) {
+  const r = tracerRecPool.length > 0 ? tracerRecPool.pop() : { m: null, life: 0, maxLife: 0, len: 0 };
+  r.m = m;
+  r.life = life;
+  r.maxLife = maxLife;
+  r.len = len;
+  return r;
+}
+
+function releaseTracerRecord(t) {
+  if (!t) return;
+  t.m = null;
+  tracerRecPool.push(t);
+}
+
+function getImpactRecord(m, life, isBulletImpact, isBlastFlash) {
+  const r = impactRecPool.length > 0 ? impactRecPool.pop() : { m: null, life: 0, isBulletImpact: false, isBlastFlash: false };
+  r.m = m;
+  r.life = life;
+  r.isBulletImpact = !!isBulletImpact;
+  r.isBlastFlash = !!isBlastFlash;
+  return r;
+}
+
+function releaseImpactRecord(im) {
+  if (!im) return;
+  im.m = null;
+  impactRecPool.push(im);
+}
 
 function getParticleRecord(m, vx, vy, vz, life, grav, isSpark, isBlood, isDust) {
   const p = particlePool.length > 0 ? particlePool.pop() : {
@@ -134,7 +168,7 @@ function spawnTracer(from, to, mat) {
   m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push({ m: m, life: CORE.TRACER_LIFETIME, maxLife: CORE.TRACER_LIFETIME, len: len });
+  vfx.tracers.push(getTracerRecord(m, CORE.TRACER_LIFETIME, CORE.TRACER_LIFETIME, len));
 }
 
 const _tmpN = new THREE.Vector3();
@@ -145,7 +179,7 @@ function spawnImpact(point, normal, obj) {
   m.scale.set(1, 1, 1);
   m.userData.isBulletImpact = true;
   scene.add(m);
-  vfx.impacts.push({ m: m, life: 0.25, isBulletImpact: true });
+  vfx.impacts.push(getImpactRecord(m, CORE.IMPACT_VFX_LIFETIME, true, false));
   // dust, chips and sparks per surface (48_particles.js). The raycast normal is
   // in the hit object's space; the static batches sit at the origin, props do not.
   if (normal) {
@@ -367,12 +401,13 @@ function updateVfx(dt) {
   updateDecals(dt);
   for (let i = vfx.tracers.length - 1; i >= 0; i--) {
     const t = vfx.tracers[i];
-    t.life -= dt;
-    if (t.life <= 0) {
+    t.life = CORE.stepTracerLife(t.life, dt);
+    if (CORE.isTracerExpired(t.life)) {
       scene.remove(t.m);
       t.m.visible = false;
       t.m.scale.set(1, 1, 1);
       tracerPool.push(t.m);
+      releaseTracerRecord(t);
       vfx.tracers.splice(i, 1);
     } else {
       const thick = CORE.tracerThicknessScale(t.life, t.maxLife);
@@ -381,9 +416,9 @@ function updateVfx(dt) {
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
-    im.life -= dt;
+    im.life = CORE.stepImpactLife(im.life, dt);
     im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME));
-    if (im.life <= 0) {
+    if (CORE.isImpactExpired(im.life)) {
       scene.remove(im.m);
       im.m.visible = false;
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
@@ -394,6 +429,7 @@ function updateVfx(dt) {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
       }
+      releaseImpactRecord(im);
       vfx.impacts.splice(i, 1);
     }
   }
