@@ -7017,3 +7017,77 @@ test('tactical battlefield and weapon audio polish rules (v113 audio polish)', (
   assert.strictEqual(CORE.reloadBoltSound('SMG'), 'reload_bolt');
   assert.strictEqual(CORE.reloadBoltSound('BR'), 'reload_bolt');
 });
+
+test('tactical stance weapon recoil stability and enemy grenade/LOS combat balance rules (v114 balance tuning)', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.STANCE_RECOIL_CROUCH, 0.80);
+  assert.strictEqual(CORE.STANCE_RECOIL_SLIDE, 0.85);
+  assert.strictEqual(CORE.STANCE_RECOIL_AIRBORNE, 1.25);
+  assert.strictEqual(CORE.ENEMY_GRENADE_ARM_DURATION, 0.5);
+  assert.strictEqual(CORE.ENEMY_LIVE_GRENADES_CAP, 6);
+  assert.strictEqual(CORE.GRENADIER_INITIAL_NADE_DELAY, 3.0);
+  assert.strictEqual(CORE.RIFLEMAN_INITIAL_NADE_DELAY, 6.0);
+  assert.strictEqual(CORE.ENEMY_EYE_OFFSET_Y, 0.5);
+  assert.strictEqual(CORE.ENEMY_LOS_JITTER, 0.3);
+  assert.strictEqual(CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, -1.0);
+  assert.strictEqual(CORE.ENEMY_MELEE_RESET_MARGIN, 0.01);
+
+  // 2) Stance recoil multipliers and effective recoil kick calculation
+  assert.strictEqual(CORE.stanceRecoilMultiplier(false, false, false), 1.0, 'standing is baseline 1.0');
+  assert.strictEqual(CORE.stanceRecoilMultiplier(true, false, false), 0.80, 'crouching provides 20% recoil reduction');
+  assert.strictEqual(CORE.stanceRecoilMultiplier(false, true, false), 0.85, 'sliding provides 15% recoil reduction');
+  assert.strictEqual(CORE.stanceRecoilMultiplier(false, false, true), 1.25, 'airborne suffers 25% recoil penalty');
+  assert.strictEqual(CORE.stanceRecoilMultiplier(true, false, true), 1.25, 'airborne overrides crouch');
+
+  const kOut = { pitchKick: 0, yawKick: 0 };
+  const kRes = CORE.effectiveRecoilKick(0.014, 0.006, 1.5, 2.0, 0.80, kOut);
+  assert.strictEqual(kRes, kOut, 'effectiveRecoilKick mutates out parameter');
+  assert.ok(Math.abs(kOut.pitchKick - (0.014 * 2.0 * 0.80)) < 1e-6);
+  assert.ok(Math.abs(kOut.yawKick - (0.006 * 1.5 * 0.80)) < 1e-6);
+
+  // Default stance multiplier fallback
+  CORE.effectiveRecoilKick(0.014, 0.006, 1.0, 1.0, undefined, kOut);
+  assert.ok(Math.abs(kOut.pitchKick - 0.014) < 1e-6);
+  assert.ok(Math.abs(kOut.yawKick - 0.006) < 1e-6);
+
+  // 3) Enemy initial grenade delay and live grenade spawn gating
+  assert.strictEqual(CORE.enemyInitialGrenadeDelay(5), 3.0, 'grenadier initial throw delay is 3s');
+  assert.strictEqual(CORE.enemyInitialGrenadeDelay(1), 6.0, 'rifleman cover flush throw delay is 6s');
+  assert.strictEqual(CORE.enemyInitialGrenadeDelay(0), Infinity, 'runners never throw frags');
+  assert.strictEqual(CORE.enemyInitialGrenadeDelay(2), Infinity, 'tanks never throw frags');
+
+  assert.strictEqual(CORE.canSpawnEnemyGrenade(3, 6), true);
+  assert.strictEqual(CORE.canSpawnEnemyGrenade(5, 6), true);
+  assert.strictEqual(CORE.canSpawnEnemyGrenade(6, 6), false);
+  assert.strictEqual(CORE.canSpawnEnemyGrenade(7, 6), false);
+
+  // 4) Enemy grenade velocity calculation with arc loft and directional jitter
+  const gOut = { x: 0, y: 0, z: 0 };
+  const gRes = CORE.enemyGrenadeVelocity(10, 0, 10, 12, 0.55, 0.5, 0.5, 1.2, gOut);
+  assert.strictEqual(gRes, gOut, 'enemyGrenadeVelocity mutates out parameter');
+  const expLen = Math.hypot(1.0, 0.55, 0);
+  assert.ok(Math.abs(gOut.x - (1.0 / expLen * 12)) < 1e-4);
+  assert.ok(Math.abs(gOut.y - (0.55 / expLen * 12)) < 1e-4);
+  assert.ok(Math.abs(gOut.z) < 1e-4);
+
+  // Non-zero random jitter test
+  CORE.enemyGrenadeVelocity(0, 10, 10, 12, 0.55, 1.0, 0.0, 1.2, gOut);
+  assert.ok(Math.abs(gOut.x - 0.6) < 1e-4, 'jitter applied to x');
+  assert.ok(Math.abs(gOut.z - (1.0 / expLen * 12 - 0.6)) < 1e-4, 'jitter applied to z');
+
+  // 5) Enemy eye height and LOS target coord sampling
+  assert.strictEqual(CORE.enemyEyeHeight(0, 0, 0.95, 0.5), 1.45, 'runner eye height');
+  assert.strictEqual(CORE.enemyEyeHeight(0, 2, 0.95, 0.5), 0.95 * 1.25 + 0.5, 'tank eye height');
+  assert.strictEqual(CORE.enemyEyeHeight(2.0, 0, 0.95, 0.5), 3.45, 'elevated eye height');
+
+  assert.strictEqual(CORE.enemyLosTargetCoord(10, 0.5, 0.3), 10, 'center random seed produces exact coord');
+  assert.ok(Math.abs(CORE.enemyLosTargetCoord(10, 1.0, 0.3) - 10.15) < 1e-4, 'max seed produces +0.15 jitter');
+  assert.ok(Math.abs(CORE.enemyLosTargetCoord(10, 0.0, 0.3) - 9.85) < 1e-4, 'min seed produces -0.15 jitter');
+
+  // 6) Enemy melee cooldown sentinel & reset predicate
+  assert.strictEqual(CORE.isEnemyMeleeReset(-1.0, -1.0, 0.01), false, 'at sentinel is not reset yet');
+  assert.strictEqual(CORE.isEnemyMeleeReset(-1.005, -1.0, 0.01), false, 'within margin is not reset yet');
+  assert.strictEqual(CORE.isEnemyMeleeReset(-1.011, -1.0, 0.01), true, 'past margin is reset');
+  assert.strictEqual(CORE.isEnemyMeleeReset(0.5, -1.0, 0.01), false, 'active swing is not reset');
+  assert.strictEqual(CORE.isEnemyMeleeReset(undefined), false);
+});

@@ -6256,6 +6256,90 @@ const CORE = (function () {
     return typeof ammo === 'number' && isFinite(ammo) && ammo <= 0;
   }
 
+  // ---- Tactical Stance Weapon Recoil Stability & Enemy Grenade/LOS Combat Balance (v114 Balance Tuning) ----
+  const STANCE_RECOIL_CROUCH = 0.80;
+  const STANCE_RECOIL_SLIDE = 0.85;
+  const STANCE_RECOIL_AIRBORNE = 1.25;
+  const ENEMY_GRENADE_ARM_DURATION = 0.5;
+  const ENEMY_LIVE_GRENADES_CAP = 6;
+  const GRENADIER_INITIAL_NADE_DELAY = 3.0;
+  const RIFLEMAN_INITIAL_NADE_DELAY = 6.0;
+  const ENEMY_EYE_OFFSET_Y = 0.5;
+  const ENEMY_LOS_JITTER = 0.3;
+  const ENEMY_MELEE_COOLDOWN_SENTINEL = -1.0;
+  const ENEMY_MELEE_RESET_MARGIN = 0.01;
+
+  function stanceRecoilMultiplier(isCrouching, isSliding, isAirborne) {
+    if (isAirborne) return STANCE_RECOIL_AIRBORNE;
+    // Movement sets crouching during a slide; the active slide takes precedence.
+    if (isSliding) return STANCE_RECOIL_SLIDE;
+    if (isCrouching) return STANCE_RECOIL_CROUCH;
+    return 1.0;
+  }
+
+  function effectiveRecoilKick(recoilV, recoilH, patternX, patternY, stanceMultiplier, out) {
+    const o = out || { pitchKick: 0, yawKick: 0 };
+    const sm = typeof stanceMultiplier === 'number' && isFinite(stanceMultiplier) && stanceMultiplier > 0 ? stanceMultiplier : 1.0;
+    const rv = typeof recoilV === 'number' && isFinite(recoilV) ? recoilV : 0;
+    const rh = typeof recoilH === 'number' && isFinite(recoilH) ? recoilH : 0;
+    const py = typeof patternY === 'number' && isFinite(patternY) ? patternY : 0;
+    const px = typeof patternX === 'number' && isFinite(patternX) ? patternX : 0;
+    o.pitchKick = rv * py * sm;
+    o.yawKick = rh * px * sm;
+    return o;
+  }
+
+  function enemyInitialGrenadeDelay(kind) {
+    if (kind === 5) return GRENADIER_INITIAL_NADE_DELAY;
+    if (kind === 1) return RIFLEMAN_INITIAL_NADE_DELAY;
+    return Infinity;
+  }
+
+  function canSpawnEnemyGrenade(liveGrenadesCount, cap) {
+    const c = typeof cap === 'number' && isFinite(cap) && cap > 0 ? cap : ENEMY_LIVE_GRENADES_CAP;
+    const count = typeof liveGrenadesCount === 'number' && isFinite(liveGrenadesCount) ? liveGrenadesCount : 0;
+    return count < c;
+  }
+
+  function enemyGrenadeVelocity(dx, dz, dist, speed, arcY, randX, randZ, jitter, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const d = typeof dist === 'number' && isFinite(dist) && dist > 0 ? dist : (Math.hypot(dx, dz) || 1);
+    const spd = typeof speed === 'number' && isFinite(speed) && speed > 0 ? speed : 10;
+    const ay = typeof arcY === 'number' && isFinite(arcY) ? arcY : ENEMY_GRENADE_ARC_Y;
+    const jit = typeof jitter === 'number' && isFinite(jitter) ? jitter : ENEMY_GRENADE_JITTER;
+    const rx = typeof randX === 'number' && isFinite(randX) ? (randX - 0.5) : 0;
+    const rz = typeof randZ === 'number' && isFinite(randZ) ? (randZ - 0.5) : 0;
+    const nx = dx / d;
+    const nz = dz / d;
+    const len = Math.hypot(nx, ay, nz) || 1;
+    o.x = (nx / len) * spd + rx * jit;
+    o.y = (ay / len) * spd;
+    o.z = (nz / len) * spd + rz * jit;
+    return o;
+  }
+
+  function enemyEyeHeight(posY, kind, pelvisH, eyeOffset) {
+    const py = typeof posY === 'number' && isFinite(posY) ? posY : 0;
+    const pel = typeof pelvisH === 'number' && isFinite(pelvisH) ? pelvisH : 0.95;
+    const off = typeof eyeOffset === 'number' && isFinite(eyeOffset) ? eyeOffset : ENEMY_EYE_OFFSET_Y;
+    const scale = kind === 2 ? 1.25 : 1.0;
+    return py + pel * scale + off;
+  }
+
+  function enemyLosTargetCoord(coord, randVal, jitter) {
+    const c = typeof coord === 'number' && isFinite(coord) ? coord : 0;
+    const rv = typeof randVal === 'number' && isFinite(randVal) ? (randVal - 0.5) : 0;
+    const jit = typeof jitter === 'number' && isFinite(jitter) ? jitter : ENEMY_LOS_JITTER;
+    return c + rv * jit;
+  }
+
+  function isEnemyMeleeReset(swinging, sentinel, margin) {
+    if (typeof swinging !== 'number' || !isFinite(swinging)) return false;
+    const s = typeof sentinel === 'number' && isFinite(sentinel) ? sentinel : ENEMY_MELEE_COOLDOWN_SENTINEL;
+    const m = typeof margin === 'number' && isFinite(margin) ? margin : ENEMY_MELEE_RESET_MARGIN;
+    return swinging <= s - m;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7126,7 +7210,26 @@ const CORE = (function () {
     isLowAmmo: isLowAmmo,
     lowAmmoSound: lowAmmoSound,
     reloadBoltSound: reloadBoltSound,
-    isEmptyReload: isEmptyReload
+    isEmptyReload: isEmptyReload,
+    STANCE_RECOIL_CROUCH: STANCE_RECOIL_CROUCH,
+    STANCE_RECOIL_SLIDE: STANCE_RECOIL_SLIDE,
+    STANCE_RECOIL_AIRBORNE: STANCE_RECOIL_AIRBORNE,
+    ENEMY_GRENADE_ARM_DURATION: ENEMY_GRENADE_ARM_DURATION,
+    ENEMY_LIVE_GRENADES_CAP: ENEMY_LIVE_GRENADES_CAP,
+    GRENADIER_INITIAL_NADE_DELAY: GRENADIER_INITIAL_NADE_DELAY,
+    RIFLEMAN_INITIAL_NADE_DELAY: RIFLEMAN_INITIAL_NADE_DELAY,
+    ENEMY_EYE_OFFSET_Y: ENEMY_EYE_OFFSET_Y,
+    ENEMY_LOS_JITTER: ENEMY_LOS_JITTER,
+    ENEMY_MELEE_COOLDOWN_SENTINEL: ENEMY_MELEE_COOLDOWN_SENTINEL,
+    ENEMY_MELEE_RESET_MARGIN: ENEMY_MELEE_RESET_MARGIN,
+    stanceRecoilMultiplier: stanceRecoilMultiplier,
+    effectiveRecoilKick: effectiveRecoilKick,
+    enemyInitialGrenadeDelay: enemyInitialGrenadeDelay,
+    canSpawnEnemyGrenade: canSpawnEnemyGrenade,
+    enemyGrenadeVelocity: enemyGrenadeVelocity,
+    enemyEyeHeight: enemyEyeHeight,
+    enemyLosTargetCoord: enemyLosTargetCoord,
+    isEnemyMeleeReset: isEnemyMeleeReset
   };
 })();
 

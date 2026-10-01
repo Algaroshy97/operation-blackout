@@ -2932,7 +2932,57 @@ def main() -> int:
         }""")
         checks.append(("tactical-battlefield-and-weapon-audio-rules", audio_polish_check))
 
-        # 65) Clean console throughout gameplay.
+        # 65) Tactical stance weapon recoil stability and enemy grenade/LOS combat balance rules (v114 balance tuning).
+        stance_balance_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.STANCE_RECOIL_CROUCH === 0.80 &&
+                             CORE.STANCE_RECOIL_SLIDE === 0.85 &&
+                             CORE.STANCE_RECOIL_AIRBORNE === 1.25 &&
+                             CORE.ENEMY_GRENADE_ARM_DURATION === 0.5 &&
+                             CORE.ENEMY_LIVE_GRENADES_CAP === 6 &&
+                             CORE.GRENADIER_INITIAL_NADE_DELAY === 3.0 &&
+                             CORE.RIFLEMAN_INITIAL_NADE_DELAY === 6.0 &&
+                             CORE.ENEMY_EYE_OFFSET_Y === 0.5 &&
+                             CORE.ENEMY_LOS_JITTER === 0.3 &&
+                             CORE.ENEMY_MELEE_COOLDOWN_SENTINEL === -1.0 &&
+                             CORE.ENEMY_MELEE_RESET_MARGIN === 0.01;
+
+            const stanceMulOk = CORE.stanceRecoilMultiplier(false, false, false) === 1.0 &&
+                                CORE.stanceRecoilMultiplier(true, false, false) === 0.80 &&
+                                CORE.stanceRecoilMultiplier(false, true, false) === 0.85 &&
+                                CORE.stanceRecoilMultiplier(false, false, true) === 1.25;
+
+            const kOut = { pitchKick: 0, yawKick: 0 };
+            const kRes = CORE.effectiveRecoilKick(0.014, 0.006, 1.0, 1.0, 0.80, kOut);
+            const kickOk = kRes === kOut &&
+                           Math.abs(kOut.pitchKick - 0.014 * 0.80) < 1e-5 &&
+                           Math.abs(kOut.yawKick - 0.006 * 0.80) < 1e-5;
+
+            const nadeDelayOk = CORE.enemyInitialGrenadeDelay(5) === 3.0 &&
+                                CORE.enemyInitialGrenadeDelay(1) === 6.0 &&
+                                CORE.enemyInitialGrenadeDelay(0) === Infinity;
+
+            const nadeCapOk = CORE.canSpawnEnemyGrenade(5, 6) === true &&
+                              CORE.canSpawnEnemyGrenade(7, 6) === false;
+
+            const gOut = { x: 0, y: 0, z: 0 };
+            const gRes = CORE.enemyGrenadeVelocity(10, 0, 10, 12, 0.55, 0.5, 0.5, 1.2, gOut);
+            const gVelOk = gRes === gOut && gOut.x > 0 && gOut.y > 0;
+
+            const eyeOk = CORE.enemyEyeHeight(0, 0, 0.95, 0.5) === 1.45 &&
+                          CORE.enemyEyeHeight(0, 2, 0.95, 0.5) === 0.95 * 1.25 + 0.5;
+
+            const losJitOk = CORE.enemyLosTargetCoord(10, 0.5, 0.3) === 10;
+
+            const meleeResetOk = CORE.isEnemyMeleeReset(-1.0, -1.0, 0.01) === false &&
+                                 CORE.isEnemyMeleeReset(-1.02, -1.0, 0.01) === true;
+
+            return constsOk && stanceMulOk && kickOk && nadeDelayOk && nadeCapOk &&
+                   gVelOk && eyeOk && losJitOk && meleeResetOk;
+        }""")
+        checks.append(("tactical-stance-and-enemy-combat-balance-rules", stance_balance_check))
+
+        # 66) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

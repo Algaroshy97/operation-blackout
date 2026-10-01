@@ -383,9 +383,10 @@ function hasLOS(en) {
   // second call redid a full-scene raycast. Cache per tick, not just per skip.
   if (en._losTick === losFrame) return en._losCache;
   en._losTick = losFrame;
-  _losFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH * (en.kind === 2 ? 1.25 : 1) + 0.5, en.pos.z);
+  _losFrom.set(en.pos.x, CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y), en.pos.z);
   _losTo.copy(player.pos);
-  _losTo.x += (Math.random() - 0.5) * 0.3; _losTo.z += (Math.random() - 0.5) * 0.3;
+  _losTo.x = CORE.enemyLosTargetCoord(player.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.z = CORE.enemyLosTargetCoord(player.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
   // Analytic slab test against the collider AABBs rather than a mesh raycast.
   // Once static geometry was merged into a few large batches, the mesh version
   // cost 1.37 ms per frame because three walks every triangle of every candidate;
@@ -561,10 +562,10 @@ function updateEnemies(dt) {
             meleeHits.push(gameT);
           }
         }
-        en.swinging = -1;                        // cooldown marker
+        en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;                        // cooldown marker
         en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.kind), Math.random());
       }
-      if (en.swinging <= -1 - 0.01) en.swinging = undefined;
+      if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
     // ranged attack (rifleman)
     if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
@@ -586,14 +587,14 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, player.dead) && gameT > (en.nextNade || 3)) {
+    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, player.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a player who is actually behind cover.
     if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, player.dead) &&
-        gameT > (en.nextNade || 6)) {
+        gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
     }
@@ -647,9 +648,10 @@ function relocateStuckEnemy(en) {
 
 // Enemy frag: reuses the player's grenade physics and blast, with its own mesh so
 // the existing pickup/HUD accounting is untouched.
+const _enemyGrenadeVelOut = { x: 0, y: 0, z: 0 };
 function throwEnemyGrenade(en) {
-  if (typeof liveGrenades === 'undefined' || liveGrenades.length > 6) return;
-  en.throwT = 0.5;   // throwing arm pose (38_soldier.js)
+  if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
+  en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1; m.add(blink);
@@ -658,9 +660,8 @@ function throwEnemyGrenade(en) {
   const d = Math.hypot(dx, dz) || 1;
   // lobbed, deliberately imprecise — it is a flush, not a snipe
   const speed = CORE.enemyGrenadeSpeed(d);
-  const vel = new THREE.Vector3(dx / d, CORE.ENEMY_GRENADE_ARC_Y, dz / d).normalize().multiplyScalar(speed);
-  vel.x += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
-  vel.z += (Math.random() - 0.5) * CORE.ENEMY_GRENADE_JITTER;
+  CORE.enemyGrenadeVelocity(dx, dz, d, speed, CORE.ENEMY_GRENADE_ARC_Y, Math.random(), Math.random(), CORE.ENEMY_GRENADE_JITTER, _enemyGrenadeVelOut);
+  const vel = new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z);
   liveGrenades.push({ m: m, vel: vel, fuse: CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS), blink: blink,
     atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
   scene.add(m);

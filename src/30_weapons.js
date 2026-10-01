@@ -281,6 +281,7 @@ const _shotTargets = [];
 const _tracerMissEnd = new THREE.Vector3();
 const _recoilOut = { x: 0, y: 0 };
 const _spreadOut = { x: 0, y: 0, z: 0 };
+const _kickOut = { pitchKick: 0, yawKick: 0 };
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -366,8 +367,10 @@ function fireShot(preserveSchedule) {
   lastShotT = gameT;
   CORE.recoilAt(CORE.recoilPatternFor(w.type), recoilShot,
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, _recoilOut);
-  player.recoilP += w.recoilV * _recoilOut.y;
-  player.recoilY += w.recoilH * _recoilOut.x;
+  const stanceMul = CORE.stanceRecoilMultiplier(!!player.crouching, !!player.sliding, !player.onGround);
+  CORE.effectiveRecoilKick(w.recoilV, w.recoilH, _recoilOut.x, _recoilOut.y, stanceMul, _kickOut);
+  player.recoilP += _kickOut.pitchKick;
+  player.recoilY += _kickOut.yawKick;
   shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
