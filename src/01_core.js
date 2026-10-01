@@ -6191,6 +6191,71 @@ const CORE = (function () {
     return o;
   }
 
+  // ---- Tactical Battlefield & Weapon Audio Polish (v113 Audio Polish) ----
+  const BULLET_WHIZ_MAX_DIST = 3.6;
+  const BULLET_WHIZ_MIN_OFFSET = 0.75;
+  const LOW_AMMO_THRESHOLD_AR = 5;
+  const LOW_AMMO_THRESHOLD_SMG = 6;
+  const LOW_AMMO_THRESHOLD_BR = 4;
+  const LOW_AMMO_THRESHOLD_SR = 1;
+
+  function bulletWhizSound() {
+    return 'bullet_whiz';
+  }
+
+  function isBulletNearMiss(dist, maxDist) {
+    if (typeof dist !== 'number' || !isFinite(dist) || dist <= 0) return false;
+    const maxD = typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0 ? maxDist : BULLET_WHIZ_MAX_DIST;
+    return dist <= maxD;
+  }
+
+  function bulletNearMissOffset(seedX, seedY, minOffset, maxOffset, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const minO = typeof minOffset === 'number' && isFinite(minOffset) && minOffset >= 0 ? minOffset : BULLET_WHIZ_MIN_OFFSET;
+    const maxO = typeof maxOffset === 'number' && isFinite(maxOffset) && maxOffset > minO ? maxOffset : BULLET_WHIZ_MAX_DIST;
+    const sx = typeof seedX === 'number' && isFinite(seedX) ? seedX : 0.5;
+    const sy = typeof seedY === 'number' && isFinite(seedY) ? seedY : 0.5;
+    const signX = sx < 0 ? -1 : 1;
+    const signY = sy < 0 ? -1 : 1;
+    const magX = minO + Math.abs(sx) * (maxO - minO);
+    const magY = (minO * 0.4) + Math.abs(sy) * (maxO * 0.5 - minO * 0.4);
+    o.x = signX * Math.max(minO, Math.min(maxO, magX));
+    o.y = signY * Math.max(minO * 0.4, Math.min(maxO * 0.5, magY));
+    o.z = 0;
+    return o;
+  }
+
+  function bulletWhizVolume(dist, maxDist) {
+    if (typeof dist !== 'number' || !isFinite(dist) || dist <= 0) return 0;
+    const maxD = typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0 ? maxDist : BULLET_WHIZ_MAX_DIST;
+    if (dist >= maxD) return 0;
+    return Math.max(0, Math.min(1, 1 - dist / maxD));
+  }
+
+  function lowAmmoThreshold(weaponType) {
+    if (weaponType === 'SR') return LOW_AMMO_THRESHOLD_SR;
+    if (weaponType === 'SMG') return LOW_AMMO_THRESHOLD_SMG;
+    if (weaponType === 'BR') return LOW_AMMO_THRESHOLD_BR;
+    return LOW_AMMO_THRESHOLD_AR;
+  }
+
+  function isLowAmmo(ammo, weaponType) {
+    if (typeof ammo !== 'number' || !isFinite(ammo) || ammo <= 0) return false;
+    return ammo <= lowAmmoThreshold(weaponType);
+  }
+
+  function lowAmmoSound(ammo, weaponType) {
+    return isLowAmmo(ammo, weaponType) ? 'low_ammo' : null;
+  }
+
+  function reloadBoltSound(weaponType) {
+    return weaponType === 'SR' ? 'sniper_bolt' : 'reload_bolt';
+  }
+
+  function isEmptyReload(ammo) {
+    return typeof ammo === 'number' && isFinite(ammo) && ammo <= 0;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7046,7 +7111,22 @@ const CORE = (function () {
     burnPatchFlameStrength: burnPatchFlameStrength,
     minimapPickupColor: minimapPickupColor,
     pickupMinimapPulse: pickupMinimapPulse,
-    sentryMinimapPointer: sentryMinimapPointer
+    sentryMinimapPointer: sentryMinimapPointer,
+    BULLET_WHIZ_MAX_DIST: BULLET_WHIZ_MAX_DIST,
+    BULLET_WHIZ_MIN_OFFSET: BULLET_WHIZ_MIN_OFFSET,
+    LOW_AMMO_THRESHOLD_AR: LOW_AMMO_THRESHOLD_AR,
+    LOW_AMMO_THRESHOLD_SMG: LOW_AMMO_THRESHOLD_SMG,
+    LOW_AMMO_THRESHOLD_BR: LOW_AMMO_THRESHOLD_BR,
+    LOW_AMMO_THRESHOLD_SR: LOW_AMMO_THRESHOLD_SR,
+    bulletWhizSound: bulletWhizSound,
+    isBulletNearMiss: isBulletNearMiss,
+    bulletNearMissOffset: bulletNearMissOffset,
+    bulletWhizVolume: bulletWhizVolume,
+    lowAmmoThreshold: lowAmmoThreshold,
+    isLowAmmo: isLowAmmo,
+    lowAmmoSound: lowAmmoSound,
+    reloadBoltSound: reloadBoltSound,
+    isEmptyReload: isEmptyReload
   };
 })();
 

@@ -122,7 +122,10 @@ function tryReload() {
   const s = curS(); if (!s || !CORE.canReload(s.ammo, curW().mag, s.reserve, s.reloading)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
-  if (!s.reloadPaused) s.reloadT = 0;
+  if (!s.reloadPaused) {
+    s.reloadT = 0;
+    s.emptyReload = CORE.isEmptyReload(s.ammo);
+  }
   s.reloadPaused = false;
   updateHudAmmo();
   playSound('reload_out');
@@ -141,6 +144,10 @@ function updateWeapons(dt) {
       s.reserve = _reloadOut.reserve;
       s.reloading = false; s.reloadPaused = false;
       playSound('reload_in');
+      if (s.emptyReload) {
+        playSound(CORE.reloadBoltSound(w ? w.type : ''));
+        s.emptyReload = false;
+      }
       updateHudAmmo();
     }
     s.nextShot = CORE.shotScheduleAfterInactive();
@@ -363,6 +370,8 @@ function fireShot(preserveSchedule) {
   player.recoilY += w.recoilH * _recoilOut.x;
   shotKick = CORE.applyShotKick(shotKick);
   playSound(CORE.weaponFireSound(w ? w.type : ''));
+  const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
+  if (lowSnd) playSound(lowSnd);
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();

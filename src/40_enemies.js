@@ -678,6 +678,7 @@ function showCenterMsgThrottled(txt) {
 const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 const _eshotDir = new THREE.Vector3();
+const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
@@ -689,21 +690,31 @@ function enemyShoot(en, dist) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
     fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
   }
-  const to = _eshotTo.copy(player.pos);
-  to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);
-  spawnTracer(from, to, 0xff8844);
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
   const acc = CORE.enemyAccuracy(CFG.ai.rangedAccuracy, CFG.ai.accPerWave, waveNum, CFG.ai.accMax, accBonus);
-  if (Math.random() < acc) {
+  const isHit = Math.random() < acc;
+  const to = _eshotTo.copy(player.pos);
+  to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);
+  if (!isHit) {
+    CORE.bulletNearMissOffset(
+      (Math.random() - 0.5) * 2,
+      (Math.random() - 0.5) * 2,
+      CORE.BULLET_WHIZ_MIN_OFFSET,
+      CORE.BULLET_WHIZ_MAX_DIST,
+      _bulletMissOffset
+    );
+    to.x += _bulletMissOffset.x;
+    to.y += _bulletMissOffset.y;
+    to.z += _bulletMissOffset.z;
+  }
+  spawnTracer(from, to, 0xff8844);
+  const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
+  const firedInRun = runId;
+  const ox = from.x, oy = from.y, oz = from.z;
+  const hitDeg = dirToDeg(en);
+  if (isHit) {
     const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite);
-    // Tagged with the run id: REDEPLOY leaves `started` true, so without this a
-    // bullet fired in the previous run could land in the first 300 ms of the next.
-    const firedInRun = runId;
-    // `from` is a shared scratch vector that the next shot overwrites, so capture
-    // scalars. Same for the hit direction: the shooter may have moved by impact.
-    const ox = from.x, oy = from.y, oz = from.z;
-    const hitDeg = dirToDeg(en);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (player.dead || !started || paused) return;
@@ -717,7 +728,14 @@ function enemyShoot(en, dist) {
       if (CORE.smokeBlocks(ox, oy, oz,
           player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
       damagePlayer(dmg, hitDeg);
-    }, CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS));
+    }, travelDelay);
+  } else {
+    const missX = to.x, missY = to.y, missZ = to.z;
+    setTimeout(function () {
+      if (runId !== firedInRun) return;
+      if (player.dead || !started || paused) return;
+      playSound3D(CORE.bulletWhizSound(), missX, missY, missZ, CORE.BULLET_WHIZ_MAX_DIST * 2);
+    }, travelDelay);
   }
 }
 

@@ -2871,7 +2871,68 @@ def main() -> int:
         }""")
         checks.append(("minimap-deployables-grenade-ring-and-burn-visual-rules", minimap_deployables_and_burn_vfx_check))
 
-        # 64) Clean console throughout gameplay.
+        # 64) Tactical battlefield and weapon audio polish rules & recipes (v113 audio polish).
+        audio_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.BULLET_WHIZ_MAX_DIST === 3.6 &&
+                             CORE.BULLET_WHIZ_MIN_OFFSET === 0.75 &&
+                             CORE.LOW_AMMO_THRESHOLD_AR === 5 &&
+                             CORE.LOW_AMMO_THRESHOLD_SMG === 6 &&
+                             CORE.LOW_AMMO_THRESHOLD_BR === 4 &&
+                             CORE.LOW_AMMO_THRESHOLD_SR === 1;
+
+            const whizSndOk = CORE.bulletWhizSound() === 'bullet_whiz';
+            const nearMissOk = CORE.isBulletNearMiss(2.0, 3.6) === true &&
+                               CORE.isBulletNearMiss(4.0, 3.6) === false;
+
+            const mOut = { x: 0, y: 0, z: 0 };
+            const mRes = CORE.bulletNearMissOffset(0.5, 0.5, 0.75, 3.6, mOut);
+            const offsetOk = mRes === mOut && mOut.x >= 0.75 && mOut.x <= 3.6 && mOut.y >= 0.3 && mOut.y <= 1.8;
+
+            const volOk = Math.abs(CORE.bulletWhizVolume(1.8, 3.6) - 0.5) < 1e-4 &&
+                          CORE.bulletWhizVolume(3.6, 3.6) === 0;
+
+            const lowThreshOk = CORE.lowAmmoThreshold('SR') === 1 &&
+                                CORE.lowAmmoThreshold('SMG') === 6 &&
+                                CORE.lowAmmoThreshold('BR') === 4 &&
+                                CORE.lowAmmoThreshold('AR') === 5;
+
+            const isLowOk = CORE.isLowAmmo(1, 'SR') === true &&
+                            CORE.isLowAmmo(2, 'SR') === false &&
+                            CORE.isLowAmmo(0, 'SR') === false &&
+                            CORE.isLowAmmo(5, 'AR') === true &&
+                            CORE.isLowAmmo(6, 'AR') === false;
+
+            const lowSndOk = CORE.lowAmmoSound(1, 'SR') === 'low_ammo' &&
+                             CORE.lowAmmoSound(2, 'SR') === null &&
+                             CORE.lowAmmoSound(5, 'AR') === 'low_ammo' &&
+                             CORE.lowAmmoSound(10, 'AR') === null;
+
+            const emptyRelOk = CORE.isEmptyReload(0) === true &&
+                               CORE.isEmptyReload(10) === false;
+
+            const boltSndOk = CORE.reloadBoltSound('SR') === 'sniper_bolt' &&
+                              CORE.reloadBoltSound('AR') === 'reload_bolt' &&
+                              CORE.reloadBoltSound('SMG') === 'reload_bolt' &&
+                              CORE.reloadBoltSound('BR') === 'reload_bolt';
+
+            const recipesOk = typeof SOUND_RECIPES !== 'undefined' &&
+                              Array.isArray(SOUND_RECIPES.bullet_whiz) &&
+                              Array.isArray(SOUND_RECIPES.reload_bolt) &&
+                              Array.isArray(SOUND_RECIPES.low_ammo);
+
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             SOUND_VARIED.bullet_whiz === 1 &&
+                             SOUND_VARIED.reload_bolt === 1 &&
+                             SOUND_VARIED.low_ammo === 1;
+
+            return constsOk && whizSndOk && nearMissOk && offsetOk && volOk &&
+                   lowThreshOk && isLowOk && lowSndOk && emptyRelOk && boltSndOk &&
+                   recipesOk && variedOk;
+        }""")
+        checks.append(("tactical-battlefield-and-weapon-audio-rules", audio_polish_check))
+
+        # 65) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

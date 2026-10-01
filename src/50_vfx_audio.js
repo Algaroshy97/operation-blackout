@@ -592,7 +592,10 @@ const SOUND_RECIPES = {
   second_wind:       [['osc', 'sawtooth', 80, 240, 0.28, 0.35], ['osc', 'sine', 55, 110, 0.35, 0.40], ['noise', 0.20, 0.25, 400, 1.0]],
   objective_complete:[['osc', 'sine', 440, 660, 0.15, 0.22], ['osc', 'sine', 660, 880, 0.18, 0.20], ['osc', 'triangle', 880, 1320, 0.22, 0.16]],
   draw_heavy:        [['noise', 0.08, 0.22, 1200, 1.8], ['osc', 'square', 180, 90, 0.06, 0.14]],
-  draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]]
+  draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]],
+  bullet_whiz:       [['noise', 0.035, 0.28, 3600, 3.2], ['osc', 'sine', 2100, 480, 0.03, 0.14]],
+  reload_bolt:       [['noise', 0.07, 0.28, 1400, 2.0], ['osc', 'square', 340, 180, 0.05, 0.15], ['osc', 'sine', 160, 70, 0.08, 0.22]],
+  low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -610,7 +613,8 @@ const SOUND_VARIED = {
   claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1,
   impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
-  second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1
+  second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
+  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1
 };
 
 function recipeDuration(recipe) {

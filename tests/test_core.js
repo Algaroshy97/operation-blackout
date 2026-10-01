@@ -6948,3 +6948,72 @@ test('tactical minimap deployables, grenade danger ring, and thermite burn VFX v
   assert.ok(Math.abs(sOut.z - 40) < 1e-4);
 });
 
+test('tactical battlefield and weapon audio polish rules (v113 audio polish)', () => {
+  // 1) Constants
+  assert.strictEqual(CORE.BULLET_WHIZ_MAX_DIST, 3.6);
+  assert.strictEqual(CORE.BULLET_WHIZ_MIN_OFFSET, 0.75);
+  assert.strictEqual(CORE.LOW_AMMO_THRESHOLD_AR, 5);
+  assert.strictEqual(CORE.LOW_AMMO_THRESHOLD_SMG, 6);
+  assert.strictEqual(CORE.LOW_AMMO_THRESHOLD_BR, 4);
+  assert.strictEqual(CORE.LOW_AMMO_THRESHOLD_SR, 1);
+
+  // 2) Bullet whiz sound & near-miss detection
+  assert.strictEqual(CORE.bulletWhizSound(), 'bullet_whiz');
+  assert.strictEqual(CORE.isBulletNearMiss(1.5, 3.6), true);
+  assert.strictEqual(CORE.isBulletNearMiss(3.6, 3.6), true);
+  assert.strictEqual(CORE.isBulletNearMiss(4.0, 3.6), false);
+  assert.strictEqual(CORE.isBulletNearMiss(0, 3.6), false);
+  assert.strictEqual(CORE.isBulletNearMiss(-1, 3.6), false);
+  assert.strictEqual(CORE.isBulletNearMiss('invalid', 3.6), false);
+
+  // 3) Bullet near-miss offset calculation
+  const mOut = { x: 0, y: 0, z: 0 };
+  const mRes = CORE.bulletNearMissOffset(0.5, 0.5, 0.75, 3.6, mOut);
+  assert.strictEqual(mRes, mOut, 'bulletNearMissOffset mutates out parameter');
+  assert.ok(mOut.x >= 0.75 && mOut.x <= 3.6, 'x offset within expected corridor');
+  assert.ok(mOut.y >= 0.75 * 0.4 && mOut.y <= 3.6 * 0.5, 'y offset within expected corridor');
+  assert.strictEqual(mOut.z, 0);
+
+  // Negative seed offsets
+  CORE.bulletNearMissOffset(-0.8, -0.2, 0.75, 3.6, mOut);
+  assert.ok(mOut.x < 0, 'negative seed produces negative x offset');
+  assert.ok(mOut.y < 0, 'negative seed produces negative y offset');
+
+  // 4) Bullet whiz volume falloff
+  assert.strictEqual(CORE.bulletWhizVolume(0, 3.6), 0);
+  assert.strictEqual(CORE.bulletWhizVolume(-1, 3.6), 0);
+  assert.strictEqual(CORE.bulletWhizVolume(3.6, 3.6), 0);
+  assert.strictEqual(CORE.bulletWhizVolume(5.0, 3.6), 0);
+  const volMid = CORE.bulletWhizVolume(1.8, 3.6);
+  assert.ok(Math.abs(volMid - 0.5) < 1e-4, 'mid-distance volume at 0.5');
+
+  // 5) Low ammo threshold and audio cue gating
+  assert.strictEqual(CORE.lowAmmoThreshold('SR'), 1);
+  assert.strictEqual(CORE.lowAmmoThreshold('SMG'), 6);
+  assert.strictEqual(CORE.lowAmmoThreshold('BR'), 4);
+  assert.strictEqual(CORE.lowAmmoThreshold('AR'), 5);
+  assert.strictEqual(CORE.lowAmmoThreshold('other'), 5);
+
+  assert.strictEqual(CORE.isLowAmmo(1, 'SR'), true);
+  assert.strictEqual(CORE.isLowAmmo(2, 'SR'), false);
+  assert.strictEqual(CORE.isLowAmmo(0, 'SR'), false, 'empty is not low, it is dry');
+  assert.strictEqual(CORE.isLowAmmo(5, 'AR'), true);
+  assert.strictEqual(CORE.isLowAmmo(6, 'AR'), false);
+
+  assert.strictEqual(CORE.lowAmmoSound(1, 'SR'), 'low_ammo');
+  assert.strictEqual(CORE.lowAmmoSound(2, 'SR'), null);
+  assert.strictEqual(CORE.lowAmmoSound(0, 'SR'), null);
+  assert.strictEqual(CORE.lowAmmoSound(5, 'AR'), 'low_ammo');
+  assert.strictEqual(CORE.lowAmmoSound(10, 'AR'), null);
+
+  // 6) Empty reload vs tactical reload rules
+  assert.strictEqual(CORE.isEmptyReload(0), true);
+  assert.strictEqual(CORE.isEmptyReload(-1), true);
+  assert.strictEqual(CORE.isEmptyReload(1), false);
+  assert.strictEqual(CORE.isEmptyReload(30), false);
+
+  assert.strictEqual(CORE.reloadBoltSound('SR'), 'sniper_bolt');
+  assert.strictEqual(CORE.reloadBoltSound('AR'), 'reload_bolt');
+  assert.strictEqual(CORE.reloadBoltSound('SMG'), 'reload_bolt');
+  assert.strictEqual(CORE.reloadBoltSound('BR'), 'reload_bolt');
+});
