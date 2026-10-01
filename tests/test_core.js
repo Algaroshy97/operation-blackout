@@ -6900,3 +6900,51 @@ test('ballistic spread cone, aim assist dynamics, enemy combat state kinetics, m
   assert.ok(Math.abs(CORE.playerSelfFlashDuration(1.0, 3.0, 0.6) - CORE.flashDuration(1.0, 1.8)) < 1e-4);
 });
 
+test('tactical minimap deployables, grenade danger ring, and thermite burn VFX visual rules (v112 visual polish)', () => {
+  // 1) Grenade danger ring opacity: steady at base opacity early, then accelerates pulsing with higher opacity
+  assert.strictEqual(CORE.grenadeDangerRingOpacity(0, 3.0), 0);
+  assert.strictEqual(CORE.grenadeDangerRingOpacity(-1, 3.0), 0);
+  assert.strictEqual(CORE.grenadeDangerRingOpacity('invalid', 3.0), 0);
+  assert.strictEqual(CORE.grenadeDangerRingOpacity(2.5, 3.0), CORE.GRENADE_RING_BASE_OPACITY);
+
+  const op1 = CORE.grenadeDangerRingOpacity(1.2, 3.0);
+  const op2 = CORE.grenadeDangerRingOpacity(0.4, 3.0);
+  const op3 = CORE.grenadeDangerRingOpacity(0.05, 3.0);
+  assert.ok(op1 >= 0.12 && op1 <= CORE.GRENADE_RING_MAX_OPACITY, 'fuse 1.2 opacity in valid range');
+  assert.ok(op2 >= 0.12 && op2 <= CORE.GRENADE_RING_MAX_OPACITY, 'fuse 0.4 opacity in valid range');
+  assert.ok(op3 >= 0.12 && op3 <= CORE.GRENADE_RING_MAX_OPACITY, 'fuse 0.05 opacity in valid range');
+
+  // 2) Thermite burn patch pulsing opacity & flame strength
+  assert.strictEqual(CORE.burnPatchPulsingOpacity(0, 6.0, 0.5), 0);
+  assert.strictEqual(CORE.burnPatchPulsingOpacity(-1, 6.0, 0.5), 0);
+  const burnOp = CORE.burnPatchPulsingOpacity(5.0, 6.0, 0.5);
+  assert.ok(burnOp > 0 && burnOp <= 0.6, 'burn patch opacity shimmers within range');
+
+  assert.strictEqual(CORE.burnPatchFlameStrength(0, 6.0), 0);
+  assert.strictEqual(CORE.burnPatchFlameStrength(6.0, 6.0), 1.0);
+  assert.strictEqual(CORE.burnPatchFlameStrength(3.0, 6.0), 0.5);
+
+  // 3) Minimap pickup color mapping
+  assert.strictEqual(CORE.minimapPickupColor('ammo'), CORE.MINIMAP_PICKUP_AMMO_COLOR);
+  assert.strictEqual(CORE.minimapPickupColor('med'), CORE.MINIMAP_PICKUP_MED_COLOR);
+  assert.strictEqual(CORE.minimapPickupColor('power'), CORE.MINIMAP_PICKUP_POWER_COLOR);
+  assert.strictEqual(CORE.minimapPickupColor('unknown'), CORE.MINIMAP_PICKUP_AMMO_COLOR);
+
+  // 4) Pickup minimap pulse animation
+  assert.strictEqual(CORE.pickupMinimapPulse(15.0, 9.0, 14.0, 2.2), 0, 'expired pickup has 0 radius');
+  assert.strictEqual(CORE.pickupMinimapPulse(5.0, 9.0, 14.0, 2.2), 2.2, 'stable pickup before blinkStart has base radius');
+  const pulsingR = CORE.pickupMinimapPulse(11.0, 9.0, 14.0, 2.2);
+  assert.ok(pulsingR >= 2.2 * 0.5 && pulsingR <= 2.2 * 1.5, 'pulsing pickup radius within expected range');
+
+  // 5) Sentry minimap pointer needle calculation
+  const sOut = { x: 0, z: 0 };
+  const sRes = CORE.sentryMinimapPointer(50, 40, 0, 5.5, sOut);
+  assert.strictEqual(sRes, sOut, 'sentryMinimapPointer mutates out parameter');
+  assert.ok(Math.abs(sOut.x - 50) < 1e-4);
+  assert.ok(Math.abs(sOut.z - 34.5) < 1e-4, 'yaw 0 points upward (negative z)');
+
+  CORE.sentryMinimapPointer(50, 40, Math.PI / 2, 5.5, sOut);
+  assert.ok(Math.abs(sOut.x - 44.5) < 1e-4, 'yaw PI/2 points leftward (negative x)');
+  assert.ok(Math.abs(sOut.z - 40) < 1e-4);
+});
+

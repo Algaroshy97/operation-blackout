@@ -76,13 +76,42 @@ function tacticalDef() { return equippedTactical ? CORE.equipmentByKey(equippedT
 
 // ---- Ground effects ----
 // Thermite leaves burning ground; smoke leaves a volume that blocks enemy LOS.
-// Both are plain data the update loop walks; neither needs a new subsystem.
 const burnPatches = [];
 const smokeClouds = [];
 const burnRingGeo = new THREE.RingGeometry(0.2, 3.2, 28);
-const burnRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+const burnPatchPool = [];
+function getBurnPatchMesh() {
+  if (burnPatchPool.length > 0) return burnPatchPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+  const m = new THREE.Mesh(burnRingGeo, mat);
+  m.rotation.x = -Math.PI / 2;
+  m.userData.vfx = true;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  return m;
+}
+function releaseBurnPatchMesh(m) {
+  if (!m) return;
+  scene.remove(m);
+  burnPatchPool.push(m);
+}
+
 const smokeGeo = new THREE.SphereGeometry(1, 12, 10);
-const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62 });
+const smokeCloudPool = [];
+function getSmokeCloudMesh() {
+  if (smokeCloudPool.length > 0) return smokeCloudPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62, depthWrite: false });
+  const m = new THREE.Mesh(smokeGeo, mat);
+  m.userData.vfx = true;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  return m;
+}
+function releaseSmokeCloudMesh(m) {
+  if (!m) return;
+  scene.remove(m);
+  smokeCloudPool.push(m);
+}
 
 let grenadeCharging = false;
 let grenadeChargeT = 0;
@@ -337,8 +366,7 @@ function updateGrenades(dt) {
       g.ring = ring;
     }
     if (g.ring) {
-      const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
-      g.ring.material.opacity = 0.32 * fade;
+      g.ring.material.opacity = CORE.grenadeDangerRingOpacity(g.fuse, g.restFuse);
     }
     stepLiveGrenade(g, dt, i, def);
   }
@@ -431,19 +459,20 @@ function applyTactical(def, pos) {
 let playerFlashT = 0;
 
 function addBurnPatch(x, z, def) {
-  const ring = new THREE.Mesh(burnRingGeo, burnRingMat.clone());
-  ring.rotation.x = -Math.PI / 2;
+  const ring = getBurnPatchMesh();
   ring.position.set(x, 0.04, z);
   ring.scale.setScalar(def.burnRadius / 3.2);
+  ring.material.opacity = 0.5;
   scene.add(ring);
   burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
                      r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
 }
 
 function addSmokeCloud(x, y, z, def) {
-  const m = new THREE.Mesh(smokeGeo, smokeMat.clone());
+  const m = getSmokeCloudMesh();
   m.position.set(x, y, z);
   m.scale.setScalar(0.2);
+  m.material.opacity = 0.62;
   scene.add(m);
   smokeClouds.push({ x: x, y: y, z: z, r: def.radius, t: def.dur, life: def.dur, m: m });
 }
@@ -462,7 +491,11 @@ function updateEquipmentEffects(dt) {
     const b = burnPatches[i];
     b.t -= dt;
     b.tick -= dt;
-    b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
+    b.m.material.opacity = CORE.burnPatchPulsingOpacity(b.t, b.life, 0.5);
+    if (typeof fxFire === 'function') {
+      _burnHitPoint.set(b.x, 0.1, b.z);
+      fxFire(_burnHitPoint, CORE.burnPatchFlameStrength(b.t, b.life) * 0.75, dt);
+    }
     if (b.tick <= 0) {
       b.tick = CORE.BURN_TICK_INTERVAL;
       for (let e = 0; e < enemies.length; e++) {
@@ -475,7 +508,7 @@ function updateEquipmentEffects(dt) {
         }
       }
     }
-    if (b.t <= 0) { scene.remove(b.m); b.m.material.dispose(); burnPatches.splice(i, 1); }
+    if (b.t <= 0) { releaseBurnPatchMesh(b.m); burnPatches.splice(i, 1); }
   }
   for (let i = smokeClouds.length - 1; i >= 0; i--) {
     const c = smokeClouds[i];
@@ -483,7 +516,7 @@ function updateEquipmentEffects(dt) {
     // Bloom out over the first second, then hold, then fade.
     c.m.scale.setScalar(CORE.smokeCloudScale(c.life - c.t, c.r, 1.0));
     c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
-    if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
+    if (c.t <= 0) { releaseSmokeCloudMesh(c.m); smokeClouds.splice(i, 1); }
   }
 }
 
@@ -493,11 +526,11 @@ function resetEquipment() {
   tacticalCount = 0;
   playerFlashT = 0;
   for (let i = burnPatches.length - 1; i >= 0; i--) {
-    scene.remove(burnPatches[i].m); burnPatches[i].m.material.dispose();
+    releaseBurnPatchMesh(burnPatches[i].m);
   }
   burnPatches.length = 0;
   for (let i = smokeClouds.length - 1; i >= 0; i--) {
-    scene.remove(smokeClouds[i].m); smokeClouds[i].m.material.dispose();
+    releaseSmokeCloudMesh(smokeClouds[i].m);
   }
   smokeClouds.length = 0;
 }

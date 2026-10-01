@@ -2821,7 +2821,57 @@ def main() -> int:
         }""")
         checks.append(("mobile-touch-swap-switching-and-layout-polish-rules", mobile_touch_polish_check))
 
-        # 63) Clean console throughout gameplay.
+        # 63) Tactical minimap deployables & pickups, dynamic grenade danger ring, and thermite burn VFX visual rules.
+        minimap_deployables_and_burn_vfx_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.GRENADE_RING_BASE_OPACITY === 0.32 &&
+                             CORE.GRENADE_RING_MAX_OPACITY === 0.78 &&
+                             CORE.MINIMAP_SENTRY_COLOR === '#50b4ff' &&
+                             CORE.MINIMAP_MUNITIONS_COLOR === '#8fd66a' &&
+                             CORE.MINIMAP_PICKUP_AMMO_COLOR === '#ffd24a' &&
+                             CORE.MINIMAP_PICKUP_MED_COLOR === '#4fd08a' &&
+                             CORE.MINIMAP_PICKUP_POWER_COLOR === '#d070ff' &&
+                             CORE.MINIMAP_SENTRY_RADIUS === 3.2 &&
+                             CORE.MINIMAP_MUNITIONS_SIZE === 4.5 &&
+                             CORE.MINIMAP_PICKUP_BASE_RADIUS === 2.2;
+
+            const ringZero = CORE.grenadeDangerRingOpacity(0, 3.0) === 0 &&
+                             CORE.grenadeDangerRingOpacity(-1, 3.0) === 0;
+            const ringBase = CORE.grenadeDangerRingOpacity(2.5, 3.0) === CORE.GRENADE_RING_BASE_OPACITY;
+            const ringPulse = CORE.grenadeDangerRingOpacity(0.5, 3.0);
+            const ringPulseOk = ringPulse >= 0.12 && ringPulse <= CORE.GRENADE_RING_MAX_OPACITY;
+
+            const burnZero = CORE.burnPatchPulsingOpacity(0, 6.0, 0.5) === 0;
+            const burnShimmer = CORE.burnPatchPulsingOpacity(5.0, 6.0, 0.5);
+            const burnShimmerOk = burnShimmer > 0 && burnShimmer <= 0.6;
+            const flameStrengthOk = CORE.burnPatchFlameStrength(0, 6.0) === 0 &&
+                                    CORE.burnPatchFlameStrength(6.0, 6.0) === 1.0 &&
+                                    CORE.burnPatchFlameStrength(3.0, 6.0) === 0.5;
+
+            const colorOk = CORE.minimapPickupColor('ammo') === CORE.MINIMAP_PICKUP_AMMO_COLOR &&
+                            CORE.minimapPickupColor('med') === CORE.MINIMAP_PICKUP_MED_COLOR &&
+                            CORE.minimapPickupColor('power') === CORE.MINIMAP_PICKUP_POWER_COLOR &&
+                            CORE.minimapPickupColor('other') === CORE.MINIMAP_PICKUP_AMMO_COLOR;
+
+            const pulseExpOk = CORE.pickupMinimapPulse(15.0, 9.0, 14.0, 2.2) === 0;
+            const pulseBaseOk = CORE.pickupMinimapPulse(5.0, 9.0, 14.0, 2.2) === 2.2;
+            const pulseAct = CORE.pickupMinimapPulse(11.0, 9.0, 14.0, 2.2);
+            const pulseActOk = pulseAct >= 2.2 * 0.5 && pulseAct <= 2.2 * 1.5;
+
+            const sOut = { x: 0, z: 0 };
+            const sRes = CORE.sentryMinimapPointer(50, 40, 0, 5.5, sOut);
+            const ptrMutOk = sRes === sOut && Math.abs(sOut.x - 50) < 1e-4 && Math.abs(sOut.z - 34.5) < 1e-4;
+            CORE.sentryMinimapPointer(50, 40, Math.PI / 2, 5.5, sOut);
+            const ptrRotOk = Math.abs(sOut.x - 44.5) < 1e-4 && Math.abs(sOut.z - 40) < 1e-4;
+
+            return constsOk && ringZero && ringBase && ringPulseOk &&
+                   burnZero && burnShimmerOk && flameStrengthOk &&
+                   colorOk && pulseExpOk && pulseBaseOk && pulseActOk &&
+                   ptrMutOk && ptrRotOk;
+        }""")
+        checks.append(("minimap-deployables-grenade-ring-and-burn-visual-rules", minimap_deployables_and_burn_vfx_check))
+
+        # 64) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

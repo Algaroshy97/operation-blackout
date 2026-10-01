@@ -6119,6 +6119,73 @@ const CORE = (function () {
     return flashDuration(flashStrength, dur);
   }
 
+  // ---- Tactical Minimap Deployables & Drops, Dynamic Grenade Danger Ring & Thermite Burn VFX (v112 Visual Polish) ----
+  const GRENADE_RING_BASE_OPACITY = 0.32;
+  const GRENADE_RING_MAX_OPACITY = 0.78;
+  const MINIMAP_SENTRY_COLOR = '#50b4ff';
+  const MINIMAP_MUNITIONS_COLOR = '#8fd66a';
+  const MINIMAP_PICKUP_AMMO_COLOR = '#ffd24a';
+  const MINIMAP_PICKUP_MED_COLOR = '#4fd08a';
+  const MINIMAP_PICKUP_POWER_COLOR = '#d070ff';
+  const MINIMAP_SENTRY_RADIUS = 3.2;
+  const MINIMAP_MUNITIONS_SIZE = 4.5;
+  const MINIMAP_PICKUP_BASE_RADIUS = 2.2;
+  const BURN_PATCH_HEAT_FLICKER_FREQ = 12;
+
+  function grenadeDangerRingOpacity(fuse, restFuse) {
+    if (typeof fuse !== 'number' || !isFinite(fuse) || fuse <= 0) return 0;
+    if (fuse > 1.6) return GRENADE_RING_BASE_OPACITY;
+    const urgency = 1 - Math.max(0, fuse / 1.6);
+    const freq = 4 + urgency * 6;
+    const pulse = Math.sin((1.6 - fuse) * freq * Math.PI * 2) * 0.5 + 0.5;
+    const dynamicPeak = GRENADE_RING_BASE_OPACITY + (GRENADE_RING_MAX_OPACITY - GRENADE_RING_BASE_OPACITY) * urgency;
+    return Math.max(0.12, GRENADE_RING_BASE_OPACITY + (dynamicPeak - GRENADE_RING_BASE_OPACITY) * pulse);
+  }
+
+  function burnPatchPulsingOpacity(remainingT, totalLife, maxOpacity) {
+    if (typeof remainingT !== 'number' || !isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.5;
+    const baseDecay = Math.max(0, Math.min(1, remainingT / life));
+    const shimmer = Math.sin(remainingT * BURN_PATCH_HEAT_FLICKER_FREQ) * 0.08 + Math.cos(remainingT * 19) * 0.05;
+    return Math.max(0, Math.min(1, maxO * (baseDecay + shimmer * baseDecay)));
+  }
+
+  function burnPatchFlameStrength(remainingT, totalLife) {
+    if (typeof remainingT !== 'number' || !isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    return Math.max(0, Math.min(1, remainingT / life));
+  }
+
+  function minimapPickupColor(kind) {
+    if (kind === 'ammo') return MINIMAP_PICKUP_AMMO_COLOR;
+    if (kind === 'med') return MINIMAP_PICKUP_MED_COLOR;
+    if (kind === 'power') return MINIMAP_PICKUP_POWER_COLOR;
+    return MINIMAP_PICKUP_AMMO_COLOR;
+  }
+
+  function pickupMinimapPulse(t, blinkStart, maxLife, baseRadius) {
+    const baseR = typeof baseRadius === 'number' && isFinite(baseRadius) && baseRadius > 0 ? baseRadius : MINIMAP_PICKUP_BASE_RADIUS;
+    const curT = typeof t === 'number' && isFinite(t) ? t : 0;
+    const bStart = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    const mL = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    if (curT >= mL) return 0;
+    if (curT <= bStart) return baseR;
+    const progress = (curT - bStart) / Math.max(0.001, mL - bStart);
+    const freq = 3 + progress * 4;
+    const wave = Math.sin((curT - bStart) * freq * Math.PI * 2) * 0.5 + 0.5;
+    return baseR * (0.6 + 0.8 * wave);
+  }
+
+  function sentryMinimapPointer(bx, bz, sentryYaw, length, out) {
+    const o = out || { x: 0, z: 0 };
+    const len = typeof length === 'number' && isFinite(length) ? length : 5.5;
+    const yaw = typeof sentryYaw === 'number' && isFinite(sentryYaw) ? sentryYaw : 0;
+    o.x = bx - Math.sin(yaw) * len;
+    o.z = bz - Math.cos(yaw) * len;
+    return o;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -6957,7 +7024,24 @@ const CORE = (function () {
     enemyAimTargetY: enemyAimTargetY,
     stepMantleProgress: stepMantleProgress,
     grenadeThrowVelocity: grenadeThrowVelocity,
-    playerSelfFlashDuration: playerSelfFlashDuration
+    playerSelfFlashDuration: playerSelfFlashDuration,
+    GRENADE_RING_BASE_OPACITY: GRENADE_RING_BASE_OPACITY,
+    GRENADE_RING_MAX_OPACITY: GRENADE_RING_MAX_OPACITY,
+    MINIMAP_SENTRY_COLOR: MINIMAP_SENTRY_COLOR,
+    MINIMAP_MUNITIONS_COLOR: MINIMAP_MUNITIONS_COLOR,
+    MINIMAP_PICKUP_AMMO_COLOR: MINIMAP_PICKUP_AMMO_COLOR,
+    MINIMAP_PICKUP_MED_COLOR: MINIMAP_PICKUP_MED_COLOR,
+    MINIMAP_PICKUP_POWER_COLOR: MINIMAP_PICKUP_POWER_COLOR,
+    MINIMAP_SENTRY_RADIUS: MINIMAP_SENTRY_RADIUS,
+    MINIMAP_MUNITIONS_SIZE: MINIMAP_MUNITIONS_SIZE,
+    MINIMAP_PICKUP_BASE_RADIUS: MINIMAP_PICKUP_BASE_RADIUS,
+    BURN_PATCH_HEAT_FLICKER_FREQ: BURN_PATCH_HEAT_FLICKER_FREQ,
+    grenadeDangerRingOpacity: grenadeDangerRingOpacity,
+    burnPatchPulsingOpacity: burnPatchPulsingOpacity,
+    burnPatchFlameStrength: burnPatchFlameStrength,
+    minimapPickupColor: minimapPickupColor,
+    pickupMinimapPulse: pickupMinimapPulse,
+    sentryMinimapPointer: sentryMinimapPointer
   };
 })();
 

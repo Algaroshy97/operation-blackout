@@ -801,6 +801,7 @@ function invalidateMinimapBlocks() {
 }
 
 let _mmBlipOut = { x: 0, z: 0 };
+let _sentryPtrOut = { x: 0, z: 0 };
 
 function drawMinimap() {
   const W = 150, R = 75;
@@ -844,6 +845,55 @@ function drawMinimap() {
     mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
     mmCtx.lineWidth = 1;
     mmCtx.strokeRect(_mmBlipOut.x - 2.5, _mmBlipOut.z - 2.5, 5, 5);
+  }
+  // Friendly deployables & drops (sentries, munitions, pickups)
+  if (typeof sentries !== 'undefined' && sentries.length > 0) {
+    for (let i = 0; i < sentries.length; i++) {
+      const s = sentries[i];
+      if (!s.m) continue;
+      CORE.minimapBlipOffset(s.m.position.x, s.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      mmCtx.fillStyle = CORE.MINIMAP_SENTRY_COLOR;
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, CORE.MINIMAP_SENTRY_RADIUS, 0, 7);
+      mmCtx.fill();
+      const relYaw = (s.m.rotation ? s.m.rotation.y : 0) - player.yaw;
+      CORE.sentryMinimapPointer(_mmBlipOut.x, _mmBlipOut.z, relYaw, 5.5, _sentryPtrOut);
+      mmCtx.strokeStyle = '#ffffff';
+      mmCtx.lineWidth = 1.2;
+      mmCtx.beginPath();
+      mmCtx.moveTo(_mmBlipOut.x, _mmBlipOut.z);
+      mmCtx.lineTo(_sentryPtrOut.x, _sentryPtrOut.z);
+      mmCtx.stroke();
+    }
+  }
+  if (typeof munitions !== 'undefined' && munitions.length > 0) {
+    const halfBox = CORE.MINIMAP_MUNITIONS_SIZE / 2;
+    for (let i = 0; i < munitions.length; i++) {
+      const b = munitions[i];
+      if (!b.m) continue;
+      CORE.minimapBlipOffset(b.m.position.x, b.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      mmCtx.fillStyle = CORE.MINIMAP_MUNITIONS_COLOR;
+      mmCtx.fillRect(_mmBlipOut.x - halfBox, _mmBlipOut.z - halfBox, CORE.MINIMAP_MUNITIONS_SIZE, CORE.MINIMAP_MUNITIONS_SIZE);
+      mmCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+      mmCtx.lineWidth = 1;
+      mmCtx.strokeRect(_mmBlipOut.x - halfBox, _mmBlipOut.z - halfBox, CORE.MINIMAP_MUNITIONS_SIZE, CORE.MINIMAP_MUNITIONS_SIZE);
+    }
+  }
+  if (typeof pickups !== 'undefined' && pickups.length > 0) {
+    for (let i = 0; i < pickups.length; i++) {
+      const p = pickups[i];
+      if (!p.m) continue;
+      CORE.minimapBlipOffset(p.m.position.x, p.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      const rad = CORE.pickupMinimapPulse(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE, CORE.MINIMAP_PICKUP_BASE_RADIUS);
+      if (rad <= 0) continue;
+      mmCtx.fillStyle = CORE.minimapPickupColor(p.kind);
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7);
+      mmCtx.fill();
+    }
   }
   // enemies
   for (let i = 0; i < enemies.length; i++) {

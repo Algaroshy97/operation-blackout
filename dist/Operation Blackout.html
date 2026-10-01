@@ -10817,6 +10817,73 @@ const CORE = (function () {
     return flashDuration(flashStrength, dur);
   }
 
+  // ---- Tactical Minimap Deployables & Drops, Dynamic Grenade Danger Ring & Thermite Burn VFX (v112 Visual Polish) ----
+  const GRENADE_RING_BASE_OPACITY = 0.32;
+  const GRENADE_RING_MAX_OPACITY = 0.78;
+  const MINIMAP_SENTRY_COLOR = '#50b4ff';
+  const MINIMAP_MUNITIONS_COLOR = '#8fd66a';
+  const MINIMAP_PICKUP_AMMO_COLOR = '#ffd24a';
+  const MINIMAP_PICKUP_MED_COLOR = '#4fd08a';
+  const MINIMAP_PICKUP_POWER_COLOR = '#d070ff';
+  const MINIMAP_SENTRY_RADIUS = 3.2;
+  const MINIMAP_MUNITIONS_SIZE = 4.5;
+  const MINIMAP_PICKUP_BASE_RADIUS = 2.2;
+  const BURN_PATCH_HEAT_FLICKER_FREQ = 12;
+
+  function grenadeDangerRingOpacity(fuse, restFuse) {
+    if (typeof fuse !== 'number' || !isFinite(fuse) || fuse <= 0) return 0;
+    if (fuse > 1.6) return GRENADE_RING_BASE_OPACITY;
+    const urgency = 1 - Math.max(0, fuse / 1.6);
+    const freq = 4 + urgency * 6;
+    const pulse = Math.sin((1.6 - fuse) * freq * Math.PI * 2) * 0.5 + 0.5;
+    const dynamicPeak = GRENADE_RING_BASE_OPACITY + (GRENADE_RING_MAX_OPACITY - GRENADE_RING_BASE_OPACITY) * urgency;
+    return Math.max(0.12, GRENADE_RING_BASE_OPACITY + (dynamicPeak - GRENADE_RING_BASE_OPACITY) * pulse);
+  }
+
+  function burnPatchPulsingOpacity(remainingT, totalLife, maxOpacity) {
+    if (typeof remainingT !== 'number' || !isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.5;
+    const baseDecay = Math.max(0, Math.min(1, remainingT / life));
+    const shimmer = Math.sin(remainingT * BURN_PATCH_HEAT_FLICKER_FREQ) * 0.08 + Math.cos(remainingT * 19) * 0.05;
+    return Math.max(0, Math.min(1, maxO * (baseDecay + shimmer * baseDecay)));
+  }
+
+  function burnPatchFlameStrength(remainingT, totalLife) {
+    if (typeof remainingT !== 'number' || !isFinite(remainingT) || remainingT <= 0) return 0;
+    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    return Math.max(0, Math.min(1, remainingT / life));
+  }
+
+  function minimapPickupColor(kind) {
+    if (kind === 'ammo') return MINIMAP_PICKUP_AMMO_COLOR;
+    if (kind === 'med') return MINIMAP_PICKUP_MED_COLOR;
+    if (kind === 'power') return MINIMAP_PICKUP_POWER_COLOR;
+    return MINIMAP_PICKUP_AMMO_COLOR;
+  }
+
+  function pickupMinimapPulse(t, blinkStart, maxLife, baseRadius) {
+    const baseR = typeof baseRadius === 'number' && isFinite(baseRadius) && baseRadius > 0 ? baseRadius : MINIMAP_PICKUP_BASE_RADIUS;
+    const curT = typeof t === 'number' && isFinite(t) ? t : 0;
+    const bStart = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    const mL = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    if (curT >= mL) return 0;
+    if (curT <= bStart) return baseR;
+    const progress = (curT - bStart) / Math.max(0.001, mL - bStart);
+    const freq = 3 + progress * 4;
+    const wave = Math.sin((curT - bStart) * freq * Math.PI * 2) * 0.5 + 0.5;
+    return baseR * (0.6 + 0.8 * wave);
+  }
+
+  function sentryMinimapPointer(bx, bz, sentryYaw, length, out) {
+    const o = out || { x: 0, z: 0 };
+    const len = typeof length === 'number' && isFinite(length) ? length : 5.5;
+    const yaw = typeof sentryYaw === 'number' && isFinite(sentryYaw) ? sentryYaw : 0;
+    o.x = bx - Math.sin(yaw) * len;
+    o.z = bz - Math.cos(yaw) * len;
+    return o;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -11655,7 +11722,24 @@ const CORE = (function () {
     enemyAimTargetY: enemyAimTargetY,
     stepMantleProgress: stepMantleProgress,
     grenadeThrowVelocity: grenadeThrowVelocity,
-    playerSelfFlashDuration: playerSelfFlashDuration
+    playerSelfFlashDuration: playerSelfFlashDuration,
+    GRENADE_RING_BASE_OPACITY: GRENADE_RING_BASE_OPACITY,
+    GRENADE_RING_MAX_OPACITY: GRENADE_RING_MAX_OPACITY,
+    MINIMAP_SENTRY_COLOR: MINIMAP_SENTRY_COLOR,
+    MINIMAP_MUNITIONS_COLOR: MINIMAP_MUNITIONS_COLOR,
+    MINIMAP_PICKUP_AMMO_COLOR: MINIMAP_PICKUP_AMMO_COLOR,
+    MINIMAP_PICKUP_MED_COLOR: MINIMAP_PICKUP_MED_COLOR,
+    MINIMAP_PICKUP_POWER_COLOR: MINIMAP_PICKUP_POWER_COLOR,
+    MINIMAP_SENTRY_RADIUS: MINIMAP_SENTRY_RADIUS,
+    MINIMAP_MUNITIONS_SIZE: MINIMAP_MUNITIONS_SIZE,
+    MINIMAP_PICKUP_BASE_RADIUS: MINIMAP_PICKUP_BASE_RADIUS,
+    BURN_PATCH_HEAT_FLICKER_FREQ: BURN_PATCH_HEAT_FLICKER_FREQ,
+    grenadeDangerRingOpacity: grenadeDangerRingOpacity,
+    burnPatchPulsingOpacity: burnPatchPulsingOpacity,
+    burnPatchFlameStrength: burnPatchFlameStrength,
+    minimapPickupColor: minimapPickupColor,
+    pickupMinimapPulse: pickupMinimapPulse,
+    sentryMinimapPointer: sentryMinimapPointer
   };
 })();
 
@@ -18091,13 +18175,42 @@ function tacticalDef() { return equippedTactical ? CORE.equipmentByKey(equippedT
 
 // ---- Ground effects ----
 // Thermite leaves burning ground; smoke leaves a volume that blocks enemy LOS.
-// Both are plain data the update loop walks; neither needs a new subsystem.
 const burnPatches = [];
 const smokeClouds = [];
 const burnRingGeo = new THREE.RingGeometry(0.2, 3.2, 28);
-const burnRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+const burnPatchPool = [];
+function getBurnPatchMesh() {
+  if (burnPatchPool.length > 0) return burnPatchPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+  const m = new THREE.Mesh(burnRingGeo, mat);
+  m.rotation.x = -Math.PI / 2;
+  m.userData.vfx = true;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  return m;
+}
+function releaseBurnPatchMesh(m) {
+  if (!m) return;
+  scene.remove(m);
+  burnPatchPool.push(m);
+}
+
 const smokeGeo = new THREE.SphereGeometry(1, 12, 10);
-const smokeMat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62 });
+const smokeCloudPool = [];
+function getSmokeCloudMesh() {
+  if (smokeCloudPool.length > 0) return smokeCloudPool.pop();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.62, depthWrite: false });
+  const m = new THREE.Mesh(smokeGeo, mat);
+  m.userData.vfx = true;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  return m;
+}
+function releaseSmokeCloudMesh(m) {
+  if (!m) return;
+  scene.remove(m);
+  smokeCloudPool.push(m);
+}
 
 let grenadeCharging = false;
 let grenadeChargeT = 0;
@@ -18352,8 +18465,7 @@ function updateGrenades(dt) {
       g.ring = ring;
     }
     if (g.ring) {
-      const fade = Math.max(0, Math.min(1, g.fuse / g.restFuse));
-      g.ring.material.opacity = 0.32 * fade;
+      g.ring.material.opacity = CORE.grenadeDangerRingOpacity(g.fuse, g.restFuse);
     }
     stepLiveGrenade(g, dt, i, def);
   }
@@ -18446,19 +18558,20 @@ function applyTactical(def, pos) {
 let playerFlashT = 0;
 
 function addBurnPatch(x, z, def) {
-  const ring = new THREE.Mesh(burnRingGeo, burnRingMat.clone());
-  ring.rotation.x = -Math.PI / 2;
+  const ring = getBurnPatchMesh();
   ring.position.set(x, 0.04, z);
   ring.scale.setScalar(def.burnRadius / 3.2);
+  ring.material.opacity = 0.5;
   scene.add(ring);
   burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
                      r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
 }
 
 function addSmokeCloud(x, y, z, def) {
-  const m = new THREE.Mesh(smokeGeo, smokeMat.clone());
+  const m = getSmokeCloudMesh();
   m.position.set(x, y, z);
   m.scale.setScalar(0.2);
+  m.material.opacity = 0.62;
   scene.add(m);
   smokeClouds.push({ x: x, y: y, z: z, r: def.radius, t: def.dur, life: def.dur, m: m });
 }
@@ -18477,7 +18590,11 @@ function updateEquipmentEffects(dt) {
     const b = burnPatches[i];
     b.t -= dt;
     b.tick -= dt;
-    b.m.material.opacity = CORE.burnPatchOpacity(b.t, b.life, 0.5);
+    b.m.material.opacity = CORE.burnPatchPulsingOpacity(b.t, b.life, 0.5);
+    if (typeof fxFire === 'function') {
+      _burnHitPoint.set(b.x, 0.1, b.z);
+      fxFire(_burnHitPoint, CORE.burnPatchFlameStrength(b.t, b.life) * 0.75, dt);
+    }
     if (b.tick <= 0) {
       b.tick = CORE.BURN_TICK_INTERVAL;
       for (let e = 0; e < enemies.length; e++) {
@@ -18490,7 +18607,7 @@ function updateEquipmentEffects(dt) {
         }
       }
     }
-    if (b.t <= 0) { scene.remove(b.m); b.m.material.dispose(); burnPatches.splice(i, 1); }
+    if (b.t <= 0) { releaseBurnPatchMesh(b.m); burnPatches.splice(i, 1); }
   }
   for (let i = smokeClouds.length - 1; i >= 0; i--) {
     const c = smokeClouds[i];
@@ -18498,7 +18615,7 @@ function updateEquipmentEffects(dt) {
     // Bloom out over the first second, then hold, then fade.
     c.m.scale.setScalar(CORE.smokeCloudScale(c.life - c.t, c.r, 1.0));
     c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
-    if (c.t <= 0) { scene.remove(c.m); c.m.material.dispose(); smokeClouds.splice(i, 1); }
+    if (c.t <= 0) { releaseSmokeCloudMesh(c.m); smokeClouds.splice(i, 1); }
   }
 }
 
@@ -18508,11 +18625,11 @@ function resetEquipment() {
   tacticalCount = 0;
   playerFlashT = 0;
   for (let i = burnPatches.length - 1; i >= 0; i--) {
-    scene.remove(burnPatches[i].m); burnPatches[i].m.material.dispose();
+    releaseBurnPatchMesh(burnPatches[i].m);
   }
   burnPatches.length = 0;
   for (let i = smokeClouds.length - 1; i >= 0; i--) {
-    scene.remove(smokeClouds[i].m); smokeClouds[i].m.material.dispose();
+    releaseSmokeCloudMesh(smokeClouds[i].m);
   }
   smokeClouds.length = 0;
 }
@@ -20352,6 +20469,7 @@ function invalidateMinimapBlocks() {
 }
 
 let _mmBlipOut = { x: 0, z: 0 };
+let _sentryPtrOut = { x: 0, z: 0 };
 
 function drawMinimap() {
   const W = 150, R = 75;
@@ -20395,6 +20513,55 @@ function drawMinimap() {
     mmCtx.strokeStyle = 'rgba(0,0,0,.6)';
     mmCtx.lineWidth = 1;
     mmCtx.strokeRect(_mmBlipOut.x - 2.5, _mmBlipOut.z - 2.5, 5, 5);
+  }
+  // Friendly deployables & drops (sentries, munitions, pickups)
+  if (typeof sentries !== 'undefined' && sentries.length > 0) {
+    for (let i = 0; i < sentries.length; i++) {
+      const s = sentries[i];
+      if (!s.m) continue;
+      CORE.minimapBlipOffset(s.m.position.x, s.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      mmCtx.fillStyle = CORE.MINIMAP_SENTRY_COLOR;
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, CORE.MINIMAP_SENTRY_RADIUS, 0, 7);
+      mmCtx.fill();
+      const relYaw = (s.m.rotation ? s.m.rotation.y : 0) - player.yaw;
+      CORE.sentryMinimapPointer(_mmBlipOut.x, _mmBlipOut.z, relYaw, 5.5, _sentryPtrOut);
+      mmCtx.strokeStyle = '#ffffff';
+      mmCtx.lineWidth = 1.2;
+      mmCtx.beginPath();
+      mmCtx.moveTo(_mmBlipOut.x, _mmBlipOut.z);
+      mmCtx.lineTo(_sentryPtrOut.x, _sentryPtrOut.z);
+      mmCtx.stroke();
+    }
+  }
+  if (typeof munitions !== 'undefined' && munitions.length > 0) {
+    const halfBox = CORE.MINIMAP_MUNITIONS_SIZE / 2;
+    for (let i = 0; i < munitions.length; i++) {
+      const b = munitions[i];
+      if (!b.m) continue;
+      CORE.minimapBlipOffset(b.m.position.x, b.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      mmCtx.fillStyle = CORE.MINIMAP_MUNITIONS_COLOR;
+      mmCtx.fillRect(_mmBlipOut.x - halfBox, _mmBlipOut.z - halfBox, CORE.MINIMAP_MUNITIONS_SIZE, CORE.MINIMAP_MUNITIONS_SIZE);
+      mmCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+      mmCtx.lineWidth = 1;
+      mmCtx.strokeRect(_mmBlipOut.x - halfBox, _mmBlipOut.z - halfBox, CORE.MINIMAP_MUNITIONS_SIZE, CORE.MINIMAP_MUNITIONS_SIZE);
+    }
+  }
+  if (typeof pickups !== 'undefined' && pickups.length > 0) {
+    for (let i = 0; i < pickups.length; i++) {
+      const p = pickups[i];
+      if (!p.m) continue;
+      CORE.minimapBlipOffset(p.m.position.x, p.m.position.z, px, pz, scale, _mmBlipOut);
+      if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, rSq)) continue;
+      const rad = CORE.pickupMinimapPulse(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE, CORE.MINIMAP_PICKUP_BASE_RADIUS);
+      if (rad <= 0) continue;
+      mmCtx.fillStyle = CORE.minimapPickupColor(p.kind);
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7);
+      mmCtx.fill();
+    }
   }
   // enemies
   for (let i = 0; i < enemies.length; i++) {
