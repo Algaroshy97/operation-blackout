@@ -1420,9 +1420,12 @@ const CORE = (function () {
     if (gx < 0 || gz < 0 || gx >= nav.dim || gz >= nav.dim) return -1;
     return gz * nav.dim + gx;
   }
-  function cellCenter(nav, index) {
+  function cellCenter(nav, index, out) {
     const gx = index % nav.dim, gz = (index / nav.dim) | 0;
-    return { x: nav.originX + (gx + 0.5) * nav.cell, z: nav.originZ + (gz + 0.5) * nav.cell };
+    out = out || { x: 0, z: 0 };
+    out.x = nav.originX + (gx + 0.5) * nav.cell;
+    out.z = nav.originZ + (gz + 0.5) * nav.cell;
+    return out;
   }
   function isWalkable(nav, index) {
     return index >= 0 && nav.blocked[index] === 0;
@@ -1519,10 +1522,12 @@ const CORE = (function () {
       if (d < best) { best = d; bestIdx = ni; }
     }
     if (bestIdx < 0) return null;
-    const target = cellCenter(nav, bestIdx);
+    // `out` is already caller-owned; use it for the intermediate centre too.
+    // Routed enemies previously allocated another {x,z} on every movement tick.
+    const target = cellCenter(nav, bestIdx, out);
     const dx = target.x - x, dz = target.z - z;
     const len = Math.sqrt(dx * dx + dz * dz);
-    if (len < 1e-6) return null;
+    if (len < 1e-6) { out.x = 0; out.z = 0; return null; }
     out.x = dx / len; out.z = dz / len;
     return out;
   }

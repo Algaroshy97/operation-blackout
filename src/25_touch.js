@@ -4,6 +4,10 @@
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
 let joyBaseEl = null;
+let resetTouchControls = function () {};
+function touchGameplayEnabled() {
+  return started && !paused && (!player || !player.dead) && !document.body.classList.contains('touch-editing');
+}
 
 (function initTouchUI() {
   if (!IS_TOUCH) return;
@@ -16,19 +20,19 @@ let joyBaseEl = null;
   ui.innerHTML = `
     <div id="joy-base"><div id="joy-stick"></div></div>
     <div id="look-zone"></div>
-    <div id="tbtn-fire" class="tbtn">FIRE</div>
-    <div id="tbtn-ads" class="tbtn tbtn-sm">ADS</div>
-    <div id="tbtn-jump" class="tbtn tbtn-sm">JUMP</div>
-    <div id="tbtn-slide" class="tbtn tbtn-sm">SLIDE</div>
-    <div id="tbtn-reload" class="tbtn tbtn-sm">RLD</div>
-    <div id="tbtn-nade" class="tbtn tbtn-sm">NADE</div>
-    <div id="tbtn-swap" class="tbtn tbtn-sm">SWAP</div>
-    <div id="tbtn-melee" class="tbtn tbtn-sm">KNIFE</div>
-    <div id="tbtn-use" class="tbtn tbtn-sm">USE</div>
-    <div id="tbtn-plate" class="tbtn tbtn-sm">PLATE</div>
-    <div id="tbtn-tactical" class="tbtn tbtn-sm">TAC</div>
-    <div id="tbtn-streak" class="tbtn tbtn-sm">STRK</div>
-    <div id="tbtn-pause" class="tbtn tbtn-sm">II</div>
+    <div id="tbtn-fire" role="button" aria-label="Fire (drag to aim when enabled)" class="tbtn">FIRE</div>
+    <div id="tbtn-ads" role="button" aria-label="Aim down sights" class="tbtn tbtn-sm">ADS</div>
+    <div id="tbtn-jump" role="button" aria-label="Jump / climb" class="tbtn tbtn-sm">JUMP</div>
+    <div id="tbtn-slide" role="button" aria-label="Slide / crouch" class="tbtn tbtn-sm">SLIDE</div>
+    <div id="tbtn-reload" role="button" aria-label="Reload" class="tbtn tbtn-sm">RLD</div>
+    <div id="tbtn-nade" role="button" aria-label="Hold grenade" class="tbtn tbtn-sm">NADE</div>
+    <div id="tbtn-swap" role="button" aria-label="Swap weapon" class="tbtn tbtn-sm">SWAP</div>
+    <div id="tbtn-melee" role="button" aria-label="Melee attack" class="tbtn tbtn-sm">KNIFE</div>
+    <div id="tbtn-use" role="button" aria-label="Hold to interact / buy" class="tbtn tbtn-sm">USE</div>
+    <div id="tbtn-plate" role="button" aria-label="Insert armor plate" class="tbtn tbtn-sm">PLATE</div>
+    <div id="tbtn-tactical" role="button" aria-label="Tactical equipment" class="tbtn tbtn-sm">TAC</div>
+    <div id="tbtn-streak" role="button" aria-label="Streak / field upgrade" class="tbtn tbtn-sm">STRK</div>
+    <div id="tbtn-pause" role="button" aria-label="Pause game" class="tbtn tbtn-sm">II</div>
   `;
   document.body.appendChild(ui);
 
@@ -42,6 +46,7 @@ let joyBaseEl = null;
   let joyId = null, joyCX = 0, joyCY = 0;
   joyBase.addEventListener('touchstart', function (e) {
     e.preventDefault();
+    if (!touchGameplayEnabled()) return;
     const t = e.changedTouches[0];
     if (joyId !== null) return;
     joyId = t.identifier;
@@ -56,8 +61,11 @@ let joyBaseEl = null;
     touchState.moveZ = res.moveZ;   // up on stick = forward
     touchState.moveX = res.moveX;
   }
-  let fireId = null, lastFX = 0, lastFY = 0;
+  let fireId = null, lastFX = 0, lastFY = 0, adsHeld = false;
+  const holdResets = [];
+  function syncAds() { touchState.ads = adsHeld || (touchState.firing && getSetting('fireMode') === 'ads + fire'); }
   addEventListener('touchmove', function (e) {
+    if (!touchGameplayEnabled()) { resetTouchControls(); return; }
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) { joyMove(t); e.preventDefault(); }
       else if (t.identifier === lookId) { lookMove(t); e.preventDefault(); }
@@ -75,7 +83,9 @@ let joyBaseEl = null;
       }
       if (t.identifier === lookId) lookId = null;
       if (t.identifier === fireId) {
-        fireId = null; touchState.firing = false; touchState.ads = false; mouse1Down = false;
+        fireId = null; touchState.firing = false; mouse1Down = false;
+        if (e.type === 'touchcancel') touchState.tapFiring = false;
+        syncAds();
         document.getElementById('tbtn-fire').classList.remove('on');
       }
     }
@@ -85,15 +95,28 @@ let joyBaseEl = null;
 
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
-  addEventListener('blur', function () {
-    joyId = null; lookId = null; fireId = null;
-    touchState.firing = false; mouse1Down = false;
-    joyBase.classList.remove('on');
-    joyBase.classList.remove('sprint');
+  resetTouchControls = function () {
+    joyId = null; lookId = null; fireId = null; adsHeld = false;
+    touchState.moveX = touchState.moveZ = touchState.lookX = touchState.lookY = 0;
+    touchState.firing = touchState.tapFiring = touchState.ads = false;
+    mouse1Down = false; mouseX = mouseY = 0;
+    window.__analogMove = null;
+    for (const k of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ShiftLeft', 'Mouse2', 'KeyC', 'KeyG', '__use']) keys[k] = false;
+    for (const k of ['Space', 'KeyR', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
+    joyBase.classList.remove('on', 'sprint');
     joyStick.style.transform = 'translate(0,0)';
-  });
+    document.getElementById('tbtn-fire').classList.remove('on');
+    for (const reset of holdResets) reset();
+  };
+  // Compose with the existing pause/death/settings reset without changing desktop input.
+  const originalClearInputState = clearInputState;
+  clearInputState = function () { originalClearInputState(); resetTouchControls(); };
+  addEventListener('blur', resetTouchControls);
+  addEventListener('pagehide', resetTouchControls);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) resetTouchControls(); });
   lookZone.addEventListener('touchstart', function (e) {
     e.preventDefault();
+    if (!touchGameplayEnabled()) return;
     const t = e.changedTouches[0];
     if (lookId !== null) return;
     lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY;
@@ -118,39 +141,25 @@ let joyBaseEl = null;
   function holdBtn(id, on, off) {
     const el = document.getElementById(id);
     const fingers = new Set();
-    let startTime = 0;
-    let pendingTimer = null;
+    function reset() { fingers.clear(); el.classList.remove('on'); off(); }
+    holdResets.push(reset);
     function release(e) {
-      e.preventDefault(); for (const t of e.changedTouches) fingers.delete(t.identifier);
-      if (!fingers.size) {
-        const elapsed = performance.now() - startTime;
-        if (elapsed < 40) {
-          if (pendingTimer) clearTimeout(pendingTimer);
-          pendingTimer = setTimeout(function () {
-            pendingTimer = null;
-            if (!fingers.size) {
-              el.classList.remove('on');
-              off();
-            }
-          }, 40 - elapsed);
-        } else {
-          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-          el.classList.remove('on');
-          off();
-        }
-      }
+      let owned = false;
+      for (const t of e.changedTouches) if (fingers.delete(t.identifier)) owned = true;
+      if (!owned) return;
+      e.preventDefault();
+      if (!fingers.size) reset();
     }
     el.addEventListener('touchstart', function (e) {
       e.preventDefault();
-      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-      if (!fingers.size) startTime = performance.now();
+      if (!touchGameplayEnabled()) return;
+      const wasHeld = fingers.size > 0;
       for (const t of e.changedTouches) fingers.add(t.identifier);
-      el.classList.add('on'); on(); playSound('click');
+      if (!wasHeld && fingers.size) { el.classList.add('on'); on(); playSound('click'); }
     }, { passive: false });
-    addEventListener('blur', function () {
-      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-      fingers.clear(); el.classList.remove('on'); off();
-    });
+    // Window listeners also handle a finger drifting off its original hitbox.
+    addEventListener('touchend', release, { passive: false });
+    addEventListener('touchcancel', release, { passive: false });
     el.addEventListener('touchend', release, { passive: false });
     el.addEventListener('touchcancel', release, { passive: false });
   }
@@ -158,16 +167,17 @@ let joyBaseEl = null;
   const fireBtn = document.getElementById('tbtn-fire');
   fireBtn.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    if (fireId !== null) return;
+    if (!touchGameplayEnabled() || fireId !== null) return;
     const t = e.changedTouches[0];
     fireId = t.identifier; lastFX = t.clientX; lastFY = t.clientY;
     touchState.firing = true;
-    if (getSetting('fireMode') === 'ads + fire') touchState.ads = true;
+    touchState.tapFiring = true; // retain taps shorter than one render frame, not cancelled touches
+    syncAds();
     fireBtn.classList.add('on'); playSound('click');
   }, { passive: false });
   fireBtn.addEventListener('touchend', releaseTouches, { passive: false });
   fireBtn.addEventListener('touchcancel', releaseTouches, { passive: false });
-  holdBtn('tbtn-ads', function () { touchState.ads = true; }, function () { touchState.ads = false; });
+  holdBtn('tbtn-ads', function () { adsHeld = true; syncAds(); }, function () { adsHeld = false; syncAds(); });
   holdBtn('tbtn-jump', function () { pressed['Space'] = true; }, function () {});
   holdBtn('tbtn-slide', function () {
     // No delayed key writes: releasing/cancelling immediately releases crouch.
@@ -187,7 +197,8 @@ let joyBaseEl = null;
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
-    if (started && !paused && (!player || !player.dead)) pauseGame();
+    if (document.body.classList.contains('touch-editing')) return;
+    if (started && !paused && (!player || !player.dead)) { resetTouchControls(); pauseGame(); }
   }, { passive: false });
 })();
 
@@ -213,6 +224,7 @@ function applyTouchLayoutPositions() {
 }
 function openTouchLayoutEditor() {
   if (!IS_TOUCH) return;
+  resetTouchControls();
   const settings = document.getElementById('settings-screen');
   if (settings) settings.style.display = 'none';
   const ui = document.getElementById('touch-ui');
@@ -290,8 +302,10 @@ applyTouchLayoutPositions();
 // Feed touch state into the keyboard-driven player controller each frame.
 // Called from updatePlayer BEFORE movement intent is read.
 const _touchMoveKeys = { w: false, s: false, a: false, d: false };
+const _touchAnalogMove = { x: 0, z: 0 };
 function applyTouchInput() {
   if (!touchState.active) return;
+  if (!touchGameplayEnabled()) { resetTouchControls(); return; }
   // movement: joystick axes emulate WASD as analog
   if (touchState.moveX || touchState.moveZ) {
     CORE.touchMovementKeys(touchState.moveX, touchState.moveZ, CORE.JOYSTICK_MOVE_THRESHOLD, _touchMoveKeys);
@@ -299,7 +313,8 @@ function applyTouchInput() {
     keys['KeyS'] = _touchMoveKeys.s;
     keys['KeyD'] = _touchMoveKeys.d;
     keys['KeyA'] = _touchMoveKeys.a;
-    window.__analogMove = { x: touchState.moveX, z: touchState.moveZ };
+    _touchAnalogMove.x = touchState.moveX; _touchAnalogMove.z = touchState.moveZ;
+    window.__analogMove = _touchAnalogMove;
     // Full forward stick automatically sprints; ease the stick back to walk.
     const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
     keys['ShiftLeft'] = isSprint;
@@ -317,8 +332,9 @@ function applyTouchInput() {
   }
   // firing: mirror the touch button every frame so release cannot latch automatic fire
   mouse1Down = touchState.firing || touchState.tapFiring;
+  touchState.tapFiring = false;
   // ADS
-  keys['Mouse2'] = touchState.ads || (touchState.firing && getSetting('fireMode') === 'ads + fire');
+  keys['Mouse2'] = touchState.ads || (mouse1Down && getSetting('fireMode') === 'ads + fire');
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
   touchState.lookX = 0; touchState.lookY = 0;

@@ -790,6 +790,42 @@ const MM_STATION_COLOR = {
 // Metres of unaided detection. The UAV lifts this to the whole minimap.
 const MM_BASE_DETECT = 26;
 var _minimapBlocks = null;
+let _minimapBlockCanvas = null, _minimapBlockCtx = null;
+let _minimapBlockPose = { x: NaN, z: NaN, yaw: NaN, scale: NaN, blocks: null, ready: false };
+function paintMinimapBlocks(ctx, px, pz, yaw, scale, blocks, R) {
+  ctx.save(); ctx.translate(R, R); ctx.rotate(yaw);
+  ctx.fillStyle = 'rgba(160,170,185,0.5)';
+  const maxBlockDistSq = R * R * 2.4;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!CORE.isMinimapBlockVisible(b.minX, b.minZ, b.w, b.d, px, pz, scale, maxBlockDistSq)) continue;
+    ctx.fillRect((b.minX - px) * scale, (b.minZ - pz) * scale, b.w * scale, b.d * scale);
+  }
+  ctx.restore();
+}
+function drawMinimapBlockLayer(px, pz, yaw, scale, blocks, W, R) {
+  const pose = _minimapBlockPose;
+  if (pose.x !== px || pose.z !== pz || pose.yaw !== yaw || pose.scale !== scale || pose.blocks !== blocks) {
+    pose.x = px; pose.z = pz; pose.yaw = yaw; pose.scale = scale; pose.blocks = blocks; pose.ready = false;
+    // While moving, draw directly: transferring a canvas each turn can cost more
+    // than the blocks themselves, particularly on software rendering backends.
+    paintMinimapBlocks(mmCtx, px, pz, yaw, scale, blocks, R);
+    return;
+  }
+  if (!pose.ready) {
+    if (!_minimapBlockCanvas) {
+      _minimapBlockCanvas = document.createElement('canvas');
+      _minimapBlockCanvas.width = W; _minimapBlockCanvas.height = W;
+      _minimapBlockCtx = _minimapBlockCanvas.getContext('2d');
+    }
+    _minimapBlockCtx.clearRect(0, 0, W, W);
+    paintMinimapBlocks(_minimapBlockCtx, px, pz, yaw, scale, blocks, R);
+    pose.ready = true;
+  }
+  // Identity transform / integer destination preserves the static raster. Dynamic
+  // markers still draw on every existing HUD tick, above exactly the same blocks.
+  mmCtx.drawImage(_minimapBlockCanvas, 0, 0);
+}
 function getMinimapBlocks() {
   if (!_minimapBlocks && typeof colliders !== 'undefined' && colliders && colliders.length) {
     _minimapBlocks = CORE.filterMinimapColliders(colliders, 0.6);
@@ -807,20 +843,12 @@ function drawMinimap() {
   const W = 150, R = 75;
   const scale = CORE.minimapScale(R, CFG.world.size, 8);
   mmCtx.clearRect(0, 0, W, W);
+  const px = player.pos.x, pz = player.pos.z;
+  drawMinimapBlockLayer(px, pz, player.yaw, scale, getMinimapBlocks(), W, R);
   mmCtx.save();
   mmCtx.translate(R, R);
   // rotate so up = facing
   mmCtx.rotate(player.yaw);
-  const px = player.pos.x, pz = player.pos.z;
-  // colliders as blocks (pre-filtered static obstacle geometry)
-  mmCtx.fillStyle = 'rgba(160,170,185,0.5)';
-  const blocks = getMinimapBlocks();
-  const maxBlockDistSq = R * R * 2.4;
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (!CORE.isMinimapBlockVisible(b.minX, b.minZ, b.w, b.d, px, pz, scale, maxBlockDistSq)) continue;
-    mmCtx.fillRect((b.minX - px) * scale, (b.minZ - pz) * scale, b.w * scale, b.d * scale);
-  }
   // Baseline detection is near-only; the UAV reveals the whole arena. That split
   // is what gives the minimap — and the streak — any meaning at all.
   const detectSq = CORE.minimapDetectRadiusSq(uavActive(), R, MM_BASE_DETECT, scale);

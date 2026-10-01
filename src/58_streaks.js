@@ -236,6 +236,7 @@ function updateStreaks(dt) {
 
 // ---- HUD ---------------------------------------------------------------------
 let _touchStreakCache = { streakState: null, streakLabel: null };
+let _streakHudElement = null, _streakHudHtml = null;
 function updateHudStreaks() {
   const el = $id('streak-hud');
   if (el) {
@@ -247,7 +248,12 @@ function updateHudStreaks() {
     if (CORE.fieldReady(fieldCharge)) s += '<span class="field">FLD</span>';
     const next = CORE.nextStreak(streakKills);
     if (next) s += '<span class="next">' + next.short + ' ' + streakKills + '/' + next.kills + '</span>';
-    el.innerHTML = s;
+    // Damage can charge the field upgrade many times without changing any visible
+    // streak label. Avoid reparsing/replacing identical span trees on each hit.
+    if (el !== _streakHudElement || s !== _streakHudHtml) {
+      el.innerHTML = s;
+      _streakHudElement = el; _streakHudHtml = s;
+    }
   }
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
   if (isTouch) {

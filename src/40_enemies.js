@@ -274,17 +274,21 @@ function vertGapToPlayer(en) {
 
 // ---- Shared flow field ------------------------------------------------------
 // One breadth-first flood from the player's cell serves every enemy, so pathing
-// cost is independent of enemy count. Recomputed on a fixed cadence, or
-// immediately when the player crosses into a different cell.
+// cost is independent of enemy count. Static walkability + the same target cell
+// produce exactly the same field, so retain it until either input changes. Stuck
+// recovery still forces a refresh by resetting flowCellX below.
 let flowT = 0, flowCellX = -9999, flowCellZ = -9999;
+let _flowGrid = null;
 const FLOW_INTERVAL = 0.25;
 const _flowDir = { x: 0, z: 0 };
 function updateFlowField(dt) {
   if (!navGrid) return;
   flowT -= dt;
-  const cx = Math.floor(player.pos.x), cz = Math.floor(player.pos.z);
-  if (flowT > 0 && cx === flowCellX && cz === flowCellZ) return;
+  const cx = Math.floor((player.pos.x - navGrid.originX) / navGrid.cell);
+  const cz = Math.floor((player.pos.z - navGrid.originZ) / navGrid.cell);
+  if (navGrid === _flowGrid && cx === flowCellX && cz === flowCellZ) return;
   flowT = FLOW_INTERVAL;
+  _flowGrid = navGrid;
   flowCellX = cx; flowCellZ = cz;
   CORE.computeFlowField(navGrid, player.pos.x, player.pos.z);
 }
