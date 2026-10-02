@@ -113,6 +113,89 @@ function releaseSmokeCloudMesh(m) {
   smokeCloudPool.push(m);
 }
 
+// ---- Blast scorch decals (v117 visual polish): charred craters under detonations ----
+// Pre-allocated FIFO pool of 16 quads with TEX.scorch; zero runtime allocations, zero clones.
+const SCORCH = { max: CORE.SCORCH_MAX, live: [], pool: [] };
+const scorchGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+
+function warmupScorches() {
+  for (let i = 0; i < CORE.SCORCH_MAX; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: TEX.scorch,
+      transparent: true,
+      opacity: CORE.SCORCH_BASE_OPACITY,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
+    });
+    const m = new THREE.Mesh(scorchGeo, mat);
+    m.userData.vfx = true;
+    m.userData.isScorch = true;
+    m.renderOrder = 1;
+    m.visible = false;
+    scene.add(m);
+    SCORCH.pool.push({ m: m, life: 0, maxLife: CORE.SCORCH_LIFETIME, baseScale: 1, elapsed: 0 });
+  }
+}
+warmupScorches();
+
+function spawnScorch(pos, dmgScale) {
+  let s;
+  if (SCORCH.pool.length > 0) {
+    s = SCORCH.pool.pop();
+  } else if (SCORCH.live.length >= CORE.SCORCH_MAX) {
+    s = SCORCH.live.shift();
+  } else {
+    return;
+  }
+  const floorY = CORE.findFloorY(pos.x, pos.z, 0.25, colliders, pos.y, 0.6, 0);
+  const y = CORE.scorchElevation(pos.y, floorY, CORE.SCORCH_STANDOFF);
+  s.m.position.set(pos.x, y, pos.z);
+  s.m.rotation.y = CORE.scorchRotation(Math.random());
+  const baseScale = CORE.scorchScale(dmgScale, Math.random());
+  s.baseScale = baseScale;
+  s.life = CORE.SCORCH_LIFETIME;
+  s.maxLife = CORE.SCORCH_LIFETIME;
+  s.elapsed = 0;
+  const initScale = CORE.scorchScaleProgress(baseScale, 0, CORE.SCORCH_EXPANSION_DURATION);
+  s.m.scale.set(initScale, 1, initScale);
+  s.m.material.opacity = CORE.SCORCH_BASE_OPACITY;
+  s.m.visible = true;
+  SCORCH.live.push(s);
+}
+
+function updateScorches(dt) {
+  for (let i = SCORCH.live.length - 1; i >= 0; i--) {
+    const s = SCORCH.live[i];
+    s.elapsed += dt;
+    s.life = CORE.stepScorchLife(s.life, dt);
+    if (CORE.isScorchExpired(s.life)) {
+      s.m.visible = false;
+      SCORCH.pool.push(s);
+      SCORCH.live.splice(i, 1);
+      continue;
+    }
+    if (s.elapsed <= CORE.SCORCH_EXPANSION_DURATION) {
+      const curScale = CORE.scorchScaleProgress(s.baseScale, s.elapsed, CORE.SCORCH_EXPANSION_DURATION);
+      s.m.scale.set(curScale, 1, curScale);
+    }
+    if (s.life < CORE.SCORCH_FADE_DURATION) {
+      s.m.material.opacity = CORE.scorchOpacity(s.life, CORE.SCORCH_FADE_DURATION, CORE.SCORCH_BASE_OPACITY);
+    }
+  }
+}
+
+function clearScorches() {
+  for (let i = 0; i < SCORCH.live.length; i++) {
+    const s = SCORCH.live[i];
+    s.m.visible = false;
+    s.m.material.opacity = CORE.SCORCH_BASE_OPACITY;
+    SCORCH.pool.push(s);
+  }
+  SCORCH.live.length = 0;
+}
+
 let grenadeCharging = false;
 let grenadeChargeT = 0;
 
@@ -518,6 +601,7 @@ function updateEquipmentEffects(dt) {
     c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
     if (c.t <= 0) { releaseSmokeCloudMesh(c.m); smokeClouds.splice(i, 1); }
   }
+  updateScorches(dt);
 }
 
 function resetEquipment() {
@@ -533,6 +617,7 @@ function resetEquipment() {
     releaseSmokeCloudMesh(smokeClouds[i].m);
   }
   smokeClouds.length = 0;
+  clearScorches();
 }
 
 const grenadeLosRay = new THREE.Raycaster();
@@ -599,6 +684,7 @@ function explodeGrenade(pos, scale) {
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
   noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved
   if (player.pos.distanceTo(pos) < 18) postKick(0.7);
+  spawnScorch(pos, dmgScale);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {

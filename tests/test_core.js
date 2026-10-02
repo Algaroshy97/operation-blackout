@@ -7222,3 +7222,86 @@ test('configurable graphics settings schema, sanitization, and budget rules (v11
   assert.strictEqual(off.postfx, false);
 });
 
+test('persistent blast scorch decals, shockwave expansion, and enemy muzzle light visual polish rules (v117 visual polish)', () => {
+  // Scorch constants
+  assert.strictEqual(CORE.SCORCH_MAX, 16);
+  assert.strictEqual(CORE.SCORCH_LIFETIME, 24.0);
+  assert.strictEqual(CORE.SCORCH_FADE_DURATION, 4.0);
+  assert.strictEqual(CORE.SCORCH_BASE_RADIUS, 2.5);
+  assert.strictEqual(CORE.SCORCH_BASE_OPACITY, 0.88);
+  assert.strictEqual(CORE.SCORCH_STANDOFF, 0.016);
+  assert.strictEqual(CORE.SCORCH_EXPANSION_DURATION, 0.10);
+
+  // Scorch scaling: base, damage scaling, and bounds
+  const standardScale = CORE.scorchScale(1.0, 0.5);
+  assert.strictEqual(standardScale, 2.5);
+  const thermiteScale = CORE.scorchScale(0.45, 0.5);
+  assert.strictEqual(thermiteScale, 2.5 * 0.65);
+  const airstrikeScale = CORE.scorchScale(1.4, 0.5);
+  assert.strictEqual(airstrikeScale, 2.5 * 1.4);
+  const clampedMaxScale = CORE.scorchScale(2.5, 0.5);
+  assert.strictEqual(clampedMaxScale, 2.5 * 1.6);
+  assert.strictEqual(CORE.scorchScale(1.0, 0.0), 2.5 * 0.9);
+  assert.strictEqual(CORE.scorchScale(1.0, 1.0), 2.5 * 1.1);
+  assert.strictEqual(CORE.scorchScale(null, null), 2.5);
+  assert.strictEqual(CORE.scorchScale(NaN, NaN), 2.5);
+
+  // Dynamic shockwave expansion: from 45% at t=0 to 100% at t=duration
+  const initExp = CORE.scorchScaleProgress(2.5, 0, 0.10);
+  assert.strictEqual(initExp, 2.5 * 0.45);
+  const midExp = CORE.scorchScaleProgress(2.5, 0.05, 0.10);
+  assert.ok(Math.abs(midExp - 2.5 * 0.8625) < 1e-5);
+  const endExp = CORE.scorchScaleProgress(2.5, 0.10, 0.10);
+  assert.strictEqual(endExp, 2.5);
+  const postExp = CORE.scorchScaleProgress(2.5, 0.25, 0.10);
+  assert.strictEqual(postExp, 2.5);
+  assert.strictEqual(CORE.scorchScaleProgress(2.5, -1, 0.10), 2.5 * 0.45);
+  assert.strictEqual(CORE.scorchScaleProgress(null, null, null), 2.5);
+
+  // Scorch opacity: full opacity before fade window, smooth ease-out decay during fade
+  assert.strictEqual(CORE.scorchOpacity(24.0, 4.0, 0.88), 0.88);
+  assert.strictEqual(CORE.scorchOpacity(4.0, 4.0, 0.88), 0.88);
+  assert.ok(Math.abs(CORE.scorchOpacity(2.0, 4.0, 0.88) - 0.22) < 1e-5);
+  assert.ok(Math.abs(CORE.scorchOpacity(1.0, 4.0, 0.88) - 0.055) < 1e-5);
+  assert.strictEqual(CORE.scorchOpacity(0, 4.0, 0.88), 0);
+  assert.strictEqual(CORE.scorchOpacity(-0.5, 4.0, 0.88), 0);
+  assert.strictEqual(CORE.scorchOpacity(NaN, 4.0, 0.88), 0);
+
+  // Scorch lifecycle stepping & expiration
+  assert.strictEqual(CORE.stepScorchLife(24.0, 0.5), 23.5);
+  assert.strictEqual(CORE.stepScorchLife(0.2, 0.5), 0);
+  assert.strictEqual(CORE.stepScorchLife(null, 0.5), 0);
+  assert.strictEqual(CORE.isScorchExpired(24.0), false);
+  assert.strictEqual(CORE.isScorchExpired(0.01), false);
+  assert.strictEqual(CORE.isScorchExpired(0), true);
+  assert.strictEqual(CORE.isScorchExpired(-0.1), true);
+  assert.strictEqual(CORE.isScorchExpired(NaN), true);
+
+  // Scorch rotation & elevation
+  assert.strictEqual(CORE.scorchRotation(0), 0);
+  assert.strictEqual(CORE.scorchRotation(0.5), Math.PI);
+  assert.strictEqual(CORE.scorchRotation(1.0), 0);
+  assert.strictEqual(CORE.scorchElevation(0.5, 0, 0.016), 0.016);
+  assert.strictEqual(CORE.scorchElevation(3.5, 3.2, 0.016), 3.216);
+  assert.strictEqual(CORE.scorchElevation(0.2, null, 0.016), 0.016);
+
+  // Enemy muzzle flash lighting constants & parameters
+  assert.strictEqual(CORE.ENEMY_MUZZLE_LIGHT_COLOR, 0xff9944);
+  assert.strictEqual(CORE.ENEMY_MUZZLE_LIGHT_INTENSITY, 3.2);
+  assert.strictEqual(CORE.ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY, 4.5);
+  assert.strictEqual(CORE.ENEMY_MUZZLE_LIGHT_DIST, 9.0);
+  assert.strictEqual(CORE.ENEMY_MUZZLE_LIGHT_DUR, 0.08);
+
+  const stdLight = CORE.enemyMuzzleLightParams(false);
+  assert.strictEqual(stdLight.color, 0xff9944);
+  assert.strictEqual(stdLight.intensity, 3.2);
+  assert.strictEqual(stdLight.distance, 9.0);
+  assert.strictEqual(stdLight.duration, 0.08);
+
+  const eliteLight = CORE.enemyMuzzleLightParams(true);
+  assert.strictEqual(eliteLight.color, 0xff9944);
+  assert.strictEqual(eliteLight.intensity, 4.5);
+  assert.strictEqual(eliteLight.distance, 11.0);
+  assert.strictEqual(eliteLight.duration, 0.08);
+});
+

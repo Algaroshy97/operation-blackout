@@ -689,10 +689,16 @@ function enemyShoot(en, dist) {
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
-  if (en.parts.soldier && en.parts.J.gun) {
+  _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+  if (en.parts && en.parts.soldier && en.parts.J && en.parts.J.gun) {
     // out of the actual muzzle, with a flash the player can read the shooter by
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
-    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
+    _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+  }
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, false);
+  if (typeof flashLight === 'function') {
+    const elp = CORE.enemyMuzzleLightParams(en.elite);
+    flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
   }
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;

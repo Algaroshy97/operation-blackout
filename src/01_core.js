@@ -6413,6 +6413,75 @@ const CORE = (function () {
     return totalPlayerRounds(wState, weaponsOwned) > 0;
   }
 
+  // ---- Blast Scorch & Enemy Muzzle Flash Visual Rules (v117 Visual Polish) ----
+  const SCORCH_MAX = 16;
+  const SCORCH_LIFETIME = 24.0;
+  const SCORCH_FADE_DURATION = 4.0;
+  const SCORCH_BASE_RADIUS = 2.5;
+  const SCORCH_BASE_OPACITY = 0.88;
+  const SCORCH_STANDOFF = 0.016;
+  const SCORCH_EXPANSION_DURATION = 0.10;
+  const ENEMY_MUZZLE_LIGHT_COLOR = 0xff9944;
+  const ENEMY_MUZZLE_LIGHT_INTENSITY = 3.2;
+  const ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY = 4.5;
+  const ENEMY_MUZZLE_LIGHT_DIST = 9.0;
+  const ENEMY_MUZZLE_LIGHT_DUR = 0.08;
+
+  function scorchScale(dmgScale, jitter) {
+    const s = typeof dmgScale === 'number' && isFinite(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0;
+    const j = typeof jitter === 'number' && isFinite(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0;
+    return SCORCH_BASE_RADIUS * s * j;
+  }
+
+  function scorchScaleProgress(baseScale, elapsed, duration) {
+    const b = typeof baseScale === 'number' && isFinite(baseScale) ? baseScale : SCORCH_BASE_RADIUS;
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : SCORCH_EXPANSION_DURATION;
+    const el = typeof elapsed === 'number' && isFinite(elapsed) ? Math.max(0, elapsed) : dur;
+    if (el >= dur) return b;
+    const t = el / dur;
+    const progress = 1 - (1 - t) * (1 - t);
+    return b * (0.45 + 0.55 * progress);
+  }
+
+  function scorchOpacity(life, fadeDuration, maxOpacity) {
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0;
+    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : SCORCH_BASE_OPACITY;
+    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : SCORCH_FADE_DURATION;
+    if (life >= fade) return maxOp;
+    const t = Math.max(0, Math.min(1, life / fade));
+    return maxOp * t * t;
+  }
+
+  function stepScorchLife(life, dt) {
+    if (typeof life !== 'number' || !isFinite(life)) return 0;
+    const step = typeof dt === 'number' && isFinite(dt) ? dt : 0;
+    return Math.max(0, life - step);
+  }
+
+  function isScorchExpired(life) {
+    return typeof life !== 'number' || !isFinite(life) || life <= 0;
+  }
+
+  function scorchRotation(rand) {
+    const r = typeof rand === 'number' && isFinite(rand) ? rand : 0;
+    return (r % 1) * Math.PI * 2;
+  }
+
+  function scorchElevation(blastY, floorY, standoff) {
+    const so = typeof standoff === 'number' && isFinite(standoff) ? standoff : SCORCH_STANDOFF;
+    const f = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
+    return f + so;
+  }
+
+  function enemyMuzzleLightParams(isElite) {
+    return {
+      color: ENEMY_MUZZLE_LIGHT_COLOR,
+      intensity: isElite ? ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY : ENEMY_MUZZLE_LIGHT_INTENSITY,
+      distance: isElite ? 11.0 : ENEMY_MUZZLE_LIGHT_DIST,
+      duration: ENEMY_MUZZLE_LIGHT_DUR
+    };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7307,7 +7376,27 @@ const CORE = (function () {
     isGrenadeLosBlocker: isGrenadeLosBlocker,
     enemyToPlayerDir: enemyToPlayerDir,
     totalPlayerRounds: totalPlayerRounds,
-    hasPlayerRounds: hasPlayerRounds
+    hasPlayerRounds: hasPlayerRounds,
+    SCORCH_MAX: SCORCH_MAX,
+    SCORCH_LIFETIME: SCORCH_LIFETIME,
+    SCORCH_FADE_DURATION: SCORCH_FADE_DURATION,
+    SCORCH_BASE_RADIUS: SCORCH_BASE_RADIUS,
+    SCORCH_BASE_OPACITY: SCORCH_BASE_OPACITY,
+    SCORCH_STANDOFF: SCORCH_STANDOFF,
+    SCORCH_EXPANSION_DURATION: SCORCH_EXPANSION_DURATION,
+    ENEMY_MUZZLE_LIGHT_COLOR: ENEMY_MUZZLE_LIGHT_COLOR,
+    ENEMY_MUZZLE_LIGHT_INTENSITY: ENEMY_MUZZLE_LIGHT_INTENSITY,
+    ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY: ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY,
+    ENEMY_MUZZLE_LIGHT_DIST: ENEMY_MUZZLE_LIGHT_DIST,
+    ENEMY_MUZZLE_LIGHT_DUR: ENEMY_MUZZLE_LIGHT_DUR,
+    scorchScale: scorchScale,
+    scorchScaleProgress: scorchScaleProgress,
+    scorchOpacity: scorchOpacity,
+    stepScorchLife: stepScorchLife,
+    isScorchExpired: isScorchExpired,
+    scorchRotation: scorchRotation,
+    scorchElevation: scorchElevation,
+    enemyMuzzleLightParams: enemyMuzzleLightParams
   };
 })();
 

@@ -3031,7 +3031,57 @@ def main() -> int:
         }""")
         checks.append(("zero-alloc-raycast-hit-pooling-and-pfx-throttling-perf-rules", perf_win_check))
 
-        # 67) Clean console throughout gameplay.
+        # 67) Persistent blast scorch decals, shockwave expansion, and enemy muzzle light rules (v117 visual polish).
+        visual_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const constsOk = CORE.SCORCH_MAX === 16 &&
+                             CORE.SCORCH_LIFETIME === 24.0 &&
+                             CORE.SCORCH_FADE_DURATION === 4.0 &&
+                             CORE.SCORCH_BASE_RADIUS === 2.5 &&
+                             CORE.SCORCH_BASE_OPACITY === 0.88 &&
+                             CORE.SCORCH_STANDOFF === 0.016 &&
+                             CORE.SCORCH_EXPANSION_DURATION === 0.10 &&
+                             CORE.ENEMY_MUZZLE_LIGHT_COLOR === 0xff9944 &&
+                             CORE.ENEMY_MUZZLE_LIGHT_INTENSITY === 3.2 &&
+                             CORE.ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY === 4.5;
+
+            const scaleStd = CORE.scorchScale(1.0, 0.5);
+            const scaleThermite = CORE.scorchScale(0.45, 0.5);
+            const scaleAir = CORE.scorchScale(1.4, 0.5);
+            const scaleOk = scaleStd === 2.5 &&
+                            scaleThermite === 2.5 * 0.65 &&
+                            scaleAir === 2.5 * 1.4;
+
+            const expInit = CORE.scorchScaleProgress(2.5, 0, 0.10);
+            const expEnd = CORE.scorchScaleProgress(2.5, 0.10, 0.10);
+            const expOk = expInit === 2.5 * 0.45 && expEnd === 2.5;
+
+            const opFull = CORE.scorchOpacity(24.0, 4.0, 0.88);
+            const opFade = CORE.scorchOpacity(2.0, 4.0, 0.88);
+            const opZero = CORE.scorchOpacity(0, 4.0, 0.88);
+            const opOk = opFull === 0.88 &&
+                         Math.abs(opFade - 0.22) < 1e-4 &&
+                         opZero === 0;
+
+            const lifeStep = CORE.stepScorchLife(24.0, 1.0);
+            const expFalse = CORE.isScorchExpired(23.0);
+            const expTrue = CORE.isScorchExpired(0);
+            const lifeOk = lifeStep === 23.0 && expFalse === false && expTrue === true;
+
+            const rotOk = CORE.scorchRotation(0.5) === Math.PI;
+            const elevOk = CORE.scorchElevation(0.5, 0, 0.016) === 0.016;
+
+            const elpStd = CORE.enemyMuzzleLightParams(false);
+            const elpElite = CORE.enemyMuzzleLightParams(true);
+            const lightOk = elpStd.intensity === 3.2 && elpElite.intensity === 4.5 &&
+                            elpStd.color === 0xff9944 && elpElite.color === 0xff9944;
+
+            return constsOk && scaleOk && expOk && opOk && lifeOk && rotOk && elevOk && lightOk;
+        }""")
+        checks.append(("blast-scorch-and-enemy-muzzle-flash-visual-rules", visual_polish_check))
+
+        # 68) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

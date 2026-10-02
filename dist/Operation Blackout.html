@@ -11131,6 +11131,75 @@ const CORE = (function () {
     return totalPlayerRounds(wState, weaponsOwned) > 0;
   }
 
+  // ---- Blast Scorch & Enemy Muzzle Flash Visual Rules (v117 Visual Polish) ----
+  const SCORCH_MAX = 16;
+  const SCORCH_LIFETIME = 24.0;
+  const SCORCH_FADE_DURATION = 4.0;
+  const SCORCH_BASE_RADIUS = 2.5;
+  const SCORCH_BASE_OPACITY = 0.88;
+  const SCORCH_STANDOFF = 0.016;
+  const SCORCH_EXPANSION_DURATION = 0.10;
+  const ENEMY_MUZZLE_LIGHT_COLOR = 0xff9944;
+  const ENEMY_MUZZLE_LIGHT_INTENSITY = 3.2;
+  const ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY = 4.5;
+  const ENEMY_MUZZLE_LIGHT_DIST = 9.0;
+  const ENEMY_MUZZLE_LIGHT_DUR = 0.08;
+
+  function scorchScale(dmgScale, jitter) {
+    const s = typeof dmgScale === 'number' && isFinite(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0;
+    const j = typeof jitter === 'number' && isFinite(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0;
+    return SCORCH_BASE_RADIUS * s * j;
+  }
+
+  function scorchScaleProgress(baseScale, elapsed, duration) {
+    const b = typeof baseScale === 'number' && isFinite(baseScale) ? baseScale : SCORCH_BASE_RADIUS;
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : SCORCH_EXPANSION_DURATION;
+    const el = typeof elapsed === 'number' && isFinite(elapsed) ? Math.max(0, elapsed) : dur;
+    if (el >= dur) return b;
+    const t = el / dur;
+    const progress = 1 - (1 - t) * (1 - t);
+    return b * (0.45 + 0.55 * progress);
+  }
+
+  function scorchOpacity(life, fadeDuration, maxOpacity) {
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0;
+    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : SCORCH_BASE_OPACITY;
+    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : SCORCH_FADE_DURATION;
+    if (life >= fade) return maxOp;
+    const t = Math.max(0, Math.min(1, life / fade));
+    return maxOp * t * t;
+  }
+
+  function stepScorchLife(life, dt) {
+    if (typeof life !== 'number' || !isFinite(life)) return 0;
+    const step = typeof dt === 'number' && isFinite(dt) ? dt : 0;
+    return Math.max(0, life - step);
+  }
+
+  function isScorchExpired(life) {
+    return typeof life !== 'number' || !isFinite(life) || life <= 0;
+  }
+
+  function scorchRotation(rand) {
+    const r = typeof rand === 'number' && isFinite(rand) ? rand : 0;
+    return (r % 1) * Math.PI * 2;
+  }
+
+  function scorchElevation(blastY, floorY, standoff) {
+    const so = typeof standoff === 'number' && isFinite(standoff) ? standoff : SCORCH_STANDOFF;
+    const f = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
+    return f + so;
+  }
+
+  function enemyMuzzleLightParams(isElite) {
+    return {
+      color: ENEMY_MUZZLE_LIGHT_COLOR,
+      intensity: isElite ? ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY : ENEMY_MUZZLE_LIGHT_INTENSITY,
+      distance: isElite ? 11.0 : ENEMY_MUZZLE_LIGHT_DIST,
+      duration: ENEMY_MUZZLE_LIGHT_DUR
+    };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -12025,7 +12094,27 @@ const CORE = (function () {
     isGrenadeLosBlocker: isGrenadeLosBlocker,
     enemyToPlayerDir: enemyToPlayerDir,
     totalPlayerRounds: totalPlayerRounds,
-    hasPlayerRounds: hasPlayerRounds
+    hasPlayerRounds: hasPlayerRounds,
+    SCORCH_MAX: SCORCH_MAX,
+    SCORCH_LIFETIME: SCORCH_LIFETIME,
+    SCORCH_FADE_DURATION: SCORCH_FADE_DURATION,
+    SCORCH_BASE_RADIUS: SCORCH_BASE_RADIUS,
+    SCORCH_BASE_OPACITY: SCORCH_BASE_OPACITY,
+    SCORCH_STANDOFF: SCORCH_STANDOFF,
+    SCORCH_EXPANSION_DURATION: SCORCH_EXPANSION_DURATION,
+    ENEMY_MUZZLE_LIGHT_COLOR: ENEMY_MUZZLE_LIGHT_COLOR,
+    ENEMY_MUZZLE_LIGHT_INTENSITY: ENEMY_MUZZLE_LIGHT_INTENSITY,
+    ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY: ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY,
+    ENEMY_MUZZLE_LIGHT_DIST: ENEMY_MUZZLE_LIGHT_DIST,
+    ENEMY_MUZZLE_LIGHT_DUR: ENEMY_MUZZLE_LIGHT_DUR,
+    scorchScale: scorchScale,
+    scorchScaleProgress: scorchScaleProgress,
+    scorchOpacity: scorchOpacity,
+    stepScorchLife: stepScorchLife,
+    isScorchExpired: isScorchExpired,
+    scorchRotation: scorchRotation,
+    scorchElevation: scorchElevation,
+    enemyMuzzleLightParams: enemyMuzzleLightParams
   };
 })();
 
@@ -17006,10 +17095,16 @@ function enemyShoot(en, dist) {
   playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
-  if (en.parts.soldier && en.parts.J.gun) {
+  _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+  if (en.parts && en.parts.soldier && en.parts.J && en.parts.J.gun) {
     // out of the actual muzzle, with a flash the player can read the shooter by
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
-    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), false);
+    _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+  }
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, false);
+  if (typeof flashLight === 'function') {
+    const elp = CORE.enemyMuzzleLightParams(en.elite);
+    flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
   }
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
@@ -18662,6 +18757,89 @@ function releaseSmokeCloudMesh(m) {
   smokeCloudPool.push(m);
 }
 
+// ---- Blast scorch decals (v117 visual polish): charred craters under detonations ----
+// Pre-allocated FIFO pool of 16 quads with TEX.scorch; zero runtime allocations, zero clones.
+const SCORCH = { max: CORE.SCORCH_MAX, live: [], pool: [] };
+const scorchGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+
+function warmupScorches() {
+  for (let i = 0; i < CORE.SCORCH_MAX; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: TEX.scorch,
+      transparent: true,
+      opacity: CORE.SCORCH_BASE_OPACITY,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
+    });
+    const m = new THREE.Mesh(scorchGeo, mat);
+    m.userData.vfx = true;
+    m.userData.isScorch = true;
+    m.renderOrder = 1;
+    m.visible = false;
+    scene.add(m);
+    SCORCH.pool.push({ m: m, life: 0, maxLife: CORE.SCORCH_LIFETIME, baseScale: 1, elapsed: 0 });
+  }
+}
+warmupScorches();
+
+function spawnScorch(pos, dmgScale) {
+  let s;
+  if (SCORCH.pool.length > 0) {
+    s = SCORCH.pool.pop();
+  } else if (SCORCH.live.length >= CORE.SCORCH_MAX) {
+    s = SCORCH.live.shift();
+  } else {
+    return;
+  }
+  const floorY = CORE.findFloorY(pos.x, pos.z, 0.25, colliders, pos.y, 0.6, 0);
+  const y = CORE.scorchElevation(pos.y, floorY, CORE.SCORCH_STANDOFF);
+  s.m.position.set(pos.x, y, pos.z);
+  s.m.rotation.y = CORE.scorchRotation(Math.random());
+  const baseScale = CORE.scorchScale(dmgScale, Math.random());
+  s.baseScale = baseScale;
+  s.life = CORE.SCORCH_LIFETIME;
+  s.maxLife = CORE.SCORCH_LIFETIME;
+  s.elapsed = 0;
+  const initScale = CORE.scorchScaleProgress(baseScale, 0, CORE.SCORCH_EXPANSION_DURATION);
+  s.m.scale.set(initScale, 1, initScale);
+  s.m.material.opacity = CORE.SCORCH_BASE_OPACITY;
+  s.m.visible = true;
+  SCORCH.live.push(s);
+}
+
+function updateScorches(dt) {
+  for (let i = SCORCH.live.length - 1; i >= 0; i--) {
+    const s = SCORCH.live[i];
+    s.elapsed += dt;
+    s.life = CORE.stepScorchLife(s.life, dt);
+    if (CORE.isScorchExpired(s.life)) {
+      s.m.visible = false;
+      SCORCH.pool.push(s);
+      SCORCH.live.splice(i, 1);
+      continue;
+    }
+    if (s.elapsed <= CORE.SCORCH_EXPANSION_DURATION) {
+      const curScale = CORE.scorchScaleProgress(s.baseScale, s.elapsed, CORE.SCORCH_EXPANSION_DURATION);
+      s.m.scale.set(curScale, 1, curScale);
+    }
+    if (s.life < CORE.SCORCH_FADE_DURATION) {
+      s.m.material.opacity = CORE.scorchOpacity(s.life, CORE.SCORCH_FADE_DURATION, CORE.SCORCH_BASE_OPACITY);
+    }
+  }
+}
+
+function clearScorches() {
+  for (let i = 0; i < SCORCH.live.length; i++) {
+    const s = SCORCH.live[i];
+    s.m.visible = false;
+    s.m.material.opacity = CORE.SCORCH_BASE_OPACITY;
+    SCORCH.pool.push(s);
+  }
+  SCORCH.live.length = 0;
+}
+
 let grenadeCharging = false;
 let grenadeChargeT = 0;
 
@@ -19067,6 +19245,7 @@ function updateEquipmentEffects(dt) {
     c.m.material.opacity = CORE.smokeCloudOpacity(c.t, 1.5, 0.62);
     if (c.t <= 0) { releaseSmokeCloudMesh(c.m); smokeClouds.splice(i, 1); }
   }
+  updateScorches(dt);
 }
 
 function resetEquipment() {
@@ -19082,6 +19261,7 @@ function resetEquipment() {
     releaseSmokeCloudMesh(smokeClouds[i].m);
   }
   smokeClouds.length = 0;
+  clearScorches();
 }
 
 const grenadeLosRay = new THREE.Raycaster();
@@ -19148,6 +19328,7 @@ function explodeGrenade(pos, scale) {
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
   noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved
   if (player.pos.distanceTo(pos) < 18) postKick(0.7);
+  spawnScorch(pos, dmgScale);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
   for (let i = 0; i < enemies.length; i++) {
