@@ -73,7 +73,8 @@ const player = {
   // fall damage: peak downward speed while airborne, and the landing recovery
   airSpeedY: 0, landStunT: 0,
   // last stand: alive, but on the floor and bleeding out
-  downed: false
+  downed: false,
+  heartbeatT: 0
 };
 
 // Juggernaut raises the ceiling, so nothing may compare against the raw config
@@ -370,6 +371,17 @@ function updatePlayer(dt) {
   const maxHp = playerMaxHealth();
   if (CORE.canRegenHealth(player.downed, timeSinceDmg, CFG.player.regenDelay, player.health, maxHp)) {
     player.health = CORE.stepHealthRegen(player.health, maxHp, CFG.player.regenRate, diff().regen, dt);
+  }
+
+  // critical health heartbeat audio
+  const isCrit = CORE.isHealthCritical(player.health, maxHp);
+  if (CORE.shouldPlayHeartbeat(player.dead, player.downed, isCrit)) {
+    const bpm = CORE.heartbeatBpm(player.health, maxHp);
+    const hb = CORE.stepHeartbeatTimer(player.heartbeatT, dt, bpm);
+    player.heartbeatT = hb.nextTimer;
+    if (hb.ready) playSound(CORE.heartbeatSound());
+  } else {
+    player.heartbeatT = 0;
   }
 
   // head bob

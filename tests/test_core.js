@@ -7305,3 +7305,80 @@ test('persistent blast scorch decals, shockwave expansion, and enemy muzzle ligh
   assert.strictEqual(eliteLight.duration, 0.08);
 });
 
+test('critical heartbeat, elite gunfire, and atmospheric air-absorption audio rules (v118 audio polish)', () => {
+  // Constants
+  assert.strictEqual(CORE.HEARTBEAT_BPM_MIN, 72);
+  assert.strictEqual(CORE.HEARTBEAT_BPM_MAX, 136);
+  assert.strictEqual(CORE.AIR_ABSORPTION_MAX_FREQ, 8000);
+  assert.strictEqual(CORE.AIR_ABSORPTION_MIN_FREQ, 500);
+  assert.strictEqual(CORE.AIR_ABSORPTION_Q, 0.5);
+
+  // Heartbeat BPM scaling with health and critical danger intensity
+  // At threshold (25 HP for max 100), intensity is 0 -> min BPM 72
+  assert.strictEqual(CORE.heartbeatBpm(25, 100), 72);
+  // Full health (100 HP) -> min BPM 72
+  assert.strictEqual(CORE.heartbeatBpm(100, 100), 72);
+  // Halfway through critical (12.5 HP) -> intensity 0.5 -> 72 + 0.5 * 64 = 104 BPM
+  assert.strictEqual(CORE.heartbeatBpm(12.5, 100), 104);
+  // Near death (0 HP or 1 HP)
+  const bpmNearDeath = CORE.heartbeatBpm(1, 100);
+  assert.ok(bpmNearDeath > 130 && bpmNearDeath <= 136);
+
+  // Heartbeat interval (60 / bpm)
+  assert.ok(Math.abs(CORE.heartbeatInterval(60) - 1.0) < 1e-5);
+  assert.ok(Math.abs(CORE.heartbeatInterval(120) - 0.5) < 1e-5);
+  assert.ok(Math.abs(CORE.heartbeatInterval(72) - (60 / 72)) < 1e-5);
+
+  // Heartbeat timer stepping & ready triggering
+  // Timer with positive remaining time
+  const stepWait = CORE.stepHeartbeatTimer(0.5, 0.1, 72);
+  assert.strictEqual(stepWait.ready, false);
+  assert.ok(Math.abs(stepWait.nextTimer - 0.4) < 1e-5);
+
+  // Timer expiration triggers ready and resets to interval
+  const stepTrigger = CORE.stepHeartbeatTimer(0.05, 0.1, 72);
+  assert.strictEqual(stepTrigger.ready, true);
+  assert.ok(Math.abs(stepTrigger.nextTimer - (60 / 72)) < 1e-5);
+
+  // Initial zero timer immediately triggers
+  const stepZero = CORE.stepHeartbeatTimer(0, 0.016, 120);
+  assert.strictEqual(stepZero.ready, true);
+  assert.ok(Math.abs(stepZero.nextTimer - 0.5) < 1e-5);
+
+  // shouldPlayHeartbeat gating
+  assert.strictEqual(CORE.shouldPlayHeartbeat(false, false, true), true);
+  assert.strictEqual(CORE.shouldPlayHeartbeat(true, false, true), false);   // dead
+  assert.strictEqual(CORE.shouldPlayHeartbeat(false, true, true), false);   // downed
+  assert.strictEqual(CORE.shouldPlayHeartbeat(false, false, false), false);  // nominal health
+
+  // Audio identifiers
+  assert.strictEqual(CORE.heartbeatSound(), 'heartbeat');
+  assert.strictEqual(CORE.enemyGunfireSound(false), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(true), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(undefined), 'eshot');
+
+  // Atmospheric air absorption cutoff
+  // At zero distance: maximum high-frequency clarity (8000 Hz)
+  assert.strictEqual(CORE.spatialAudioCutoff(0, 55), 8000);
+  // At maximum distance: muffled absorption cutoff (500 Hz)
+  assert.strictEqual(CORE.spatialAudioCutoff(55, 55), 500);
+  // Beyond maximum distance: clamped to minimum cutoff (500 Hz)
+  assert.strictEqual(CORE.spatialAudioCutoff(70, 55), 500);
+  // Negative distance: clamped to maximum cutoff (8000 Hz)
+  assert.strictEqual(CORE.spatialAudioCutoff(-5, 55), 8000);
+  // Midpoint distance (27.5 m out of 55 m): 8000 - 7500 * 0.5 = 4250 Hz
+  assert.strictEqual(CORE.spatialAudioCutoff(27.5, 55), 4250);
+
+  // spatialAudioParams includes cutoff in result
+  const nearParams = CORE.spatialAudioParams(0, 0, 0);
+  assert.strictEqual(nearParams.audible, true);
+  assert.strictEqual(nearParams.cutoff, 8000);
+
+  const midParams = CORE.spatialAudioParams(27.5, 0, 0);
+  assert.strictEqual(midParams.audible, true);
+  assert.strictEqual(midParams.cutoff, 4250);
+
+  const distantParams = CORE.spatialAudioParams(100, 0, 0);
+  assert.strictEqual(distantParams.audible, false);
+  assert.strictEqual(distantParams.cutoff, 500);
+});

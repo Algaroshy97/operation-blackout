@@ -686,7 +686,7 @@ const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
-  playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
+  playSound3D(CORE.enemyGunfireSound(en.elite), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();

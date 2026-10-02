@@ -579,13 +579,27 @@ const CORE = (function () {
     return minV + (1 - minV) * norm * norm;
   }
 
+  const AIR_ABSORPTION_MAX_FREQ = 8000;
+  const AIR_ABSORPTION_MIN_FREQ = 500;
+  const AIR_ABSORPTION_Q = 0.5;
+
+  function spatialAudioCutoff(dist, maxDist, maxFreq, minFreq) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const hi = (typeof maxFreq === 'number' && isFinite(maxFreq) && maxFreq > 0) ? maxFreq : AIR_ABSORPTION_MAX_FREQ;
+    const lo = (typeof minFreq === 'number' && isFinite(minFreq) && minFreq >= 0) ? minFreq : AIR_ABSORPTION_MIN_FREQ;
+    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    const ratio = Math.max(0, Math.min(1, d / maxD));
+    return hi - (hi - lo) * ratio;
+  }
+
   function spatialAudioParams(dx, dz, playerYaw, maxDist) {
     const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
     const dist = Math.hypot(dx, dz);
-    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, audible: false };
+    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
     const pan = spatialAudioPan(dx, dz, playerYaw, dist);
     const vol = spatialAudioVolume(dist, maxD);
-    return { dist: dist, pan: pan, vol: vol, audible: true };
+    const cutoff = spatialAudioCutoff(dist, maxD);
+    return { dist: dist, pan: pan, vol: vol, cutoff: cutoff, audible: true };
   }
 
   const SPATIAL_EXPLOSION_MAX_DIST = 85;
@@ -6482,6 +6496,44 @@ const CORE = (function () {
     };
   }
 
+  // ---- Critical Heartbeat, Elite Gunfire & Air Absorption Audio (v118 Audio Polish) ----
+  const HEARTBEAT_BPM_MIN = 72;
+  const HEARTBEAT_BPM_MAX = 136;
+
+  function heartbeatBpm(health, maxHealth, ratio) {
+    const intensity = criticalHealthIntensity(health, maxHealth, ratio);
+    return HEARTBEAT_BPM_MIN + intensity * (HEARTBEAT_BPM_MAX - HEARTBEAT_BPM_MIN);
+  }
+
+  function heartbeatInterval(bpm) {
+    const b = (typeof bpm === 'number' && isFinite(bpm) && bpm > 0) ? bpm : HEARTBEAT_BPM_MIN;
+    return 60 / b;
+  }
+
+  function stepHeartbeatTimer(timer, dt, bpm) {
+    const t = (typeof timer === 'number' && isFinite(timer)) ? timer : 0;
+    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
+    const interval = heartbeatInterval(bpm);
+    const next = t - d;
+    if (next <= 0) {
+      return { ready: true, nextTimer: interval };
+    }
+    return { ready: false, nextTimer: next };
+  }
+
+  function shouldPlayHeartbeat(isDead, isDowned, isCritical) {
+    if (isDead || isDowned) return false;
+    return !!isCritical;
+  }
+
+  function heartbeatSound() {
+    return 'heartbeat';
+  }
+
+  function enemyGunfireSound(isElite) {
+    return isElite ? 'eshot_elite' : 'eshot';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7396,7 +7448,19 @@ const CORE = (function () {
     isScorchExpired: isScorchExpired,
     scorchRotation: scorchRotation,
     scorchElevation: scorchElevation,
-    enemyMuzzleLightParams: enemyMuzzleLightParams
+    enemyMuzzleLightParams: enemyMuzzleLightParams,
+    AIR_ABSORPTION_MAX_FREQ: AIR_ABSORPTION_MAX_FREQ,
+    AIR_ABSORPTION_MIN_FREQ: AIR_ABSORPTION_MIN_FREQ,
+    AIR_ABSORPTION_Q: AIR_ABSORPTION_Q,
+    spatialAudioCutoff: spatialAudioCutoff,
+    HEARTBEAT_BPM_MIN: HEARTBEAT_BPM_MIN,
+    HEARTBEAT_BPM_MAX: HEARTBEAT_BPM_MAX,
+    heartbeatBpm: heartbeatBpm,
+    heartbeatInterval: heartbeatInterval,
+    stepHeartbeatTimer: stepHeartbeatTimer,
+    shouldPlayHeartbeat: shouldPlayHeartbeat,
+    heartbeatSound: heartbeatSound,
+    enemyGunfireSound: enemyGunfireSound
   };
 })();
 

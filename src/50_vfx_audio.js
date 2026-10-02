@@ -486,7 +486,8 @@ const SND_MIN_GAP = {
   casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
   sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
-  draw_heavy: 0.15, draw_light: 0.15
+  draw_heavy: 0.15, draw_light: 0.15,
+  heartbeat: 0.3, eshot_elite: 0.05
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -595,7 +596,9 @@ const SOUND_RECIPES = {
   draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]],
   bullet_whiz:       [['noise', 0.035, 0.28, 3600, 3.2], ['osc', 'sine', 2100, 480, 0.03, 0.14]],
   reload_bolt:       [['noise', 0.07, 0.28, 1400, 2.0], ['osc', 'square', 340, 180, 0.05, 0.15], ['osc', 'sine', 160, 70, 0.08, 0.22]],
-  low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]]
+  low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]],
+  heartbeat:         [['osc', 'sine', 68, 30, 0.11, 0.32], ['osc', 'sine', 52, 22, 0.13, 0.26], ['noise', 0.06, 0.12, 110, 0.8]],
+  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -614,7 +617,7 @@ const SOUND_VARIED = {
   impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
-  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1
+  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1
 };
 
 function recipeDuration(recipe) {
@@ -719,14 +722,10 @@ function playSound3D(name, x, y, z, maxDist) {
   const dx = x - player.pos.x, dz = z - player.pos.z;
   const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
   if (!spatial.audible) return;
-  const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0)
-    ? maxDist : 55;
-  // Cutoff: 8000 Hz at point-blank → 500 Hz at full range (linear interp).
-  const cutoff = 8000 - 7500 * Math.min(1, spatial.dist / maxD);
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = cutoff;
-  lp.Q.value = 0.5;          // gentle slope — no resonant peak
+  lp.frequency.value = spatial.cutoff;
+  lp.Q.value = CORE.AIR_ABSORPTION_Q;
   const g = ctx.createGain();
   g.gain.value = spatial.vol;
   g.connect(lp);

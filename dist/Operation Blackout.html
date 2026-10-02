@@ -5297,13 +5297,27 @@ const CORE = (function () {
     return minV + (1 - minV) * norm * norm;
   }
 
+  const AIR_ABSORPTION_MAX_FREQ = 8000;
+  const AIR_ABSORPTION_MIN_FREQ = 500;
+  const AIR_ABSORPTION_Q = 0.5;
+
+  function spatialAudioCutoff(dist, maxDist, maxFreq, minFreq) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const hi = (typeof maxFreq === 'number' && isFinite(maxFreq) && maxFreq > 0) ? maxFreq : AIR_ABSORPTION_MAX_FREQ;
+    const lo = (typeof minFreq === 'number' && isFinite(minFreq) && minFreq >= 0) ? minFreq : AIR_ABSORPTION_MIN_FREQ;
+    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    const ratio = Math.max(0, Math.min(1, d / maxD));
+    return hi - (hi - lo) * ratio;
+  }
+
   function spatialAudioParams(dx, dz, playerYaw, maxDist) {
     const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
     const dist = Math.hypot(dx, dz);
-    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, audible: false };
+    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
     const pan = spatialAudioPan(dx, dz, playerYaw, dist);
     const vol = spatialAudioVolume(dist, maxD);
-    return { dist: dist, pan: pan, vol: vol, audible: true };
+    const cutoff = spatialAudioCutoff(dist, maxD);
+    return { dist: dist, pan: pan, vol: vol, cutoff: cutoff, audible: true };
   }
 
   const SPATIAL_EXPLOSION_MAX_DIST = 85;
@@ -11200,6 +11214,44 @@ const CORE = (function () {
     };
   }
 
+  // ---- Critical Heartbeat, Elite Gunfire & Air Absorption Audio (v118 Audio Polish) ----
+  const HEARTBEAT_BPM_MIN = 72;
+  const HEARTBEAT_BPM_MAX = 136;
+
+  function heartbeatBpm(health, maxHealth, ratio) {
+    const intensity = criticalHealthIntensity(health, maxHealth, ratio);
+    return HEARTBEAT_BPM_MIN + intensity * (HEARTBEAT_BPM_MAX - HEARTBEAT_BPM_MIN);
+  }
+
+  function heartbeatInterval(bpm) {
+    const b = (typeof bpm === 'number' && isFinite(bpm) && bpm > 0) ? bpm : HEARTBEAT_BPM_MIN;
+    return 60 / b;
+  }
+
+  function stepHeartbeatTimer(timer, dt, bpm) {
+    const t = (typeof timer === 'number' && isFinite(timer)) ? timer : 0;
+    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
+    const interval = heartbeatInterval(bpm);
+    const next = t - d;
+    if (next <= 0) {
+      return { ready: true, nextTimer: interval };
+    }
+    return { ready: false, nextTimer: next };
+  }
+
+  function shouldPlayHeartbeat(isDead, isDowned, isCritical) {
+    if (isDead || isDowned) return false;
+    return !!isCritical;
+  }
+
+  function heartbeatSound() {
+    return 'heartbeat';
+  }
+
+  function enemyGunfireSound(isElite) {
+    return isElite ? 'eshot_elite' : 'eshot';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -12114,7 +12166,19 @@ const CORE = (function () {
     isScorchExpired: isScorchExpired,
     scorchRotation: scorchRotation,
     scorchElevation: scorchElevation,
-    enemyMuzzleLightParams: enemyMuzzleLightParams
+    enemyMuzzleLightParams: enemyMuzzleLightParams,
+    AIR_ABSORPTION_MAX_FREQ: AIR_ABSORPTION_MAX_FREQ,
+    AIR_ABSORPTION_MIN_FREQ: AIR_ABSORPTION_MIN_FREQ,
+    AIR_ABSORPTION_Q: AIR_ABSORPTION_Q,
+    spatialAudioCutoff: spatialAudioCutoff,
+    HEARTBEAT_BPM_MIN: HEARTBEAT_BPM_MIN,
+    HEARTBEAT_BPM_MAX: HEARTBEAT_BPM_MAX,
+    heartbeatBpm: heartbeatBpm,
+    heartbeatInterval: heartbeatInterval,
+    stepHeartbeatTimer: stepHeartbeatTimer,
+    shouldPlayHeartbeat: shouldPlayHeartbeat,
+    heartbeatSound: heartbeatSound,
+    enemyGunfireSound: enemyGunfireSound
   };
 })();
 
@@ -13741,7 +13805,8 @@ const player = {
   // fall damage: peak downward speed while airborne, and the landing recovery
   airSpeedY: 0, landStunT: 0,
   // last stand: alive, but on the floor and bleeding out
-  downed: false
+  downed: false,
+  heartbeatT: 0
 };
 
 // Juggernaut raises the ceiling, so nothing may compare against the raw config
@@ -14038,6 +14103,17 @@ function updatePlayer(dt) {
   const maxHp = playerMaxHealth();
   if (CORE.canRegenHealth(player.downed, timeSinceDmg, CFG.player.regenDelay, player.health, maxHp)) {
     player.health = CORE.stepHealthRegen(player.health, maxHp, CFG.player.regenRate, diff().regen, dt);
+  }
+
+  // critical health heartbeat audio
+  const isCrit = CORE.isHealthCritical(player.health, maxHp);
+  if (CORE.shouldPlayHeartbeat(player.dead, player.downed, isCrit)) {
+    const bpm = CORE.heartbeatBpm(player.health, maxHp);
+    const hb = CORE.stepHeartbeatTimer(player.heartbeatT, dt, bpm);
+    player.heartbeatT = hb.nextTimer;
+    if (hb.ready) playSound(CORE.heartbeatSound());
+  } else {
+    player.heartbeatT = 0;
   }
 
   // head bob
@@ -17092,7 +17168,7 @@ const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist) {
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
-  playSound3D('eshot', en.pos.x, en.pos.y, en.pos.z);
+  playSound3D(CORE.enemyGunfireSound(en.elite), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
@@ -18264,7 +18340,8 @@ const SND_MIN_GAP = {
   casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
   sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
-  draw_heavy: 0.15, draw_light: 0.15
+  draw_heavy: 0.15, draw_light: 0.15,
+  heartbeat: 0.3, eshot_elite: 0.05
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -18373,7 +18450,9 @@ const SOUND_RECIPES = {
   draw_light:        [['noise', 0.04, 0.14, 2400, 2.5], ['osc', 'sine', 400, 600, 0.03, 0.08]],
   bullet_whiz:       [['noise', 0.035, 0.28, 3600, 3.2], ['osc', 'sine', 2100, 480, 0.03, 0.14]],
   reload_bolt:       [['noise', 0.07, 0.28, 1400, 2.0], ['osc', 'square', 340, 180, 0.05, 0.15], ['osc', 'sine', 160, 70, 0.08, 0.22]],
-  low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]]
+  low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]],
+  heartbeat:         [['osc', 'sine', 68, 30, 0.11, 0.32], ['osc', 'sine', 52, 22, 0.13, 0.26], ['noise', 0.06, 0.12, 110, 0.8]],
+  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -18392,7 +18471,7 @@ const SOUND_VARIED = {
   impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
-  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1
+  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1
 };
 
 function recipeDuration(recipe) {
@@ -18497,14 +18576,10 @@ function playSound3D(name, x, y, z, maxDist) {
   const dx = x - player.pos.x, dz = z - player.pos.z;
   const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
   if (!spatial.audible) return;
-  const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0)
-    ? maxDist : 55;
-  // Cutoff: 8000 Hz at point-blank → 500 Hz at full range (linear interp).
-  const cutoff = 8000 - 7500 * Math.min(1, spatial.dist / maxD);
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = cutoff;
-  lp.Q.value = 0.5;          // gentle slope — no resonant peak
+  lp.frequency.value = spatial.cutoff;
+  lp.Q.value = CORE.AIR_ABSORPTION_Q;
   const g = ctx.createGain();
   g.gain.value = spatial.vol;
   g.connect(lp);
@@ -21667,7 +21742,7 @@ function resetGame() {
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
   waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
   resetRagdolls();
-  player.airSpeedY = 0; player.landStunT = 0;
+  player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;

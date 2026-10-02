@@ -175,7 +175,7 @@ function resetGame() {
   resetStations(); clearDowned(); resetEquipment(); resetStreaks();
   waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
   resetRagdolls();
-  player.airSpeedY = 0; player.landStunT = 0;
+  player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
   updateHudPlates(); updateHudPerks();
   recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
   credits = 0;

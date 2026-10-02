@@ -3081,7 +3081,56 @@ def main() -> int:
         }""")
         checks.append(("blast-scorch-and-enemy-muzzle-flash-visual-rules", visual_polish_check))
 
-        # 68) Clean console throughout gameplay.
+        # 68) Critical heartbeat, elite gunfire, and atmospheric air-absorption audio rules (v118 audio polish).
+        audio_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.HEARTBEAT_BPM_MIN === 72 &&
+                             CORE.HEARTBEAT_BPM_MAX === 136 &&
+                             CORE.AIR_ABSORPTION_MAX_FREQ === 8000 &&
+                             CORE.AIR_ABSORPTION_MIN_FREQ === 500 &&
+                             CORE.AIR_ABSORPTION_Q === 0.5;
+
+            const bpmMin = CORE.heartbeatBpm(25, 100);
+            const bpmMid = CORE.heartbeatBpm(12.5, 100);
+            const bpmOk = bpmMin === 72 && bpmMid === 104;
+
+            const intOk = Math.abs(CORE.heartbeatInterval(120) - 0.5) < 1e-5;
+
+            const stepWait = CORE.stepHeartbeatTimer(0.5, 0.1, 72);
+            const stepTrig = CORE.stepHeartbeatTimer(0.05, 0.1, 72);
+            const stepOk = stepWait.ready === false && stepTrig.ready === true;
+
+            const gateOk = CORE.shouldPlayHeartbeat(false, false, true) === true &&
+                           CORE.shouldPlayHeartbeat(true, false, true) === false &&
+                           CORE.shouldPlayHeartbeat(false, true, true) === false &&
+                           CORE.shouldPlayHeartbeat(false, false, false) === false;
+
+            const sndOk = CORE.heartbeatSound() === 'heartbeat' &&
+                          CORE.enemyGunfireSound(false) === 'eshot' &&
+                          CORE.enemyGunfireSound(true) === 'eshot_elite';
+
+            const cut0 = CORE.spatialAudioCutoff(0, 55);
+            const cut55 = CORE.spatialAudioCutoff(55, 55);
+            const cutMid = CORE.spatialAudioCutoff(27.5, 55);
+            const cutoffOk = cut0 === 8000 && cut55 === 500 && cutMid === 4250;
+
+            const nearP = CORE.spatialAudioParams(0, 0, 0);
+            const distP = CORE.spatialAudioParams(100, 0, 0);
+            const paramsOk = nearP.cutoff === 8000 && distP.cutoff === 500;
+
+            const recipesOk = typeof SOUND_RECIPES !== 'undefined' &&
+                              Array.isArray(SOUND_RECIPES.heartbeat) &&
+                              Array.isArray(SOUND_RECIPES.eshot_elite);
+
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             SOUND_VARIED.heartbeat === 1 &&
+                             SOUND_VARIED.eshot_elite === 1;
+
+            return constsOk && bpmOk && intOk && stepOk && gateOk && sndOk && cutoffOk && paramsOk && recipesOk && variedOk;
+        }""")
+        checks.append(("critical-heartbeat-elite-gunfire-and-air-absorption-audio-rules", audio_polish_check))
+
+        # 69) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
