@@ -18,7 +18,7 @@ function makePfxLayer(additive, tex) {
     rot: new Float32Array(PFX_MAX), rotV: new Float32Array(PFX_MAX),
     life: new Float32Array(PFX_MAX), maxLife: new Float32Array(PFX_MAX),
     drag: new Float32Array(PFX_MAX), grav: new Float32Array(PFX_MAX), flags: new Uint8Array(PFX_MAX),
-    cursor: 0, alive: 0, prevAlive: 0, additive: additive
+    cursor: 0, alive: 0, prevAlive: 0, hasNew: false, additive: additive
   };
   const geo = new THREE.BufferGeometry();
   const attr = function (arr, n) { const a = new THREE.BufferAttribute(arr, n); a.setUsage(THREE.DynamicDrawUsage); return a; };
@@ -89,6 +89,7 @@ const _pc = new THREE.Color(), _pc2 = new THREE.Color();
 // Positional args (no per-particle object allocation on hot paths).
 function pfxEmit(L, x, y, z, vx, vy, vz, life, s0, s1, c0, c1, a0, drag, grav, flags) {
   if (!L.cap) return;
+  L.hasNew = true;
   const i = L.cursor;
   L.cursor = (L.cursor + 1) % L.cap;
   const i3 = i * 3;
@@ -104,6 +105,8 @@ function pfxEmit(L, x, y, z, vx, vy, vz, life, s0, s1, c0, c1, a0, drag, grav, f
   L.size[i] = s0; L.alpha[i] = L.additive ? a0 : 0.0001;
 }
 function updatePfxLayer(L, dt) {
+  if (!CORE.shouldUpdatePfxLayer(L.alive, L.prevAlive, L.hasNew)) return;
+  L.hasNew = false;
   let alive = 0;
   for (let i = 0; i < L.cap; i++) {
     if (L.life[i] <= 0) { if (L.alpha[i] !== 0) { L.alpha[i] = 0; L.size[i] = 0; } continue; }
@@ -152,7 +155,7 @@ function updateParticles(dt) {
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
   for (const L of [PFX_ADD, PFX_SMOKE]) {
-    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0;
+    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0; L.hasNew = false;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
 }

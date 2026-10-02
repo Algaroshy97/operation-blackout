@@ -300,6 +300,7 @@
   body.touch #tbtn-nade{left:calc(150px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-nade.ready{border-color:#ffd24a;color:#ffdf8a;}
+  body.touch #tbtn-nade.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;}
   body.touch #tbtn-swap.switching{border-color:#50b4ff;color:#50b4ff;}
@@ -316,6 +317,7 @@
   body.touch #tbtn-plate.ready{border-color:#4fa3d8;color:#4fa3d8;}
   body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-tactical.ready{border-color:#50b4ff;color:#50b4ff;}
+  body.touch #tbtn-tactical.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-streak.streak{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;}
@@ -8501,7 +8503,8 @@ const CORE = (function () {
     return Math.min(max, res + gained);
   }
 
-  function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul) {
+  function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul, out) {
+    const o = out || { health: 0, armor: 0 };
     const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? Math.max(0, currentHealth) : 0;
     const maxHp = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
     const arm = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
@@ -8509,10 +8512,9 @@ const CORE = (function () {
     const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
     const heal = Math.round(MEDKIT_HEAL_BASE * mul);
     const armorHeal = Math.round(MEDKIT_ARMOR_BASE * mul);
-    return {
-      health: Math.min(maxHp, hp + heal),
-      armor: Math.min(maxArm, arm + armorHeal)
-    };
+    o.health = Math.min(maxHp, hp + heal);
+    o.armor = Math.min(maxArm, arm + armorHeal);
+    return o;
   }
 
   // ---- Minimap & Compass 2D Canvas Performance ----
@@ -11055,6 +11057,46 @@ const CORE = (function () {
     return swinging <= s - m;
   }
 
+  // ---- Zero-Alloc Raycast Hit Pooling, GPU Particle Update Throttling & Core Perf Rules (v115 Perf Win) ----
+  function shouldUpdatePfxLayer(alive, prevAlive, hasNew) {
+    const cur = typeof alive === 'number' && isFinite(alive) ? alive : 0;
+    const prev = typeof prevAlive === 'number' && isFinite(prevAlive) ? prevAlive : 0;
+    return cur > 0 || prev > 0 || !!hasNew;
+  }
+
+  function isGrenadeLosBlocker(isGround, isVfx, isGun, isSky, isPickup) {
+    return !isGround && !isVfx && !isGun && !isSky && !isPickup;
+  }
+
+  function enemyToPlayerDir(dx, dz, dist, out) {
+    const o = out || { x: 0, z: 0 };
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : Math.hypot(dx, dz);
+    if (d > 0.01) {
+      o.x = dx / d;
+      o.z = dz / d;
+    } else {
+      o.x = 0;
+      o.z = 0;
+    }
+    return o;
+  }
+
+  function totalPlayerRounds(wState, weaponsOwned) {
+    if (!Array.isArray(wState) || !Array.isArray(weaponsOwned)) return 0;
+    let rounds = 0;
+    for (let i = 0; i < wState.length; i++) {
+      if (!wState[i] || weaponsOwned[i] < 0) continue;
+      const ammo = typeof wState[i].ammo === 'number' && isFinite(wState[i].ammo) ? wState[i].ammo : 0;
+      const res = typeof wState[i].reserve === 'number' && isFinite(wState[i].reserve) ? wState[i].reserve : 0;
+      rounds += Math.max(0, ammo) + Math.max(0, res);
+    }
+    return rounds;
+  }
+
+  function hasPlayerRounds(wState, weaponsOwned) {
+    return totalPlayerRounds(wState, weaponsOwned) > 0;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -11944,7 +11986,12 @@ const CORE = (function () {
     enemyGrenadeVelocity: enemyGrenadeVelocity,
     enemyEyeHeight: enemyEyeHeight,
     enemyLosTargetCoord: enemyLosTargetCoord,
-    isEnemyMeleeReset: isEnemyMeleeReset
+    isEnemyMeleeReset: isEnemyMeleeReset,
+    shouldUpdatePfxLayer: shouldUpdatePfxLayer,
+    isGrenadeLosBlocker: isGrenadeLosBlocker,
+    enemyToPlayerDir: enemyToPlayerDir,
+    totalPlayerRounds: totalPlayerRounds,
+    hasPlayerRounds: hasPlayerRounds
   };
 })();
 
@@ -14611,6 +14658,10 @@ const _tracerMissEnd = new THREE.Vector3();
 const _recoilOut = { x: 0, y: 0 };
 const _spreadOut = { x: 0, y: 0, z: 0 };
 const _kickOut = { pitchKick: 0, yawKick: 0 };
+const _worldHitsOut = [];
+const _enemyHitsOut = [];
+const _rfWorldHitsOut = [];
+const _rfEnemyHitsOut = [];
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -14644,8 +14695,10 @@ function fireShot(preserveSchedule) {
     if (enemies[i].dead) continue;
     if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
   }
-  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
-  const enemyHits = raycaster.intersectObjects(_shotTargets, true);
+  _worldHitsOut.length = 0;
+  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true, _worldHitsOut);
+  _enemyHitsOut.length = 0;
+  const enemyHits = raycaster.intersectObjects(_shotTargets, true, _enemyHitsOut);
   // Penetration is resolved against the collider AABBs rather than the rendered
   // meshes, and deliberately: the static arena is merged into batched meshes, so a
   // mesh raycast reports the entry AND exit faces of every box in a batch and
@@ -14877,11 +14930,13 @@ function updateMarksmanScope(dt) {
   _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   _rfRay.set(_rfFrom, _rfDir); _rfRay.far = CORE.SCOPE_RANGE_MAX;
   let best = Infinity, hostile = false;
-  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true);
+  _rfWorldHitsOut.length = 0;
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true, _rfWorldHitsOut);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
-  const eh = _rfRay.intersectObjects(_rfTargets, true);
+  _rfEnemyHitsOut.length = 0;
+  const eh = _rfRay.intersectObjects(_rfTargets, true, _rfEnemyHitsOut);
   if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
   const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
@@ -16469,28 +16524,28 @@ const _strafeOut = { x: 0, z: 0 };
 const _flankOut = { x: 0, z: 0 };
 const _enemyStateOut = { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
 const _pushoutOut = { pushX: 0, pushZ: 0, applied: false };
+const _toPlayerDirOut = { x: 0, z: 0 };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
 // the walkable set by the separation pass).
-function moveEnemy(en, dt) {
+function moveEnemy(en, dt, dist) {
   const cfg = CFG.ai;
-  const toPlayer = tmpV2.set(player.pos.x - en.pos.x, 0, player.pos.z - en.pos.z);
-  const dist = toPlayer.length();
-  const speed = CORE.enemyMoveSpeed(en.kind, en.state, dist, cfg.rangedRange, en.speedMul, cfg);
-  // desired velocity
-  if (dist > 0.01) toPlayer.normalize();
+  const d = typeof dist === 'number' && isFinite(dist) ? dist : CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
+  CORE.enemyToPlayerDir(player.pos.x - en.pos.x, player.pos.z - en.pos.z, d, _toPlayerDirOut);
+  const toPlayer = _toPlayerDirOut;
+  const speed = CORE.enemyMoveSpeed(en.kind, en.state, d, cfg.rangedRange, en.speedMul, cfg);
   let mvx = toPlayer.x, mvz = toPlayer.z;
   if (en.state === 'chase') {
     // Straight-line seek wedges on every wall corner in this arena; route instead.
     // Close in, steer directly so the final approach does not snap to cell centres.
-    const routed = dist > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
+    const routed = d > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
     if (routed) { mvx = routed.x; mvz = routed.z; }
     // Flankers (wave 8+) bias sideways until they are close, so a pack stops
     // arriving as one clump down a single corridor.
     if (en.flanker) {
       en.flankT -= dt;
-      const bias = CORE.flankBiasNow(en.flankT, dist);
+      const bias = CORE.flankBiasNow(en.flankT, d);
       CORE.stepFlankVelocity(mvx, mvz, en.strafeDir, bias, _flankOut);
       mvx = _flankOut.x; mvz = _flankOut.z;
     }
@@ -16653,7 +16708,7 @@ function updateEnemies(dt) {
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
-    moveEnemy(en, dt);
+    moveEnemy(en, dt, dist);
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
     // well past that, relocate it to a valid ring point rather than leaving a
@@ -17181,7 +17236,7 @@ function makePfxLayer(additive, tex) {
     rot: new Float32Array(PFX_MAX), rotV: new Float32Array(PFX_MAX),
     life: new Float32Array(PFX_MAX), maxLife: new Float32Array(PFX_MAX),
     drag: new Float32Array(PFX_MAX), grav: new Float32Array(PFX_MAX), flags: new Uint8Array(PFX_MAX),
-    cursor: 0, alive: 0, prevAlive: 0, additive: additive
+    cursor: 0, alive: 0, prevAlive: 0, hasNew: false, additive: additive
   };
   const geo = new THREE.BufferGeometry();
   const attr = function (arr, n) { const a = new THREE.BufferAttribute(arr, n); a.setUsage(THREE.DynamicDrawUsage); return a; };
@@ -17252,6 +17307,7 @@ const _pc = new THREE.Color(), _pc2 = new THREE.Color();
 // Positional args (no per-particle object allocation on hot paths).
 function pfxEmit(L, x, y, z, vx, vy, vz, life, s0, s1, c0, c1, a0, drag, grav, flags) {
   if (!L.cap) return;
+  L.hasNew = true;
   const i = L.cursor;
   L.cursor = (L.cursor + 1) % L.cap;
   const i3 = i * 3;
@@ -17267,6 +17323,8 @@ function pfxEmit(L, x, y, z, vx, vy, vz, life, s0, s1, c0, c1, a0, drag, grav, f
   L.size[i] = s0; L.alpha[i] = L.additive ? a0 : 0.0001;
 }
 function updatePfxLayer(L, dt) {
+  if (!CORE.shouldUpdatePfxLayer(L.alive, L.prevAlive, L.hasNew)) return;
+  L.hasNew = false;
   let alive = 0;
   for (let i = 0; i < L.cap; i++) {
     if (L.life[i] <= 0) { if (L.alpha[i] !== 0) { L.alpha[i] = 0; L.size[i] = 0; } continue; }
@@ -17315,7 +17373,7 @@ function updateParticles(dt) {
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
   for (const L of [PFX_ADD, PFX_SMOKE]) {
-    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0;
+    L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0; L.hasNew = false;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
 }
@@ -18897,6 +18955,8 @@ function resetEquipment() {
 const grenadeLosRay = new THREE.Raycaster();
 const grenadeLosDir = new THREE.Vector3();
 const grenadeTargets = [];
+const _grenadeLosHits = [];
+const _medkitRestoreOut = { health: 0, armor: 0 };
 function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.copy(to).sub(from);
   const dist = grenadeLosDir.length();
@@ -18904,9 +18964,17 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
-    return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
-  })[0];
+  _grenadeLosHits.length = 0;
+  grenadeLosRay.intersectObjects(grenadeTargets, true, _grenadeLosHits);
+  let hit = null;
+  for (let k = 0; k < _grenadeLosHits.length; k++) {
+    const h = _grenadeLosHits[k];
+    const u = h.object.userData;
+    if (CORE.isGrenadeLosBlocker(h.object === ground, !!(u && u.vfx), !!(u && u.gun), !!(u && u.sky), !!(u && u.pickup))) {
+      hit = h;
+      break;
+    }
+  }
   if (!hit || hit.distance >= dist - 0.05) return true;
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
@@ -19071,7 +19139,7 @@ function updatePickups(dt) {
           showCenterMsg('+ AMMO');
         }
       } else {
-        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks));
+        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks), _medkitRestoreOut);
         player.health = restored.health;
         player.armor = restored.armor;
         showCenterMsg('+ MEDKIT');
@@ -20580,12 +20648,7 @@ let _hudEnemiesLeft = -1;
 // few seconds, so the floor does not depend on getting a kill first.
 let dryT = 0, nextCacheT = -99;
 function updateAmmoRelief(dt) {
-  let rounds = 0;
-  for (let i = 0; i < wState.length; i++) {
-    if (!wState[i] || weaponsOwned[i] < 0) continue;
-    rounds += wState[i].ammo + wState[i].reserve;
-  }
-  const hasAmmo = rounds > 0;
+  const hasAmmo = CORE.hasPlayerRounds(wState, weaponsOwned);
   dryT = CORE.stepAmmoReliefTimer(dryT, dt, hasAmmo);
   if (hasAmmo || !waveActive || player.dead) return;
   if (CORE.isAmmoReliefNeeded(waveActive, player.dead, dryT, gameT, nextCacheT, CORE.AMMO_RELIEF_DRY_THRESHOLD)) {

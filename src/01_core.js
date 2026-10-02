@@ -3786,7 +3786,8 @@ const CORE = (function () {
     return Math.min(max, res + gained);
   }
 
-  function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul) {
+  function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul, out) {
+    const o = out || { health: 0, armor: 0 };
     const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? Math.max(0, currentHealth) : 0;
     const maxHp = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
     const arm = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
@@ -3794,10 +3795,9 @@ const CORE = (function () {
     const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
     const heal = Math.round(MEDKIT_HEAL_BASE * mul);
     const armorHeal = Math.round(MEDKIT_ARMOR_BASE * mul);
-    return {
-      health: Math.min(maxHp, hp + heal),
-      armor: Math.min(maxArm, arm + armorHeal)
-    };
+    o.health = Math.min(maxHp, hp + heal);
+    o.armor = Math.min(maxArm, arm + armorHeal);
+    return o;
   }
 
   // ---- Minimap & Compass 2D Canvas Performance ----
@@ -6340,6 +6340,46 @@ const CORE = (function () {
     return swinging <= s - m;
   }
 
+  // ---- Zero-Alloc Raycast Hit Pooling, GPU Particle Update Throttling & Core Perf Rules (v115 Perf Win) ----
+  function shouldUpdatePfxLayer(alive, prevAlive, hasNew) {
+    const cur = typeof alive === 'number' && isFinite(alive) ? alive : 0;
+    const prev = typeof prevAlive === 'number' && isFinite(prevAlive) ? prevAlive : 0;
+    return cur > 0 || prev > 0 || !!hasNew;
+  }
+
+  function isGrenadeLosBlocker(isGround, isVfx, isGun, isSky, isPickup) {
+    return !isGround && !isVfx && !isGun && !isSky && !isPickup;
+  }
+
+  function enemyToPlayerDir(dx, dz, dist, out) {
+    const o = out || { x: 0, z: 0 };
+    const d = typeof dist === 'number' && isFinite(dist) ? dist : Math.hypot(dx, dz);
+    if (d > 0.01) {
+      o.x = dx / d;
+      o.z = dz / d;
+    } else {
+      o.x = 0;
+      o.z = 0;
+    }
+    return o;
+  }
+
+  function totalPlayerRounds(wState, weaponsOwned) {
+    if (!Array.isArray(wState) || !Array.isArray(weaponsOwned)) return 0;
+    let rounds = 0;
+    for (let i = 0; i < wState.length; i++) {
+      if (!wState[i] || weaponsOwned[i] < 0) continue;
+      const ammo = typeof wState[i].ammo === 'number' && isFinite(wState[i].ammo) ? wState[i].ammo : 0;
+      const res = typeof wState[i].reserve === 'number' && isFinite(wState[i].reserve) ? wState[i].reserve : 0;
+      rounds += Math.max(0, ammo) + Math.max(0, res);
+    }
+    return rounds;
+  }
+
+  function hasPlayerRounds(wState, weaponsOwned) {
+    return totalPlayerRounds(wState, weaponsOwned) > 0;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7229,7 +7269,12 @@ const CORE = (function () {
     enemyGrenadeVelocity: enemyGrenadeVelocity,
     enemyEyeHeight: enemyEyeHeight,
     enemyLosTargetCoord: enemyLosTargetCoord,
-    isEnemyMeleeReset: isEnemyMeleeReset
+    isEnemyMeleeReset: isEnemyMeleeReset,
+    shouldUpdatePfxLayer: shouldUpdatePfxLayer,
+    isGrenadeLosBlocker: isGrenadeLosBlocker,
+    enemyToPlayerDir: enemyToPlayerDir,
+    totalPlayerRounds: totalPlayerRounds,
+    hasPlayerRounds: hasPlayerRounds
   };
 })();
 

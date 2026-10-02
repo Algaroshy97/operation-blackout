@@ -302,28 +302,28 @@ const _strafeOut = { x: 0, z: 0 };
 const _flankOut = { x: 0, z: 0 };
 const _enemyStateOut = { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
 const _pushoutOut = { pushX: 0, pushZ: 0, applied: false };
+const _toPlayerDirOut = { x: 0, z: 0 };
 
 // Steering: follow the flow field when closing distance, fall back to a direct
 // vector when the field has nothing for this cell (e.g. an enemy shoved outside
 // the walkable set by the separation pass).
-function moveEnemy(en, dt) {
+function moveEnemy(en, dt, dist) {
   const cfg = CFG.ai;
-  const toPlayer = tmpV2.set(player.pos.x - en.pos.x, 0, player.pos.z - en.pos.z);
-  const dist = toPlayer.length();
-  const speed = CORE.enemyMoveSpeed(en.kind, en.state, dist, cfg.rangedRange, en.speedMul, cfg);
-  // desired velocity
-  if (dist > 0.01) toPlayer.normalize();
+  const d = typeof dist === 'number' && isFinite(dist) ? dist : CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
+  CORE.enemyToPlayerDir(player.pos.x - en.pos.x, player.pos.z - en.pos.z, d, _toPlayerDirOut);
+  const toPlayer = _toPlayerDirOut;
+  const speed = CORE.enemyMoveSpeed(en.kind, en.state, d, cfg.rangedRange, en.speedMul, cfg);
   let mvx = toPlayer.x, mvz = toPlayer.z;
   if (en.state === 'chase') {
     // Straight-line seek wedges on every wall corner in this arena; route instead.
     // Close in, steer directly so the final approach does not snap to cell centres.
-    const routed = dist > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
+    const routed = d > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
     if (routed) { mvx = routed.x; mvz = routed.z; }
     // Flankers (wave 8+) bias sideways until they are close, so a pack stops
     // arriving as one clump down a single corridor.
     if (en.flanker) {
       en.flankT -= dt;
-      const bias = CORE.flankBiasNow(en.flankT, dist);
+      const bias = CORE.flankBiasNow(en.flankT, d);
       CORE.stepFlankVelocity(mvx, mvz, en.strafeDir, bias, _flankOut);
       mvx = _flankOut.x; mvz = _flankOut.z;
     }
@@ -486,7 +486,7 @@ function updateEnemies(dt) {
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
-    moveEnemy(en, dt);
+    moveEnemy(en, dt, dist);
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
     // well past that, relocate it to a valid ring point rather than leaving a

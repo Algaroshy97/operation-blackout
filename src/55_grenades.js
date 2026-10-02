@@ -538,6 +538,8 @@ function resetEquipment() {
 const grenadeLosRay = new THREE.Raycaster();
 const grenadeLosDir = new THREE.Vector3();
 const grenadeTargets = [];
+const _grenadeLosHits = [];
+const _medkitRestoreOut = { health: 0, armor: 0 };
 function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.copy(to).sub(from);
   const dist = grenadeLosDir.length();
@@ -545,9 +547,17 @@ function grenadeHasLineOfSight(from, to, targetEnemy) {
   grenadeLosDir.multiplyScalar(1 / dist);
   grenadeLosRay.set(from, grenadeLosDir);
   grenadeLosRay.far = dist;
-  const hit = grenadeLosRay.intersectObjects(grenadeTargets, true).filter(function (h) {
-    return h.object !== ground && !h.object.userData.vfx && !h.object.userData.gun && !h.object.userData.sky && !h.object.userData.pickup;
-  })[0];
+  _grenadeLosHits.length = 0;
+  grenadeLosRay.intersectObjects(grenadeTargets, true, _grenadeLosHits);
+  let hit = null;
+  for (let k = 0; k < _grenadeLosHits.length; k++) {
+    const h = _grenadeLosHits[k];
+    const u = h.object.userData;
+    if (CORE.isGrenadeLosBlocker(h.object === ground, !!(u && u.vfx), !!(u && u.gun), !!(u && u.sky), !!(u && u.pickup))) {
+      hit = h;
+      break;
+    }
+  }
   if (!hit || hit.distance >= dist - 0.05) return true;
   return !!targetEnemy && hit.object.userData.enemyRef === targetEnemy;
 }
@@ -712,7 +722,7 @@ function updatePickups(dt) {
           showCenterMsg('+ AMMO');
         }
       } else {
-        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks));
+        const restored = CORE.medkitPickupRestore(player.health, playerMaxHealth(), player.armor, CFG.player.armor, CORE.perkPickupMul(perks), _medkitRestoreOut);
         player.health = restored.health;
         player.armor = restored.armor;
         showCenterMsg('+ MEDKIT');

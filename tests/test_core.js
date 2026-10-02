@@ -7091,3 +7091,69 @@ test('tactical stance weapon recoil stability and enemy grenade/LOS combat balan
   assert.strictEqual(CORE.isEnemyMeleeReset(0.5, -1.0, 0.01), false, 'active swing is not reset');
   assert.strictEqual(CORE.isEnemyMeleeReset(undefined), false);
 });
+
+test('zero-alloc raycast hit pooling, medkit output mutation, GPU particle update throttling, and ammo relief counting (v115 perf win)', () => {
+  // 1) GPU particle layer update throttling
+  assert.strictEqual(CORE.shouldUpdatePfxLayer(5, 0, false), true, 'active particles require update');
+  assert.strictEqual(CORE.shouldUpdatePfxLayer(0, 5, false), true, 'previous alive particles require decay update');
+  assert.strictEqual(CORE.shouldUpdatePfxLayer(0, 0, true), true, 'newly emitted particles require first update');
+  assert.strictEqual(CORE.shouldUpdatePfxLayer(0, 0, false), false, 'no active particles bypasses 2600 loop iterations');
+  assert.strictEqual(CORE.shouldUpdatePfxLayer(undefined, null, false), false, 'defensive input fallback');
+
+  // 2) Grenade LOS obstacle filter predicate
+  assert.strictEqual(CORE.isGrenadeLosBlocker(false, false, false, false, false), true, 'physical obstacle blocks LOS');
+  assert.strictEqual(CORE.isGrenadeLosBlocker(true, false, false, false, false), false, 'ground does not block');
+  assert.strictEqual(CORE.isGrenadeLosBlocker(false, true, false, false, false), false, 'vfx does not block');
+  assert.strictEqual(CORE.isGrenadeLosBlocker(false, false, true, false, false), false, 'gun does not block');
+  assert.strictEqual(CORE.isGrenadeLosBlocker(false, false, false, true, false), false, 'sky does not block');
+  assert.strictEqual(CORE.isGrenadeLosBlocker(false, false, false, false, true), false, 'pickup does not block');
+
+  // 3) Enemy to player normalized horizontal direction
+  const dirOut = { x: 0, z: 0 };
+  const res = CORE.enemyToPlayerDir(6, 8, 10, dirOut);
+  assert.strictEqual(res, dirOut, 'mutates provided out object');
+  assert.ok(Math.abs(dirOut.x - 0.6) < 1e-6);
+  assert.ok(Math.abs(dirOut.z - 0.8) < 1e-6);
+
+  CORE.enemyToPlayerDir(0, 0, 0, dirOut);
+  assert.strictEqual(dirOut.x, 0);
+  assert.strictEqual(dirOut.z, 0);
+
+  // Without passing dist, calculates hypot internally
+  const resAuto = CORE.enemyToPlayerDir(3, 4, undefined, dirOut);
+  assert.ok(Math.abs(resAuto.x - 0.6) < 1e-6);
+  assert.ok(Math.abs(resAuto.z - 0.8) < 1e-6);
+
+  // 4) Medkit pickup restore with zero-alloc out object
+  const medOut = { health: 0, armor: 0 };
+  const medRes = CORE.medkitPickupRestore(40, 100, 10, 50, 1.0, medOut);
+  assert.strictEqual(medRes, medOut, 'medkitPickupRestore mutates out parameter');
+  assert.strictEqual(medOut.health, 75, 'heals 35 base health (40 + 35 = 75)');
+  assert.strictEqual(medOut.armor, 25, 'heals 15 base armor (10 + 15 = 25)');
+
+  // Backward compatibility: calling without out returns fresh object
+  const legacyRes = CORE.medkitPickupRestore(40, 100, 10, 50, 1.0);
+  assert.deepStrictEqual(legacyRes, { health: 75, armor: 25 });
+
+  // 5) Total player rounds and hasPlayerRounds
+  const wState = [
+    { ammo: 30, reserve: 90 },
+    { ammo: 10, reserve: 20 },
+    null
+  ];
+  const weaponsOwned = [0, 1, -1];
+  assert.strictEqual(CORE.totalPlayerRounds(wState, weaponsOwned), 150);
+  assert.strictEqual(CORE.hasPlayerRounds(wState, weaponsOwned), true);
+
+  const dryState = [
+    { ammo: 0, reserve: 0 },
+    { ammo: 0, reserve: 0 }
+  ];
+  assert.strictEqual(CORE.totalPlayerRounds(dryState, [0, 1]), 0);
+  assert.strictEqual(CORE.hasPlayerRounds(dryState, [0, 1]), false);
+
+  // Defensive input handling
+  assert.strictEqual(CORE.totalPlayerRounds(null, null), 0);
+  assert.strictEqual(CORE.hasPlayerRounds(null, null), false);
+});
+

@@ -646,12 +646,7 @@ let _hudEnemiesLeft = -1;
 // few seconds, so the floor does not depend on getting a kill first.
 let dryT = 0, nextCacheT = -99;
 function updateAmmoRelief(dt) {
-  let rounds = 0;
-  for (let i = 0; i < wState.length; i++) {
-    if (!wState[i] || weaponsOwned[i] < 0) continue;
-    rounds += wState[i].ammo + wState[i].reserve;
-  }
-  const hasAmmo = rounds > 0;
+  const hasAmmo = CORE.hasPlayerRounds(wState, weaponsOwned);
   dryT = CORE.stepAmmoReliefTimer(dryT, dt, hasAmmo);
   if (hasAmmo || !waveActive || player.dead) return;
   if (CORE.isAmmoReliefNeeded(waveActive, player.dead, dryT, gameT, nextCacheT, CORE.AMMO_RELIEF_DRY_THRESHOLD)) {

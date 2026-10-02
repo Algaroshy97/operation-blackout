@@ -2982,7 +2982,56 @@ def main() -> int:
         }""")
         checks.append(("tactical-stance-and-enemy-combat-balance-rules", stance_balance_check))
 
-        # 66) Clean console throughout gameplay.
+        # 66) Zero-alloc raycast hit pooling, medkit output mutation, GPU particle update throttling, and ammo relief counting (v115 perf win).
+        perf_win_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const pfxThrottleOk = CORE.shouldUpdatePfxLayer(1, 0, false) === true &&
+                                  CORE.shouldUpdatePfxLayer(0, 1, false) === true &&
+                                  CORE.shouldUpdatePfxLayer(0, 0, true) === true &&
+                                  CORE.shouldUpdatePfxLayer(0, 0, false) === false;
+
+            const blockerOk = CORE.isGrenadeLosBlocker(false, false, false, false, false) === true &&
+                              CORE.isGrenadeLosBlocker(true, false, false, false, false) === false &&
+                              CORE.isGrenadeLosBlocker(false, true, false, false, false) === false &&
+                              CORE.isGrenadeLosBlocker(false, false, true, false, false) === false &&
+                              CORE.isGrenadeLosBlocker(false, false, false, true, false) === false &&
+                              CORE.isGrenadeLosBlocker(false, false, false, false, true) === false;
+
+            const dirOut = { x: 0, z: 0 };
+            const dirRes = CORE.enemyToPlayerDir(3, 4, 5, dirOut);
+            const dirOk = dirRes === dirOut &&
+                          Math.abs(dirOut.x - 0.6) < 1e-5 &&
+                          Math.abs(dirOut.z - 0.8) < 1e-5;
+
+            CORE.enemyToPlayerDir(0, 0, 0, dirOut);
+            const dirZeroOk = dirOut.x === 0 && dirOut.z === 0;
+
+            const medOut = { health: 0, armor: 0 };
+            const medRes = CORE.medkitPickupRestore(50, 100, 10, 50, 1.0, medOut);
+            const medOk = medRes === medOut && medOut.health > 50 && medOut.armor > 10;
+
+            const wStateMock = [
+                { ammo: 30, reserve: 60 },
+                { ammo: 0, reserve: 0 },
+                null
+            ];
+            const ownedMock = [0, 1, -1];
+            const roundsOk = CORE.totalPlayerRounds(wStateMock, ownedMock) === 90 &&
+                             CORE.hasPlayerRounds(wStateMock, ownedMock) === true;
+
+            const emptyMock = [
+                { ammo: 0, reserve: 0 },
+                { ammo: 0, reserve: 0 }
+            ];
+            const emptyOk = CORE.totalPlayerRounds(emptyMock, [0, 1]) === 0 &&
+                            CORE.hasPlayerRounds(emptyMock, [0, 1]) === false;
+
+            return pfxThrottleOk && blockerOk && dirOk && dirZeroOk && medOk && roundsOk && emptyOk;
+        }""")
+        checks.append(("zero-alloc-raycast-hit-pooling-and-pfx-throttling-perf-rules", perf_win_check))
+
+        # 67) Clean console throughout gameplay.
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

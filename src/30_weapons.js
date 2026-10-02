@@ -282,6 +282,10 @@ const _tracerMissEnd = new THREE.Vector3();
 const _recoilOut = { x: 0, y: 0 };
 const _spreadOut = { x: 0, y: 0, z: 0 };
 const _kickOut = { pitchKick: 0, yawKick: 0 };
+const _worldHitsOut = [];
+const _enemyHitsOut = [];
+const _rfWorldHitsOut = [];
+const _rfEnemyHitsOut = [];
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
@@ -315,8 +319,10 @@ function fireShot(preserveSchedule) {
     if (enemies[i].dead) continue;
     if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
   }
-  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true);
-  const enemyHits = raycaster.intersectObjects(_shotTargets, true);
+  _worldHitsOut.length = 0;
+  const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true, _worldHitsOut);
+  _enemyHitsOut.length = 0;
+  const enemyHits = raycaster.intersectObjects(_shotTargets, true, _enemyHitsOut);
   // Penetration is resolved against the collider AABBs rather than the rendered
   // meshes, and deliberately: the static arena is merged into batched meshes, so a
   // mesh raycast reports the entry AND exit faces of every box in a batch and
@@ -548,11 +554,13 @@ function updateMarksmanScope(dt) {
   _rfDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   _rfRay.set(_rfFrom, _rfDir); _rfRay.far = CORE.SCOPE_RANGE_MAX;
   let best = Infinity, hostile = false;
-  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true);
+  _rfWorldHitsOut.length = 0;
+  const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true, _rfWorldHitsOut);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
-  const eh = _rfRay.intersectObjects(_rfTargets, true);
+  _rfEnemyHitsOut.length = 0;
+  const eh = _rfRay.intersectObjects(_rfTargets, true, _rfEnemyHitsOut);
   if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
   const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
