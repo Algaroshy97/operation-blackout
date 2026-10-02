@@ -72,13 +72,25 @@ function makePfxLayer(additive, tex) {
 const PFX_ADD = makePfxLayer(true, TEX.softDot);
 const PFX_SMOKE = makePfxLayer(false, TEX.smoke);
 function setParticleBudget(total) {
-  PFX_ADD.cap = Math.min(PFX_MAX, Math.round(total * 0.45));
-  PFX_SMOKE.cap = Math.min(PFX_MAX, Math.round(total * 0.55));
-  for (const L of [PFX_ADD, PFX_SMOKE]) { L.geo.setDrawRange(0, L.cap); L.cursor = 0; }
+  total = Math.max(0, Math.min(PFX_MAX, Math.floor(total)));
+  const add = Math.round(total * 0.45);
+  for (const [L, cap] of [[PFX_ADD, add], [PFX_SMOKE, total - add]]) {
+    if (cap < L.cap) {
+      // Shrunk slots must never resume their old lives after increasing again.
+      L.life.fill(0, cap); L.alpha.fill(0, cap); L.size.fill(0, cap);
+      L.geo.attributes.alpha.needsUpdate = true;
+      L.geo.attributes.size.needsUpdate = true;
+    }
+    L.cap = cap; L.cursor = cap ? L.cursor % cap : 0;
+    L.alive = 0;
+    for (let i = 0; i < cap; i++) if (L.life[i] > 0) L.alive++;
+    L.prevAlive = L.alive;
+    if (!cap) L.hasNew = false;
+    L.geo.setDrawRange(0, cap);
+  }
 }
-// Fixed for the session: the layers allocate PFX_MAX anyway, this only bounds
-// how many the CPU simulates and uploads per frame.
-setParticleBudget(IS_TOUCH ? 900 : 2600);
+// Storage stays fixed; the live budget bounds simulation and upload work.
+setParticleBudget(CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH).particles);
 try {
   const gl = renderer.getContext();
   const r = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
@@ -165,15 +177,23 @@ function clearParticles() {
 // created once and parked at intensity 0. Phones skip them: every extra light is
 // paid per fragment on every lit surface.
 const FLASH_LIGHTS = [];
-(function () {
-  if (IS_TOUCH) return;
+function applyEffectsBudget() {
+  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  setParticleBudget(plan.particles);
+  if (!plan.flashLights) {
+    for (const l of FLASH_LIGHTS) { l.intensity = 0; l.userData.life = 0; scene.remove(l); }
+    FLASH_LIGHTS.length = 0;
+    return;
+  }
+  if (FLASH_LIGHTS.length) return;
   for (let i = 0; i < 2; i++) {
     const l = new THREE.PointLight(0xffa050, 0, 14, 2);
     l.userData.vfx = true; l.userData.life = 0; l.userData.max = 1; l.userData.peak = 0;
     scene.add(l);
     FLASH_LIGHTS.push(l);
   }
-})();
+}
+applyEffectsBudget();
 function flashLight(pos, color, intensity, distance, life) {
   if (!FLASH_LIGHTS.length) return;
   let best = FLASH_LIGHTS[0];

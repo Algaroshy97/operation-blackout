@@ -3032,6 +3032,13 @@ def main() -> int:
         checks.append(("zero-alloc-raycast-hit-pooling-and-pfx-throttling-perf-rules", perf_win_check))
 
         # 67) Clean console throughout gameplay.
+        from probe_graphics import probe_graphics
+        # Previous acceptance contexts have finished; retire their render loops
+        # before the independent graphics UI run competes for software GPU time.
+        for finished_context in list(browser.contexts):
+            finished_context.close()
+        probe_graphics(browser, args.build.resolve().as_uri(),
+                       lambda name, ok, detail='': checks.append((name, bool(ok))), console_errors)
         checks.append(("no-console-errors", len(console_errors) == 0))
 
         browser.close()

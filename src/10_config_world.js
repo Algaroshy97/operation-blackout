@@ -90,14 +90,14 @@ function showContextNotice(show) {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = graphicsShadowType(graphicsNow().shadowType || 'PCFShadowMap');
 // r152 renamed the output transform and r165 removed the old spelling.
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 // Procedural surfaces (08_textures.js) are painted before the renderer exists.
 (function () {
-  const aniso = Math.min(IS_TOUCH ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
+  const aniso = Math.min(graphicsNow().anisotropy, renderer.capabilities.getMaxAnisotropy());
   for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = aniso;
 })();
 
@@ -123,11 +123,11 @@ const LIGHT_COMPAT = Math.PI;
 const sun = new THREE.DirectionalLight(0xffd9b0, 1.35 * LIGHT_COMPAT);
 sun.position.set(45, 55, -30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
+sun.shadow.mapSize.set(graphicsNow().shadowSize, graphicsNow().shadowSize);
 // The shadow frustum used to span the whole 120x120 arena, so a 2048 map spent
 // most of its resolution on geometry nowhere near the player. Follow the player
 // with a tight box instead: same map, far sharper shadows, less to re-render.
-const SHADOW_EXTENT = IS_TOUCH ? 26 : 38;
+let SHADOW_EXTENT = graphicsNow().shadowExtent;
 sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
 sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
@@ -135,8 +135,28 @@ sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
 const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
 // Snap to whole texels so the shadow map does not shimmer as the player walks.
-const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+let SHADOW_TEXEL = (SHADOW_EXTENT * 2) / graphicsNow().shadowSize;
 let _lastSunSx = null, _lastSunSz = null;
+function applyWorldGraphics(plan) {
+  const size = sun.shadow.mapSize.x;
+  if (size !== plan.shadowSize || !plan.shadowEnabled) {
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    if (sun.shadow.mapPass) { sun.shadow.mapPass.dispose(); sun.shadow.mapPass = null; }
+  }
+  sun.castShadow = plan.shadowEnabled;
+  sun.shadow.mapSize.set(plan.shadowSize, plan.shadowSize);
+  SHADOW_EXTENT = plan.shadowExtent;
+  SHADOW_TEXEL = (SHADOW_EXTENT * 2) / plan.shadowSize;
+  sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+  sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
+  sun.shadow.camera.updateProjectionMatrix();
+  _lastSunSx = _lastSunSz = null;
+  const aniso = Math.min(plan.anisotropy, renderer.capabilities.getMaxAnisotropy());
+  for (const texture of TEX_ALL) {
+    if (texture.anisotropy !== aniso) { texture.anisotropy = aniso; texture.needsUpdate = true; }
+  }
+  sun.shadow.needsUpdate = true;
+}
 function updateSunShadow(targetX, targetZ) {
   const sx = CORE.snapToTexel(targetX, SHADOW_TEXEL);
   const sz = CORE.snapToTexel(targetZ, SHADOW_TEXEL);
@@ -623,7 +643,8 @@ function scatterProps() {
   for (let i = 0; i < spots.length; i++) {
     const s = spots[i];
     const gltf = GLB_PARSED[s[0]];
-    const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
+    const mobileSafe = !(typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+      : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed;
     // A failed GLB parse must not remove gameplay cover on desktop: use the
     // same lightweight, visible stand-in already proven on mobile.
     const useSimpleProp = mobileSafe || !gltf;
@@ -644,7 +665,8 @@ function scatterProps() {
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
-  const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
+  const mobileSafe = !(typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+      : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed;
   // Keep stacked cover even when the crate asset did not parse.
   const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
   [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
@@ -664,7 +686,8 @@ function scatterProps() {
   // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
   // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
   // Mobile keeps the lightweight cylinders (GPU/memory budget).
-  if (!IS_TOUCH && GLB_PARSED.BARREL) {
+  if ((typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+    : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed && GLB_PARSED.BARREL) {
     // collect first, THEN remove: mutating scene.children during traverse()
     // shifts the live array and silently skips every other sibling
     const oldBarrels = [];

@@ -84,8 +84,8 @@ function postMat(frag, uniforms) {
 })();
 
 function postfxWanted() {
-  const q = getSetting('quality');
-  return CORE.isPostfxWanted(q, IS_TOUCH);
+  return typeof graphicsNow === 'function' ? graphicsNow().postfx
+    : CORE.graphicsSettings({ quality: getSetting('quality'), postProcessing: getSetting('postProcessing') }, IS_TOUCH).postfx;
 }
 function disposePostTargets() {
   ['rt', 'bright', 'a1', 'b1', 'a2', 'b2'].forEach(function (k) { if (POST[k]) { POST[k].dispose(); POST[k] = null; } });

@@ -23,6 +23,15 @@ function storageSet(key, value) {
 }
 
 let SETTINGS = CORE.sanitizeSettings(storageGet(STORE_KEY_SETTINGS));
+// Arena is built once, before a run. Do not mix live model types or rebuild cover
+// while fighting: both model choices intentionally apply on the next page load.
+const GRAPHICS_BOOT = Object.assign({}, SETTINGS);
+function graphicsAtBoot(touch) { return CORE.graphicsSettings(GRAPHICS_BOOT, touch); }
+let _graphicsPlan = null;
+function graphicsNow() {
+  if (!_graphicsPlan) _graphicsPlan = CORE.graphicsSettings(SETTINGS, IS_TOUCH);
+  return _graphicsPlan;
+}
 let STATS = CORE.sanitizeStats(storageGet(STORE_KEY_STATS));
 
 function saveSettings() { storageSet(STORE_KEY_SETTINGS, SETTINGS); }
@@ -42,11 +51,13 @@ function setSetting(key, value) {
   const v = CORE.clampSetting(key, value);
   if (v === undefined) return;
   SETTINGS[key] = v;
+  _graphicsPlan = null;
   applySetting(key);
   saveSettings();
 }
 function resetSettings() {
   SETTINGS = CORE.defaultSettings();
+  _graphicsPlan = null;
   applyAllSettings();
   saveSettings();
 }
@@ -63,7 +74,15 @@ function applySetting(key) {
       }
       break;
     case 'quality':
-      applyQuality();
+    case 'shadowQuality':
+    case 'postProcessing':
+      applyQuality(key);
+      break;
+    case 'effects':
+      if (typeof applyEffectsBudget === 'function') applyEffectsBudget();
+      break;
+    case 'ragdollQuality':
+      if (typeof applyRagdollBudget === 'function') applyRagdollBudget();
       break;
     case 'showFps': {
       const el = $id('fps-counter');
@@ -89,18 +108,37 @@ function applySetting(key) {
   }
 }
 function applyAllSettings() {
-  for (const k in CORE.SETTINGS_SCHEMA) applySetting(k);
+  // These three controls share quality-derived defaults. Apply their combined
+  // state once: resetting must not allocate and dispose post targets three times.
+  for (const key in CORE.SETTINGS_SCHEMA) {
+    if (key !== 'quality' && key !== 'shadowQuality' && key !== 'postProcessing') applySetting(key);
+  }
+  applyQuality();
 }
 
 // 'auto' restores a stable baseline, then frame() adapts its pixel ratio from there.
 function qualityIsAuto() { return SETTINGS.quality === 'auto'; }
-function applyQuality() {
-  const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
-  renderer.setPixelRatio(plan.pixelRatio);
-  renderer.shadowMap.enabled = plan.shadowEnabled;
-  if (plan.shadowType) renderer.shadowMap.type = THREE[plan.shadowType];
-  renderer.shadowMap.needsUpdate = true;
-  initPostfx();   // 65_postfx.js: bloom + grade on the presets that can afford it
+function graphicsShadowType(name) {
+  // r184 removed PCFSoftShadowMap; use supported PCF rather than a warning
+  // followed by the renderer silently rewriting the player's filter every frame.
+  return THREE[name === 'PCFSoftShadowMap' && Number(THREE.REVISION) >= 184 ? 'PCFShadowMap' : name];
+}
+function applyQuality(changedKey) {
+  // Shadows and post-processing are independent live controls. Preserve the
+  // adaptive DPR and unrelated GPU allocations unless resolution quality changes.
+  if (!changedKey || changedKey === 'quality') {
+    const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
+    renderer.setPixelRatio(plan.pixelRatio);
+  }
+  if (changedKey !== 'postProcessing') {
+    const graphics = graphicsNow();
+    renderer.shadowMap.enabled = graphics.shadowEnabled;
+    if (graphics.shadowType) renderer.shadowMap.type = graphicsShadowType(graphics.shadowType);
+    renderer.shadowMap.needsUpdate = true;
+    if (typeof applyWorldGraphics === 'function') applyWorldGraphics(graphics);
+    if (typeof updateEnemyShadowBudget === 'function') updateEnemyShadowBudget(1);
+  }
+  if (changedKey !== 'shadowQuality') initPostfx();
 }
 
 // ---- Career stats -----------------------------------------------------------

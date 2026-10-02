@@ -348,6 +348,12 @@ const CORE = (function () {
     musicVolume: { type: 'number', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Music & ambience' },
     muted: { type: 'bool', def: false, label: 'Mute all audio' },
     quality: { type: 'enum', def: 'auto', values: ['low', 'medium', 'high', 'auto'], label: 'Graphics quality' },
+    enemyDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Enemy detail (reload page)', help: 'Detailed soldiers cost more draw calls. Reload the page to apply; current enemies are not rebuilt.' },
+    sceneryDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Scenery detail (reload page)', help: 'Detailed GLB props use more GPU memory and draw calls. Reload the page to apply; cover and collisions stay the same.' },
+    effects: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'full'], label: 'Particles & effect lights', help: 'Applies now. Full enables 2600 particle slots and two flash lights; reduced uses 900 slots without lights. Off hides decorative particles, not gameplay smoke or fire hazards.' },
+    ragdollQuality: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'full'], label: 'Ragdoll budget', help: 'Applies now; lowering retires the oldest corpses. Reduced keeps 3 corpses, full 6; physics and draw calls cost CPU/GPU time.' },
+    shadowQuality: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'high'], label: 'Shadow quality', help: 'Applies now. High uses a 2048 map, filtered shadows and 8 enemy casters; reduced uses 1024 and 4. Auto follows quality and device defaults.' },
+    postProcessing: { type: 'enum', def: 'auto', values: ['auto', 'off', 'on'], label: 'Bloom & colour grading', help: 'Applies now. On enables extra fullscreen GPU passes even on touch devices or low quality. Off frees render targets.' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' }
@@ -394,8 +400,35 @@ const CORE = (function () {
     const q = SETTINGS_SCHEMA.quality.values.indexOf(quality) >= 0 ? quality : 'auto';
     if (q === 'low') return { pixelRatio: Math.min(dpr, 0.7), shadowEnabled: false, shadowType: null };
     if (q === 'medium') return { pixelRatio: Math.min(dpr, 1.0), shadowEnabled: true, shadowType: 'PCFShadowMap' };
-    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: 'PCFSoftShadowMap' };
     return { pixelRatio: Math.min(dpr, 1.5), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+  }
+
+  // Device detection only supplies automatic defaults; explicit graphics choices
+  // never depend on the input device. Model detail is latched by browser plumbing.
+  function graphicsSettings(settings, isTouch) {
+    const s = sanitizeSettings(settings);
+    const render = qualityRenderSettings(s.quality, 1, isTouch);
+    const effects = s.effects === 'auto' ? (isTouch ? 'reduced' : 'full') : s.effects;
+    const ragdoll = s.ragdollQuality === 'auto' ? (isTouch ? 'reduced' : 'full') : s.ragdollQuality;
+    const shadow = s.shadowQuality === 'auto'
+      ? (!render.shadowEnabled ? 'off' : (isTouch ? 'reduced' : 'high')) : s.shadowQuality;
+    return {
+      enemyDetailed: s.enemyDetail === 'detailed' || (s.enemyDetail === 'auto' && !isTouch),
+      sceneryDetailed: s.sceneryDetail === 'detailed' || (s.sceneryDetail === 'auto' && !isTouch),
+      particles: effects === 'off' ? 0 : effects === 'full' ? 2600 : 900,
+      flashLights: effects === 'full',
+      ragdollMax: ragdoll === 'off' ? 0 : ragdoll === 'full' ? 6 : 3,
+      ragdollSimulation: ragdoll === 'off' ? 0 : ragdoll === 'full' ? 10 : 4,
+      shadowEnabled: shadow !== 'off',
+      shadowSize: shadow === 'high' ? 2048 : 1024,
+      shadowExtent: shadow === 'high' ? 38 : 26,
+      shadowEnemies: shadow === 'off' ? 0 : shadow === 'high' ? 8 : 4,
+      shadowType: s.shadowQuality === 'auto' ? render.shadowType
+        : shadow === 'high' ? 'PCFSoftShadowMap' : 'PCFShadowMap',
+      anisotropy: s.quality === 'high' || !isTouch ? 8 : 4,
+      postfx: s.postProcessing === 'on' || (s.postProcessing === 'auto' && isPostfxWanted(s.quality, isTouch))
+    };
   }
 
   // Pure, opt-in frame-time capture for repeatable benchmarks. It is intentionally
@@ -6405,7 +6438,7 @@ const CORE = (function () {
     defaultSettings: defaultSettings,
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
-    qualityRenderSettings: qualityRenderSettings,
+    qualityRenderSettings: qualityRenderSettings, graphicsSettings,
     createFrameTimeTelemetry: createFrameTimeTelemetry,
     createRuntimeTelemetry: createRuntimeTelemetry,
     stepGrenadeMotion: stepGrenadeMotion,

@@ -76,11 +76,10 @@ one. A documentation-only change should not regenerate tracked release artifacts
 
 ## Mobile, artwork and hardware limits
 
-`src/40_enemies.js` selects `makeEnemyMesh(kind)` (the lightweight box-man) whenever
-`IS_TOUCH` is true. Only the non-touch branch calls `buildSoldier(kind)`. This is an
-explicit rendering policy, not a missing model download, and changing graphics
-quality does not bypass it. Do not claim detailed soldiers are supported on phones
-without implementing that change and validating it on physical hardware.
+Under default `auto`, `src/40_enemies.js` selects `makeEnemyMesh(kind)` (the lightweight
+box-man) whenever `IS_TOUCH` is true, preserving the mobile GPU budget. Explicit `detailed`
+in Settings → Enemy detail enables `buildSoldier(kind)` across devices upon page reload.
+Do not claim detailed soldiers are performant on phones without validating on physical hardware.
 
 The mobile controls use image-generated transparent raster artwork embedded as a
 PNG atlas, not entirely procedural art. Preserve labels, accessible names, touch

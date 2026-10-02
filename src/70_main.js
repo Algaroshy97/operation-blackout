@@ -349,6 +349,12 @@ function buildSettingsUI() {
       wrap.appendChild(sel);
     }
     row.appendChild(wrap);
+    if (spec.help) {
+      const help = document.createElement('p');
+      help.className = 'set-help'; help.id = id + '-help'; help.textContent = spec.help;
+      wrap.firstElementChild.setAttribute('aria-describedby', help.id);
+      row.appendChild(help);
+    }
     list.appendChild(row);
   }
   if (typeof openTouchLayoutEditor === 'function' && IS_TOUCH) {

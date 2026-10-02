@@ -387,6 +387,7 @@
   #settings-screen h2{flex:0 0 auto;color:#ffdf8a;font-size:clamp(21px,6vw,30px);letter-spacing:clamp(3px,1.5vw,8px);font-weight:900;margin:0 0 12px;text-shadow:0 2px 10px #000;width:100%;text-align:center}
   #settings-list{width:min(520px,100%);margin:0 auto;display:flex;flex-direction:column;gap:2px;flex:0 0 auto}
   .set-row{min-height:42px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border-radius:4px}
+  .set-help{grid-column:1/-1;margin:0;color:rgba(255,255,255,.65);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
   .set-row label{min-width:0;color:rgba(255,255,255,.85);font-size:clamp(11px,3.2vw,13px);letter-spacing:.5px}
   .set-row input[type=range]{width:min(180px,38vw);accent-color:#ffd24a;pointer-events:auto}
   #settings-actions{width:min(520px,100%);margin:12px auto 0;text-align:center;flex:0 0 auto}
@@ -5065,6 +5066,12 @@ const CORE = (function () {
     musicVolume: { type: 'number', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Music & ambience' },
     muted: { type: 'bool', def: false, label: 'Mute all audio' },
     quality: { type: 'enum', def: 'auto', values: ['low', 'medium', 'high', 'auto'], label: 'Graphics quality' },
+    enemyDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Enemy detail (reload page)', help: 'Detailed soldiers cost more draw calls. Reload the page to apply; current enemies are not rebuilt.' },
+    sceneryDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Scenery detail (reload page)', help: 'Detailed GLB props use more GPU memory and draw calls. Reload the page to apply; cover and collisions stay the same.' },
+    effects: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'full'], label: 'Particles & effect lights', help: 'Applies now. Full enables 2600 particle slots and two flash lights; reduced uses 900 slots without lights. Off hides decorative particles, not gameplay smoke or fire hazards.' },
+    ragdollQuality: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'full'], label: 'Ragdoll budget', help: 'Applies now; lowering retires the oldest corpses. Reduced keeps 3 corpses, full 6; physics and draw calls cost CPU/GPU time.' },
+    shadowQuality: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'high'], label: 'Shadow quality', help: 'Applies now. High uses a 2048 map, filtered shadows and 8 enemy casters; reduced uses 1024 and 4. Auto follows quality and device defaults.' },
+    postProcessing: { type: 'enum', def: 'auto', values: ['auto', 'off', 'on'], label: 'Bloom & colour grading', help: 'Applies now. On enables extra fullscreen GPU passes even on touch devices or low quality. Off frees render targets.' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' }
@@ -5111,8 +5118,35 @@ const CORE = (function () {
     const q = SETTINGS_SCHEMA.quality.values.indexOf(quality) >= 0 ? quality : 'auto';
     if (q === 'low') return { pixelRatio: Math.min(dpr, 0.7), shadowEnabled: false, shadowType: null };
     if (q === 'medium') return { pixelRatio: Math.min(dpr, 1.0), shadowEnabled: true, shadowType: 'PCFShadowMap' };
-    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+    if (q === 'high') return { pixelRatio: Math.min(dpr, 1.75), shadowEnabled: true, shadowType: 'PCFSoftShadowMap' };
     return { pixelRatio: Math.min(dpr, 1.5), shadowEnabled: true, shadowType: isTouch ? 'PCFShadowMap' : 'PCFSoftShadowMap' };
+  }
+
+  // Device detection only supplies automatic defaults; explicit graphics choices
+  // never depend on the input device. Model detail is latched by browser plumbing.
+  function graphicsSettings(settings, isTouch) {
+    const s = sanitizeSettings(settings);
+    const render = qualityRenderSettings(s.quality, 1, isTouch);
+    const effects = s.effects === 'auto' ? (isTouch ? 'reduced' : 'full') : s.effects;
+    const ragdoll = s.ragdollQuality === 'auto' ? (isTouch ? 'reduced' : 'full') : s.ragdollQuality;
+    const shadow = s.shadowQuality === 'auto'
+      ? (!render.shadowEnabled ? 'off' : (isTouch ? 'reduced' : 'high')) : s.shadowQuality;
+    return {
+      enemyDetailed: s.enemyDetail === 'detailed' || (s.enemyDetail === 'auto' && !isTouch),
+      sceneryDetailed: s.sceneryDetail === 'detailed' || (s.sceneryDetail === 'auto' && !isTouch),
+      particles: effects === 'off' ? 0 : effects === 'full' ? 2600 : 900,
+      flashLights: effects === 'full',
+      ragdollMax: ragdoll === 'off' ? 0 : ragdoll === 'full' ? 6 : 3,
+      ragdollSimulation: ragdoll === 'off' ? 0 : ragdoll === 'full' ? 10 : 4,
+      shadowEnabled: shadow !== 'off',
+      shadowSize: shadow === 'high' ? 2048 : 1024,
+      shadowExtent: shadow === 'high' ? 38 : 26,
+      shadowEnemies: shadow === 'off' ? 0 : shadow === 'high' ? 8 : 4,
+      shadowType: s.shadowQuality === 'auto' ? render.shadowType
+        : shadow === 'high' ? 'PCFSoftShadowMap' : 'PCFShadowMap',
+      anisotropy: s.quality === 'high' || !isTouch ? 8 : 4,
+      postfx: s.postProcessing === 'on' || (s.postProcessing === 'auto' && isPostfxWanted(s.quality, isTouch))
+    };
   }
 
   // Pure, opt-in frame-time capture for repeatable benchmarks. It is intentionally
@@ -11122,7 +11156,7 @@ const CORE = (function () {
     defaultSettings: defaultSettings,
     clampSetting: clampSetting,
     sanitizeSettings: sanitizeSettings,
-    qualityRenderSettings: qualityRenderSettings,
+    qualityRenderSettings: qualityRenderSettings, graphicsSettings,
     createFrameTimeTelemetry: createFrameTimeTelemetry,
     createRuntimeTelemetry: createRuntimeTelemetry,
     stepGrenadeMotion: stepGrenadeMotion,
@@ -12023,6 +12057,15 @@ function storageSet(key, value) {
 }
 
 let SETTINGS = CORE.sanitizeSettings(storageGet(STORE_KEY_SETTINGS));
+// Arena is built once, before a run. Do not mix live model types or rebuild cover
+// while fighting: both model choices intentionally apply on the next page load.
+const GRAPHICS_BOOT = Object.assign({}, SETTINGS);
+function graphicsAtBoot(touch) { return CORE.graphicsSettings(GRAPHICS_BOOT, touch); }
+let _graphicsPlan = null;
+function graphicsNow() {
+  if (!_graphicsPlan) _graphicsPlan = CORE.graphicsSettings(SETTINGS, IS_TOUCH);
+  return _graphicsPlan;
+}
 let STATS = CORE.sanitizeStats(storageGet(STORE_KEY_STATS));
 
 function saveSettings() { storageSet(STORE_KEY_SETTINGS, SETTINGS); }
@@ -12042,11 +12085,13 @@ function setSetting(key, value) {
   const v = CORE.clampSetting(key, value);
   if (v === undefined) return;
   SETTINGS[key] = v;
+  _graphicsPlan = null;
   applySetting(key);
   saveSettings();
 }
 function resetSettings() {
   SETTINGS = CORE.defaultSettings();
+  _graphicsPlan = null;
   applyAllSettings();
   saveSettings();
 }
@@ -12063,7 +12108,15 @@ function applySetting(key) {
       }
       break;
     case 'quality':
-      applyQuality();
+    case 'shadowQuality':
+    case 'postProcessing':
+      applyQuality(key);
+      break;
+    case 'effects':
+      if (typeof applyEffectsBudget === 'function') applyEffectsBudget();
+      break;
+    case 'ragdollQuality':
+      if (typeof applyRagdollBudget === 'function') applyRagdollBudget();
       break;
     case 'showFps': {
       const el = $id('fps-counter');
@@ -12089,18 +12142,37 @@ function applySetting(key) {
   }
 }
 function applyAllSettings() {
-  for (const k in CORE.SETTINGS_SCHEMA) applySetting(k);
+  // These three controls share quality-derived defaults. Apply their combined
+  // state once: resetting must not allocate and dispose post targets three times.
+  for (const key in CORE.SETTINGS_SCHEMA) {
+    if (key !== 'quality' && key !== 'shadowQuality' && key !== 'postProcessing') applySetting(key);
+  }
+  applyQuality();
 }
 
 // 'auto' restores a stable baseline, then frame() adapts its pixel ratio from there.
 function qualityIsAuto() { return SETTINGS.quality === 'auto'; }
-function applyQuality() {
-  const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
-  renderer.setPixelRatio(plan.pixelRatio);
-  renderer.shadowMap.enabled = plan.shadowEnabled;
-  if (plan.shadowType) renderer.shadowMap.type = THREE[plan.shadowType];
-  renderer.shadowMap.needsUpdate = true;
-  initPostfx();   // 65_postfx.js: bloom + grade on the presets that can afford it
+function graphicsShadowType(name) {
+  // r184 removed PCFSoftShadowMap; use supported PCF rather than a warning
+  // followed by the renderer silently rewriting the player's filter every frame.
+  return THREE[name === 'PCFSoftShadowMap' && Number(THREE.REVISION) >= 184 ? 'PCFShadowMap' : name];
+}
+function applyQuality(changedKey) {
+  // Shadows and post-processing are independent live controls. Preserve the
+  // adaptive DPR and unrelated GPU allocations unless resolution quality changes.
+  if (!changedKey || changedKey === 'quality') {
+    const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
+    renderer.setPixelRatio(plan.pixelRatio);
+  }
+  if (changedKey !== 'postProcessing') {
+    const graphics = graphicsNow();
+    renderer.shadowMap.enabled = graphics.shadowEnabled;
+    if (graphics.shadowType) renderer.shadowMap.type = graphicsShadowType(graphics.shadowType);
+    renderer.shadowMap.needsUpdate = true;
+    if (typeof applyWorldGraphics === 'function') applyWorldGraphics(graphics);
+    if (typeof updateEnemyShadowBudget === 'function') updateEnemyShadowBudget(1);
+  }
+  if (changedKey !== 'shadowQuality') initPostfx();
 }
 
 // ---- Career stats -----------------------------------------------------------
@@ -12754,14 +12826,14 @@ function showContextNotice(show) {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = graphicsShadowType(graphicsNow().shadowType || 'PCFShadowMap');
 // r152 renamed the output transform and r165 removed the old spelling.
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 // Procedural surfaces (08_textures.js) are painted before the renderer exists.
 (function () {
-  const aniso = Math.min(IS_TOUCH ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
+  const aniso = Math.min(graphicsNow().anisotropy, renderer.capabilities.getMaxAnisotropy());
   for (let i = 0; i < TEX_ALL.length; i++) TEX_ALL[i].anisotropy = aniso;
 })();
 
@@ -12787,11 +12859,11 @@ const LIGHT_COMPAT = Math.PI;
 const sun = new THREE.DirectionalLight(0xffd9b0, 1.35 * LIGHT_COMPAT);
 sun.position.set(45, 55, -30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
+sun.shadow.mapSize.set(graphicsNow().shadowSize, graphicsNow().shadowSize);
 // The shadow frustum used to span the whole 120x120 arena, so a 2048 map spent
 // most of its resolution on geometry nowhere near the player. Follow the player
 // with a tight box instead: same map, far sharper shadows, less to re-render.
-const SHADOW_EXTENT = IS_TOUCH ? 26 : 38;
+let SHADOW_EXTENT = graphicsNow().shadowExtent;
 sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
 sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
@@ -12799,8 +12871,28 @@ sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
 const SUN_OFFSET = new THREE.Vector3(45, 55, -30);
 // Snap to whole texels so the shadow map does not shimmer as the player walks.
-const SHADOW_TEXEL = (SHADOW_EXTENT * 2) / (IS_TOUCH ? 1024 : 2048);
+let SHADOW_TEXEL = (SHADOW_EXTENT * 2) / graphicsNow().shadowSize;
 let _lastSunSx = null, _lastSunSz = null;
+function applyWorldGraphics(plan) {
+  const size = sun.shadow.mapSize.x;
+  if (size !== plan.shadowSize || !plan.shadowEnabled) {
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    if (sun.shadow.mapPass) { sun.shadow.mapPass.dispose(); sun.shadow.mapPass = null; }
+  }
+  sun.castShadow = plan.shadowEnabled;
+  sun.shadow.mapSize.set(plan.shadowSize, plan.shadowSize);
+  SHADOW_EXTENT = plan.shadowExtent;
+  SHADOW_TEXEL = (SHADOW_EXTENT * 2) / plan.shadowSize;
+  sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+  sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
+  sun.shadow.camera.updateProjectionMatrix();
+  _lastSunSx = _lastSunSz = null;
+  const aniso = Math.min(plan.anisotropy, renderer.capabilities.getMaxAnisotropy());
+  for (const texture of TEX_ALL) {
+    if (texture.anisotropy !== aniso) { texture.anisotropy = aniso; texture.needsUpdate = true; }
+  }
+  sun.shadow.needsUpdate = true;
+}
 function updateSunShadow(targetX, targetZ) {
   const sx = CORE.snapToTexel(targetX, SHADOW_TEXEL);
   const sz = CORE.snapToTexel(targetZ, SHADOW_TEXEL);
@@ -13287,7 +13379,8 @@ function scatterProps() {
   for (let i = 0; i < spots.length; i++) {
     const s = spots[i];
     const gltf = GLB_PARSED[s[0]];
-    const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
+    const mobileSafe = !(typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+      : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed;
     // A failed GLB parse must not remove gameplay cover on desktop: use the
     // same lightweight, visible stand-in already proven on mobile.
     const useSimpleProp = mobileSafe || !gltf;
@@ -13308,7 +13401,8 @@ function scatterProps() {
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
-  const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
+  const mobileSafe = !(typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+      : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed;
   // Keep stacked cover even when the crate asset did not parse.
   const useSimpleCrate = mobileSafe || !GLB_PARSED.CRATE;
   [[15, -24, 0, 0], [16.2, -24.4, 0, 0.2], [15.6, -24.2, 1.0, -0.1]].forEach(function (c) {
@@ -13328,7 +13422,8 @@ function scatterProps() {
   // CC0 Kenney survival-kit GLB barrel (natural bounds ~0.24x0.34x0.24 m ->
   // scale 4.4 = ~1.06x1.5x1.06 m, matching the existing 1.1x1.5x1.1 collider).
   // Mobile keeps the lightweight cylinders (GPU/memory budget).
-  if (!IS_TOUCH && GLB_PARSED.BARREL) {
+  if ((typeof graphicsAtBoot === 'function' ? graphicsAtBoot(IS_TOUCH)
+    : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH)).sceneryDetailed && GLB_PARSED.BARREL) {
     // collect first, THEN remove: mutating scene.children during traverse()
     // shifts the live array and silently skips every other sibling
     const oldBarrels = [];
@@ -16300,11 +16395,13 @@ function makeEnemyMesh(kind) {
 function spawnEnemy(kind, x, z, opts) {
   const spawnOpts = opts || {};
   let parts = null;
-  // Articulated procedural soldier on desktop (38_soldier.js). Phones keep the
-  // lightweight box-man: a soldier is a few dozen draw calls, and a full wave of
-  // them is more than a mobile GPU should be asked to carry.
-  const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  if (!mobileSafe) {
+  // Auto uses lightweight touch geometry; explicit detailed uses the articulated
+  // procedural soldier on any device. Detail is page-latched to avoid mixing
+  // actor/resource layouts mid-combat; input and enemy behavior are unchanged.
+  const detail = typeof graphicsAtBoot === 'function'
+    ? graphicsAtBoot(IS_TOUCH).enemyDetailed
+    : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  if (detail) {
     const sd = buildSoldier(kind);
     parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
   } else {
@@ -16628,7 +16725,7 @@ const tmpV2 = new THREE.Vector3();
 
 // Nearest-N shadow budget. Recomputed a few times a second rather than per frame:
 // the set barely changes between frames and toggling castShadow is not free.
-const SHADOW_ENEMY_BUDGET = IS_TOUCH ? 4 : 8;
+let SHADOW_ENEMY_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).shadowEnemies;
 let shadowBudgetT = 0;
 const _shadowPos = [];
 function enemyShadowMeshes(en) {
@@ -16646,6 +16743,7 @@ function setEnemyCastShadow(en, on) {
   for (let i = 0; i < list.length; i++) list[i].castShadow = on;
 }
 function updateEnemyShadowBudget(dt) {
+  if (typeof graphicsNow === 'function') SHADOW_ENEMY_BUDGET = graphicsNow().shadowEnemies;
   shadowBudgetT -= dt;
   if (shadowBudgetT > 0) return;
   shadowBudgetT = 0.25;
@@ -17012,13 +17110,13 @@ function animateEnemy(en, dt, dist) {
 // Corpses are simulated only while they still have energy. A settled body stops
 // costing anything, which is what makes running a dozen of them free.
 
-const RAGDOLL_BUDGET = IS_TOUCH ? 4 : 10;   // concurrent SIMULATING corpses
+let RAGDOLL_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).ragdollSimulation;   // concurrent SIMULATING corpses
 // And a hard cap on how many EXIST. The simulation budget only decided how many
 // were stepped; every corpse still rendered, and each is about four meshes. Eight
 // on screen measured 32 draw calls of bodies lying on the floor — more than the
 // live roster's shadow pass. The oldest is retired when a new one arrives, which
 // is also the one the player is least likely to still be looking at.
-const RAGDOLL_MAX = IS_TOUCH ? 3 : 6;
+let RAGDOLL_MAX = CORE.graphicsSettings({}, IS_TOUCH).ragdollMax;
 const ragdolls = [];
 
 const _rdV = new THREE.Vector3();
@@ -17065,7 +17163,14 @@ function spawnSoldierRagdoll(en) {
   while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
   return entry;
 }
+function applyRagdollBudget() {
+  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  RAGDOLL_MAX = plan.ragdollMax; RAGDOLL_BUDGET = plan.ragdollSimulation;
+  while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
+}
 function spawnRagdoll(en, impulse) {
+  applyRagdollBudget();
+  if (!RAGDOLL_MAX) { removeRagdoll({ en: en }); return; }
   if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
@@ -17199,7 +17304,14 @@ function updateRagdolls(dt) {
 function removeRagdoll(e) {
   if (e.sd) scene.remove(e.sd.container);
   if (e.boxParts) {
-    for (let k = 0; k < e.boxParts.length; k++) scene.remove(e.boxParts[k].obj);
+    for (let k = 0; k < e.boxParts.length; k++) {
+      const obj = e.boxParts[k].obj;
+      scene.remove(obj);
+      // Simple corpses detach their limbs for simulation. Return ownership before
+      // the normal enemy cleanup traverses the group, otherwise their GPU geometry
+      // (and any cloned tint materials) is missed when a live budget retires them.
+      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+    }
   }
   if (e.en && e.en.parts && e.en.parts.group) {
     scene.remove(e.en.parts.group);
@@ -17290,13 +17402,25 @@ function makePfxLayer(additive, tex) {
 const PFX_ADD = makePfxLayer(true, TEX.softDot);
 const PFX_SMOKE = makePfxLayer(false, TEX.smoke);
 function setParticleBudget(total) {
-  PFX_ADD.cap = Math.min(PFX_MAX, Math.round(total * 0.45));
-  PFX_SMOKE.cap = Math.min(PFX_MAX, Math.round(total * 0.55));
-  for (const L of [PFX_ADD, PFX_SMOKE]) { L.geo.setDrawRange(0, L.cap); L.cursor = 0; }
+  total = Math.max(0, Math.min(PFX_MAX, Math.floor(total)));
+  const add = Math.round(total * 0.45);
+  for (const [L, cap] of [[PFX_ADD, add], [PFX_SMOKE, total - add]]) {
+    if (cap < L.cap) {
+      // Shrunk slots must never resume their old lives after increasing again.
+      L.life.fill(0, cap); L.alpha.fill(0, cap); L.size.fill(0, cap);
+      L.geo.attributes.alpha.needsUpdate = true;
+      L.geo.attributes.size.needsUpdate = true;
+    }
+    L.cap = cap; L.cursor = cap ? L.cursor % cap : 0;
+    L.alive = 0;
+    for (let i = 0; i < cap; i++) if (L.life[i] > 0) L.alive++;
+    L.prevAlive = L.alive;
+    if (!cap) L.hasNew = false;
+    L.geo.setDrawRange(0, cap);
+  }
 }
-// Fixed for the session: the layers allocate PFX_MAX anyway, this only bounds
-// how many the CPU simulates and uploads per frame.
-setParticleBudget(IS_TOUCH ? 900 : 2600);
+// Storage stays fixed; the live budget bounds simulation and upload work.
+setParticleBudget(CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH).particles);
 try {
   const gl = renderer.getContext();
   const r = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
@@ -17383,15 +17507,23 @@ function clearParticles() {
 // created once and parked at intensity 0. Phones skip them: every extra light is
 // paid per fragment on every lit surface.
 const FLASH_LIGHTS = [];
-(function () {
-  if (IS_TOUCH) return;
+function applyEffectsBudget() {
+  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  setParticleBudget(plan.particles);
+  if (!plan.flashLights) {
+    for (const l of FLASH_LIGHTS) { l.intensity = 0; l.userData.life = 0; scene.remove(l); }
+    FLASH_LIGHTS.length = 0;
+    return;
+  }
+  if (FLASH_LIGHTS.length) return;
   for (let i = 0; i < 2; i++) {
     const l = new THREE.PointLight(0xffa050, 0, 14, 2);
     l.userData.vfx = true; l.userData.life = 0; l.userData.max = 1; l.userData.peak = 0;
     scene.add(l);
     FLASH_LIGHTS.push(l);
   }
-})();
+}
+applyEffectsBudget();
 function flashLight(pos, color, intensity, distance, life) {
   if (!FLASH_LIGHTS.length) return;
   let best = FLASH_LIGHTS[0];
@@ -21067,8 +21199,8 @@ function postMat(frag, uniforms) {
 })();
 
 function postfxWanted() {
-  const q = getSetting('quality');
-  return CORE.isPostfxWanted(q, IS_TOUCH);
+  return typeof graphicsNow === 'function' ? graphicsNow().postfx
+    : CORE.graphicsSettings({ quality: getSetting('quality'), postProcessing: getSetting('postProcessing') }, IS_TOUCH).postfx;
 }
 function disposePostTargets() {
   ['rt', 'bright', 'a1', 'b1', 'a2', 'b2'].forEach(function (k) { if (POST[k]) { POST[k].dispose(); POST[k] = null; } });
@@ -21528,6 +21660,12 @@ function buildSettingsUI() {
       wrap.appendChild(sel);
     }
     row.appendChild(wrap);
+    if (spec.help) {
+      const help = document.createElement('p');
+      help.className = 'set-help'; help.id = id + '-help'; help.textContent = spec.help;
+      wrap.firstElementChild.setAttribute('aria-describedby', help.id);
+      row.appendChild(help);
+    }
     list.appendChild(row);
   }
   if (typeof openTouchLayoutEditor === 'function' && IS_TOUCH) {

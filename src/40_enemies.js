@@ -78,11 +78,13 @@ function makeEnemyMesh(kind) {
 function spawnEnemy(kind, x, z, opts) {
   const spawnOpts = opts || {};
   let parts = null;
-  // Articulated procedural soldier on desktop (38_soldier.js). Phones keep the
-  // lightweight box-man: a soldier is a few dozen draw calls, and a full wave of
-  // them is more than a mobile GPU should be asked to carry.
-  const mobileSafe = typeof IS_TOUCH !== 'undefined' && IS_TOUCH;
-  if (!mobileSafe) {
+  // Auto uses lightweight touch geometry; explicit detailed uses the articulated
+  // procedural soldier on any device. Detail is page-latched to avoid mixing
+  // actor/resource layouts mid-combat; input and enemy behavior are unchanged.
+  const detail = typeof graphicsAtBoot === 'function'
+    ? graphicsAtBoot(IS_TOUCH).enemyDetailed
+    : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  if (detail) {
     const sd = buildSoldier(kind);
     parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
   } else {
@@ -406,7 +408,7 @@ const tmpV2 = new THREE.Vector3();
 
 // Nearest-N shadow budget. Recomputed a few times a second rather than per frame:
 // the set barely changes between frames and toggling castShadow is not free.
-const SHADOW_ENEMY_BUDGET = IS_TOUCH ? 4 : 8;
+let SHADOW_ENEMY_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).shadowEnemies;
 let shadowBudgetT = 0;
 const _shadowPos = [];
 function enemyShadowMeshes(en) {
@@ -424,6 +426,7 @@ function setEnemyCastShadow(en, on) {
   for (let i = 0; i < list.length; i++) list[i].castShadow = on;
 }
 function updateEnemyShadowBudget(dt) {
+  if (typeof graphicsNow === 'function') SHADOW_ENEMY_BUDGET = graphicsNow().shadowEnemies;
   shadowBudgetT -= dt;
   if (shadowBudgetT > 0) return;
   shadowBudgetT = 0.25;

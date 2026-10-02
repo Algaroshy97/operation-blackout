@@ -12,7 +12,17 @@ A wave-defense FPS built with Three.js, developed in modular source and released
 
 **Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints). Landscape is required; the touch HUD and the end screens are laid out for viewports down to 800x360 and inset past display cutouts and the gesture bar.
 
-**Mobile enemy visuals:** `src/40_enemies.js` explicitly selects the lightweight procedural box-man whenever `IS_TOUCH` is true. Detailed articulated soldiers are built on the non-touch path; the simplified mobile enemies are not missing downloaded models. Changing graphics quality does not remove this touch-device gate. Physical-phone performance and detailed-model support are not established by the headless tests.
+**Graphics on touch devices:** Settings → Enemy detail → **detailed** enables articulated procedural soldiers on phones too. **Auto** retains lightweight touch defaults; this is a visual policy, not a missing model download. Enemy and scenery detail apply after **reloading the page**, not restarting a wave. Enemy counts, AI/difficulty configuration and cover are unchanged. **Known limitation:** the existing simple and detailed enemy models use different hit geometry (for example, a low ankle shot can hit detailed legs but miss the simple model). Enemy detail is not yet strictly gameplay-neutral; normalizing hit registration requires a separate combat change.
+
+Graphics settings are saved independently of controls:
+- **Graphics quality** controls resolution (low/medium/high caps: 0.7/1.0/1.75 device pixel ratio; auto adapts). High also enables up to 8× texture anisotropy on touch, subject to GPU support.
+- **Enemy / scenery detail:** auto, simple or detailed. Detailed soldiers and GLB scenery increase draw calls/memory; reload to apply safely.
+- **Particles & effect lights:** off, reduced (900 particle slots, no flash lights), full (2600 slots, two flash lights), or auto. Decorative effects change immediately; gameplay smoke/fire hazards remain.
+- **Ragdoll budget:** off, reduced (3 corpses), full (6 corpses), or auto. Lowering immediately removes the oldest corpses and frees their resources.
+- **Shadow quality:** off, reduced (1024 map, 4 enemy casters), high (2048 map, 8 casters), or auto. Changes apply immediately and retire obsolete shadow targets. The bundled Three.js r184 uses supported PCF filtering; its retired soft-filter mode is not forced.
+- **Bloom & colour grading:** auto, off or on. On permits post-processing on touch and low quality; off immediately frees its render targets.
+
+Auto preserves conservative touch defaults and existing desktop visuals; explicit choices override touch defaults. Reset restores auto. If browser storage is unavailable, changes still work for the current page but cannot persist. Higher settings cost CPU/GPU time and memory; physical-phone/native-GPU performance has not been verified by the headless tests.
 
 Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3 or wheel switch weapon · P/Esc pause.
 

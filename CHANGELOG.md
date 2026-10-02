@@ -4,6 +4,28 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v116 — Configurable graphics across devices
+
+- Add saved independent enemy/scenery detail, particles/effect lights, ragdolls,
+  shadow quality and bloom/colour-grading settings to the existing generated UI.
+  Explicit detailed/full/high/on choices work on touch; auto retains device defaults.
+- Latch enemy/scenery detail until page reload to avoid destructive combat rebuilds.
+  Apply effect/ragdoll/shadow/post-processing budgets live, clean retired resources,
+  and retain gameplay hazards, cover, collisions, input controls and combat rules.
+- Preserve desktop texture filtering; explicit high enables it on touch. Keep the
+  existing resolution setting instead of adding a duplicate. Map retired soft
+  shadow filtering to supported PCF in the bundled Three.js r184.
+- Return detached simple-ragdoll limbs to their owning group before retirement
+  disposal, so lowering the live budget frees their geometry and cloned materials.
+- Document the pre-existing simple/detailed hit-geometry mismatch rather than
+  claiming strict gameplay neutrality; no shooting/combat behavior is changed here.
+- Keep shadow and post-processing controls independent of adaptive resolution and
+  unrelated GPU targets. Apply combined renderer settings once on reset/startup,
+  avoiding three successive post-target allocation/disposal cycles.
+- Add schema/storage/reset/lifecycle regressions and real touch-browser acceptance
+  for UI persistence, detailed/simple actors and scenery, resource disposal, and
+  switching. These checks do not establish physical-phone FPS or native-GPU support.
+
 ## `ba26cb0` — Raycast and particle-update optimization
 
 - Reuse result arrays for weapon, scope-rangefinder and grenade line-of-sight raycasts;
@@ -51,8 +73,9 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Current limitations
 
-`src/40_enemies.js` still forces the lightweight procedural box-man when `IS_TOUCH`
-is true. These commits do not enable detailed articulated soldiers on phones.
+Under `auto`, `src/40_enemies.js` retains the lightweight procedural box-man when `IS_TOUCH`
+is true; explicit `detailed` enables articulated procedural soldiers on touch devices too.
+However, note the known hit-geometry mismatch between simple and detailed models.
 Headless software-renderer measurements do not establish native-GPU performance
 or physical-phone playability. See [README.md](README.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md) for testing and release requirements.

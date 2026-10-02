@@ -22,13 +22,13 @@
 // Corpses are simulated only while they still have energy. A settled body stops
 // costing anything, which is what makes running a dozen of them free.
 
-const RAGDOLL_BUDGET = IS_TOUCH ? 4 : 10;   // concurrent SIMULATING corpses
+let RAGDOLL_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).ragdollSimulation;   // concurrent SIMULATING corpses
 // And a hard cap on how many EXIST. The simulation budget only decided how many
 // were stepped; every corpse still rendered, and each is about four meshes. Eight
 // on screen measured 32 draw calls of bodies lying on the floor — more than the
 // live roster's shadow pass. The oldest is retired when a new one arrives, which
 // is also the one the player is least likely to still be looking at.
-const RAGDOLL_MAX = IS_TOUCH ? 3 : 6;
+let RAGDOLL_MAX = CORE.graphicsSettings({}, IS_TOUCH).ragdollMax;
 const ragdolls = [];
 
 const _rdV = new THREE.Vector3();
@@ -75,7 +75,14 @@ function spawnSoldierRagdoll(en) {
   while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
   return entry;
 }
+function applyRagdollBudget() {
+  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  RAGDOLL_MAX = plan.ragdollMax; RAGDOLL_BUDGET = plan.ragdollSimulation;
+  while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
+}
 function spawnRagdoll(en, impulse) {
+  applyRagdollBudget();
+  if (!RAGDOLL_MAX) { removeRagdoll({ en: en }); return; }
   if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
@@ -209,7 +216,14 @@ function updateRagdolls(dt) {
 function removeRagdoll(e) {
   if (e.sd) scene.remove(e.sd.container);
   if (e.boxParts) {
-    for (let k = 0; k < e.boxParts.length; k++) scene.remove(e.boxParts[k].obj);
+    for (let k = 0; k < e.boxParts.length; k++) {
+      const obj = e.boxParts[k].obj;
+      scene.remove(obj);
+      // Simple corpses detach their limbs for simulation. Return ownership before
+      // the normal enemy cleanup traverses the group, otherwise their GPU geometry
+      // (and any cloned tint materials) is missed when a live budget retires them.
+      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+    }
   }
   if (e.en && e.en.parts && e.en.parts.group) {
     scene.remove(e.en.parts.group);

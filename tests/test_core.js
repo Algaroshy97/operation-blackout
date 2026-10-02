@@ -7157,3 +7157,68 @@ test('zero-alloc raycast hit pooling, medkit output mutation, GPU particle updat
   assert.strictEqual(CORE.hasPlayerRounds(null, null), false);
 });
 
+test('configurable graphics settings schema, sanitization, and budget rules (v116 mobile UI polish)', () => {
+  const keys = ['enemyDetail', 'sceneryDetail', 'effects', 'ragdollQuality', 'shadowQuality', 'postProcessing'];
+  for (const k of keys) {
+    assert.strictEqual(CORE.defaultSettings()[k], 'auto', k);
+    assert.strictEqual(CORE.sanitizeSettings({ [k]: 'invalid' })[k], 'auto');
+    const choice = CORE.SETTINGS_SCHEMA[k].values.at(-1);
+    assert.strictEqual(CORE.sanitizeSettings({ [k]: choice })[k], choice);
+  }
+
+  // Auto desktop vs mobile
+  const desktop = CORE.graphicsSettings({}, false);
+  const mobile = CORE.graphicsSettings({}, true);
+  assert.strictEqual(desktop.enemyDetailed, true);
+  assert.strictEqual(mobile.enemyDetailed, false);
+  assert.strictEqual(desktop.sceneryDetailed, true);
+  assert.strictEqual(mobile.sceneryDetailed, false);
+  assert.strictEqual(desktop.particles, 2600);
+  assert.strictEqual(mobile.particles, 900);
+  assert.strictEqual(desktop.ragdollMax, 6);
+  assert.strictEqual(mobile.ragdollMax, 3);
+  assert.strictEqual(desktop.shadowSize, 2048);
+  assert.strictEqual(mobile.shadowSize, 1024);
+  assert.strictEqual(desktop.shadowExtent, 38);
+  assert.strictEqual(mobile.shadowExtent, 26);
+  assert.strictEqual(desktop.shadowEnemies, 8);
+  assert.strictEqual(mobile.shadowEnemies, 4);
+  assert.strictEqual(desktop.anisotropy, 8);
+  assert.strictEqual(mobile.anisotropy, 4);
+
+  // Explicit overrides on touch
+  const full = CORE.graphicsSettings({
+    enemyDetail: 'detailed',
+    sceneryDetail: 'detailed',
+    effects: 'full',
+    ragdollQuality: 'full',
+    shadowQuality: 'high',
+    postProcessing: 'on',
+    quality: 'high'
+  }, true);
+  assert.strictEqual(full.enemyDetailed, true);
+  assert.strictEqual(full.sceneryDetailed, true);
+  assert.strictEqual(full.particles, 2600);
+  assert.strictEqual(full.flashLights, true);
+  assert.strictEqual(full.ragdollMax, 6);
+  assert.strictEqual(full.ragdollSimulation, 10);
+  assert.strictEqual(full.shadowSize, 2048);
+  assert.strictEqual(full.shadowEnemies, 8);
+  assert.strictEqual(full.shadowType, 'PCFSoftShadowMap');
+  assert.strictEqual(full.anisotropy, 8);
+  assert.strictEqual(full.postfx, true);
+
+  // Off settings
+  const off = CORE.graphicsSettings({
+    effects: 'off',
+    ragdollQuality: 'off',
+    shadowQuality: 'off',
+    postProcessing: 'off'
+  }, false);
+  assert.strictEqual(off.particles, 0);
+  assert.strictEqual(off.flashLights, false);
+  assert.strictEqual(off.ragdollMax, 0);
+  assert.strictEqual(off.shadowEnabled, false);
+  assert.strictEqual(off.postfx, false);
+});
+
