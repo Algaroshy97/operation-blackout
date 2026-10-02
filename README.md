@@ -1,14 +1,18 @@
 # Operation Blackout
 
-A single-file, offline, wave-defense FPS built with Three.js. One HTML file — no server, no installs, no build step. Open it in Chrome or Edge and play.
+A wave-defense FPS built with Three.js, developed in modular source and released as one self-contained HTML file. Playing the downloaded release needs no server, installs or build step; source changes require a rebuild.
 
 ![waves](https://img.shields.io/badge/waves-15%20to%20victory-8a2f2f) ![single file](https://img.shields.io/badge/single--file-HTML-blue)
 
 ## Play
 
+[Play in your browser](https://emerald-lemon-ma9z.here.now/) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
+
 **Windows / desktop (tested best):** download `dist/Operation Blackout.html`, double-click, play. Right-click → *Save link as* works too if your browser opens it as text.
 
 **Android:** copy the same file to the phone, open in Chrome. Touch controls appear automatically (virtual joystick, look-drag, on-screen buttons; pushing the stick fully forward sprints). Landscape is required; the touch HUD and the end screens are laid out for viewports down to 800x360 and inset past display cutouts and the gesture bar.
+
+**Mobile enemy visuals:** `src/40_enemies.js` explicitly selects the lightweight procedural box-man whenever `IS_TOUCH` is true. Detailed articulated soldiers are built on the non-touch path; the simplified mobile enemies are not missing downloaded models. Changing graphics quality does not remove this touch-device gate. Physical-phone performance and detailed-model support are not established by the headless tests.
 
 Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3 or wheel switch weapon · P/Esc pause.
 
@@ -43,12 +47,16 @@ python3 scripts/build.py .   # or: python3 scripts/build.py <repo root>
 
 ## Testing
 
-Two suites. Both run in a couple of seconds and neither needs a GPU.
+Run all JavaScript regression files, the Python release-integrity suite, and the browser acceptance probe. The Node and Python suites do not require a GPU; the browser probe requires Chromium with WebGL support.
 
 ```bash
-node --test tests/test_core.js              # gameplay rules, headless
-python -m unittest tests.test_release_build # build integrity (also drives the node suite)
+node --test tests/*.js                      # all JavaScript regression suites
+python3 -m unittest tests.test_release_build # build integrity + core Node tests
 ```
+
+The Python suite invokes only `tests/test_core.js`, not all JavaScript suites, so run
+the explicit `tests/*.js` command as well. Other suites cover combat integration,
+mobile input/artwork and CPU/HUD optimization regressions.
 
 `tests/test_core.js` executes the real rules from `src/01_core.js` — enemy pathfinding
 reachability, collision sub-stepping, damage falloff, spawn validity, wave scaling. Each
@@ -63,12 +71,21 @@ every `src/` module reaches it, and that it stays under the size budget.
 One-time setup, then a full run through the real UI in headless Chromium:
 
 ```bash
-pip install -r requirements.txt
-playwright install chromium
-python scripts/probe_live.py
+python3 -m pip install -r requirements.txt
+python3 -m playwright install chromium
+python3 scripts/probe_live.py
 ```
 
-Neither suite measures real-GPU frame rate or replaces playtesting on Android hardware.
+Require exit code 0, every probe check passing and an empty console-error list.
+The probe opens the local release through `file://`; its name does not mean it verifies
+the hosted deployment. See [CONTRIBUTING.md](CONTRIBUTING.md) for artifact equality and
+offline release gates. These checks do not measure real-GPU frame rate or replace
+physical Android playtesting.
+
+Single-file packaging is not itself evidence of lag: scene complexity, draw calls,
+CPU updates, allocations and the actual browser renderer need measurement. See
+[PERFORMANCE_MOBILE_REPORT.md](PERFORMANCE_MOBILE_REPORT.md) for scoped measurements
+and the remaining hardware evidence gaps; software-rendered results are not phone FPS guarantees.
 
 ### Optional frame-time benchmark capture
 
@@ -84,15 +101,20 @@ runs on explicitly identified devices and settings.
 
 ## Project status
 
-See [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the full findings register and the
-phased plan. Phases 0-13 are complete, plus a physics pass (ragdoll deaths, fall damage).
+See [CHANGELOG.md](CHANGELOG.md) for recent commit-backed changes and
+[AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the findings register and planning
+history. Historical audit notes and commit labels are not a current hardware
+playability guarantee.
 
 ## Credits
 
 - Three.js r186 (MIT), bundled with esbuild so the game can stay one classic script
 - CC0 models from Kenney (trees, crates, columns, barrels) embedded as base64
-- Soldiers, weapon viewmodels, surface textures, sky and particle sprites are all
-  generated procedurally at startup — no asset bytes
+- Soldier geometry (including the mobile box-man), weapon viewmodels, surface textures,
+  sky and particle sprites are generated procedurally at startup.
+- Mobile control artwork is image-generated raster art, converted to transparent icons
+  and embedded as a PNG atlas — not procedural startup geometry. See
+  [the artwork notes](assets/ui/mobile/README.md). Menu artwork is also embedded media.
 - All sounds synthesized in-browser with WebAudio — no copyrighted assets
 
 ## License
