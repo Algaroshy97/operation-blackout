@@ -460,7 +460,7 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
   const p = en.parts, J = p.J;
   p.group.updateMatrixWorld(true);
   const R = { P: new Float32Array(45), Q: new Float32Array(45), rest: [], min: RD_MIN, cols: [], colT: 0, sleepT: 0, asleep: false, pooled: false, container: new THREE.Group(), parts: [],
-    settled: false, order: [] };
+    settled: false, order: [], en: en };
   for (let i = 0; i < 15; i++) R.order.push({ x: 0, y: 0, z: 0 });
   const explosive = !!blastPos;
   const knock = { x: 0, z: 0 };
@@ -647,7 +647,10 @@ function sdUpdateRagdoll(R, dt) {
   R.settled = R.asleep;
   if (R.asleep && !R.pooled) {
     R.pooled = true;
-    if (R.P[4] < 0.6) spawnBloodPool(R.P[3], R.P[5], 1.2 + Math.random() * 0.6);
+    if (R.P[4] < 0.6) {
+      const isHead = !!(R.en && R.en._lastHitNode === 'head');
+      spawnBloodPool(R.P[3], R.P[5], isHead);
+    }
   }
 }
 function sdWake(R) { R.asleep = false; R.settled = false; R.sleepT = 0; R.age = 0; }
@@ -669,22 +672,90 @@ function sdRagdollBlast(pos, radius, force) {
   }
 }
 
-// ---- blood pools under settled corpses (small FIFO pool, one shared material) ----
-const BLOOD_POOL = { max: 10, live: [] };
-const bloodPoolMat = new THREE.MeshBasicMaterial({ map: TEX.bloodSplat, transparent: true, depthWrite: false,
-  polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+// ---- blood pools under settled corpses (v122 visual polish) ----
+// Pre-allocated FIFO pool of 16 quads with TEX.bloodSplat; zero runtime allocations, zero clones.
+const BLOOD_POOL = { max: CORE.BLOOD_POOL_MAX, live: [], pool: [] };
 const bloodPoolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-function spawnBloodPool(x, z, size) {
-  let m;
-  if (BLOOD_POOL.live.length >= BLOOD_POOL.max) m = BLOOD_POOL.live.shift();
-  else { m = new THREE.Mesh(bloodPoolGeo, bloodPoolMat); m.userData.vfx = true; m.renderOrder = 1; scene.add(m); }
-  m.visible = true;
-  m.position.set(x, 0.012, z);
-  m.rotation.y = Math.random() * Math.PI * 2;
-  m.scale.set(size, 1, size);
-  BLOOD_POOL.live.push(m);
+
+function warmupBloodPools() {
+  for (let i = 0; i < CORE.BLOOD_POOL_MAX; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: TEX.bloodSplat,
+      transparent: true,
+      opacity: CORE.BLOOD_POOL_BASE_OPACITY,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
+    });
+    const m = new THREE.Mesh(bloodPoolGeo, mat);
+    m.userData.vfx = true;
+    m.userData.isBloodPool = true;
+    m.renderOrder = 1;
+    m.visible = false;
+    scene.add(m);
+    BLOOD_POOL.pool.push({ m: m, life: 0, maxLife: CORE.BLOOD_POOL_LIFETIME, baseScale: 1, elapsed: 0 });
+  }
 }
+warmupBloodPools();
+
+function spawnBloodPool(x, z, isHeadOrSize) {
+  let b;
+  if (BLOOD_POOL.pool.length > 0) {
+    b = BLOOD_POOL.pool.pop();
+  } else if (BLOOD_POOL.live.length >= CORE.BLOOD_POOL_MAX) {
+    b = BLOOD_POOL.live.shift();
+  } else {
+    return;
+  }
+  const floorY = (typeof CORE.findFloorY === 'function' && typeof colliders !== 'undefined')
+    ? CORE.findFloorY(x, z, 0.25, colliders, 0.5, 0.6, 0)
+    : 0;
+  const y = CORE.bloodPoolElevation(floorY, CORE.BLOOD_POOL_STANDOFF);
+  b.m.position.set(x, y, z);
+  b.m.rotation.y = CORE.bloodPoolRotation(Math.random());
+  const baseScale = typeof isHeadOrSize === 'number'
+    ? isHeadOrSize
+    : CORE.bloodPoolScale(!!isHeadOrSize, Math.random());
+  b.baseScale = baseScale;
+  b.life = CORE.BLOOD_POOL_LIFETIME;
+  b.maxLife = CORE.BLOOD_POOL_LIFETIME;
+  b.elapsed = 0;
+  const initScale = CORE.bloodPoolScaleProgress(baseScale, 0, CORE.BLOOD_POOL_EXPANSION_DURATION);
+  b.m.scale.set(initScale, 1, initScale);
+  b.m.material.opacity = CORE.BLOOD_POOL_BASE_OPACITY;
+  b.m.visible = true;
+  BLOOD_POOL.live.push(b);
+}
+
+function updateBloodPools(dt) {
+  for (let i = BLOOD_POOL.live.length - 1; i >= 0; i--) {
+    const b = BLOOD_POOL.live[i];
+    b.elapsed += dt;
+    b.life = CORE.stepBloodPoolLife(b.life, dt);
+    if (CORE.isBloodPoolExpired(b.life)) {
+      b.m.visible = false;
+      b.m.scale.set(1, 1, 1);
+      BLOOD_POOL.pool.push(b);
+      BLOOD_POOL.live.splice(i, 1);
+      continue;
+    }
+    if (b.elapsed <= CORE.BLOOD_POOL_EXPANSION_DURATION) {
+      const curScale = CORE.bloodPoolScaleProgress(b.baseScale, b.elapsed, CORE.BLOOD_POOL_EXPANSION_DURATION);
+      b.m.scale.set(curScale, 1, curScale);
+    }
+    if (b.life < CORE.BLOOD_POOL_FADE_DURATION) {
+      b.m.material.opacity = CORE.bloodPoolOpacity(b.life, CORE.BLOOD_POOL_FADE_DURATION, CORE.BLOOD_POOL_BASE_OPACITY);
+    }
+  }
+}
+
 function clearBloodPools() {
-  for (let i = 0; i < BLOOD_POOL.live.length; i++) scene.remove(BLOOD_POOL.live[i]);
+  for (let i = 0; i < BLOOD_POOL.live.length; i++) {
+    const b = BLOOD_POOL.live[i];
+    b.m.visible = false;
+    b.m.scale.set(1, 1, 1);
+    BLOOD_POOL.pool.push(b);
+  }
   BLOOD_POOL.live.length = 0;
 }

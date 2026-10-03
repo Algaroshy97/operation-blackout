@@ -3294,7 +3294,61 @@ def main() -> int:
         }""")
         checks.append(("mobile-touch-layout-sanitization-look-delta-and-empty-state-rules", mobile_ui_check))
 
-        # 72) Clean console throughout gameplay.
+        # 72) Blood pool seep expansion, settled corpse gore pooling, and textured bullet decal visual rules (v122 visual polish).
+        blood_pool_visual_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.bloodPoolScale !== 'function' ||
+                typeof CORE.bloodPoolScaleProgress !== 'function' ||
+                typeof CORE.bloodPoolOpacity !== 'function' ||
+                typeof CORE.stepBloodPoolLife !== 'function' ||
+                typeof CORE.isBloodPoolExpired !== 'function' ||
+                typeof CORE.bloodPoolRotation !== 'function' ||
+                typeof CORE.bloodPoolElevation !== 'function' ||
+                typeof CORE.canSpawnBloodPool !== 'function') {
+                return false;
+            }
+
+            const constsOk = CORE.BLOOD_POOL_MAX === 16 &&
+                             CORE.BLOOD_POOL_LIFETIME === 24.0 &&
+                             CORE.BLOOD_POOL_FADE_DURATION === 4.0 &&
+                             CORE.BLOOD_POOL_BASE_SIZE === 1.35 &&
+                             CORE.BLOOD_POOL_HEAD_MUL === 1.35 &&
+                             CORE.BLOOD_POOL_BASE_OPACITY === 0.88 &&
+                             CORE.BLOOD_POOL_STANDOFF === 0.012 &&
+                             CORE.BLOOD_POOL_EXPANSION_DURATION === 1.2 &&
+                             CORE.BLOOD_POOL_SPAWN_MAX_DIST === 60.0;
+
+            const scaleStd = CORE.bloodPoolScale(false, 0.5);
+            const scaleHs = CORE.bloodPoolScale(true, 0.5);
+            const scaleOk = Math.abs(scaleStd - 1.35) < 1e-4 &&
+                            Math.abs(scaleHs - (1.35 * 1.35)) < 1e-4;
+
+            const initProg = CORE.bloodPoolScaleProgress(2.0, 0, 1.2);
+            const fullProg = CORE.bloodPoolScaleProgress(2.0, 1.2, 1.2);
+            const progOk = Math.abs(initProg - 0.5) < 1e-4 && fullProg === 2.0;
+
+            const fullOp = CORE.bloodPoolOpacity(24.0, 4.0, 0.88);
+            const halfOp = CORE.bloodPoolOpacity(2.0, 4.0, 0.88);
+            const zeroOp = CORE.bloodPoolOpacity(0, 4.0, 0.88);
+            const opOk = fullOp === 0.88 && Math.abs(halfOp - 0.22) < 1e-4 && zeroOp === 0;
+
+            const lifeStep = CORE.stepBloodPoolLife(24.0, 1.0) === 23.0 &&
+                             CORE.isBloodPoolExpired(23.0) === false &&
+                             CORE.isBloodPoolExpired(0) === true;
+
+            const rotElev = Math.abs(CORE.bloodPoolRotation(0.5) - Math.PI) < 1e-4 &&
+                            CORE.bloodPoolElevation(0, 0.012) === 0.012;
+
+            const spawnOk = CORE.canSpawnBloodPool(true, false, 25.0, 60.0) === true &&
+                            CORE.canSpawnBloodPool(false, false, 25.0, 60.0) === false &&
+                            CORE.canSpawnBloodPool(true, true, 25.0, 60.0) === false &&
+                            CORE.canSpawnBloodPool(true, false, 80.0, 60.0) === false;
+
+            return constsOk && scaleOk && progOk && opOk && lifeStep && rotElev && spawnOk;
+        }""")
+        checks.append(("blood-pool-seep-and-textured-bullet-decal-visual-rules", blood_pool_visual_check))
+
+        # 73) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

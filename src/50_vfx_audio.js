@@ -197,9 +197,11 @@ function spawnImpact(point, normal, obj) {
 // One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
 // zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
 // so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
-const decalGeo = new THREE.CircleGeometry(CORE.DECAL_BASE_RADIUS, 8);   // 15 cm base hole — reads at 15–40 m engagement range
+const decalGeo = new THREE.PlaneGeometry(CORE.DECAL_BASE_RADIUS * 2, CORE.DECAL_BASE_RADIUS * 2);   // 15 cm base quad — reads at 15–40 m engagement range
 const decalMat = new THREE.MeshBasicMaterial({
-  color: 0x14161a, transparent: true, opacity: 0.9,
+  map: TEX.bulletHole,
+  transparent: true,
+  opacity: 0.92,
   depthWrite: false,                                  // draw like a decal, not a solid
   polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
 });

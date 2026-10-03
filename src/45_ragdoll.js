@@ -153,6 +153,7 @@ function aimBoneAt(bone, tx, ty, tz) {
 }
 
 function updateRagdolls(dt) {
+  if (typeof updateBloodPools === 'function') updateBloodPools(dt);
   let simulating = 0;
   for (let i = ragdolls.length - 1; i >= 0; i--) {
     const e = ragdolls[i];
@@ -170,6 +171,17 @@ function updateRagdolls(dt) {
       continue;
     }
     if (live) { simulating++; CORE.ragdollStep(e.rag, Math.min(dt, 1 / 45), colliders, 0); }
+    if (e.rag && e.rag.settled && !e.rag.pooled) {
+      e.rag.pooled = true;
+      const n = e.rag.nodes;
+      const bx = n && n.chest ? n.chest.x : (n && n.pelvis ? n.pelvis.x : (e.en && e.en.pos ? e.en.pos.x : 0));
+      const bz = n && n.chest ? n.chest.z : (n && n.pelvis ? n.pelvis.z : (e.en && e.en.pos ? e.en.pos.z : 0));
+      const dPlayer = (typeof player !== 'undefined' && player && player.pos) ? Math.hypot(bx - player.pos.x, bz - player.pos.z) : 0;
+      if (CORE.canSpawnBloodPool(e.rag.settled, false, dPlayer) && typeof spawnBloodPool === 'function') {
+        const isHead = !!(e.en && e.en._lastHitNode === 'head');
+        spawnBloodPool(bx, bz, isHead);
+      }
+    }
 
     const n = e.rag.nodes;
     if (e.useBones) {

@@ -7619,3 +7619,67 @@ test('mobile touch layout sanitization, look delta clamping, pause/gameplay gati
   assert.strictEqual(CORE.isTouchControlEmpty('urgent'), false);
   assert.strictEqual(CORE.isTouchControlEmpty(''), false);
 });
+
+test('blood pool seep expansion, settled corpse gore pooling, and textured bullet hole decal visual polish rules (v122 visual polish)', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.BLOOD_POOL_MAX, 16);
+  assert.strictEqual(CORE.BLOOD_POOL_LIFETIME, 24.0);
+  assert.strictEqual(CORE.BLOOD_POOL_FADE_DURATION, 4.0);
+  assert.strictEqual(CORE.BLOOD_POOL_BASE_SIZE, 1.35);
+  assert.strictEqual(CORE.BLOOD_POOL_HEAD_MUL, 1.35);
+  assert.strictEqual(CORE.BLOOD_POOL_BASE_OPACITY, 0.88);
+  assert.strictEqual(CORE.BLOOD_POOL_STANDOFF, 0.012);
+  assert.strictEqual(CORE.BLOOD_POOL_EXPANSION_DURATION, 1.2);
+  assert.strictEqual(CORE.BLOOD_POOL_SPAWN_MAX_DIST, 60.0);
+
+  // 2. Scale & headshot multiplier
+  const baseStandard = CORE.bloodPoolScale(false, 0.5);
+  const baseHeadshot = CORE.bloodPoolScale(true, 0.5);
+  assert.ok(Math.abs(baseStandard - 1.35) < 1e-4);
+  assert.ok(Math.abs(baseHeadshot - (1.35 * 1.35)) < 1e-4);
+
+  // Jitter bounds
+  const lowScale = CORE.bloodPoolScale(false, 0.0);
+  const highScale = CORE.bloodPoolScale(false, 1.0);
+  assert.ok(lowScale >= 1.35 * 0.85);
+  assert.ok(highScale <= 1.35 * 1.15);
+
+  // 3. Seep expansion progress (ease-out cubic growth)
+  const initProgress = CORE.bloodPoolScaleProgress(2.0, 0, 1.2);
+  assert.ok(Math.abs(initProgress - 0.5) < 1e-4); // 25% of 2.0 = 0.5
+
+  const midProgress = CORE.bloodPoolScaleProgress(2.0, 0.6, 1.2);
+  assert.ok(midProgress > 0.5 && midProgress < 2.0);
+
+  const fullProgress = CORE.bloodPoolScaleProgress(2.0, 1.2, 1.2);
+  assert.strictEqual(fullProgress, 2.0);
+
+  const overProgress = CORE.bloodPoolScaleProgress(2.0, 2.5, 1.2);
+  assert.strictEqual(overProgress, 2.0);
+
+  // 4. Opacity fade decay
+  assert.strictEqual(CORE.bloodPoolOpacity(24.0, 4.0, 0.88), 0.88);
+  assert.strictEqual(CORE.bloodPoolOpacity(4.0, 4.0, 0.88), 0.88);
+  assert.ok(Math.abs(CORE.bloodPoolOpacity(2.0, 4.0, 0.88) - (0.88 * 0.25)) < 1e-4);
+  assert.strictEqual(CORE.bloodPoolOpacity(0, 4.0, 0.88), 0);
+  assert.strictEqual(CORE.bloodPoolOpacity(-1, 4.0, 0.88), 0);
+
+  // 5. Lifecycle stepping & expiration
+  assert.strictEqual(CORE.stepBloodPoolLife(24.0, 1.0), 23.0);
+  assert.strictEqual(CORE.stepBloodPoolLife(0.5, 1.0), 0);
+  assert.strictEqual(CORE.isBloodPoolExpired(23.0), false);
+  assert.strictEqual(CORE.isBloodPoolExpired(0), true);
+  assert.strictEqual(CORE.isBloodPoolExpired(-0.5), true);
+
+  // 6. Rotation and elevation
+  assert.strictEqual(CORE.bloodPoolRotation(0), 0);
+  assert.ok(Math.abs(CORE.bloodPoolRotation(0.5) - Math.PI) < 1e-4);
+  assert.strictEqual(CORE.bloodPoolElevation(0, 0.012), 0.012);
+  assert.strictEqual(CORE.bloodPoolElevation(3.2, 0.012), 3.212);
+
+  // 7. Spawn gating
+  assert.strictEqual(CORE.canSpawnBloodPool(true, false, 25.0, 60.0), true);
+  assert.strictEqual(CORE.canSpawnBloodPool(false, false, 25.0, 60.0), false); // not settled
+  assert.strictEqual(CORE.canSpawnBloodPool(true, true, 25.0, 60.0), false);  // already spawned
+  assert.strictEqual(CORE.canSpawnBloodPool(true, false, 80.0, 60.0), false); // too far
+});

@@ -6754,6 +6754,70 @@ const CORE = (function () {
     return Math.abs(cur - last) >= 0.005;
   }
 
+  // ---- Blood Pool Seep & Gore Visual Rules (v122 Visual Polish) ----
+  const BLOOD_POOL_MAX = 16;
+  const BLOOD_POOL_LIFETIME = 24.0;
+  const BLOOD_POOL_FADE_DURATION = 4.0;
+  const BLOOD_POOL_BASE_SIZE = 1.35;
+  const BLOOD_POOL_HEAD_MUL = 1.35;
+  const BLOOD_POOL_BASE_OPACITY = 0.88;
+  const BLOOD_POOL_STANDOFF = 0.012;
+  const BLOOD_POOL_EXPANSION_DURATION = 1.2;
+  const BLOOD_POOL_SPAWN_MAX_DIST = 60.0;
+
+  function bloodPoolScale(isHead, jitter) {
+    const headMul = isHead ? BLOOD_POOL_HEAD_MUL : 1.0;
+    const j = typeof jitter === 'number' && isFinite(jitter) ? 1.0 + (jitter - 0.5) * 0.25 : 1.0;
+    return BLOOD_POOL_BASE_SIZE * headMul * j;
+  }
+
+  function bloodPoolScaleProgress(baseScale, elapsed, duration) {
+    const b = typeof baseScale === 'number' && isFinite(baseScale) ? baseScale : BLOOD_POOL_BASE_SIZE;
+    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : BLOOD_POOL_EXPANSION_DURATION;
+    const el = typeof elapsed === 'number' && isFinite(elapsed) ? Math.max(0, elapsed) : dur;
+    if (el >= dur) return b;
+    const t = el / dur;
+    const progress = 1 - (1 - t) * (1 - t) * (1 - t);
+    return b * (0.25 + 0.75 * progress);
+  }
+
+  function bloodPoolOpacity(life, fadeDuration, maxOpacity) {
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0;
+    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : BLOOD_POOL_BASE_OPACITY;
+    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : BLOOD_POOL_FADE_DURATION;
+    if (life >= fade) return maxOp;
+    const t = Math.max(0, Math.min(1, life / fade));
+    return maxOp * t * t;
+  }
+
+  function stepBloodPoolLife(life, dt) {
+    if (typeof life !== 'number' || !isFinite(life)) return 0;
+    const step = typeof dt === 'number' && isFinite(dt) ? dt : 0;
+    return Math.max(0, life - step);
+  }
+
+  function isBloodPoolExpired(life) {
+    return typeof life !== 'number' || !isFinite(life) || life <= 0;
+  }
+
+  function bloodPoolRotation(rand) {
+    const r = typeof rand === 'number' && isFinite(rand) ? rand : 0;
+    return (r % 1) * Math.PI * 2;
+  }
+
+  function bloodPoolElevation(floorY, standoff) {
+    const so = typeof standoff === 'number' && isFinite(standoff) ? standoff : BLOOD_POOL_STANDOFF;
+    const f = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
+    return f + so;
+  }
+
+  function canSpawnBloodPool(settled, alreadySpawned, distToPlayer, maxDist) {
+    if (!settled || alreadySpawned) return false;
+    const limit = typeof maxDist === 'number' && isFinite(maxDist) ? maxDist : BLOOD_POOL_SPAWN_MAX_DIST;
+    if (typeof distToPlayer === 'number' && isFinite(distToPlayer) && distToPlayer > limit) return false;
+    return true;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7721,7 +7785,24 @@ const CORE = (function () {
     isTouchGameplayEnabled: isTouchGameplayEnabled,
     canTouchPause: canTouchPause,
     touchLookDelta: touchLookDelta,
-    isTouchControlEmpty: isTouchControlEmpty
+    isTouchControlEmpty: isTouchControlEmpty,
+    BLOOD_POOL_MAX: BLOOD_POOL_MAX,
+    BLOOD_POOL_LIFETIME: BLOOD_POOL_LIFETIME,
+    BLOOD_POOL_FADE_DURATION: BLOOD_POOL_FADE_DURATION,
+    BLOOD_POOL_BASE_SIZE: BLOOD_POOL_BASE_SIZE,
+    BLOOD_POOL_HEAD_MUL: BLOOD_POOL_HEAD_MUL,
+    BLOOD_POOL_BASE_OPACITY: BLOOD_POOL_BASE_OPACITY,
+    BLOOD_POOL_STANDOFF: BLOOD_POOL_STANDOFF,
+    BLOOD_POOL_EXPANSION_DURATION: BLOOD_POOL_EXPANSION_DURATION,
+    BLOOD_POOL_SPAWN_MAX_DIST: BLOOD_POOL_SPAWN_MAX_DIST,
+    bloodPoolScale: bloodPoolScale,
+    bloodPoolScaleProgress: bloodPoolScaleProgress,
+    bloodPoolOpacity: bloodPoolOpacity,
+    stepBloodPoolLife: stepBloodPoolLife,
+    isBloodPoolExpired: isBloodPoolExpired,
+    bloodPoolRotation: bloodPoolRotation,
+    bloodPoolElevation: bloodPoolElevation,
+    canSpawnBloodPool: canSpawnBloodPool
   };
 })();
 
