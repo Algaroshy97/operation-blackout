@@ -204,6 +204,8 @@ function getGrenadeSpeed() {
 }
 
 const _prevDir = new THREE.Vector3();
+const _throwDir = new THREE.Vector3();
+const _throwFacingOut = { x: 0, z: 0 };
 const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
 const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
@@ -315,19 +317,13 @@ function throwGrenade(customSpeed, def) {
   m.add(blink);
   m.castShadow = true;
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  CORE.grenadeThrowVelocity(dir.x, dir.y, dir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
+  _throwDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  CORE.grenadeThrowVelocity(_throwDir.x, _throwDir.y, _throwDir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
   // A claymore has no fuse at all: it arms where it lands and waits. Everything
   // else counts down from its own value, not the frag's.
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
-  // Capture the claymore's facing BEFORE the object literal below, because
-  // `vel: dir.multiplyScalar(speed)` mutates `dir` in place and a later
-  // `faceX: dir.x` would read the VELOCITY instead of a unit vector. With a
-  // magnitude of ~6.7 in it, the cone test `dot / d >= arc` was effectively
-  // comparing against 0.5/6.7 — an 86-degree half-angle instead of 60, which is
-  // most of a hemisphere and not a directional mine at all.
-  const faceLen = Math.hypot(dir.x, dir.z) || 1;
-  const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
+  CORE.planarFacingDirection(_throwDir.x, _throwDir.z, _throwFacingOut);
+  const faceX = _throwFacingOut.x, faceZ = _throwFacingOut.z;
   liveGrenades.push({
     m: m,
     vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
@@ -751,7 +747,7 @@ function dropPickup(pos) {
   g.castShadow = true;
   g.userData.pickup = kind;
   scene.add(g);
-  pickups.push({ m: g, kind: kind, t: 0 });
+  pickups.push({ m: g, kind: kind, t: 0, _lastOp: undefined });
 }
 
 // ---- Power-up drops ----------------------------------------------------------
@@ -772,7 +768,7 @@ function dropPowerUp(pos) {
   g.position.set(pos.x, 0.55, pos.z);
   g.userData.pickup = 'power';
   scene.add(g);
-  pickups.push({ m: g, kind: 'power', power: def, t: 0 });
+  pickups.push({ m: g, kind: 'power', power: def, t: 0, _lastOp: undefined });
 }
 
 // Drop an ammo box at a specific spot, bypassing the random roll.
@@ -782,7 +778,7 @@ function forceAmmoPickup(x, z) {
   g.castShadow = true;
   g.userData.pickup = 'ammo';
   scene.add(g);
-  pickups.push({ m: g, kind: 'ammo', t: 0 });
+  pickups.push({ m: g, kind: 'ammo', t: 0, _lastOp: undefined });
 }
 
 function updatePickups(dt) {
@@ -826,12 +822,15 @@ function updatePickups(dt) {
     // The pulse accelerates toward expiry; the pickup never fully disappears until
     // despawn so it always has a presence even at the end of the blink window.
     const op = CORE.pickupBlinkOpacity(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
-    p.m.material.opacity = op;
-    // Propagate opacity to child meshes (medkit cross arms share a separate material).
-    for (let c = 0; c < p.m.children.length; c++) {
-      if (p.m.children[c].material) p.m.children[c].material.opacity = op;
+    if (CORE.shouldUpdatePickupOpacity(p.t, CORE.PICKUP_BLINK_START, p._lastOp, op)) {
+      p._lastOp = op;
+      p.m.material.opacity = op;
+      // Propagate opacity to child meshes (medkit cross arms share a separate material).
+      for (let c = 0; c < p.m.children.length; c++) {
+        if (p.m.children[c].material) p.m.children[c].material.opacity = op;
+      }
+      p.m.visible = op > 0.01;
     }
-    p.m.visible = op > 0.01;
     // despawn after PICKUP_LIFE seconds
     if (p.t > CORE.PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }

@@ -147,6 +147,8 @@ function deploySentry() {
 }
 
 function updateSentries(dt) {
+  const activeSmokes = (typeof smokeVolumes === 'function') ? smokeVolumes() : null;
+  const maxRangeSq = SENTRY_RANGE * SENTRY_RANGE;
   for (let i = sentries.length - 1; i >= 0; i--) {
     const s = sentries[i];
     CORE.stepSentryTimers(s.t, s.cd, dt, _sentryTimerOut);
@@ -155,19 +157,20 @@ function updateSentries(dt) {
     if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     // Nearest enemy it can actually see. Same analytic slab test the AI uses,
     // pointed the other way — including through smoke, which cuts both ways.
-    let best = null, bestD = SENTRY_RANGE;
+    let best = null, bestDSq = maxRangeSq;
     _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       if (en.dead) continue;
-      const d = CORE.horizDist(en.pos.x, en.pos.z, s.m.position.x, s.m.position.z);
-      if (d >= bestD) continue;
+      const dx = en.pos.x - s.m.position.x, dz = en.pos.z - s.m.position.z;
+      const dSq = dx * dx + dz * dz;
+      if (!CORE.isSentryTargetInRange(dx, dz, bestDSq)) continue;
       _sentryTo.set(en.pos.x, CORE.sentryAimTargetY(en.pos.y, CORE.SENTRY_AIM_Y_OFFSET), en.pos.z);
       if (CORE.segmentBlocked(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
           _sentryTo.x, _sentryTo.y, _sentryTo.z, colliders, 0.25)) continue;
-      if (CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
-          _sentryTo.x, _sentryTo.y, _sentryTo.z, smokeVolumes())) continue;
-      best = en; bestD = d;
+      if (activeSmokes && CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
+          _sentryTo.x, _sentryTo.y, _sentryTo.z, activeSmokes)) continue;
+      best = en; bestDSq = dSq;
     }
     if (!best) continue;
     s.m.rotation.y = CORE.sentryTargetYaw(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z);

@@ -139,3 +139,32 @@ test('desktop streak HUD writes only on visible change and follows replacement e
   assert.equal(writes, 5);
   assert.match(value, /ready/);
 });
+
+test('shadow caster pooling, sentry target range check, and pickup opacity throttling eliminate runtime heap churn', () => {
+  // 1. Shadow caster pool reuse
+  const pos = [{ x: 50, z: 0 }, { x: 5, z: 0 }, { x: 15, z: 0 }, { x: 1, z: 0 }];
+  const outPool = [];
+  const distPool = [];
+  const keep = CORE.shadowCasters(pos, 0, 0, 2, outPool, distPool);
+  assert.equal(keep, outPool);
+  assert.deepEqual(keep, [3, 1]); // indices 3 (dist 1) and 1 (dist 5)
+
+  const maskPool = [];
+  const mask = CORE.buildShadowCasterMask(keep, pos.length, maskPool);
+  assert.equal(mask, maskPool);
+  assert.deepEqual(mask, [false, true, false, true]);
+
+  // 2. Sentry target range checking with squared distance
+  const maxRange = 25;
+  const maxRangeSq = maxRange * maxRange;
+  assert.equal(CORE.isSentryTargetInRange(15, 15, maxRangeSq), true); // 225+225 = 450 < 625
+  assert.equal(CORE.isSentryTargetInRange(20, 20, maxRangeSq), false); // 400+400 = 800 >= 625
+
+  // 3. Flashlight intensity stepping
+  assert.equal(CORE.stepFlashLightLife(0.05, 0.1), 0);
+  assert.equal(CORE.flashLightIntensity(0, 1.0, 5.0), 0);
+
+  // 4. Pickup opacity throttling
+  assert.equal(CORE.shouldUpdatePickupOpacity(10, 20, 1.0, 1.0), false);
+  assert.equal(CORE.shouldUpdatePickupOpacity(22, 20, 1.0, 0.75), true);
+});

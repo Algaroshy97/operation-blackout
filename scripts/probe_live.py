@@ -3190,7 +3190,62 @@ def main() -> int:
         }""")
         checks.append(("tactical-stance-spread-blast-kick-and-combat-accuracy-balance-rules", balance_tuning_check))
 
-        # 70) Clean console throughout gameplay.
+        # 70) Flashlight falloff, particle perspective, sentry rangefinding, shadow caster pooling & pickup opacity perf rules (v120 perf win).
+        perf_win_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.FLASH_LIGHT_DECAY_EXPONENT === 2 &&
+                             CORE.SENTRY_TARGET_ACQUIRE_EPSILON === 1e-4;
+
+            const flStepOk = CORE.stepFlashLightLife(1.0, 0.25) === 0.75 &&
+                             CORE.stepFlashLightLife(0.1, 0.5) === 0;
+
+            const flIntPeak = CORE.flashLightIntensity(1.0, 1.0, 10.0);
+            const flIntHalf = CORE.flashLightIntensity(0.5, 1.0, 10.0);
+            const flIntZero = CORE.flashLightIntensity(0, 1.0, 10.0);
+            const flIntOk = flIntPeak === 10.0 && Math.abs(flIntHalf - 2.5) < 1e-6 && flIntZero === 0;
+
+            const pScale60 = CORE.particlePerspectiveScale(720, 60);
+            const pScale90 = CORE.particlePerspectiveScale(720, 90);
+            const pScaleOk = Math.abs(pScale60 - (720 / (2 * Math.tan(Math.PI / 6)))) < 1e-4 &&
+                             Math.abs(pScale90 - (720 / (2 * Math.tan(Math.PI / 4)))) < 1e-4;
+
+            const sentryRangeOk = CORE.isSentryTargetInRange(3, 4, 26) === true &&
+                                  CORE.isSentryTargetInRange(3, 4, 25) === false &&
+                                  CORE.isSentryTargetInRange(5, 5, 40) === false;
+
+            const shadowPos = [{ x: 40, z: 0 }, { x: 2, z: 0 }, { x: 10, z: 0 }];
+            const shadowOut = [];
+            const shadowDists = [];
+            const shadowKeep = CORE.shadowCasters(shadowPos, 0, 0, 2, shadowOut, shadowDists);
+            const shadowPoolOk = shadowKeep === shadowOut &&
+                                 shadowKeep.length === 2 &&
+                                 shadowKeep[0] === 1 && shadowKeep[1] === 2;
+
+            const maskOut = [];
+            const shadowMask = CORE.buildShadowCasterMask(shadowKeep, 3, maskOut);
+            const maskOk = shadowMask === maskOut &&
+                           shadowMask.length === 3 &&
+                           shadowMask[0] === false &&
+                           shadowMask[1] === true &&
+                           shadowMask[2] === true;
+
+            const facingOut = { x: 0, z: 0 };
+            const facingRes = CORE.planarFacingDirection(3, 4, facingOut);
+            const facingOk = facingRes === facingOut &&
+                             Math.abs(facingOut.x - 0.6) < 1e-6 &&
+                             Math.abs(facingOut.z - 0.8) < 1e-6;
+
+            const pickupThrottled = CORE.shouldUpdatePickupOpacity(5, 20, 1.0, 1.0) === false;
+            const pickupFirstFrame = CORE.shouldUpdatePickupOpacity(0, 20, undefined, 1.0) === true;
+            const pickupBlinkUpdated = CORE.shouldUpdatePickupOpacity(22, 20, 1.0, 0.8) === true;
+            const pickupBlinkTiny = CORE.shouldUpdatePickupOpacity(22, 20, 0.80, 0.802) === false;
+            const pickupOk = pickupThrottled && pickupFirstFrame && pickupBlinkUpdated && pickupBlinkTiny;
+
+            return constsOk && flStepOk && flIntOk && pScaleOk && sentryRangeOk && shadowPoolOk && maskOk && facingOk && pickupOk;
+        }""")
+        checks.append(("flashlight-particle-sentry-and-shadow-pooling-perf-rules", perf_win_check))
+
+        # 71) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

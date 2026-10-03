@@ -71,6 +71,7 @@ function makePfxLayer(additive, tex) {
 }
 const PFX_ADD = makePfxLayer(true, TEX.softDot);
 const PFX_SMOKE = makePfxLayer(false, TEX.smoke);
+const _PFX_LAYERS = [PFX_ADD, PFX_SMOKE];
 function setParticleBudget(total) {
   total = Math.max(0, Math.min(PFX_MAX, Math.floor(total)));
   const add = Math.round(total * 0.45);
@@ -155,8 +156,9 @@ function updatePfxLayer(L, dt) {
 }
 function updateParticles(dt) {
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
-  const scale = h / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
-  for (const L of [PFX_ADD, PFX_SMOKE]) {
+  const scale = CORE.particlePerspectiveScale(h, camera.fov);
+  for (let i = 0; i < _PFX_LAYERS.length; i++) {
+    const L = _PFX_LAYERS[i];
     L.mat.uniforms.scale.value = scale;
     L.mat.uniforms.maxPt.value = pfxPointMax;
     L.mat.uniforms.fogNear.value = scene.fog.near; L.mat.uniforms.fogFar.value = scene.fog.far;
@@ -166,7 +168,8 @@ function updateParticles(dt) {
 }
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
-  for (const L of [PFX_ADD, PFX_SMOKE]) {
+  for (let i = 0; i < _PFX_LAYERS.length; i++) {
+    const L = _PFX_LAYERS[i];
     L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0; L.hasNew = false;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
@@ -207,10 +210,12 @@ function flashLight(pos, color, intensity, distance, life) {
 function updateFlashLights(dt) {
   for (let i = 0; i < FLASH_LIGHTS.length; i++) {
     const l = FLASH_LIGHTS[i], u = l.userData;
-    if (u.life <= 0) { l.intensity = 0; continue; }
-    u.life -= dt;
-    const t = Math.max(0, u.life / u.max);
-    l.intensity = u.peak * t * t;
+    if (u.life <= 0) {
+      if (l.intensity !== 0) l.intensity = 0;
+      continue;
+    }
+    u.life = CORE.stepFlashLightLife(u.life, dt);
+    l.intensity = CORE.flashLightIntensity(u.life, u.max, u.peak);
   }
 }
 

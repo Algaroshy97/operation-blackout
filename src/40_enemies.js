@@ -411,6 +411,9 @@ const tmpV2 = new THREE.Vector3();
 let SHADOW_ENEMY_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).shadowEnemies;
 let shadowBudgetT = 0;
 const _shadowPos = [];
+const _shadowKeepOut = [];
+const _shadowDistsOut = [];
+const _shadowMaskOut = [];
 function enemyShadowMeshes(en) {
   if (!en._shadowMeshes) {
     const list = [];
@@ -432,9 +435,10 @@ function updateEnemyShadowBudget(dt) {
   shadowBudgetT = 0.25;
   _shadowPos.length = 0;
   for (let i = 0; i < enemies.length; i++) _shadowPos.push(enemies[i].pos);
-  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET);
+  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET, _shadowKeepOut, _shadowDistsOut);
+  const mask = CORE.buildShadowCasterMask(keep, enemies.length, _shadowMaskOut);
   for (let i = 0; i < enemies.length; i++) {
-    setEnemyCastShadow(enemies[i], keep.indexOf(i) >= 0);
+    setEnemyCastShadow(enemies[i], mask[i]);
   }
 }
 

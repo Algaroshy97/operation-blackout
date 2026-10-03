@@ -4875,16 +4875,18 @@ const CORE = (function () {
   // static arena. A soldier 40 m away casts a shadow a few pixels across, so the
   // pass is budgeted to the nearest few and the rest are dropped. Returns the
   // indices that should cast, nearest first.
-  function shadowCasters(positions, px, pz, budget) {
-    const n = positions.length;
-    const out = [];
-    for (let i = 0; i < n; i++) out.push(i);
-    if (n <= budget) return out;
-    const d = new Array(n);
+  function shadowCasters(positions, px, pz, budget, out, distsOut) {
+    const n = positions ? positions.length : 0;
+    const res = out || [];
+    res.length = 0;
+    if (n === 0 || budget <= 0) return res;
+    for (let i = 0; i < n; i++) res.push(i);
+    if (n <= budget) return res;
+    const d = distsOut || new Array(n);
     for (let i = 0; i < n; i++) d[i] = horizDistSq(positions[i].x, positions[i].z, px, pz);
-    out.sort(function (a, b) { return d[a] - d[b]; });
-    out.length = budget;
-    return out;
+    res.sort(function (a, b) { return d[a] - d[b]; });
+    res.length = budget;
+    return res;
   }
 
   // ---- Ballistics ------------------------------------------------------------
@@ -11323,6 +11325,72 @@ const CORE = (function () {
     return acc * (1 - (1 - minF) * t);
   }
 
+  // ---- Dynamic Point Light & Flash VFX, Sentry Rangefinding, Shadow Caster Mask & Pickup Opacity Rules (v120 Perf Win) ----
+  const FLASH_LIGHT_DECAY_EXPONENT = 2;
+  const SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
+
+  function stepFlashLightLife(life, dt) {
+    const l = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, l - delta);
+  }
+
+  function flashLightIntensity(life, maxLife, peakIntensity) {
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0;
+    if (typeof maxLife !== 'number' || !isFinite(maxLife) || maxLife <= 0) return 0;
+    const peak = (typeof peakIntensity === 'number' && isFinite(peakIntensity)) ? peakIntensity : 0;
+    const t = Math.max(0, Math.min(1, life / maxLife));
+    return peak * t * t;
+  }
+
+  function particlePerspectiveScale(screenHeight, fovDeg) {
+    const h = (typeof screenHeight === 'number' && isFinite(screenHeight) && screenHeight > 0) ? screenHeight : 720;
+    const fov = (typeof fovDeg === 'number' && isFinite(fovDeg) && fovDeg > 0) ? fovDeg : 60;
+    const rad = (fov * Math.PI) / 180;
+    return h / (2 * Math.tan(rad / 2));
+  }
+
+  function isSentryTargetInRange(dx, dz, maxRangeSq) {
+    const x = (typeof dx === 'number' && isFinite(dx)) ? dx : 0;
+    const z = (typeof dz === 'number' && isFinite(dz)) ? dz : 0;
+    const maxSq = (typeof maxRangeSq === 'number' && isFinite(maxRangeSq)) ? maxRangeSq : 0;
+    return (x * x + z * z) < maxSq;
+  }
+
+  function buildShadowCasterMask(casterIndices, totalCount, maskOut) {
+    const count = (typeof totalCount === 'number' && isFinite(totalCount)) ? Math.max(0, totalCount) : 0;
+    const mask = maskOut || new Array(count);
+    mask.length = count;
+    for (let i = 0; i < count; i++) mask[i] = false;
+    if (Array.isArray(casterIndices)) {
+      for (let i = 0; i < casterIndices.length; i++) {
+        const idx = casterIndices[i];
+        if (idx >= 0 && idx < count) mask[idx] = true;
+      }
+    }
+    return mask;
+  }
+
+  function planarFacingDirection(dirX, dirZ, out) {
+    const o = out || { x: 0, z: 0 };
+    const x = (typeof dirX === 'number' && isFinite(dirX)) ? dirX : 0;
+    const z = (typeof dirZ === 'number' && isFinite(dirZ)) ? dirZ : 0;
+    const len = Math.hypot(x, z) || 1;
+    o.x = x / len;
+    o.z = z / len;
+    return o;
+  }
+
+  function shouldUpdatePickupOpacity(t, blinkStart, lastOp, curOp) {
+    if (lastOp === undefined || lastOp === null) return true;
+    const time = (typeof t === 'number' && isFinite(t)) ? t : 0;
+    const start = (typeof blinkStart === 'number' && isFinite(blinkStart)) ? blinkStart : 20;
+    if (time < start) return false;
+    const last = (typeof lastOp === 'number' && isFinite(lastOp)) ? lastOp : 1;
+    const cur = (typeof curOp === 'number' && isFinite(curOp)) ? curOp : 1;
+    return Math.abs(cur - last) >= 0.005;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -12269,7 +12337,16 @@ const CORE = (function () {
     explosionShotKick: explosionShotKick,
     applyExplosionShotKick: applyExplosionShotKick,
     weaponHeadshotMultiplier: weaponHeadshotMultiplier,
-    enemyDistanceAccuracy: enemyDistanceAccuracy
+    enemyDistanceAccuracy: enemyDistanceAccuracy,
+    FLASH_LIGHT_DECAY_EXPONENT: FLASH_LIGHT_DECAY_EXPONENT,
+    SENTRY_TARGET_ACQUIRE_EPSILON: SENTRY_TARGET_ACQUIRE_EPSILON,
+    stepFlashLightLife: stepFlashLightLife,
+    flashLightIntensity: flashLightIntensity,
+    particlePerspectiveScale: particlePerspectiveScale,
+    isSentryTargetInRange: isSentryTargetInRange,
+    buildShadowCasterMask: buildShadowCasterMask,
+    planarFacingDirection: planarFacingDirection,
+    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity
   };
 })();
 
@@ -16987,6 +17064,9 @@ const tmpV2 = new THREE.Vector3();
 let SHADOW_ENEMY_BUDGET = CORE.graphicsSettings({}, IS_TOUCH).shadowEnemies;
 let shadowBudgetT = 0;
 const _shadowPos = [];
+const _shadowKeepOut = [];
+const _shadowDistsOut = [];
+const _shadowMaskOut = [];
 function enemyShadowMeshes(en) {
   if (!en._shadowMeshes) {
     const list = [];
@@ -17008,9 +17088,10 @@ function updateEnemyShadowBudget(dt) {
   shadowBudgetT = 0.25;
   _shadowPos.length = 0;
   for (let i = 0; i < enemies.length; i++) _shadowPos.push(enemies[i].pos);
-  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET);
+  const keep = CORE.shadowCasters(_shadowPos, player.pos.x, player.pos.z, SHADOW_ENEMY_BUDGET, _shadowKeepOut, _shadowDistsOut);
+  const mask = CORE.buildShadowCasterMask(keep, enemies.length, _shadowMaskOut);
   for (let i = 0; i < enemies.length; i++) {
-    setEnemyCastShadow(enemies[i], keep.indexOf(i) >= 0);
+    setEnemyCastShadow(enemies[i], mask[i]);
   }
 }
 
@@ -17667,6 +17748,7 @@ function makePfxLayer(additive, tex) {
 }
 const PFX_ADD = makePfxLayer(true, TEX.softDot);
 const PFX_SMOKE = makePfxLayer(false, TEX.smoke);
+const _PFX_LAYERS = [PFX_ADD, PFX_SMOKE];
 function setParticleBudget(total) {
   total = Math.max(0, Math.min(PFX_MAX, Math.floor(total)));
   const add = Math.round(total * 0.45);
@@ -17751,8 +17833,9 @@ function updatePfxLayer(L, dt) {
 }
 function updateParticles(dt) {
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
-  const scale = h / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
-  for (const L of [PFX_ADD, PFX_SMOKE]) {
+  const scale = CORE.particlePerspectiveScale(h, camera.fov);
+  for (let i = 0; i < _PFX_LAYERS.length; i++) {
+    const L = _PFX_LAYERS[i];
     L.mat.uniforms.scale.value = scale;
     L.mat.uniforms.maxPt.value = pfxPointMax;
     L.mat.uniforms.fogNear.value = scene.fog.near; L.mat.uniforms.fogFar.value = scene.fog.far;
@@ -17762,7 +17845,8 @@ function updateParticles(dt) {
 }
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
-  for (const L of [PFX_ADD, PFX_SMOKE]) {
+  for (let i = 0; i < _PFX_LAYERS.length; i++) {
+    const L = _PFX_LAYERS[i];
     L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0; L.hasNew = false;
     const a = L.geo.attributes; a.alpha.needsUpdate = true; a.size.needsUpdate = true;
   }
@@ -17803,10 +17887,12 @@ function flashLight(pos, color, intensity, distance, life) {
 function updateFlashLights(dt) {
   for (let i = 0; i < FLASH_LIGHTS.length; i++) {
     const l = FLASH_LIGHTS[i], u = l.userData;
-    if (u.life <= 0) { l.intensity = 0; continue; }
-    u.life -= dt;
-    const t = Math.max(0, u.life / u.max);
-    l.intensity = u.peak * t * t;
+    if (u.life <= 0) {
+      if (l.intensity !== 0) l.intensity = 0;
+      continue;
+    }
+    u.life = CORE.stepFlashLightLife(u.life, dt);
+    l.intensity = CORE.flashLightIntensity(u.life, u.max, u.peak);
   }
 }
 
@@ -19018,6 +19104,8 @@ function getGrenadeSpeed() {
 }
 
 const _prevDir = new THREE.Vector3();
+const _throwDir = new THREE.Vector3();
+const _throwFacingOut = { x: 0, z: 0 };
 const _grenadeMotion = { position: { x: 0, y: 0, z: 0 }, velocity: null };
 const _blastFrom = new THREE.Vector3();
 const _blastTarget = new THREE.Vector3();
@@ -19129,19 +19217,13 @@ function throwGrenade(customSpeed, def) {
   m.add(blink);
   m.castShadow = true;
   m.position.set(camera.position.x, camera.position.y - 0.1, camera.position.z);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  CORE.grenadeThrowVelocity(dir.x, dir.y, dir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
+  _throwDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  CORE.grenadeThrowVelocity(_throwDir.x, _throwDir.y, _throwDir.z, speed, CORE.GRENADE_PITCH_LOFT, _throwVelOut);
   // A claymore has no fuse at all: it arms where it lands and waits. Everything
   // else counts down from its own value, not the frag's.
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
-  // Capture the claymore's facing BEFORE the object literal below, because
-  // `vel: dir.multiplyScalar(speed)` mutates `dir` in place and a later
-  // `faceX: dir.x` would read the VELOCITY instead of a unit vector. With a
-  // magnitude of ~6.7 in it, the cone test `dot / d >= arc` was effectively
-  // comparing against 0.5/6.7 — an 86-degree half-angle instead of 60, which is
-  // most of a hemisphere and not a directional mine at all.
-  const faceLen = Math.hypot(dir.x, dir.z) || 1;
-  const faceX = dir.x / faceLen, faceZ = dir.z / faceLen;
+  CORE.planarFacingDirection(_throwDir.x, _throwDir.z, _throwFacingOut);
+  const faceX = _throwFacingOut.x, faceZ = _throwFacingOut.z;
   liveGrenades.push({
     m: m,
     vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
@@ -19565,7 +19647,7 @@ function dropPickup(pos) {
   g.castShadow = true;
   g.userData.pickup = kind;
   scene.add(g);
-  pickups.push({ m: g, kind: kind, t: 0 });
+  pickups.push({ m: g, kind: kind, t: 0, _lastOp: undefined });
 }
 
 // ---- Power-up drops ----------------------------------------------------------
@@ -19586,7 +19668,7 @@ function dropPowerUp(pos) {
   g.position.set(pos.x, 0.55, pos.z);
   g.userData.pickup = 'power';
   scene.add(g);
-  pickups.push({ m: g, kind: 'power', power: def, t: 0 });
+  pickups.push({ m: g, kind: 'power', power: def, t: 0, _lastOp: undefined });
 }
 
 // Drop an ammo box at a specific spot, bypassing the random roll.
@@ -19596,7 +19678,7 @@ function forceAmmoPickup(x, z) {
   g.castShadow = true;
   g.userData.pickup = 'ammo';
   scene.add(g);
-  pickups.push({ m: g, kind: 'ammo', t: 0 });
+  pickups.push({ m: g, kind: 'ammo', t: 0, _lastOp: undefined });
 }
 
 function updatePickups(dt) {
@@ -19640,12 +19722,15 @@ function updatePickups(dt) {
     // The pulse accelerates toward expiry; the pickup never fully disappears until
     // despawn so it always has a presence even at the end of the blink window.
     const op = CORE.pickupBlinkOpacity(p.t, CORE.PICKUP_BLINK_START, CORE.PICKUP_LIFE);
-    p.m.material.opacity = op;
-    // Propagate opacity to child meshes (medkit cross arms share a separate material).
-    for (let c = 0; c < p.m.children.length; c++) {
-      if (p.m.children[c].material) p.m.children[c].material.opacity = op;
+    if (CORE.shouldUpdatePickupOpacity(p.t, CORE.PICKUP_BLINK_START, p._lastOp, op)) {
+      p._lastOp = op;
+      p.m.material.opacity = op;
+      // Propagate opacity to child meshes (medkit cross arms share a separate material).
+      for (let c = 0; c < p.m.children.length; c++) {
+        if (p.m.children[c].material) p.m.children[c].material.opacity = op;
+      }
+      p.m.visible = op > 0.01;
     }
-    p.m.visible = op > 0.01;
     // despawn after PICKUP_LIFE seconds
     if (p.t > CORE.PICKUP_LIFE) { scene.remove(p.m); pickups.splice(i, 1); }
   }
@@ -20356,6 +20441,8 @@ function deploySentry() {
 }
 
 function updateSentries(dt) {
+  const activeSmokes = (typeof smokeVolumes === 'function') ? smokeVolumes() : null;
+  const maxRangeSq = SENTRY_RANGE * SENTRY_RANGE;
   for (let i = sentries.length - 1; i >= 0; i--) {
     const s = sentries[i];
     CORE.stepSentryTimers(s.t, s.cd, dt, _sentryTimerOut);
@@ -20364,19 +20451,20 @@ function updateSentries(dt) {
     if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     // Nearest enemy it can actually see. Same analytic slab test the AI uses,
     // pointed the other way — including through smoke, which cuts both ways.
-    let best = null, bestD = SENTRY_RANGE;
+    let best = null, bestDSq = maxRangeSq;
     _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       if (en.dead) continue;
-      const d = CORE.horizDist(en.pos.x, en.pos.z, s.m.position.x, s.m.position.z);
-      if (d >= bestD) continue;
+      const dx = en.pos.x - s.m.position.x, dz = en.pos.z - s.m.position.z;
+      const dSq = dx * dx + dz * dz;
+      if (!CORE.isSentryTargetInRange(dx, dz, bestDSq)) continue;
       _sentryTo.set(en.pos.x, CORE.sentryAimTargetY(en.pos.y, CORE.SENTRY_AIM_Y_OFFSET), en.pos.z);
       if (CORE.segmentBlocked(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
           _sentryTo.x, _sentryTo.y, _sentryTo.z, colliders, 0.25)) continue;
-      if (CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
-          _sentryTo.x, _sentryTo.y, _sentryTo.z, smokeVolumes())) continue;
-      best = en; bestD = d;
+      if (activeSmokes && CORE.smokeBlocks(_sentryFrom.x, _sentryFrom.y, _sentryFrom.z,
+          _sentryTo.x, _sentryTo.y, _sentryTo.z, activeSmokes)) continue;
+      best = en; bestDSq = dSq;
     }
     if (!best) continue;
     s.m.rotation.y = CORE.sentryTargetYaw(best.pos.x - s.m.position.x, best.pos.z - s.m.position.z);

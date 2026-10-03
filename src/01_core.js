@@ -157,16 +157,18 @@ const CORE = (function () {
   // static arena. A soldier 40 m away casts a shadow a few pixels across, so the
   // pass is budgeted to the nearest few and the rest are dropped. Returns the
   // indices that should cast, nearest first.
-  function shadowCasters(positions, px, pz, budget) {
-    const n = positions.length;
-    const out = [];
-    for (let i = 0; i < n; i++) out.push(i);
-    if (n <= budget) return out;
-    const d = new Array(n);
+  function shadowCasters(positions, px, pz, budget, out, distsOut) {
+    const n = positions ? positions.length : 0;
+    const res = out || [];
+    res.length = 0;
+    if (n === 0 || budget <= 0) return res;
+    for (let i = 0; i < n; i++) res.push(i);
+    if (n <= budget) return res;
+    const d = distsOut || new Array(n);
     for (let i = 0; i < n; i++) d[i] = horizDistSq(positions[i].x, positions[i].z, px, pz);
-    out.sort(function (a, b) { return d[a] - d[b]; });
-    out.length = budget;
-    return out;
+    res.sort(function (a, b) { return d[a] - d[b]; });
+    res.length = budget;
+    return res;
   }
 
   // ---- Ballistics ------------------------------------------------------------
@@ -6605,6 +6607,72 @@ const CORE = (function () {
     return acc * (1 - (1 - minF) * t);
   }
 
+  // ---- Dynamic Point Light & Flash VFX, Sentry Rangefinding, Shadow Caster Mask & Pickup Opacity Rules (v120 Perf Win) ----
+  const FLASH_LIGHT_DECAY_EXPONENT = 2;
+  const SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
+
+  function stepFlashLightLife(life, dt) {
+    const l = (typeof life === 'number' && isFinite(life)) ? life : 0;
+    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    return Math.max(0, l - delta);
+  }
+
+  function flashLightIntensity(life, maxLife, peakIntensity) {
+    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0;
+    if (typeof maxLife !== 'number' || !isFinite(maxLife) || maxLife <= 0) return 0;
+    const peak = (typeof peakIntensity === 'number' && isFinite(peakIntensity)) ? peakIntensity : 0;
+    const t = Math.max(0, Math.min(1, life / maxLife));
+    return peak * t * t;
+  }
+
+  function particlePerspectiveScale(screenHeight, fovDeg) {
+    const h = (typeof screenHeight === 'number' && isFinite(screenHeight) && screenHeight > 0) ? screenHeight : 720;
+    const fov = (typeof fovDeg === 'number' && isFinite(fovDeg) && fovDeg > 0) ? fovDeg : 60;
+    const rad = (fov * Math.PI) / 180;
+    return h / (2 * Math.tan(rad / 2));
+  }
+
+  function isSentryTargetInRange(dx, dz, maxRangeSq) {
+    const x = (typeof dx === 'number' && isFinite(dx)) ? dx : 0;
+    const z = (typeof dz === 'number' && isFinite(dz)) ? dz : 0;
+    const maxSq = (typeof maxRangeSq === 'number' && isFinite(maxRangeSq)) ? maxRangeSq : 0;
+    return (x * x + z * z) < maxSq;
+  }
+
+  function buildShadowCasterMask(casterIndices, totalCount, maskOut) {
+    const count = (typeof totalCount === 'number' && isFinite(totalCount)) ? Math.max(0, totalCount) : 0;
+    const mask = maskOut || new Array(count);
+    mask.length = count;
+    for (let i = 0; i < count; i++) mask[i] = false;
+    if (Array.isArray(casterIndices)) {
+      for (let i = 0; i < casterIndices.length; i++) {
+        const idx = casterIndices[i];
+        if (idx >= 0 && idx < count) mask[idx] = true;
+      }
+    }
+    return mask;
+  }
+
+  function planarFacingDirection(dirX, dirZ, out) {
+    const o = out || { x: 0, z: 0 };
+    const x = (typeof dirX === 'number' && isFinite(dirX)) ? dirX : 0;
+    const z = (typeof dirZ === 'number' && isFinite(dirZ)) ? dirZ : 0;
+    const len = Math.hypot(x, z) || 1;
+    o.x = x / len;
+    o.z = z / len;
+    return o;
+  }
+
+  function shouldUpdatePickupOpacity(t, blinkStart, lastOp, curOp) {
+    if (lastOp === undefined || lastOp === null) return true;
+    const time = (typeof t === 'number' && isFinite(t)) ? t : 0;
+    const start = (typeof blinkStart === 'number' && isFinite(blinkStart)) ? blinkStart : 20;
+    if (time < start) return false;
+    const last = (typeof lastOp === 'number' && isFinite(lastOp)) ? lastOp : 1;
+    const cur = (typeof curOp === 'number' && isFinite(curOp)) ? curOp : 1;
+    return Math.abs(cur - last) >= 0.005;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7551,7 +7619,16 @@ const CORE = (function () {
     explosionShotKick: explosionShotKick,
     applyExplosionShotKick: applyExplosionShotKick,
     weaponHeadshotMultiplier: weaponHeadshotMultiplier,
-    enemyDistanceAccuracy: enemyDistanceAccuracy
+    enemyDistanceAccuracy: enemyDistanceAccuracy,
+    FLASH_LIGHT_DECAY_EXPONENT: FLASH_LIGHT_DECAY_EXPONENT,
+    SENTRY_TARGET_ACQUIRE_EPSILON: SENTRY_TARGET_ACQUIRE_EPSILON,
+    stepFlashLightLife: stepFlashLightLife,
+    flashLightIntensity: flashLightIntensity,
+    particlePerspectiveScale: particlePerspectiveScale,
+    isSentryTargetInRange: isSentryTargetInRange,
+    buildShadowCasterMask: buildShadowCasterMask,
+    planarFacingDirection: planarFacingDirection,
+    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity
   };
 })();
 

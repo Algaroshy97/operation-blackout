@@ -7470,3 +7470,71 @@ test('tactical stance spread, blast camera shake, weapon headshots, and enemy ac
   const midAcc = CORE.enemyDistanceAccuracy(baseAcc, 30, 16, 44, 0.55);
   assert.ok(Math.abs(midAcc - (0.60 * 0.775)) < 1e-5);
 });
+
+test('flashlight falloff, particle perspective, sentry rangefinding, shadow caster pooling & pickup opacity perf rules (v120 perf win)', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.FLASH_LIGHT_DECAY_EXPONENT, 2);
+  assert.strictEqual(CORE.SENTRY_TARGET_ACQUIRE_EPSILON, 1e-4);
+
+  // 2. stepFlashLightLife
+  assert.strictEqual(CORE.stepFlashLightLife(1.0, 0.25), 0.75);
+  assert.strictEqual(CORE.stepFlashLightLife(0.1, 0.5), 0);
+  assert.strictEqual(CORE.stepFlashLightLife(0, 0.1), 0);
+  assert.strictEqual(CORE.stepFlashLightLife(null, 0.1), 0);
+
+  // 3. flashLightIntensity
+  assert.strictEqual(CORE.flashLightIntensity(1.0, 1.0, 10.0), 10.0);
+  assert.ok(Math.abs(CORE.flashLightIntensity(0.5, 1.0, 10.0) - 2.5) < 1e-6);
+  assert.strictEqual(CORE.flashLightIntensity(0, 1.0, 10.0), 0);
+  assert.strictEqual(CORE.flashLightIntensity(-1, 1.0, 10.0), 0);
+  assert.strictEqual(CORE.flashLightIntensity(1.0, 0, 10.0), 0);
+  assert.strictEqual(CORE.flashLightIntensity(1.5, 1.0, 10.0), 10.0); // clamped to peak
+
+  // 4. particlePerspectiveScale
+  const pScale60 = CORE.particlePerspectiveScale(720, 60);
+  const pScale90 = CORE.particlePerspectiveScale(720, 90);
+  assert.ok(Math.abs(pScale60 - (720 / (2 * Math.tan(Math.PI / 6)))) < 1e-4);
+  assert.ok(Math.abs(pScale90 - (720 / (2 * Math.tan(Math.PI / 4)))) < 1e-4);
+  assert.ok(CORE.particlePerspectiveScale(0, 60) > 0); // fallback height
+
+  // 5. isSentryTargetInRange
+  assert.strictEqual(CORE.isSentryTargetInRange(3, 4, 26), true);  // 9+16=25 < 26
+  assert.strictEqual(CORE.isSentryTargetInRange(3, 4, 25), false); // 25 not < 25
+  assert.strictEqual(CORE.isSentryTargetInRange(5, 5, 40), false); // 50 not < 40
+
+  // 6. shadowCasters zero-alloc reuse & buildShadowCasterMask
+  const shadowPos = [{ x: 40, z: 0 }, { x: 2, z: 0 }, { x: 10, z: 0 }];
+  const shadowOut = [];
+  const shadowDists = [];
+  const shadowKeep = CORE.shadowCasters(shadowPos, 0, 0, 2, shadowOut, shadowDists);
+  assert.strictEqual(shadowKeep, shadowOut);
+  assert.strictEqual(shadowKeep.length, 2);
+  assert.strictEqual(shadowKeep[0], 1); // nearest is index 1 (dist 2)
+  assert.strictEqual(shadowKeep[1], 2); // next is index 2 (dist 10)
+
+  const maskOut = [];
+  const shadowMask = CORE.buildShadowCasterMask(shadowKeep, 3, maskOut);
+  assert.strictEqual(shadowMask, maskOut);
+  assert.strictEqual(shadowMask.length, 3);
+  assert.strictEqual(shadowMask[0], false);
+  assert.strictEqual(shadowMask[1], true);
+  assert.strictEqual(shadowMask[2], true);
+
+  // 7. planarFacingDirection
+  const facingOut = { x: 0, z: 0 };
+  const facingRes = CORE.planarFacingDirection(3, 4, facingOut);
+  assert.strictEqual(facingRes, facingOut);
+  assert.ok(Math.abs(facingOut.x - 0.6) < 1e-6);
+  assert.ok(Math.abs(facingOut.z - 0.8) < 1e-6);
+  // Default zero vector handling
+  const zeroFacing = CORE.planarFacingDirection(0, 0);
+  assert.strictEqual(zeroFacing.x, 0);
+  assert.strictEqual(zeroFacing.z, 0);
+
+  // 8. shouldUpdatePickupOpacity
+  assert.strictEqual(CORE.shouldUpdatePickupOpacity(0, 20, undefined, 1.0), true); // initial frame
+  assert.strictEqual(CORE.shouldUpdatePickupOpacity(5, 20, 1.0, 1.0), false);      // before blink window & unchanged
+  assert.strictEqual(CORE.shouldUpdatePickupOpacity(19.9, 20, 1.0, 1.0), false);   // before blink window
+  assert.strictEqual(CORE.shouldUpdatePickupOpacity(22, 20, 1.0, 0.8), true);      // blink window significant delta
+  assert.strictEqual(CORE.shouldUpdatePickupOpacity(22, 20, 0.80, 0.802), false);  // blink window negligible delta
+});
