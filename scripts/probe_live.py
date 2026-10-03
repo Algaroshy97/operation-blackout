@@ -3245,7 +3245,56 @@ def main() -> int:
         }""")
         checks.append(("flashlight-particle-sentry-and-shadow-pooling-perf-rules", perf_win_check))
 
-        # 71) Clean console throughout gameplay.
+        # 71) Mobile touch layout sanitization, look delta clamping, pause/gameplay gating & empty control state rules (v121 mobile UI polish)
+        mobile_ui_check = page.evaluate("""() => {
+            const constsOk = CORE.TOUCH_MIN_CONTROL_SIZE === 44 &&
+                             CORE.TOUCH_MAX_CONTROL_SIZE === 150 &&
+                             CORE.TOUCH_DEFAULT_CONTROL_SIZE === 72 &&
+                             CORE.TOUCH_MAX_LOOK_DELTA === 180;
+
+            const sizeOk = CORE.clampTouchControlSize(72) === 72 &&
+                           CORE.clampTouchControlSize(20) === 44 &&
+                           CORE.clampTouchControlSize(200) === 150 &&
+                           CORE.clampTouchControlSize(NaN) === 72;
+
+            const coordOk = CORE.clampTouchLayoutCoord(50.123) === 50.12 &&
+                            CORE.clampTouchLayoutCoord(-10) === 0 &&
+                            CORE.clampTouchLayoutCoord(120) === 100;
+
+            const posOk = CORE.sanitizeTouchLayoutPosition(null) === null &&
+                          JSON.stringify(CORE.sanitizeTouchLayoutPosition({ left: -5, top: 110, size: 25 })) ===
+                          JSON.stringify({ left: 0, top: 100, size: 44 });
+
+            const dictRes = CORE.sanitizeTouchLayout({
+                'tbtn-fire': { left: 60, top: 70, size: 90 },
+                'invalid-id': { left: 50, top: 50, size: 50 }
+            });
+            const dictOk = dictRes['tbtn-fire'] && dictRes['tbtn-fire'].size === 90 && dictRes['invalid-id'] === undefined;
+
+            const gameplayOk = CORE.isTouchGameplayEnabled(true, false, false, false) === true &&
+                               CORE.isTouchGameplayEnabled(true, true, false, false) === false &&
+                               CORE.isTouchGameplayEnabled(true, false, true, false) === false &&
+                               CORE.isTouchGameplayEnabled(true, false, false, true) === false;
+
+            const pauseOk = CORE.canTouchPause(true, false, false, false) === true &&
+                            CORE.canTouchPause(true, false, false, true) === false &&
+                            CORE.canTouchPause(true, true, false, false) === false;
+
+            const lookOk = CORE.touchLookDelta(100, 80, 1.0) === 20 &&
+                           CORE.touchLookDelta(300, 50, 1.0, 180) === 180 &&
+                           CORE.touchLookDelta(50, 300, 1.0, 180) === -180 &&
+                           CORE.touchLookDelta(NaN, 50) === 0;
+
+            const emptyOk = CORE.isTouchControlEmpty('empty') === true &&
+                            CORE.isTouchControlEmpty('cooldown') === true &&
+                            CORE.isTouchControlEmpty('locked') === true &&
+                            CORE.isTouchControlEmpty('ready') === false;
+
+            return constsOk && sizeOk && coordOk && posOk && dictOk && gameplayOk && pauseOk && lookOk && emptyOk;
+        }""")
+        checks.append(("mobile-touch-layout-sanitization-look-delta-and-empty-state-rules", mobile_ui_check))
+
+        # 72) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

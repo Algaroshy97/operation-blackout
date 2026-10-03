@@ -198,3 +198,43 @@ test('desktop path installs no touch UI and does not overwrite desktop input', (
   const h = host(false); h.ctx.keys.KeyW = true; h.ctx.mouse1Down = true;
   h.run('applyTouchInput()'); assert.equal(h.elements.size, 0); assert.equal(h.ctx.keys.KeyW, true); assert.equal(h.ctx.mouse1Down, true);
 });
+
+test('mobile touch layout sanitization clamps invalid sizes, bounds coordinates, and limits look delta jumps', () => {
+  const h = host();
+  // Corrupted layout data: size too large, negative left, top > 100%, unknown controls
+  h.ctx.localStorage.getItem = key => {
+    assert.equal(key, 'blackout.touch-layout.v1');
+    return JSON.stringify({
+      'tbtn-fire': { left: -25, top: 125, size: 300 },
+      'tbtn-ads': { left: 45.678, top: 55.432, size: 20 },
+      'malicious-script': { left: 50, top: 50, size: 72 }
+    });
+  };
+  h.run('applyTouchLayoutPositions()');
+  const fire = h.elements.get('tbtn-fire');
+  assert.equal(fire.style.left, '0%');
+  assert.equal(fire.style.top, '100%');
+  assert.equal(fire.style.width, '150px'); // clamped to max 150px
+
+  const ads = h.elements.get('tbtn-ads');
+  assert.equal(ads.style.left, '45.68%');
+  assert.equal(ads.style.top, '55.43%');
+  assert.equal(ads.style.width, '44px');  // clamped to min 44px
+
+  // Look delta clamping
+  assert.equal(CORE.touchLookDelta(200, 0, 1, 180), 180);
+  assert.equal(CORE.touchLookDelta(-300, 0, 1, 180), -180);
+  assert.equal(CORE.touchLookDelta(50, 0, 1.5, 180), 75);
+
+  // Gameplay enabled and pause gating
+  assert.equal(CORE.isTouchGameplayEnabled(true, false, false, false), true);
+  assert.equal(CORE.isTouchGameplayEnabled(false, false, false, false), false);
+  assert.equal(CORE.isTouchGameplayEnabled(true, true, false, false), false);
+  assert.equal(CORE.isTouchGameplayEnabled(true, false, true, false), false);
+  assert.equal(CORE.isTouchGameplayEnabled(true, false, false, true), false);
+
+  assert.equal(CORE.canTouchPause(true, false, false, false), true);
+  assert.equal(CORE.canTouchPause(true, false, false, true), false);
+  assert.equal(CORE.canTouchPause(true, true, false, false), false);
+  assert.equal(CORE.canTouchPause(true, false, true, false), false);
+});

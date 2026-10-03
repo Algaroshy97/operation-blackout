@@ -304,6 +304,7 @@
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;}
   body.touch #tbtn-swap.switching{border-color:#50b4ff;color:#50b4ff;}
+  body.touch #tbtn-swap.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-melee.ready{border-color:#ff5f4a;color:#fff;}
   body.touch #tbtn-melee.cooldown{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
@@ -311,16 +312,19 @@
   body.touch #tbtn-use.ready{border-color:#7ee08a;color:#7ee08a;}
   body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-use.blocked{border-color:#ff4a3d;color:#ff5f4a;opacity:.6}
+  body.touch #tbtn-use.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;}
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-plate.ready{border-color:#4fa3d8;color:#4fa3d8;}
+  body.touch #tbtn-plate.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-tactical.ready{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-tactical.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-streak.streak{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;}
+  body.touch #tbtn-streak.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:transparent}
@@ -7255,6 +7259,87 @@ const CORE = (function () {
     return Math.max(0, Math.min(maxPct, targetPct));
   }
 
+  // Mobile touch control size bounds and look delta threshold constants.
+  const TOUCH_MIN_CONTROL_SIZE = 44;
+  const TOUCH_MAX_CONTROL_SIZE = 150;
+  const TOUCH_DEFAULT_CONTROL_SIZE = 72;
+  const TOUCH_MAX_LOOK_DELTA = 180;
+
+  // Clamps mobile touch control size dimension [minSize, maxSize] in pixels.
+  // Pure: no side effects, no DOM, no THREE.
+  function clampTouchControlSize(size, minSize, maxSize) {
+    const min = typeof minSize === 'number' && isFinite(minSize) && minSize > 0 ? minSize : TOUCH_MIN_CONTROL_SIZE;
+    const max = typeof maxSize === 'number' && isFinite(maxSize) && maxSize >= min ? maxSize : TOUCH_MAX_CONTROL_SIZE;
+    if (typeof size !== 'number' || !isFinite(size)) return TOUCH_DEFAULT_CONTROL_SIZE;
+    return Math.max(min, Math.min(max, Math.round(size)));
+  }
+
+  // Clamps mobile touch layout percentage coordinate [0, maxPct].
+  // Pure: no side effects, no DOM, no THREE.
+  function clampTouchLayoutCoord(coordPct, maxPct) {
+    if (typeof coordPct !== 'number' || !isFinite(coordPct)) return 0;
+    const max = typeof maxPct === 'number' && isFinite(maxPct) && maxPct >= 0 ? maxPct : 100;
+    return Math.max(0, Math.min(max, Number(coordPct.toFixed(2))));
+  }
+
+  // Sanitizes a single touch layout entry { left, top, size }.
+  // Pure: no side effects, no DOM, no THREE.
+  function sanitizeTouchLayoutPosition(entry, minSize, maxSize) {
+    if (!entry || typeof entry !== 'object') return null;
+    const out = {};
+    if (typeof entry.left === 'number' && isFinite(entry.left)) {
+      out.left = clampTouchLayoutCoord(entry.left, 100);
+    }
+    if (typeof entry.top === 'number' && isFinite(entry.top)) {
+      out.top = clampTouchLayoutCoord(entry.top, 100);
+    }
+    if (typeof entry.size === 'number' && isFinite(entry.size)) {
+      out.size = clampTouchControlSize(entry.size, minSize, maxSize);
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+
+  // Sanitizes a full touch layout dictionary, validating control IDs and clamping positions.
+  // Pure: no side effects, no DOM, no THREE.
+  function sanitizeTouchLayout(rawLayout, minSize, maxSize) {
+    if (!rawLayout || typeof rawLayout !== 'object') return {};
+    const clean = {};
+    for (const id in rawLayout) {
+      if (typeof id !== 'string') continue;
+      if (!TOUCH_CONTROL_NAMES[id] && !id.startsWith('tbtn-') && id !== 'joy-base') continue;
+      const sanitized = sanitizeTouchLayoutPosition(rawLayout[id], minSize, maxSize);
+      if (sanitized) clean[id] = sanitized;
+    }
+    return clean;
+  }
+
+  // Pure rule governing whether mobile touch gameplay input should be sampled.
+  // Gated when game is not started, paused, player is dead, or touch layout editor is active.
+  function isTouchGameplayEnabled(started, paused, isDead, isEditing) {
+    return Boolean(started && !paused && !isDead && !isEditing);
+  }
+
+  // Pure rule governing whether mobile pause menu can be opened via the touch button.
+  function canTouchPause(started, paused, isDead, isEditing) {
+    return Boolean(!isEditing && started && !paused && !isDead);
+  }
+
+  // Computes clamped mobile look delta with sensitivity scaling and boundary clamping.
+  // Prevents runaway camera acceleration from device edge-swipes or touch jumps.
+  function touchLookDelta(clientCoord, lastCoord, sensitivity, maxDelta) {
+    if (typeof clientCoord !== 'number' || !isFinite(clientCoord) ||
+        typeof lastCoord !== 'number' || !isFinite(lastCoord)) return 0;
+    const factor = typeof sensitivity === 'number' && isFinite(sensitivity) && sensitivity > 0 ? sensitivity : 1;
+    const rawDelta = (clientCoord - lastCoord) * factor;
+    const max = typeof maxDelta === 'number' && isFinite(maxDelta) && maxDelta > 0 ? maxDelta : TOUCH_MAX_LOOK_DELTA;
+    return Math.max(-max, Math.min(max, rawDelta));
+  }
+
+  // Evaluates whether a touch button state represents a depleted or unavailable action.
+  function isTouchControlEmpty(state) {
+    return state === 'empty' || state === 'cooldown' || state === 'locked';
+  }
+
   // Change-detection for mobile touch fire button to prevent redundant DOM updates.
   function touchFireChanged(lastState, fireState, fireLabel) {
     if (!lastState) return true;
@@ -12346,7 +12431,19 @@ const CORE = (function () {
     isSentryTargetInRange: isSentryTargetInRange,
     buildShadowCasterMask: buildShadowCasterMask,
     planarFacingDirection: planarFacingDirection,
-    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity
+    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity,
+    TOUCH_MIN_CONTROL_SIZE: TOUCH_MIN_CONTROL_SIZE,
+    TOUCH_MAX_CONTROL_SIZE: TOUCH_MAX_CONTROL_SIZE,
+    TOUCH_DEFAULT_CONTROL_SIZE: TOUCH_DEFAULT_CONTROL_SIZE,
+    TOUCH_MAX_LOOK_DELTA: TOUCH_MAX_LOOK_DELTA,
+    clampTouchControlSize: clampTouchControlSize,
+    clampTouchLayoutCoord: clampTouchLayoutCoord,
+    sanitizeTouchLayoutPosition: sanitizeTouchLayoutPosition,
+    sanitizeTouchLayout: sanitizeTouchLayout,
+    isTouchGameplayEnabled: isTouchGameplayEnabled,
+    canTouchPause: canTouchPause,
+    touchLookDelta: touchLookDelta,
+    isTouchControlEmpty: isTouchControlEmpty
   };
 })();
 
@@ -14377,7 +14474,11 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 let joyBaseEl = null;
 let resetTouchControls = function () {};
 function touchGameplayEnabled() {
-  return started && !paused && (!player || !player.dead) && !document.body.classList.contains('touch-editing');
+  const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+  const isDead = typeof player !== 'undefined' && !!(player && player.dead);
+  return (typeof CORE !== 'undefined' && typeof CORE.isTouchGameplayEnabled === 'function')
+    ? CORE.isTouchGameplayEnabled(started, paused, isDead, isEditing)
+    : (started && !paused && !isDead && !isEditing);
 }
 
 (function initTouchUI() {
@@ -14494,15 +14595,27 @@ function touchGameplayEnabled() {
   }, { passive: false });
   function lookMove(t) {
     const factor = getSetting('touchSensitivity') || 1;
-    touchState.lookX += (t.clientX - lastLX) * factor;
-    touchState.lookY += (t.clientY - lastLY) * factor;
+    const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientX, lastLX, factor)
+      : (t.clientX - lastLX) * factor;
+    const dy = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientY, lastLY, factor)
+      : (t.clientY - lastLY) * factor;
+    touchState.lookX += dx;
+    touchState.lookY += dy;
     lastLX = t.clientX; lastLY = t.clientY;
   }
   function fireLookMove(t) {
     if (!getSetting('fireLook')) { lastFX = t.clientX; lastFY = t.clientY; return; }
     const factor = getSetting('touchSensitivity') || 1;
-    touchState.lookX += (t.clientX - lastFX) * factor;
-    touchState.lookY += (t.clientY - lastFY) * factor;
+    const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientX, lastFX, factor)
+      : (t.clientX - lastFX) * factor;
+    const dy = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientY, lastFY, factor)
+      : (t.clientY - lastFY) * factor;
+    touchState.lookX += dx;
+    touchState.lookY += dy;
     lastFX = t.clientX; lastFY = t.clientY;
   }
 
@@ -14568,8 +14681,12 @@ function touchGameplayEnabled() {
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
-    if (document.body.classList.contains('touch-editing')) return;
-    if (started && !paused && (!player || !player.dead)) { resetTouchControls(); pauseGame(); }
+    const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+    const isDead = typeof player !== 'undefined' && !!(player && player.dead);
+    const canPause = (typeof CORE !== 'undefined' && typeof CORE.canTouchPause === 'function')
+      ? CORE.canTouchPause(started, paused, isDead, isEditing)
+      : (!isEditing && started && !paused && !isDead);
+    if (canPause) { resetTouchControls(); pauseGame(); }
   }, { passive: false });
 })();
 
@@ -14578,7 +14695,12 @@ function touchGameplayEnabled() {
 const TOUCH_LAYOUT_KEY = 'blackout.touch-layout.v1';
 let touchLayoutPositions = {};
 function loadTouchLayoutPositions() {
-  try { touchLayoutPositions = JSON.parse(localStorage.getItem(TOUCH_LAYOUT_KEY) || '{}') || {}; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(TOUCH_LAYOUT_KEY) || '{}');
+    touchLayoutPositions = (typeof CORE !== 'undefined' && typeof CORE.sanitizeTouchLayout === 'function')
+      ? CORE.sanitizeTouchLayout(raw)
+      : (raw && typeof raw === 'object' ? raw : {});
+  }
   catch (e) { touchLayoutPositions = {}; }
 }
 function applyTouchLayoutPositions() {
@@ -14590,7 +14712,12 @@ function applyTouchLayoutPositions() {
     if (!el || !p) continue;
     if (Number.isFinite(p.left)) { el.style.left = p.left + '%'; el.style.right = 'auto'; }
     if (Number.isFinite(p.top)) { el.style.top = p.top + '%'; el.style.bottom = 'auto'; }
-    if (Number.isFinite(p.size)) { el.style.width = p.size + 'px'; el.style.height = p.size + 'px'; }
+    if (Number.isFinite(p.size)) {
+      const sz = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(p.size)
+        : p.size;
+      el.style.width = sz + 'px'; el.style.height = sz + 'px';
+    }
   }
 }
 function openTouchLayoutEditor() {
@@ -14624,7 +14751,12 @@ function openTouchLayoutEditor() {
     });
     bar.querySelector('#touch-editor-size').addEventListener('input', function (e) {
       const id = bar.dataset.selected; const el = id && document.getElementById(id);
-      if (!el) return; const sizeVal = Number(e.target.value); el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
+      if (!el) return;
+      const rawVal = Number(e.target.value);
+      const sizeVal = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(rawVal)
+        : rawVal;
+      el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
       touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = sizeVal;
       const nameEl = bar.querySelector('#touch-editor-name');
       if (nameEl) {
@@ -14644,7 +14776,11 @@ function openTouchLayoutEditor() {
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
-    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    const baseW = Math.round(r.width);
+    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size)
+      || ((typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(baseW)
+        : baseW);
     size.value = curSize;
     bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
       ? CORE.touchEditorControlLabel(el.id, curSize)
@@ -14654,12 +14790,18 @@ function openTouchLayoutEditor() {
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();
-        const left = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+        const rawLeft = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
           ? CORE.touchLayoutClampPercent(mt.clientX, r.width, innerWidth)
           : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
-        const top = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+        const rawTop = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
           ? CORE.touchLayoutClampPercent(mt.clientY, r.height, innerHeight)
           : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
+        const left = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
+          ? CORE.clampTouchLayoutCoord(rawLeft)
+          : rawLeft;
+        const top = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
+          ? CORE.clampTouchLayoutCoord(rawTop)
+          : rawTop;
         el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
         touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {}; touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
       }

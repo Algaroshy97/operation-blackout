@@ -7538,3 +7538,84 @@ test('flashlight falloff, particle perspective, sentry rangefinding, shadow cast
   assert.strictEqual(CORE.shouldUpdatePickupOpacity(22, 20, 1.0, 0.8), true);      // blink window significant delta
   assert.strictEqual(CORE.shouldUpdatePickupOpacity(22, 20, 0.80, 0.802), false);  // blink window negligible delta
 });
+
+test('mobile touch layout sanitization, look delta clamping, pause/gameplay gating & empty control state rules (v121 mobile UI polish)', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.TOUCH_MIN_CONTROL_SIZE, 44);
+  assert.strictEqual(CORE.TOUCH_MAX_CONTROL_SIZE, 150);
+  assert.strictEqual(CORE.TOUCH_DEFAULT_CONTROL_SIZE, 72);
+  assert.strictEqual(CORE.TOUCH_MAX_LOOK_DELTA, 180);
+
+  // 2. clampTouchControlSize
+  assert.strictEqual(CORE.clampTouchControlSize(72), 72);
+  assert.strictEqual(CORE.clampTouchControlSize(20), 44);   // clamped to min
+  assert.strictEqual(CORE.clampTouchControlSize(200), 150); // clamped to max
+  assert.strictEqual(CORE.clampTouchControlSize('invalid'), 72);
+  assert.strictEqual(CORE.clampTouchControlSize(NaN), 72);
+  assert.strictEqual(CORE.clampTouchControlSize(84.4), 84); // rounded
+
+  // 3. clampTouchLayoutCoord
+  assert.strictEqual(CORE.clampTouchLayoutCoord(50.123), 50.12);
+  assert.strictEqual(CORE.clampTouchLayoutCoord(-10), 0);
+  assert.strictEqual(CORE.clampTouchLayoutCoord(120), 100);
+  assert.strictEqual(CORE.clampTouchLayoutCoord(NaN), 0);
+  assert.strictEqual(CORE.clampTouchLayoutCoord(65, 80), 65);
+  assert.strictEqual(CORE.clampTouchLayoutCoord(95, 80), 80);
+
+  // 4. sanitizeTouchLayoutPosition
+  assert.strictEqual(CORE.sanitizeTouchLayoutPosition(null), null);
+  assert.strictEqual(CORE.sanitizeTouchLayoutPosition('not an object'), null);
+  assert.strictEqual(CORE.sanitizeTouchLayoutPosition({}), null);
+  const posOk = CORE.sanitizeTouchLayoutPosition({ left: 30, top: 40, size: 84 });
+  assert.deepStrictEqual(posOk, { left: 30, top: 40, size: 84 });
+  const posClamped = CORE.sanitizeTouchLayoutPosition({ left: -5, top: 110, size: 25 });
+  assert.deepStrictEqual(posClamped, { left: 0, top: 100, size: 44 });
+
+  // 5. sanitizeTouchLayout
+  assert.deepStrictEqual(CORE.sanitizeTouchLayout(null), {});
+  assert.deepStrictEqual(CORE.sanitizeTouchLayout({}), {});
+  const rawDict = {
+    'tbtn-fire': { left: 60, top: 70, size: 90 },
+    'joy-base': { left: 10, top: 80, size: 112 },
+    'tbtn-custom': { left: 15, top: 25, size: 56 },
+    'invalid-element': { left: 50, top: 50, size: 50 }
+  };
+  const sanitizedDict = CORE.sanitizeTouchLayout(rawDict);
+  assert.ok(sanitizedDict['tbtn-fire']);
+  assert.ok(sanitizedDict['joy-base']);
+  assert.ok(sanitizedDict['tbtn-custom']);
+  assert.strictEqual(sanitizedDict['invalid-element'], undefined);
+  assert.strictEqual(sanitizedDict['tbtn-fire'].size, 90);
+
+  // 6. isTouchGameplayEnabled
+  assert.strictEqual(CORE.isTouchGameplayEnabled(true, false, false, false), true);
+  assert.strictEqual(CORE.isTouchGameplayEnabled(false, false, false, false), false); // not started
+  assert.strictEqual(CORE.isTouchGameplayEnabled(true, true, false, false), false);  // paused
+  assert.strictEqual(CORE.isTouchGameplayEnabled(true, false, true, false), false);  // dead
+  assert.strictEqual(CORE.isTouchGameplayEnabled(true, false, false, true), false);  // touch editing
+
+  // 7. canTouchPause
+  assert.strictEqual(CORE.canTouchPause(true, false, false, false), true);
+  assert.strictEqual(CORE.canTouchPause(false, false, false, false), false); // not started
+  assert.strictEqual(CORE.canTouchPause(true, true, false, false), false);   // already paused
+  assert.strictEqual(CORE.canTouchPause(true, false, true, false), false);   // dead
+  assert.strictEqual(CORE.canTouchPause(true, false, false, true), false);   // touch editing
+
+  // 8. touchLookDelta
+  assert.strictEqual(CORE.touchLookDelta(100, 80, 1.0), 20);
+  assert.strictEqual(CORE.touchLookDelta(100, 80, 1.5), 30);
+  assert.strictEqual(CORE.touchLookDelta(300, 50, 1.0, 180), 180);   // clamped max
+  assert.strictEqual(CORE.touchLookDelta(50, 300, 1.0, 180), -180);  // clamped min
+  assert.strictEqual(CORE.touchLookDelta(NaN, 50), 0);
+  assert.strictEqual(CORE.touchLookDelta(50, null), 0);
+
+  // 9. isTouchControlEmpty
+  assert.strictEqual(CORE.isTouchControlEmpty('empty'), true);
+  assert.strictEqual(CORE.isTouchControlEmpty('cooldown'), true);
+  assert.strictEqual(CORE.isTouchControlEmpty('locked'), true);
+  assert.strictEqual(CORE.isTouchControlEmpty('ready'), false);
+  assert.strictEqual(CORE.isTouchControlEmpty('streak'), false);
+  assert.strictEqual(CORE.isTouchControlEmpty('field'), false);
+  assert.strictEqual(CORE.isTouchControlEmpty('urgent'), false);
+  assert.strictEqual(CORE.isTouchControlEmpty(''), false);
+});

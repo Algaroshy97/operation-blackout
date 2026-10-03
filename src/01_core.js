@@ -2537,6 +2537,87 @@ const CORE = (function () {
     return Math.max(0, Math.min(maxPct, targetPct));
   }
 
+  // Mobile touch control size bounds and look delta threshold constants.
+  const TOUCH_MIN_CONTROL_SIZE = 44;
+  const TOUCH_MAX_CONTROL_SIZE = 150;
+  const TOUCH_DEFAULT_CONTROL_SIZE = 72;
+  const TOUCH_MAX_LOOK_DELTA = 180;
+
+  // Clamps mobile touch control size dimension [minSize, maxSize] in pixels.
+  // Pure: no side effects, no DOM, no THREE.
+  function clampTouchControlSize(size, minSize, maxSize) {
+    const min = typeof minSize === 'number' && isFinite(minSize) && minSize > 0 ? minSize : TOUCH_MIN_CONTROL_SIZE;
+    const max = typeof maxSize === 'number' && isFinite(maxSize) && maxSize >= min ? maxSize : TOUCH_MAX_CONTROL_SIZE;
+    if (typeof size !== 'number' || !isFinite(size)) return TOUCH_DEFAULT_CONTROL_SIZE;
+    return Math.max(min, Math.min(max, Math.round(size)));
+  }
+
+  // Clamps mobile touch layout percentage coordinate [0, maxPct].
+  // Pure: no side effects, no DOM, no THREE.
+  function clampTouchLayoutCoord(coordPct, maxPct) {
+    if (typeof coordPct !== 'number' || !isFinite(coordPct)) return 0;
+    const max = typeof maxPct === 'number' && isFinite(maxPct) && maxPct >= 0 ? maxPct : 100;
+    return Math.max(0, Math.min(max, Number(coordPct.toFixed(2))));
+  }
+
+  // Sanitizes a single touch layout entry { left, top, size }.
+  // Pure: no side effects, no DOM, no THREE.
+  function sanitizeTouchLayoutPosition(entry, minSize, maxSize) {
+    if (!entry || typeof entry !== 'object') return null;
+    const out = {};
+    if (typeof entry.left === 'number' && isFinite(entry.left)) {
+      out.left = clampTouchLayoutCoord(entry.left, 100);
+    }
+    if (typeof entry.top === 'number' && isFinite(entry.top)) {
+      out.top = clampTouchLayoutCoord(entry.top, 100);
+    }
+    if (typeof entry.size === 'number' && isFinite(entry.size)) {
+      out.size = clampTouchControlSize(entry.size, minSize, maxSize);
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+
+  // Sanitizes a full touch layout dictionary, validating control IDs and clamping positions.
+  // Pure: no side effects, no DOM, no THREE.
+  function sanitizeTouchLayout(rawLayout, minSize, maxSize) {
+    if (!rawLayout || typeof rawLayout !== 'object') return {};
+    const clean = {};
+    for (const id in rawLayout) {
+      if (typeof id !== 'string') continue;
+      if (!TOUCH_CONTROL_NAMES[id] && !id.startsWith('tbtn-') && id !== 'joy-base') continue;
+      const sanitized = sanitizeTouchLayoutPosition(rawLayout[id], minSize, maxSize);
+      if (sanitized) clean[id] = sanitized;
+    }
+    return clean;
+  }
+
+  // Pure rule governing whether mobile touch gameplay input should be sampled.
+  // Gated when game is not started, paused, player is dead, or touch layout editor is active.
+  function isTouchGameplayEnabled(started, paused, isDead, isEditing) {
+    return Boolean(started && !paused && !isDead && !isEditing);
+  }
+
+  // Pure rule governing whether mobile pause menu can be opened via the touch button.
+  function canTouchPause(started, paused, isDead, isEditing) {
+    return Boolean(!isEditing && started && !paused && !isDead);
+  }
+
+  // Computes clamped mobile look delta with sensitivity scaling and boundary clamping.
+  // Prevents runaway camera acceleration from device edge-swipes or touch jumps.
+  function touchLookDelta(clientCoord, lastCoord, sensitivity, maxDelta) {
+    if (typeof clientCoord !== 'number' || !isFinite(clientCoord) ||
+        typeof lastCoord !== 'number' || !isFinite(lastCoord)) return 0;
+    const factor = typeof sensitivity === 'number' && isFinite(sensitivity) && sensitivity > 0 ? sensitivity : 1;
+    const rawDelta = (clientCoord - lastCoord) * factor;
+    const max = typeof maxDelta === 'number' && isFinite(maxDelta) && maxDelta > 0 ? maxDelta : TOUCH_MAX_LOOK_DELTA;
+    return Math.max(-max, Math.min(max, rawDelta));
+  }
+
+  // Evaluates whether a touch button state represents a depleted or unavailable action.
+  function isTouchControlEmpty(state) {
+    return state === 'empty' || state === 'cooldown' || state === 'locked';
+  }
+
   // Change-detection for mobile touch fire button to prevent redundant DOM updates.
   function touchFireChanged(lastState, fireState, fireLabel) {
     if (!lastState) return true;
@@ -7628,7 +7709,19 @@ const CORE = (function () {
     isSentryTargetInRange: isSentryTargetInRange,
     buildShadowCasterMask: buildShadowCasterMask,
     planarFacingDirection: planarFacingDirection,
-    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity
+    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity,
+    TOUCH_MIN_CONTROL_SIZE: TOUCH_MIN_CONTROL_SIZE,
+    TOUCH_MAX_CONTROL_SIZE: TOUCH_MAX_CONTROL_SIZE,
+    TOUCH_DEFAULT_CONTROL_SIZE: TOUCH_DEFAULT_CONTROL_SIZE,
+    TOUCH_MAX_LOOK_DELTA: TOUCH_MAX_LOOK_DELTA,
+    clampTouchControlSize: clampTouchControlSize,
+    clampTouchLayoutCoord: clampTouchLayoutCoord,
+    sanitizeTouchLayoutPosition: sanitizeTouchLayoutPosition,
+    sanitizeTouchLayout: sanitizeTouchLayout,
+    isTouchGameplayEnabled: isTouchGameplayEnabled,
+    canTouchPause: canTouchPause,
+    touchLookDelta: touchLookDelta,
+    isTouchControlEmpty: isTouchControlEmpty
   };
 })();
 

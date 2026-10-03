@@ -6,7 +6,11 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 let joyBaseEl = null;
 let resetTouchControls = function () {};
 function touchGameplayEnabled() {
-  return started && !paused && (!player || !player.dead) && !document.body.classList.contains('touch-editing');
+  const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+  const isDead = typeof player !== 'undefined' && !!(player && player.dead);
+  return (typeof CORE !== 'undefined' && typeof CORE.isTouchGameplayEnabled === 'function')
+    ? CORE.isTouchGameplayEnabled(started, paused, isDead, isEditing)
+    : (started && !paused && !isDead && !isEditing);
 }
 
 (function initTouchUI() {
@@ -123,15 +127,27 @@ function touchGameplayEnabled() {
   }, { passive: false });
   function lookMove(t) {
     const factor = getSetting('touchSensitivity') || 1;
-    touchState.lookX += (t.clientX - lastLX) * factor;
-    touchState.lookY += (t.clientY - lastLY) * factor;
+    const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientX, lastLX, factor)
+      : (t.clientX - lastLX) * factor;
+    const dy = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientY, lastLY, factor)
+      : (t.clientY - lastLY) * factor;
+    touchState.lookX += dx;
+    touchState.lookY += dy;
     lastLX = t.clientX; lastLY = t.clientY;
   }
   function fireLookMove(t) {
     if (!getSetting('fireLook')) { lastFX = t.clientX; lastFY = t.clientY; return; }
     const factor = getSetting('touchSensitivity') || 1;
-    touchState.lookX += (t.clientX - lastFX) * factor;
-    touchState.lookY += (t.clientY - lastFY) * factor;
+    const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientX, lastFX, factor)
+      : (t.clientX - lastFX) * factor;
+    const dy = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
+      ? CORE.touchLookDelta(t.clientY, lastFY, factor)
+      : (t.clientY - lastFY) * factor;
+    touchState.lookX += dx;
+    touchState.lookY += dy;
     lastFX = t.clientX; lastFY = t.clientY;
   }
 
@@ -197,8 +213,12 @@ function touchGameplayEnabled() {
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
     playSound('click');
-    if (document.body.classList.contains('touch-editing')) return;
-    if (started && !paused && (!player || !player.dead)) { resetTouchControls(); pauseGame(); }
+    const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+    const isDead = typeof player !== 'undefined' && !!(player && player.dead);
+    const canPause = (typeof CORE !== 'undefined' && typeof CORE.canTouchPause === 'function')
+      ? CORE.canTouchPause(started, paused, isDead, isEditing)
+      : (!isEditing && started && !paused && !isDead);
+    if (canPause) { resetTouchControls(); pauseGame(); }
   }, { passive: false });
 })();
 
@@ -207,7 +227,12 @@ function touchGameplayEnabled() {
 const TOUCH_LAYOUT_KEY = 'blackout.touch-layout.v1';
 let touchLayoutPositions = {};
 function loadTouchLayoutPositions() {
-  try { touchLayoutPositions = JSON.parse(localStorage.getItem(TOUCH_LAYOUT_KEY) || '{}') || {}; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(TOUCH_LAYOUT_KEY) || '{}');
+    touchLayoutPositions = (typeof CORE !== 'undefined' && typeof CORE.sanitizeTouchLayout === 'function')
+      ? CORE.sanitizeTouchLayout(raw)
+      : (raw && typeof raw === 'object' ? raw : {});
+  }
   catch (e) { touchLayoutPositions = {}; }
 }
 function applyTouchLayoutPositions() {
@@ -219,7 +244,12 @@ function applyTouchLayoutPositions() {
     if (!el || !p) continue;
     if (Number.isFinite(p.left)) { el.style.left = p.left + '%'; el.style.right = 'auto'; }
     if (Number.isFinite(p.top)) { el.style.top = p.top + '%'; el.style.bottom = 'auto'; }
-    if (Number.isFinite(p.size)) { el.style.width = p.size + 'px'; el.style.height = p.size + 'px'; }
+    if (Number.isFinite(p.size)) {
+      const sz = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(p.size)
+        : p.size;
+      el.style.width = sz + 'px'; el.style.height = sz + 'px';
+    }
   }
 }
 function openTouchLayoutEditor() {
@@ -253,7 +283,12 @@ function openTouchLayoutEditor() {
     });
     bar.querySelector('#touch-editor-size').addEventListener('input', function (e) {
       const id = bar.dataset.selected; const el = id && document.getElementById(id);
-      if (!el) return; const sizeVal = Number(e.target.value); el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
+      if (!el) return;
+      const rawVal = Number(e.target.value);
+      const sizeVal = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(rawVal)
+        : rawVal;
+      el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
       touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = sizeVal;
       const nameEl = bar.querySelector('#touch-editor-name');
       if (nameEl) {
@@ -273,7 +308,11 @@ function openTouchLayoutEditor() {
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
-    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size) || Math.round(r.width);
+    const baseW = Math.round(r.width);
+    const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size)
+      || ((typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+        ? CORE.clampTouchControlSize(baseW)
+        : baseW);
     size.value = curSize;
     bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
       ? CORE.touchEditorControlLabel(el.id, curSize)
@@ -283,12 +322,18 @@ function openTouchLayoutEditor() {
     const move = function (ev) {
       for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
         ev.preventDefault();
-        const left = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+        const rawLeft = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
           ? CORE.touchLayoutClampPercent(mt.clientX, r.width, innerWidth)
           : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
-        const top = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
+        const rawTop = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
           ? CORE.touchLayoutClampPercent(mt.clientY, r.height, innerHeight)
           : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
+        const left = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
+          ? CORE.clampTouchLayoutCoord(rawLeft)
+          : rawLeft;
+        const top = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
+          ? CORE.clampTouchLayoutCoord(rawTop)
+          : rawTop;
         el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
         touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {}; touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
       }
