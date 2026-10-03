@@ -683,7 +683,9 @@ function explodeGrenade(pos, scale) {
   // fireball, embers, smoke column, dust ring and debris (48_particles.js)
   fxExplosion(pos, Math.max(0.6, Math.min(1.4, dmgScale)));
   noteBlast(pos);   // 45_ragdoll.js: kills below are thrown clear, corpses shoved
-  if (player.pos.distanceTo(pos) < 18) postKick(0.7);
+  const playerDistToBlast = player.pos.distanceTo(pos);
+  const pk = CORE.explosionPostKick(playerDistToBlast, CORE.EXPLOSION_KICK_MAX_DIST, CORE.EXPLOSION_POST_KICK_MAX);
+  if (pk > 0) postKick(pk);
   spawnScorch(pos, dmgScale);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
@@ -698,7 +700,7 @@ function explodeGrenade(pos, scale) {
     }
   }
   // player self-damage (half, encourages careful use; solid cover blocks it)
-  const pd = player.pos.distanceTo(pos);
+  const pd = playerDistToBlast;
   _blastPlayerTarget.set(player.pos.x, player.pos.y - 0.5, player.pos.z);
   if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(_blastFrom, _blastPlayerTarget, null)) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
@@ -707,8 +709,9 @@ function explodeGrenade(pos, scale) {
       damagePlayer(selfDmg, blastDeg);
     }
   }
-  // camera shake kick
-  shotKick = Math.min(2, shotKick + 1.2);
+  // camera shake kick with distance attenuation
+  const sk = CORE.explosionShotKick(playerDistToBlast, CORE.EXPLOSION_KICK_MAX_DIST, CORE.EXPLOSION_SHOT_KICK_MAX);
+  shotKick = CORE.applyExplosionShotKick(shotKick, sk, CORE.EXPLOSION_SHOT_KICK_CAP);
 }
 
 // ---- Pickups: ammo + medkit drops from enemies ----

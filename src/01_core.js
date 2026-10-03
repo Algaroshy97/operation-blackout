@@ -1754,8 +1754,19 @@ const CORE = (function () {
     const b = bloom - recover * dt;
     return b < 0 ? 0 : b;
   }
-  function effectiveSpread(base, bloom, speed, airborne) {
-    const moveMul = 1 + Math.min(1.2, speed * 0.25) + (airborne ? 0.8 : 0);
+  const STANCE_SPREAD_CROUCH = 0.80;
+  const STANCE_SPREAD_SLIDE = 1.25;
+  const STANCE_SPREAD_AIRBORNE_PENALTY = 0.80;
+
+  function stanceSpreadMultiplier(isCrouching, isSliding) {
+    if (isSliding) return STANCE_SPREAD_SLIDE;
+    if (isCrouching) return STANCE_SPREAD_CROUCH;
+    return 1.0;
+  }
+
+  function effectiveSpread(base, bloom, speed, airborne, stanceMul) {
+    const stance = (typeof stanceMul === 'number' && isFinite(stanceMul) && stanceMul > 0) ? stanceMul : 1.0;
+    const moveMul = (1 + Math.min(1.2, speed * 0.25) + (airborne ? STANCE_SPREAD_AIRBORNE_PENALTY : 0)) * stance;
     return base * moveMul + (bloom > 0 ? bloom : 0);
   }
 
@@ -6534,6 +6545,66 @@ const CORE = (function () {
     return isElite ? 'eshot_elite' : 'eshot';
   }
 
+  // ---- Tactical Stance Spread, Blast Camera Shake & Combat Accuracy (v119 Balance Tuning) ----
+  const EXPLOSION_KICK_MAX_DIST = 20.0;
+  const EXPLOSION_POST_KICK_MAX = 0.80;
+  const EXPLOSION_SHOT_KICK_MAX = 1.4;
+  const EXPLOSION_SHOT_KICK_CAP = 2.0;
+
+  const HEADSHOT_MUL_SR = 2.4;
+  const HEADSHOT_MUL_BR = 2.0;
+  const HEADSHOT_MUL_AR = 1.8;
+  const HEADSHOT_MUL_SMG = 1.5;
+
+  const ENEMY_ACCURACY_FALLOFF_DIST = 16.0;
+  const ENEMY_ACCURACY_MIN_FACTOR = 0.55;
+
+  function explosionKickIntensity(dist, maxDist) {
+    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0, dist) : Infinity;
+    const max = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : EXPLOSION_KICK_MAX_DIST;
+    if (d >= max) return 0;
+    return Math.max(0, Math.min(1, 1 - d / max));
+  }
+
+  function explosionPostKick(dist, maxDist, maxKick) {
+    const k = (typeof maxKick === 'number' && isFinite(maxKick) && maxKick > 0) ? maxKick : EXPLOSION_POST_KICK_MAX;
+    return explosionKickIntensity(dist, maxDist) * k;
+  }
+
+  function explosionShotKick(dist, maxDist, maxKick) {
+    const k = (typeof maxKick === 'number' && isFinite(maxKick) && maxKick > 0) ? maxKick : EXPLOSION_SHOT_KICK_MAX;
+    return explosionKickIntensity(dist, maxDist) * k;
+  }
+
+  function applyExplosionShotKick(currentKick, addedKick, maxCap) {
+    const cur = (typeof currentKick === 'number' && isFinite(currentKick) && currentKick >= 0) ? currentKick : 0;
+    const add = (typeof addedKick === 'number' && isFinite(addedKick) && addedKick >= 0) ? addedKick : 0;
+    const cap = (typeof maxCap === 'number' && isFinite(maxCap) && maxCap > 0) ? maxCap : EXPLOSION_SHOT_KICK_CAP;
+    return Math.min(cap, cur + add);
+  }
+
+  function weaponHeadshotMultiplier(weaponType, defaultMul) {
+    const def = (typeof defaultMul === 'number' && isFinite(defaultMul) && defaultMul > 0) ? defaultMul : 1.8;
+    const t = String(weaponType || '').toUpperCase();
+    if (t === 'SR') return HEADSHOT_MUL_SR;
+    if (t === 'BR') return HEADSHOT_MUL_BR;
+    if (t === 'AR') return HEADSHOT_MUL_AR;
+    if (t === 'SMG') return HEADSHOT_MUL_SMG;
+    return def;
+  }
+
+  function enemyDistanceAccuracy(baseAcc, dist, nominalDist, maxDist, minFactor) {
+    const acc = (typeof baseAcc === 'number' && isFinite(baseAcc) && baseAcc >= 0) ? baseAcc : 0.5;
+    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    const nom = (typeof nominalDist === 'number' && isFinite(nominalDist) && nominalDist > 0) ? nominalDist : ENEMY_ACCURACY_FALLOFF_DIST;
+    const max = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > nom) ? maxDist : 44.0;
+    const minF = (typeof minFactor === 'number' && isFinite(minFactor) && minFactor >= 0 && minFactor <= 1) ? minFactor : ENEMY_ACCURACY_MIN_FACTOR;
+    if (d <= nom) return acc;
+    if (d >= max) return acc * minF;
+    const t = (d - nom) / (max - nom);
+    return acc * (1 - (1 - minF) * t);
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -7460,7 +7531,27 @@ const CORE = (function () {
     stepHeartbeatTimer: stepHeartbeatTimer,
     shouldPlayHeartbeat: shouldPlayHeartbeat,
     heartbeatSound: heartbeatSound,
-    enemyGunfireSound: enemyGunfireSound
+    enemyGunfireSound: enemyGunfireSound,
+    STANCE_SPREAD_CROUCH: STANCE_SPREAD_CROUCH,
+    STANCE_SPREAD_SLIDE: STANCE_SPREAD_SLIDE,
+    STANCE_SPREAD_AIRBORNE_PENALTY: STANCE_SPREAD_AIRBORNE_PENALTY,
+    stanceSpreadMultiplier: stanceSpreadMultiplier,
+    EXPLOSION_KICK_MAX_DIST: EXPLOSION_KICK_MAX_DIST,
+    EXPLOSION_POST_KICK_MAX: EXPLOSION_POST_KICK_MAX,
+    EXPLOSION_SHOT_KICK_MAX: EXPLOSION_SHOT_KICK_MAX,
+    EXPLOSION_SHOT_KICK_CAP: EXPLOSION_SHOT_KICK_CAP,
+    HEADSHOT_MUL_SR: HEADSHOT_MUL_SR,
+    HEADSHOT_MUL_BR: HEADSHOT_MUL_BR,
+    HEADSHOT_MUL_AR: HEADSHOT_MUL_AR,
+    HEADSHOT_MUL_SMG: HEADSHOT_MUL_SMG,
+    ENEMY_ACCURACY_FALLOFF_DIST: ENEMY_ACCURACY_FALLOFF_DIST,
+    ENEMY_ACCURACY_MIN_FACTOR: ENEMY_ACCURACY_MIN_FACTOR,
+    explosionKickIntensity: explosionKickIntensity,
+    explosionPostKick: explosionPostKick,
+    explosionShotKick: explosionShotKick,
+    applyExplosionShotKick: applyExplosionShotKick,
+    weaponHeadshotMultiplier: weaponHeadshotMultiplier,
+    enemyDistanceAccuracy: enemyDistanceAccuracy
   };
 })();
 

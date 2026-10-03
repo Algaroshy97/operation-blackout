@@ -7382,3 +7382,91 @@ test('critical heartbeat, elite gunfire, and atmospheric air-absorption audio ru
   assert.strictEqual(distantParams.audible, false);
   assert.strictEqual(distantParams.cutoff, 500);
 });
+
+test('tactical stance spread, blast camera shake, weapon headshots, and enemy accuracy balance rules (v119 balance tuning)', () => {
+  // 1. Constants verification
+  assert.strictEqual(CORE.STANCE_SPREAD_CROUCH, 0.80);
+  assert.strictEqual(CORE.STANCE_SPREAD_SLIDE, 1.25);
+  assert.strictEqual(CORE.STANCE_SPREAD_AIRBORNE_PENALTY, 0.80);
+  assert.strictEqual(CORE.EXPLOSION_KICK_MAX_DIST, 20.0);
+  assert.strictEqual(CORE.EXPLOSION_POST_KICK_MAX, 0.80);
+  assert.strictEqual(CORE.EXPLOSION_SHOT_KICK_MAX, 1.4);
+  assert.strictEqual(CORE.EXPLOSION_SHOT_KICK_CAP, 2.0);
+  assert.strictEqual(CORE.HEADSHOT_MUL_SR, 2.4);
+  assert.strictEqual(CORE.HEADSHOT_MUL_BR, 2.0);
+  assert.strictEqual(CORE.HEADSHOT_MUL_AR, 1.8);
+  assert.strictEqual(CORE.HEADSHOT_MUL_SMG, 1.5);
+  assert.strictEqual(CORE.ENEMY_ACCURACY_FALLOFF_DIST, 16.0);
+  assert.strictEqual(CORE.ENEMY_ACCURACY_MIN_FACTOR, 0.55);
+
+  // 2. stanceSpreadMultiplier
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, false), 1.0);  // standing
+  assert.strictEqual(CORE.stanceSpreadMultiplier(true, false), 0.80);  // crouched
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, true), 1.25);  // sliding
+  assert.strictEqual(CORE.stanceSpreadMultiplier(true, true), 1.25);   // sliding takes priority over crouch
+
+  // 3. effectiveSpread with stance
+  const baseSpread = 0.02;
+  const stillSpread = CORE.effectiveSpread(baseSpread, 0, 0, false);
+  assert.strictEqual(stillSpread, 0.02);
+
+  const crouchSpread = CORE.effectiveSpread(baseSpread, 0, 0, false, CORE.stanceSpreadMultiplier(true, false));
+  assert.ok(Math.abs(crouchSpread - 0.016) < 1e-6);
+  assert.ok(crouchSpread < stillSpread, 'crouching must tighten spread');
+
+  const slideSpread = CORE.effectiveSpread(baseSpread, 0, 0, false, CORE.stanceSpreadMultiplier(false, true));
+  assert.ok(Math.abs(slideSpread - 0.025) < 1e-6);
+  assert.ok(slideSpread > stillSpread, 'sliding must widen spread');
+
+  // Airborne penalty with stance
+  const airCrouchSpread = CORE.effectiveSpread(baseSpread, 0, 0, true, 0.80);
+  assert.ok(Math.abs(airCrouchSpread - (baseSpread * 1.80 * 0.80)) < 1e-6);
+
+  // 4. Explosion kick & intensity
+  assert.strictEqual(CORE.explosionKickIntensity(0, 20), 1.0);       // point blank
+  assert.strictEqual(CORE.explosionKickIntensity(10, 20), 0.5);      // halfway
+  assert.strictEqual(CORE.explosionKickIntensity(20, 20), 0);        // at max dist
+  assert.strictEqual(CORE.explosionKickIntensity(35, 20), 0);        // beyond max dist
+  assert.strictEqual(CORE.explosionKickIntensity(-5, 20), 1.0);      // negative clamped
+  assert.strictEqual(CORE.explosionKickIntensity(null, 20), 0);      // invalid clamped
+
+  // Explosion post kick
+  assert.strictEqual(CORE.explosionPostKick(0, 20, 0.80), 0.80);
+  assert.strictEqual(CORE.explosionPostKick(10, 20, 0.80), 0.40);
+  assert.strictEqual(CORE.explosionPostKick(25, 20, 0.80), 0);
+
+  // Explosion shot kick
+  assert.strictEqual(CORE.explosionShotKick(0, 20, 1.4), 1.4);
+  assert.strictEqual(CORE.explosionShotKick(10, 20, 1.4), 0.7);
+  assert.strictEqual(CORE.explosionShotKick(30, 20, 1.4), 0);
+
+  // applyExplosionShotKick
+  assert.strictEqual(CORE.applyExplosionShotKick(0.5, 0.7, 2.0), 1.2);
+  assert.strictEqual(CORE.applyExplosionShotKick(1.5, 1.0, 2.0), 2.0); // capped at 2.0
+  assert.strictEqual(CORE.applyExplosionShotKick(0, 0, 2.0), 0);
+
+  // 5. weaponHeadshotMultiplier
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('SR'), 2.4);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('sr'), 2.4);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('BR'), 2.0);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('br'), 2.0);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('AR'), 1.8);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('ar'), 1.8);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('SMG'), 1.5);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('smg'), 1.5);
+  assert.strictEqual(CORE.weaponHeadshotMultiplier('custom', 1.9), 1.9); // fallback to default
+  assert.strictEqual(CORE.weaponHeadshotMultiplier(null), 1.8);
+
+  // 6. enemyDistanceAccuracy
+  const baseAcc = 0.60;
+  // Inside nominal distance (<=16m): full base accuracy
+  assert.strictEqual(CORE.enemyDistanceAccuracy(baseAcc, 5, 16, 44, 0.55), 0.60);
+  assert.strictEqual(CORE.enemyDistanceAccuracy(baseAcc, 16, 16, 44, 0.55), 0.60);
+  // At maximum range (44m): 55% of base accuracy
+  assert.strictEqual(CORE.enemyDistanceAccuracy(baseAcc, 44, 16, 44, 0.55), 0.60 * 0.55);
+  // Beyond maximum range: clamped to 55% of base accuracy
+  assert.strictEqual(CORE.enemyDistanceAccuracy(baseAcc, 60, 16, 44, 0.55), 0.60 * 0.55);
+  // Midpoint between 16m and 44m (30m): halfway between 1.0 and 0.55 = 0.775 factor
+  const midAcc = CORE.enemyDistanceAccuracy(baseAcc, 30, 16, 44, 0.55);
+  assert.ok(Math.abs(midAcc - (0.60 * 0.775)) < 1e-5);
+});

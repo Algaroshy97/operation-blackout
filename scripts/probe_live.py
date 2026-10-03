@@ -3130,7 +3130,67 @@ def main() -> int:
         }""")
         checks.append(("critical-heartbeat-elite-gunfire-and-air-absorption-audio-rules", audio_polish_check))
 
-        # 69) Clean console throughout gameplay.
+        # 69) Stance spread, blast camera shake, weapon headshots, and enemy accuracy balance rules (v119 balance tuning).
+        balance_tuning_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            const constsOk = CORE.STANCE_SPREAD_CROUCH === 0.80 &&
+                             CORE.STANCE_SPREAD_SLIDE === 1.25 &&
+                             CORE.STANCE_SPREAD_AIRBORNE_PENALTY === 0.80 &&
+                             CORE.EXPLOSION_KICK_MAX_DIST === 20.0 &&
+                             CORE.EXPLOSION_POST_KICK_MAX === 0.80 &&
+                             CORE.EXPLOSION_SHOT_KICK_MAX === 1.4 &&
+                             CORE.EXPLOSION_SHOT_KICK_CAP === 2.0 &&
+                             CORE.HEADSHOT_MUL_SR === 2.4 &&
+                             CORE.HEADSHOT_MUL_BR === 2.0 &&
+                             CORE.HEADSHOT_MUL_AR === 1.8 &&
+                             CORE.HEADSHOT_MUL_SMG === 1.5 &&
+                             CORE.ENEMY_ACCURACY_FALLOFF_DIST === 16.0 &&
+                             CORE.ENEMY_ACCURACY_MIN_FACTOR === 0.55;
+
+            const stanceMulOk = CORE.stanceSpreadMultiplier(false, false) === 1.0 &&
+                                CORE.stanceSpreadMultiplier(true, false) === 0.80 &&
+                                CORE.stanceSpreadMultiplier(false, true) === 1.25 &&
+                                CORE.stanceSpreadMultiplier(true, true) === 1.25;
+
+            const spreadCrouch = CORE.effectiveSpread(0.02, 0, 0, false, 0.80);
+            const spreadSlide = CORE.effectiveSpread(0.02, 0, 0, false, 1.25);
+            const spreadOk = Math.abs(spreadCrouch - 0.016) < 1e-6 &&
+                             Math.abs(spreadSlide - 0.025) < 1e-6;
+
+            const kickIntNear = CORE.explosionKickIntensity(0, 20);
+            const kickIntMid = CORE.explosionKickIntensity(10, 20);
+            const kickIntFar = CORE.explosionKickIntensity(25, 20);
+            const kickOk = kickIntNear === 1.0 && kickIntMid === 0.5 && kickIntFar === 0;
+
+            const pkNear = CORE.explosionPostKick(0, 20, 0.80);
+            const pkFar = CORE.explosionPostKick(30, 20, 0.80);
+            const postKickOk = pkNear === 0.80 && pkFar === 0;
+
+            const skNear = CORE.explosionShotKick(0, 20, 1.4);
+            const skFar = CORE.explosionShotKick(30, 20, 1.4);
+            const shotKickOk = skNear === 1.4 && skFar === 0;
+
+            const applyKickOk = CORE.applyExplosionShotKick(0.5, 0.7, 2.0) === 1.2 &&
+                                CORE.applyExplosionShotKick(1.5, 1.0, 2.0) === 2.0;
+
+            const hsOk = CORE.weaponHeadshotMultiplier('SR') === 2.4 &&
+                         CORE.weaponHeadshotMultiplier('BR') === 2.0 &&
+                         CORE.weaponHeadshotMultiplier('AR') === 1.8 &&
+                         CORE.weaponHeadshotMultiplier('SMG') === 1.5 &&
+                         CORE.weaponHeadshotMultiplier('other', 1.9) === 1.9;
+
+            const accNear = CORE.enemyDistanceAccuracy(0.60, 10, 16, 44, 0.55);
+            const accFar = CORE.enemyDistanceAccuracy(0.60, 44, 16, 44, 0.55);
+            const accBeyond = CORE.enemyDistanceAccuracy(0.60, 60, 16, 44, 0.55);
+            const accOk = accNear === 0.60 &&
+                          accFar === (0.60 * 0.55) &&
+                          accBeyond === (0.60 * 0.55);
+
+            return constsOk && stanceMulOk && spreadOk && kickOk && postKickOk && shotKickOk && applyKickOk && hsOk && accOk;
+        }""")
+        checks.append(("tactical-stance-spread-blast-kick-and-combat-accuracy-balance-rules", balance_tuning_check))
+
+        # 70) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

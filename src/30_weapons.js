@@ -300,8 +300,9 @@ function fireShot(preserveSchedule) {
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
   bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
   bp.cap *= CORE.perkBloomMul(perks);
+  const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround);
+    hSpeedForSpread, !player.onGround, stanceSpread);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // direction with random cone
@@ -345,7 +346,8 @@ function fireShot(preserveSchedule) {
   if (hit && isEnemy) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
-    const dmg = CORE.playerBulletDamage(w.dmg, isHead, CFG.ai.headshotMul, hit.distance, w.range, penMul);
+    const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
+    const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul);
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
@@ -499,7 +501,8 @@ function updateViewmodel(dt) {
   if (_chEl) {
     const isScopedW = (w.type === 'BR' || w.type === 'SR');
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
-    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround);
+    const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
+    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread);
     const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
     if (chOp !== _lastChOp) {
