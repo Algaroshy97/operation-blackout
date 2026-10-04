@@ -333,8 +333,11 @@ def main() -> int:
                 plates = 1;
                 plateT = 0;
                 usePlate();
+                const inserting = played.length === 1 && played[0] === 'plate_insert' &&
+                    plateT === CORE.PLATE_TIME && player.armor === 0 && plates === 1;
                 updateStations(CORE.PLATE_TIME);
-                return played.includes('reload_out') && played.includes('reload_in');
+                return inserting && played.length === 2 && played[1] === 'plate_lock' &&
+                    plateT === 0 && player.armor > 0 && plates === 0;
             } finally {
                 playSound = realPlay;
             }
