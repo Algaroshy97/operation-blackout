@@ -3348,7 +3348,82 @@ def main() -> int:
         }""")
         checks.append(("blood-pool-seep-and-textured-bullet-decal-visual-rules", blood_pool_visual_check))
 
-        # 73) Clean console throughout gameplay.
+        # 73) Suppressed weapon gunfire, armor plate insert/lock, flashbang tinnitus, and flesh hurt audio rules (v123 audio polish).
+        audio_polish_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.weaponFireSound !== 'function' ||
+                typeof CORE.plateInsertSound !== 'function' ||
+                typeof CORE.plateLockSound !== 'function' ||
+                typeof CORE.tinnitusSound !== 'function' ||
+                typeof CORE.shouldTriggerTinnitus !== 'function' ||
+                typeof CORE.tinnitusVolume !== 'function' ||
+                typeof CORE.shouldPlayFleshHurt !== 'function' ||
+                typeof CORE.playerDamageAcoustics !== 'function') {
+                return false;
+            }
+
+            const constsOk = CORE.TINNITUS_MIN_THRESHOLD === 0.4 &&
+                             CORE.TINNITUS_MAX_DURATION === 4.0 &&
+                             CORE.TINNITUS_BASE_GAIN === 0.15;
+
+            const unsuppressedOk = CORE.weaponFireSound('AR') === 'shot' &&
+                                   CORE.weaponFireSound('SMG') === 'smg' &&
+                                   CORE.weaponFireSound('BR') === 'br' &&
+                                   CORE.weaponFireSound('SR') === 'sniper' &&
+                                   CORE.weaponFireSound('') === 'shot';
+
+            const suppressedOk = CORE.weaponFireSound('AR', true) === 'shot_suppressed' &&
+                                 CORE.weaponFireSound('SMG', true) === 'smg_suppressed' &&
+                                 CORE.weaponFireSound('BR', true) === 'br_suppressed' &&
+                                 CORE.weaponFireSound('SR', true) === 'sniper_suppressed' &&
+                                 CORE.weaponFireSound('', true) === 'shot_suppressed';
+
+            const plateSndOk = CORE.plateInsertSound() === 'plate_insert' &&
+                               CORE.plateLockSound() === 'plate_lock';
+
+            const tinnitusTrigOk = CORE.tinnitusSound() === 'tinnitus' &&
+                                   CORE.shouldTriggerTinnitus(1.5, 0, 0.4) === true &&
+                                   CORE.shouldTriggerTinnitus(0.2, 0, 0.4) === false &&
+                                   CORE.shouldTriggerTinnitus(1.5, 1.0, 0.4) === false &&
+                                   Math.abs(CORE.tinnitusVolume(2.0, 4.0, 0.15) - 0.075) < 1e-4 &&
+                                   CORE.tinnitusVolume(0, 4.0, 0.15) === 0;
+
+            const hurtGatingOk = CORE.shouldPlayFleshHurt(0) === false &&
+                                 CORE.shouldPlayFleshHurt(15) === true &&
+                                 CORE.shouldPlayFleshHurt(undefined) === true;
+
+            const dmgAcoustics = CORE.playerDamageAcoustics(0, 'block');
+            const dmgOk = dmgAcoustics && dmgAcoustics.armorSound === 'block' && dmgAcoustics.playHurt === false;
+
+            const recipesOk = typeof SOUND_RECIPES === 'object' &&
+                              Array.isArray(SOUND_RECIPES.shot_suppressed) &&
+                              Array.isArray(SOUND_RECIPES.smg_suppressed) &&
+                              Array.isArray(SOUND_RECIPES.br_suppressed) &&
+                              Array.isArray(SOUND_RECIPES.sniper_suppressed) &&
+                              Array.isArray(SOUND_RECIPES.plate_insert) &&
+                              Array.isArray(SOUND_RECIPES.plate_lock) &&
+                              Array.isArray(SOUND_RECIPES.tinnitus);
+
+            const variedOk = typeof SOUND_VARIED === 'object' &&
+                             SOUND_VARIED.shot_suppressed === 1 &&
+                             SOUND_VARIED.smg_suppressed === 1 &&
+                             SOUND_VARIED.br_suppressed === 1 &&
+                             SOUND_VARIED.sniper_suppressed === 1 &&
+                             SOUND_VARIED.plate_insert === 1 &&
+                             SOUND_VARIED.plate_lock === 1 &&
+                             SOUND_VARIED.tinnitus === 1;
+
+            const gapsOk = typeof SND_MIN_GAP === 'object' &&
+                           SND_MIN_GAP.shot_suppressed === 0.045 &&
+                           SND_MIN_GAP.plate_insert === 0.3 &&
+                           SND_MIN_GAP.tinnitus === 1.5;
+
+            return constsOk && unsuppressedOk && suppressedOk && plateSndOk &&
+                   tinnitusTrigOk && hurtGatingOk && dmgOk && recipesOk && variedOk && gapsOk;
+        }""")
+        checks.append(("suppressed-weapon-armor-plate-and-tinnitus-audio-rules", audio_polish_check))
+
+        # 74) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -379,7 +379,7 @@ function updateStations(dt) {
       const r = CORE.plateApply(player.armor, CFG.player.armor, plates);
       if (r) {
         player.armor = r.armor; plates = r.plates; updateHudHealth(); updateHudPlates();
-        playSound('reload_in');
+        playSound(CORE.plateLockSound ? CORE.plateLockSound() : 'plate_lock');
       }
     }
     setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
@@ -418,7 +418,7 @@ function usePlate() {
   if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
   if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
   plateT = CORE.PLATE_TIME;
-  playSound('reload_out');
+  playSound(CORE.plateInsertSound ? CORE.plateInsertSound() : 'plate_insert');
 }
 
 // ---- Last stand -------------------------------------------------------------

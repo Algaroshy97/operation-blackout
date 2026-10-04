@@ -380,10 +380,10 @@ function fireShot(preserveSchedule) {
   player.recoilP += _kickOut.pitchKick;
   player.recoilY += _kickOut.yawKick;
   shotKick = CORE.applyShotKick(shotKick);
-  playSound(CORE.weaponFireSound(w ? w.type : ''));
+  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
-  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();
   kickViewmodel(w, vmTune);

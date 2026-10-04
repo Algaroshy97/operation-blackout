@@ -7683,3 +7683,67 @@ test('blood pool seep expansion, settled corpse gore pooling, and textured bulle
   assert.strictEqual(CORE.canSpawnBloodPool(true, true, 25.0, 60.0), false);  // already spawned
   assert.strictEqual(CORE.canSpawnBloodPool(true, false, 80.0, 60.0), false); // too far
 });
+
+test('suppressed weapon gunfire, armor plate insert/lock, flashbang tinnitus, and flesh hurt audio rules (v123 audio polish)', () => {
+  // 1. Weapon fire sound resolution (unsuppressed vs suppressed)
+  assert.strictEqual(CORE.weaponFireSound('AR'), 'shot');
+  assert.strictEqual(CORE.weaponFireSound('SMG'), 'smg');
+  assert.strictEqual(CORE.weaponFireSound('BR'), 'br');
+  assert.strictEqual(CORE.weaponFireSound('SR'), 'sniper');
+  assert.strictEqual(CORE.weaponFireSound(''), 'shot');
+  assert.strictEqual(CORE.weaponFireSound(null), 'shot');
+  assert.strictEqual(CORE.weaponFireSound(undefined), 'shot');
+
+  assert.strictEqual(CORE.weaponFireSound('AR', false), 'shot');
+  assert.strictEqual(CORE.weaponFireSound('SMG', false), 'smg');
+  assert.strictEqual(CORE.weaponFireSound('BR', false), 'br');
+  assert.strictEqual(CORE.weaponFireSound('SR', false), 'sniper');
+
+  assert.strictEqual(CORE.weaponFireSound('AR', true), 'shot_suppressed');
+  assert.strictEqual(CORE.weaponFireSound('SMG', true), 'smg_suppressed');
+  assert.strictEqual(CORE.weaponFireSound('BR', true), 'br_suppressed');
+  assert.strictEqual(CORE.weaponFireSound('SR', true), 'sniper_suppressed');
+  assert.strictEqual(CORE.weaponFireSound('', true), 'shot_suppressed');
+  assert.strictEqual(CORE.weaponFireSound(null, true), 'shot_suppressed');
+  assert.strictEqual(CORE.weaponFireSound('UNKNOWN', true), 'shot_suppressed');
+
+  // 2. Armor plate insertion & locking audio cues
+  assert.strictEqual(CORE.plateInsertSound(), 'plate_insert');
+  assert.strictEqual(CORE.plateLockSound(), 'plate_lock');
+
+  // 3. Flashbang tinnitus ringing constants & trigger conditions
+  assert.strictEqual(CORE.TINNITUS_MIN_THRESHOLD, 0.4);
+  assert.strictEqual(CORE.TINNITUS_MAX_DURATION, 4.0);
+  assert.strictEqual(CORE.TINNITUS_BASE_GAIN, 0.15);
+  assert.strictEqual(CORE.tinnitusSound(), 'tinnitus');
+
+  assert.strictEqual(CORE.shouldTriggerTinnitus(1.5, 0, 0.4), true);
+  assert.strictEqual(CORE.shouldTriggerTinnitus(0.2, 0, 0.4), false);
+  assert.strictEqual(CORE.shouldTriggerTinnitus(1.5, 1.0, 0.4), false);
+  assert.strictEqual(CORE.shouldTriggerTinnitus(2.0, 0), true);
+  assert.strictEqual(CORE.shouldTriggerTinnitus(0, 0), false);
+
+  assert.ok(Math.abs(CORE.tinnitusVolume(2.0, 4.0, 0.15) - 0.075) < 1e-4);
+  assert.strictEqual(CORE.tinnitusVolume(0, 4.0, 0.15), 0);
+  assert.strictEqual(CORE.tinnitusVolume(4.0, 4.0, 0.15), 0.15);
+  assert.strictEqual(CORE.tinnitusVolume(6.0, 4.0, 0.15), 0.15);
+
+  // 4. Flesh hurt gating & damage acoustics resolution
+  assert.strictEqual(CORE.shouldPlayFleshHurt(0), false);
+  assert.strictEqual(CORE.shouldPlayFleshHurt(-10), false);
+  assert.strictEqual(CORE.shouldPlayFleshHurt(15), true);
+  assert.strictEqual(CORE.shouldPlayFleshHurt(undefined), true);
+  assert.strictEqual(CORE.shouldPlayFleshHurt(null), true);
+
+  const pureArmor = CORE.playerDamageAcoustics(0, 'block');
+  assert.strictEqual(pureArmor.armorSound, 'block');
+  assert.strictEqual(pureArmor.playHurt, false);
+
+  const brokenArmor = CORE.playerDamageAcoustics(20, 'armor_break');
+  assert.strictEqual(brokenArmor.armorSound, 'armor_break');
+  assert.strictEqual(brokenArmor.playHurt, true);
+
+  const pureHealth = CORE.playerDamageAcoustics(35, null);
+  assert.strictEqual(pureHealth.armorSound, null);
+  assert.strictEqual(pureHealth.playHurt, true);
+});

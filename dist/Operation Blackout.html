@@ -5345,11 +5345,63 @@ const CORE = (function () {
     return null;
   }
 
-  function weaponFireSound(weaponType) {
+  function weaponFireSound(weaponType, isSuppressed) {
+    if (isSuppressed) {
+      if (weaponType === 'SR') return 'sniper_suppressed';
+      if (weaponType === 'SMG') return 'smg_suppressed';
+      if (weaponType === 'BR') return 'br_suppressed';
+      return 'shot_suppressed';
+    }
     if (weaponType === 'SR') return 'sniper';
     if (weaponType === 'SMG') return 'smg';
     if (weaponType === 'BR') return 'br';
     return 'shot';
+  }
+
+  function plateInsertSound() {
+    return 'plate_insert';
+  }
+
+  function plateLockSound() {
+    return 'plate_lock';
+  }
+
+  const TINNITUS_MIN_THRESHOLD = 0.4;
+  const TINNITUS_MAX_DURATION = 4.0;
+  const TINNITUS_BASE_GAIN = 0.15;
+
+  function tinnitusSound() {
+    return 'tinnitus';
+  }
+
+  function shouldTriggerTinnitus(flashT, prevFlashT, minThreshold) {
+    const cur = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
+    const prev = (typeof prevFlashT === 'number' && isFinite(prevFlashT)) ? prevFlashT : 0;
+    const thresh = (typeof minThreshold === 'number' && isFinite(minThreshold)) ? minThreshold : TINNITUS_MIN_THRESHOLD;
+    return prev <= 0 && cur >= thresh;
+  }
+
+  function tinnitusVolume(flashT, maxDur, baseGain) {
+    const t = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
+    const maxD = (typeof maxDur === 'number' && isFinite(maxDur) && maxDur > 0) ? maxDur : TINNITUS_MAX_DURATION;
+    const bg = (typeof baseGain === 'number' && isFinite(baseGain)) ? baseGain : TINNITUS_BASE_GAIN;
+    if (t <= 0) return 0;
+    const ratio = Math.max(0, Math.min(1, t / maxD));
+    return bg * ratio;
+  }
+
+  function shouldPlayFleshHurt(healthDamage) {
+    if (healthDamage === undefined || healthDamage === null) return true;
+    const hd = (typeof healthDamage === 'number' && isFinite(healthDamage)) ? healthDamage : 0;
+    return hd > 0;
+  }
+
+  function playerDamageAcoustics(healthDamage, armorSnd) {
+    const playHurt = shouldPlayFleshHurt(healthDamage);
+    return {
+      armorSound: armorSnd || null,
+      playHurt: playHurt
+    };
   }
 
   function armorDamageSound(initialArmor, remainingArmor) {
@@ -12524,7 +12576,17 @@ const CORE = (function () {
     isBloodPoolExpired: isBloodPoolExpired,
     bloodPoolRotation: bloodPoolRotation,
     bloodPoolElevation: bloodPoolElevation,
-    canSpawnBloodPool: canSpawnBloodPool
+    canSpawnBloodPool: canSpawnBloodPool,
+    TINNITUS_MIN_THRESHOLD: TINNITUS_MIN_THRESHOLD,
+    TINNITUS_MAX_DURATION: TINNITUS_MAX_DURATION,
+    TINNITUS_BASE_GAIN: TINNITUS_BASE_GAIN,
+    plateInsertSound: plateInsertSound,
+    plateLockSound: plateLockSound,
+    tinnitusSound: tinnitusSound,
+    shouldTriggerTinnitus: shouldTriggerTinnitus,
+    tinnitusVolume: tinnitusVolume,
+    shouldPlayFleshHurt: shouldPlayFleshHurt,
+    playerDamageAcoustics: playerDamageAcoustics
   };
 })();
 
@@ -15407,10 +15469,10 @@ function fireShot(preserveSchedule) {
   player.recoilP += _kickOut.pitchKick;
   player.recoilY += _kickOut.yawKick;
   shotKick = CORE.applyShotKick(shotKick);
-  playSound(CORE.weaponFireSound(w ? w.type : ''));
+  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
-  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();
   kickViewmodel(w, vmTune);
@@ -18830,7 +18892,9 @@ const SND_MIN_GAP = {
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
   sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
   draw_heavy: 0.15, draw_light: 0.15,
-  heartbeat: 0.3, eshot_elite: 0.05
+  heartbeat: 0.3, eshot_elite: 0.05,
+  shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
+  plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -18941,7 +19005,14 @@ const SOUND_RECIPES = {
   reload_bolt:       [['noise', 0.07, 0.28, 1400, 2.0], ['osc', 'square', 340, 180, 0.05, 0.15], ['osc', 'sine', 160, 70, 0.08, 0.22]],
   low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]],
   heartbeat:         [['osc', 'sine', 68, 30, 0.11, 0.32], ['osc', 'sine', 52, 22, 0.13, 0.26], ['noise', 0.06, 0.12, 110, 0.8]],
-  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]]
+  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]],
+  shot_suppressed:   [['noise', 0.05, 0.28, 480, 1.2], ['osc', 'square', 140, 55, 0.04, 0.16], ['osc', 'sine', 90, 40, 0.06, 0.18]],
+  smg_suppressed:    [['noise', 0.04, 0.24, 750, 1.5], ['osc', 'square', 180, 80, 0.035, 0.14], ['osc', 'sine', 110, 50, 0.05, 0.15]],
+  br_suppressed:     [['noise', 0.07, 0.32, 380, 1.0], ['osc', 'square', 110, 45, 0.06, 0.18], ['osc', 'sine', 70, 25, 0.08, 0.22]],
+  sniper_suppressed: [['noise', 0.09, 0.36, 420, 1.1], ['osc', 'sine', 110, 32, 0.14, 0.28], ['noise', 0.04, 0.22, 2200, 3.0]],
+  plate_insert:      [['noise', 0.16, 0.26, 680, 1.2], ['osc', 'sine', 120, 80, 0.12, 0.14], ['noise', 0.08, 0.18, 1600, 2.0]],
+  plate_lock:        [['osc', 'square', 480, 220, 0.06, 0.22], ['noise', 0.08, 0.24, 1800, 2.2], ['osc', 'sine', 160, 60, 0.09, 0.24]],
+  tinnitus:          [['osc', 'sine', 3400, 3000, 1.8, 0.15], ['osc', 'sine', 6800, 6000, 1.2, 0.03]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -18960,7 +19031,9 @@ const SOUND_VARIED = {
   impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
-  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1
+  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1,
+  shot_suppressed: 1, smg_suppressed: 1, br_suppressed: 1, sniper_suppressed: 1,
+  plate_insert: 1, plate_lock: 1, tinnitus: 1
 };
 
 function recipeDuration(recipe) {
@@ -19738,7 +19811,11 @@ function applyTactical(def, pos) {
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
       const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
       const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
+      const prevFlash = playerFlashT;
       playerFlashT = Math.max(playerFlashT, CORE.playerSelfFlashDuration(s, def.dur, CORE.PLAYER_FLASH_SELF_MUL));
+      if (CORE.shouldTriggerTinnitus(playerFlashT, prevFlash, CORE.TINNITUS_MIN_THRESHOLD)) {
+        playSound(CORE.tinnitusSound());
+      }
     }
   }
 }
@@ -20425,7 +20502,7 @@ function updateStations(dt) {
       const r = CORE.plateApply(player.armor, CFG.player.armor, plates);
       if (r) {
         player.armor = r.armor; plates = r.plates; updateHudHealth(); updateHudPlates();
-        playSound('reload_in');
+        playSound(CORE.plateLockSound ? CORE.plateLockSound() : 'plate_lock');
       }
     }
     setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
@@ -20464,7 +20541,7 @@ function usePlate() {
   if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
   if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
   plateT = CORE.PLATE_TIME;
-  playSound('reload_out');
+  playSound(CORE.plateInsertSound ? CORE.plateInsertSound() : 'plate_insert');
 }
 
 // ---- Last stand -------------------------------------------------------------
@@ -21145,7 +21222,7 @@ function showDamageFx(dirDeg, amount, healthDmg, absorbedDmg) {
     const screenDeg = CORE.screenHitAngle(dirDeg, player.yaw);
     showHitArc(screenDeg, isArmorOnly);
   }
-  playSound('hurt');
+  if (CORE.shouldPlayFleshHurt(healthDmg)) playSound('hurt');
 }
 
 // ---- Pooled hit-direction arcs ----

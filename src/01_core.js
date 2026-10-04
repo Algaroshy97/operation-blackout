@@ -623,11 +623,63 @@ const CORE = (function () {
     return null;
   }
 
-  function weaponFireSound(weaponType) {
+  function weaponFireSound(weaponType, isSuppressed) {
+    if (isSuppressed) {
+      if (weaponType === 'SR') return 'sniper_suppressed';
+      if (weaponType === 'SMG') return 'smg_suppressed';
+      if (weaponType === 'BR') return 'br_suppressed';
+      return 'shot_suppressed';
+    }
     if (weaponType === 'SR') return 'sniper';
     if (weaponType === 'SMG') return 'smg';
     if (weaponType === 'BR') return 'br';
     return 'shot';
+  }
+
+  function plateInsertSound() {
+    return 'plate_insert';
+  }
+
+  function plateLockSound() {
+    return 'plate_lock';
+  }
+
+  const TINNITUS_MIN_THRESHOLD = 0.4;
+  const TINNITUS_MAX_DURATION = 4.0;
+  const TINNITUS_BASE_GAIN = 0.15;
+
+  function tinnitusSound() {
+    return 'tinnitus';
+  }
+
+  function shouldTriggerTinnitus(flashT, prevFlashT, minThreshold) {
+    const cur = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
+    const prev = (typeof prevFlashT === 'number' && isFinite(prevFlashT)) ? prevFlashT : 0;
+    const thresh = (typeof minThreshold === 'number' && isFinite(minThreshold)) ? minThreshold : TINNITUS_MIN_THRESHOLD;
+    return prev <= 0 && cur >= thresh;
+  }
+
+  function tinnitusVolume(flashT, maxDur, baseGain) {
+    const t = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
+    const maxD = (typeof maxDur === 'number' && isFinite(maxDur) && maxDur > 0) ? maxDur : TINNITUS_MAX_DURATION;
+    const bg = (typeof baseGain === 'number' && isFinite(baseGain)) ? baseGain : TINNITUS_BASE_GAIN;
+    if (t <= 0) return 0;
+    const ratio = Math.max(0, Math.min(1, t / maxD));
+    return bg * ratio;
+  }
+
+  function shouldPlayFleshHurt(healthDamage) {
+    if (healthDamage === undefined || healthDamage === null) return true;
+    const hd = (typeof healthDamage === 'number' && isFinite(healthDamage)) ? healthDamage : 0;
+    return hd > 0;
+  }
+
+  function playerDamageAcoustics(healthDamage, armorSnd) {
+    const playHurt = shouldPlayFleshHurt(healthDamage);
+    return {
+      armorSound: armorSnd || null,
+      playHurt: playHurt
+    };
   }
 
   function armorDamageSound(initialArmor, remainingArmor) {
@@ -7802,7 +7854,17 @@ const CORE = (function () {
     isBloodPoolExpired: isBloodPoolExpired,
     bloodPoolRotation: bloodPoolRotation,
     bloodPoolElevation: bloodPoolElevation,
-    canSpawnBloodPool: canSpawnBloodPool
+    canSpawnBloodPool: canSpawnBloodPool,
+    TINNITUS_MIN_THRESHOLD: TINNITUS_MIN_THRESHOLD,
+    TINNITUS_MAX_DURATION: TINNITUS_MAX_DURATION,
+    TINNITUS_BASE_GAIN: TINNITUS_BASE_GAIN,
+    plateInsertSound: plateInsertSound,
+    plateLockSound: plateLockSound,
+    tinnitusSound: tinnitusSound,
+    shouldTriggerTinnitus: shouldTriggerTinnitus,
+    tinnitusVolume: tinnitusVolume,
+    shouldPlayFleshHurt: shouldPlayFleshHurt,
+    playerDamageAcoustics: playerDamageAcoustics
   };
 })();
 

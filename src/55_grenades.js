@@ -530,7 +530,11 @@ function applyTactical(def, pos) {
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
       const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
       const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);
+      const prevFlash = playerFlashT;
       playerFlashT = Math.max(playerFlashT, CORE.playerSelfFlashDuration(s, def.dur, CORE.PLAYER_FLASH_SELF_MUL));
+      if (CORE.shouldTriggerTinnitus(playerFlashT, prevFlash, CORE.TINNITUS_MIN_THRESHOLD)) {
+        playSound(CORE.tinnitusSound());
+      }
     }
   }
 }

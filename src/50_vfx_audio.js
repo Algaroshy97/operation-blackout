@@ -489,7 +489,9 @@ const SND_MIN_GAP = {
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
   sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
   draw_heavy: 0.15, draw_light: 0.15,
-  heartbeat: 0.3, eshot_elite: 0.05
+  heartbeat: 0.3, eshot_elite: 0.05,
+  shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
+  plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -600,7 +602,14 @@ const SOUND_RECIPES = {
   reload_bolt:       [['noise', 0.07, 0.28, 1400, 2.0], ['osc', 'square', 340, 180, 0.05, 0.15], ['osc', 'sine', 160, 70, 0.08, 0.22]],
   low_ammo:          [['osc', 'square', 1400, 1100, 0.025, 0.08], ['noise', 0.02, 0.08, 4200, 4]],
   heartbeat:         [['osc', 'sine', 68, 30, 0.11, 0.32], ['osc', 'sine', 52, 22, 0.13, 0.26], ['noise', 0.06, 0.12, 110, 0.8]],
-  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]]
+  eshot_elite:       [['noise', 0.14, 0.36, 420, 0.7], ['osc', 'sawtooth', 160, 48, 0.11, 0.22], ['osc', 'sine', 95, 30, 0.15, 0.26]],
+  shot_suppressed:   [['noise', 0.05, 0.28, 480, 1.2], ['osc', 'square', 140, 55, 0.04, 0.16], ['osc', 'sine', 90, 40, 0.06, 0.18]],
+  smg_suppressed:    [['noise', 0.04, 0.24, 750, 1.5], ['osc', 'square', 180, 80, 0.035, 0.14], ['osc', 'sine', 110, 50, 0.05, 0.15]],
+  br_suppressed:     [['noise', 0.07, 0.32, 380, 1.0], ['osc', 'square', 110, 45, 0.06, 0.18], ['osc', 'sine', 70, 25, 0.08, 0.22]],
+  sniper_suppressed: [['noise', 0.09, 0.36, 420, 1.1], ['osc', 'sine', 110, 32, 0.14, 0.28], ['noise', 0.04, 0.22, 2200, 3.0]],
+  plate_insert:      [['noise', 0.16, 0.26, 680, 1.2], ['osc', 'sine', 120, 80, 0.12, 0.14], ['noise', 0.08, 0.18, 1600, 2.0]],
+  plate_lock:        [['osc', 'square', 480, 220, 0.06, 0.22], ['noise', 0.08, 0.24, 1800, 2.2], ['osc', 'sine', 160, 60, 0.09, 0.24]],
+  tinnitus:          [['osc', 'sine', 3400, 3000, 1.8, 0.15], ['osc', 'sine', 6800, 6000, 1.2, 0.03]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -619,7 +628,9 @@ const SOUND_VARIED = {
   impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
-  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1
+  bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1,
+  shot_suppressed: 1, smg_suppressed: 1, br_suppressed: 1, sniper_suppressed: 1,
+  plate_insert: 1, plate_lock: 1, tinnitus: 1
 };
 
 function recipeDuration(recipe) {

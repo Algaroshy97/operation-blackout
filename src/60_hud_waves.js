@@ -261,7 +261,7 @@ function showDamageFx(dirDeg, amount, healthDmg, absorbedDmg) {
     const screenDeg = CORE.screenHitAngle(dirDeg, player.yaw);
     showHitArc(screenDeg, isArmorOnly);
   }
-  playSound('hurt');
+  if (CORE.shouldPlayFleshHurt(healthDmg)) playSound('hurt');
 }
 
 // ---- Pooled hit-direction arcs ----
