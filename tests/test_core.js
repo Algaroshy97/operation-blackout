@@ -7747,3 +7747,97 @@ test('suppressed weapon gunfire, armor plate insert/lock, flashbang tinnitus, an
   assert.strictEqual(pureHealth.armorSound, null);
   assert.strictEqual(pureHealth.playHurt, true);
 });
+
+test('tactical combat balance, target evasion, backstab execution, and weapon falloff rules (v124 balance tuning)', () => {
+  // 1. Weapon-class ballistic falloff constants & params
+  assert.strictEqual(CORE.FALLOFF_SMG_KNEE, 0.38);
+  assert.strictEqual(CORE.FALLOFF_SMG_MIN_MUL, 0.45);
+  assert.strictEqual(CORE.FALLOFF_AR_KNEE, 0.58);
+  assert.strictEqual(CORE.FALLOFF_AR_MIN_MUL, 0.65);
+  assert.strictEqual(CORE.FALLOFF_BR_KNEE, 0.72);
+  assert.strictEqual(CORE.FALLOFF_BR_MIN_MUL, 0.78);
+  assert.strictEqual(CORE.FALLOFF_SR_KNEE, 0.85);
+  assert.strictEqual(CORE.FALLOFF_SR_MIN_MUL, 0.90);
+
+  const smgParams = CORE.weaponFalloffParams('SMG');
+  assert.strictEqual(smgParams.kneeFrac, 0.38);
+  assert.strictEqual(smgParams.minMul, 0.45);
+
+  const arParams = CORE.weaponFalloffParams('AR');
+  assert.strictEqual(arParams.kneeFrac, 0.58);
+  assert.strictEqual(arParams.minMul, 0.65);
+
+  const brParams = CORE.weaponFalloffParams('BR');
+  assert.strictEqual(brParams.kneeFrac, 0.72);
+  assert.strictEqual(brParams.minMul, 0.78);
+
+  const srParams = CORE.weaponFalloffParams('SR');
+  assert.strictEqual(srParams.kneeFrac, 0.85);
+  assert.strictEqual(srParams.minMul, 0.90);
+
+  const defParams = CORE.weaponFalloffParams('UNKNOWN');
+  assert.strictEqual(defParams.kneeFrac, 0.6);
+  assert.strictEqual(defParams.minMul, 0.65);
+
+  // Weapon distance falloff and player bullet damage
+  assert.strictEqual(CORE.weaponDistanceFalloff('SMG', 10, 80), 1.0);
+  assert.strictEqual(CORE.weaponDistanceFalloff('SMG', 80, 80), 0.45);
+  assert.strictEqual(CORE.weaponDistanceFalloff('SR', 100, 260), 1.0);
+  assert.strictEqual(CORE.weaponDistanceFalloff('SR', 260, 260), 0.90);
+
+  const smgDmgPointBlank = CORE.playerBulletDamage(18, false, 1.5, 10, 80, 1.0, 'SMG');
+  assert.strictEqual(smgDmgPointBlank, 18);
+  const smgDmgMaxRange = CORE.playerBulletDamage(18, false, 1.5, 80, 80, 1.0, 'SMG');
+  assert.ok(Math.abs(smgDmgMaxRange - (18 * 0.45)) < 1e-4);
+
+  // 2. Tactical melee backstab execution & kinetic momentum
+  assert.strictEqual(CORE.MELEE_BACKSTAB_MUL, 2.4);
+  assert.strictEqual(CORE.MELEE_SLIDE_MOMENTUM_MUL, 1.30);
+  assert.strictEqual(CORE.MELEE_SPRINT_MOMENTUM_MUL, 1.15);
+  assert.strictEqual(CORE.MELEE_BACKSTAB_COS_THRESHOLD, 0.50);
+
+  // Behind enemy facing +Z (yaw = 0 -> enFwd = (0, 1)), player at (0, -1) attacking toward +Z (dir = (0, 1))
+  const bsValid = CORE.isMeleeBackstab(0, 1, 0, 0, -1, 0, 0);
+  assert.strictEqual(bsValid, true);
+
+  // In front of enemy facing +Z, player at (0, 1) attacking toward -Z (dir = (0, -1)) -> frontal hit, not backstab
+  const bsFront = CORE.isMeleeBackstab(0, -1, 0, 0, 1, 0, 0);
+  assert.strictEqual(bsFront, false);
+
+  // Flanking enemy from side at 90 deg -> flank hit, not backstab
+  const bsFlank = CORE.isMeleeBackstab(1, 0, 0, -1, 0, 0, 0);
+  assert.strictEqual(bsFlank, false);
+
+  // Player behind enemy but looking away -> whiff / looking wrong way
+  const bsLookingAway = CORE.isMeleeBackstab(0, -1, 0, 0, -1, 0, 0);
+  assert.strictEqual(bsLookingAway, false);
+
+  // Invalid parameters
+  assert.strictEqual(CORE.isMeleeBackstab(NaN, 0, 0, 0, 0, 0, 0), false);
+
+  // Melee damage scaling
+  assert.strictEqual(CORE.playerMeleeDamage(150, true, false, false), 150 * 2.4); // 360
+  assert.strictEqual(CORE.playerMeleeDamage(150, false, true, false), 150 * 1.30); // 195
+  assert.strictEqual(CORE.playerMeleeDamage(150, false, false, true), 150 * 1.15); // 172.5
+  assert.strictEqual(CORE.playerMeleeDamage(150, false, false, false), 150);
+
+  // 3. Target movement & stance evasion multipliers on enemy accuracy
+  assert.strictEqual(CORE.ENEMY_EVASION_SPRINT_MUL, 0.82);
+  assert.strictEqual(CORE.ENEMY_EVASION_TAC_SPRINT_MUL, 0.70);
+  assert.strictEqual(CORE.ENEMY_EVASION_SLIDE_MUL, 0.75);
+  assert.strictEqual(CORE.ENEMY_EVASION_CROUCH_MUL, 0.85);
+  assert.strictEqual(CORE.ENEMY_EVASION_AIRBORNE_MUL, 0.80);
+
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(false, false, true, false, false), 0.75); // slide
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(true, true, false, false, false), 0.70); // tac sprint
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(true, false, false, false, false), 0.82); // sprint
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(false, false, false, false, true), 0.80); // airborne
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(false, false, false, true, false), 0.85); // crouch
+  assert.strictEqual(CORE.enemyTargetEvasionMultiplier(false, false, false, false, false), 1.0); // standing
+
+  assert.ok(Math.abs(CORE.enemyEffectiveAccuracy(0.6, 0.75) - 0.45) < 1e-4);
+  assert.strictEqual(CORE.enemyEffectiveAccuracy(0.5, 1.0), 0.5);
+  assert.strictEqual(CORE.enemyEffectiveAccuracy(0, 0.8), 0);
+  assert.strictEqual(CORE.enemyEffectiveAccuracy(1.0, 1.2), 1.0); // clamped to 1.0
+});
+

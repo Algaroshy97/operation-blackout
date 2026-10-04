@@ -3423,7 +3423,81 @@ def main() -> int:
         }""")
         checks.append(("suppressed-weapon-armor-plate-and-tinnitus-audio-rules", audio_polish_check))
 
-        # 74) Clean console throughout gameplay.
+        # 74) Tactical combat balance, target evasion, backstab execution, and weapon falloff rules (v124 balance tuning).
+        combat_balance_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.weaponFalloffParams !== 'function' ||
+                typeof CORE.weaponDistanceFalloff !== 'function' ||
+                typeof CORE.isMeleeBackstab !== 'function' ||
+                typeof CORE.playerMeleeDamage !== 'function' ||
+                typeof CORE.enemyTargetEvasionMultiplier !== 'function' ||
+                typeof CORE.enemyEffectiveAccuracy !== 'function') {
+                return false;
+            }
+
+            const falloffConstsOk = CORE.FALLOFF_SMG_KNEE === 0.38 &&
+                                    CORE.FALLOFF_SMG_MIN_MUL === 0.45 &&
+                                    CORE.FALLOFF_AR_KNEE === 0.58 &&
+                                    CORE.FALLOFF_AR_MIN_MUL === 0.65 &&
+                                    CORE.FALLOFF_BR_KNEE === 0.72 &&
+                                    CORE.FALLOFF_BR_MIN_MUL === 0.78 &&
+                                    CORE.FALLOFF_SR_KNEE === 0.85 &&
+                                    CORE.FALLOFF_SR_MIN_MUL === 0.90;
+
+            const meleeConstsOk = CORE.MELEE_BACKSTAB_MUL === 2.4 &&
+                                  CORE.MELEE_SLIDE_MOMENTUM_MUL === 1.30 &&
+                                  CORE.MELEE_SPRINT_MOMENTUM_MUL === 1.15 &&
+                                  CORE.MELEE_BACKSTAB_COS_THRESHOLD === 0.50;
+
+            const evasionConstsOk = CORE.ENEMY_EVASION_SPRINT_MUL === 0.82 &&
+                                    CORE.ENEMY_EVASION_TAC_SPRINT_MUL === 0.70 &&
+                                    CORE.ENEMY_EVASION_SLIDE_MUL === 0.75 &&
+                                    CORE.ENEMY_EVASION_CROUCH_MUL === 0.85 &&
+                                    CORE.ENEMY_EVASION_AIRBORNE_MUL === 0.80;
+
+            const smgP = CORE.weaponFalloffParams('SMG');
+            const arP = CORE.weaponFalloffParams('AR');
+            const brP = CORE.weaponFalloffParams('BR');
+            const srP = CORE.weaponFalloffParams('SR');
+            const paramsOk = smgP.kneeFrac === 0.38 && smgP.minMul === 0.45 &&
+                             arP.kneeFrac === 0.58 && arP.minMul === 0.65 &&
+                             brP.kneeFrac === 0.72 && brP.minMul === 0.78 &&
+                             srP.kneeFrac === 0.85 && srP.minMul === 0.90;
+
+            const smgClose = CORE.weaponDistanceFalloff('SMG', 10, 80);
+            const smgFar = CORE.weaponDistanceFalloff('SMG', 80, 80);
+            const falloffOk = smgClose === 1.0 && Math.abs(smgFar - 0.45) < 1e-4;
+
+            const bsHit = CORE.isMeleeBackstab(0, 1, 0, 0, -1, 0, 0);
+            const frontHit = CORE.isMeleeBackstab(0, -1, 0, 0, 1, 0, 0);
+            const flankHit = CORE.isMeleeBackstab(1, 0, 0, -1, 0, 0, 0);
+            const bsOk = bsHit === true && frontHit === false && flankHit === false;
+
+            const bsDmg = CORE.playerMeleeDamage(150, true, false, false);
+            const slideDmg = CORE.playerMeleeDamage(150, false, true, false);
+            const sprintDmg = CORE.playerMeleeDamage(150, false, false, true);
+            const stdDmg = CORE.playerMeleeDamage(150, false, false, false);
+            const dmgOk = bsDmg === 360 && slideDmg === 195 && sprintDmg === 172.5 && stdDmg === 150;
+
+            const evaSlide = CORE.enemyTargetEvasionMultiplier(false, false, true, false, false);
+            const evaTac = CORE.enemyTargetEvasionMultiplier(true, true, false, false, false);
+            const evaSprint = CORE.enemyTargetEvasionMultiplier(true, false, false, false, false);
+            const evaAir = CORE.enemyTargetEvasionMultiplier(false, false, false, false, true);
+            const evaCrouch = CORE.enemyTargetEvasionMultiplier(false, false, false, true, false);
+            const evaStand = CORE.enemyTargetEvasionMultiplier(false, false, false, false, false);
+            const evaOk = evaSlide === 0.75 && evaTac === 0.70 && evaSprint === 0.82 &&
+                          evaAir === 0.80 && evaCrouch === 0.85 && evaStand === 1.0;
+
+            const effAccSlide = CORE.enemyEffectiveAccuracy(0.6, 0.75);
+            const effAccClamp = CORE.enemyEffectiveAccuracy(1.0, 1.2);
+            const accOk = Math.abs(effAccSlide - 0.45) < 1e-4 && effAccClamp === 1.0;
+
+            return falloffConstsOk && meleeConstsOk && evasionConstsOk && paramsOk &&
+                   falloffOk && bsOk && dmgOk && evaOk && accOk;
+        }""")
+        checks.append(("tactical-combat-balance-and-evasion-rules", combat_balance_check))
+
+        # 75) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

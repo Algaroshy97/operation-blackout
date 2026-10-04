@@ -4905,6 +4905,30 @@ const CORE = (function () {
     return 1 + (floor - 1) * t;
   }
 
+  const FALLOFF_SMG_KNEE = 0.38;
+  const FALLOFF_SMG_MIN_MUL = 0.45;
+  const FALLOFF_AR_KNEE = 0.58;
+  const FALLOFF_AR_MIN_MUL = 0.65;
+  const FALLOFF_BR_KNEE = 0.72;
+  const FALLOFF_BR_MIN_MUL = 0.78;
+  const FALLOFF_SR_KNEE = 0.85;
+  const FALLOFF_SR_MIN_MUL = 0.90;
+
+  function weaponFalloffParams(weaponType) {
+    const t = String(weaponType || '').toUpperCase();
+    if (t === 'SMG') return { kneeFrac: FALLOFF_SMG_KNEE, minMul: FALLOFF_SMG_MIN_MUL };
+    if (t === 'AR') return { kneeFrac: FALLOFF_AR_KNEE, minMul: FALLOFF_AR_MIN_MUL };
+    if (t === 'BR') return { kneeFrac: FALLOFF_BR_KNEE, minMul: FALLOFF_BR_MIN_MUL };
+    if (t === 'SR') return { kneeFrac: FALLOFF_SR_KNEE, minMul: FALLOFF_SR_MIN_MUL };
+    return { kneeFrac: 0.6, minMul: 0.65 };
+  }
+
+  function weaponDistanceFalloff(weaponType, dist, range) {
+    const p = weaponFalloffParams(weaponType);
+    return distanceFalloff(dist, range, p.minMul, p.kneeFrac);
+  }
+
+
   // ---- Wave scaling ----------------------------------------------------------
   function waveEnemyCount(n, baseCount, growth) {
     return Math.round(baseCount + (n - 1) * growth);
@@ -6677,6 +6701,33 @@ const CORE = (function () {
   const MELEE_CONE = Math.cos(Math.PI / 4);   // 45 degrees either side
   const MELEE_DAMAGE = 150;
   const MELEE_COOLDOWN = 0.9;
+  const MELEE_BACKSTAB_MUL = 2.4;
+  const MELEE_SLIDE_MOMENTUM_MUL = 1.30;
+  const MELEE_SPRINT_MOMENTUM_MUL = 1.15;
+  const MELEE_BACKSTAB_COS_THRESHOLD = 0.50;
+
+  function isMeleeBackstab(playerDirX, playerDirZ, enYaw, px, pz, enX, enZ, cosThreshold) {
+    if (!isFinite(playerDirX) || !isFinite(playerDirZ) || !isFinite(enYaw) ||
+        !isFinite(px) || !isFinite(pz) || !isFinite(enX) || !isFinite(enZ)) return false;
+    const thresh = (typeof cosThreshold === 'number' && isFinite(cosThreshold)) ? cosThreshold : MELEE_BACKSTAB_COS_THRESHOLD;
+    const enFwdX = Math.sin(enYaw), enFwdZ = Math.cos(enYaw);
+    const toPlayerX = px - enX, toPlayerZ = pz - enZ;
+    const behind = (toPlayerX * enFwdX + toPlayerZ * enFwdZ) < 0;
+    if (!behind) return false;
+    const pLen = Math.hypot(playerDirX, playerDirZ);
+    if (pLen < 1e-6) return false;
+    const facingDot = (playerDirX / pLen) * enFwdX + (playerDirZ / pLen) * enFwdZ;
+    return facingDot > thresh;
+  }
+
+  function playerMeleeDamage(baseDmg, isBackstab, isSliding, isSprinting) {
+    const base = (typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0) ? baseDmg : MELEE_DAMAGE;
+    if (isBackstab) return base * MELEE_BACKSTAB_MUL;
+    if (isSliding) return base * MELEE_SLIDE_MOMENTUM_MUL;
+    if (isSprinting) return base * MELEE_SPRINT_MOMENTUM_MUL;
+    return base;
+  }
+
 
   // ---- Mantle -----------------------------------------------------------------
   // Step-up capped at STEP_H = 0.60 m, so a 1 m crate was scenery rather than a
@@ -7771,15 +7822,16 @@ const CORE = (function () {
     return Math.max(0, Math.min(cap + bonus, raw));
   }
 
-  function playerBulletDamage(baseDmg, isHead, headshotMul, dist, range, penMul) {
+  function playerBulletDamage(baseDmg, isHead, headshotMul, dist, range, penMul, weaponType) {
     const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 20;
     const hs = isHead ? (typeof headshotMul === 'number' && isFinite(headshotMul) && headshotMul > 0 ? headshotMul : 1.8) : 1.0;
     const d = typeof dist === 'number' && isFinite(dist) && dist >= 0 ? dist : 0;
     const r = typeof range === 'number' && isFinite(range) && range > 0 ? range : 100;
-    const falloff = distanceFalloff(d, r);
+    const falloff = weaponType ? weaponDistanceFalloff(weaponType, d, r) : distanceFalloff(d, r);
     const pen = typeof penMul === 'number' && isFinite(penMul) && penMul >= 0 ? penMul : 1.0;
     return base * hs * falloff * pen;
   }
+
 
   function shieldMultiplier(kind, enX, enZ, enYaw, hitX, hitZ) {
     if (kind !== 3 || hitX === undefined || hitZ === undefined ||
@@ -11462,6 +11514,29 @@ const CORE = (function () {
     return acc * (1 - (1 - minF) * t);
   }
 
+  // ---- Target Movement & Stance Evasion on Enemy Accuracy (v124 Balance Tuning) ----
+  const ENEMY_EVASION_SPRINT_MUL = 0.82;
+  const ENEMY_EVASION_TAC_SPRINT_MUL = 0.70;
+  const ENEMY_EVASION_SLIDE_MUL = 0.75;
+  const ENEMY_EVASION_CROUCH_MUL = 0.85;
+  const ENEMY_EVASION_AIRBORNE_MUL = 0.80;
+
+  function enemyTargetEvasionMultiplier(isSprinting, isTacSprint, isSliding, isCrouching, isAirborne) {
+    if (isSliding) return ENEMY_EVASION_SLIDE_MUL;
+    if (isTacSprint) return ENEMY_EVASION_TAC_SPRINT_MUL;
+    if (isSprinting) return ENEMY_EVASION_SPRINT_MUL;
+    if (isAirborne) return ENEMY_EVASION_AIRBORNE_MUL;
+    if (isCrouching) return ENEMY_EVASION_CROUCH_MUL;
+    return 1.0;
+  }
+
+  function enemyEffectiveAccuracy(distanceAcc, evasionMul) {
+    const acc = (typeof distanceAcc === 'number' && isFinite(distanceAcc) && distanceAcc >= 0) ? distanceAcc : 0.5;
+    const mul = (typeof evasionMul === 'number' && isFinite(evasionMul) && evasionMul >= 0) ? evasionMul : 1.0;
+    return Math.max(0, Math.min(1, acc * mul));
+  }
+
+
   // ---- Dynamic Point Light & Flash VFX, Sentry Rangefinding, Shadow Caster Mask & Pickup Opacity Rules (v120 Perf Win) ----
   const FLASH_LIGHT_DECAY_EXPONENT = 2;
   const SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
@@ -12586,7 +12661,30 @@ const CORE = (function () {
     shouldTriggerTinnitus: shouldTriggerTinnitus,
     tinnitusVolume: tinnitusVolume,
     shouldPlayFleshHurt: shouldPlayFleshHurt,
-    playerDamageAcoustics: playerDamageAcoustics
+    playerDamageAcoustics: playerDamageAcoustics,
+    FALLOFF_SMG_KNEE: FALLOFF_SMG_KNEE,
+    FALLOFF_SMG_MIN_MUL: FALLOFF_SMG_MIN_MUL,
+    FALLOFF_AR_KNEE: FALLOFF_AR_KNEE,
+    FALLOFF_AR_MIN_MUL: FALLOFF_AR_MIN_MUL,
+    FALLOFF_BR_KNEE: FALLOFF_BR_KNEE,
+    FALLOFF_BR_MIN_MUL: FALLOFF_BR_MIN_MUL,
+    FALLOFF_SR_KNEE: FALLOFF_SR_KNEE,
+    FALLOFF_SR_MIN_MUL: FALLOFF_SR_MIN_MUL,
+    weaponFalloffParams: weaponFalloffParams,
+    weaponDistanceFalloff: weaponDistanceFalloff,
+    MELEE_BACKSTAB_MUL: MELEE_BACKSTAB_MUL,
+    MELEE_SLIDE_MOMENTUM_MUL: MELEE_SLIDE_MOMENTUM_MUL,
+    MELEE_SPRINT_MOMENTUM_MUL: MELEE_SPRINT_MOMENTUM_MUL,
+    MELEE_BACKSTAB_COS_THRESHOLD: MELEE_BACKSTAB_COS_THRESHOLD,
+    isMeleeBackstab: isMeleeBackstab,
+    playerMeleeDamage: playerMeleeDamage,
+    ENEMY_EVASION_SPRINT_MUL: ENEMY_EVASION_SPRINT_MUL,
+    ENEMY_EVASION_TAC_SPRINT_MUL: ENEMY_EVASION_TAC_SPRINT_MUL,
+    ENEMY_EVASION_SLIDE_MUL: ENEMY_EVASION_SLIDE_MUL,
+    ENEMY_EVASION_CROUCH_MUL: ENEMY_EVASION_CROUCH_MUL,
+    ENEMY_EVASION_AIRBORNE_MUL: ENEMY_EVASION_AIRBORNE_MUL,
+    enemyTargetEvasionMultiplier: enemyTargetEvasionMultiplier,
+    enemyEffectiveAccuracy: enemyEffectiveAccuracy
   };
 })();
 
@@ -15436,7 +15534,7 @@ function fireShot(preserveSchedule) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
-    const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul);
+    const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
@@ -15496,7 +15594,9 @@ function doMelee() {
   if (idx < 0) return;
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  damageEnemy(en, CORE.MELEE_DAMAGE, _meleePoint, false);
+  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
+  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting);
+  damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
 }
 
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
@@ -17716,7 +17816,15 @@ function enemyShoot(en, dist) {
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
   const baseAcc = CORE.enemyAccuracy(CFG.ai.rangedAccuracy, CFG.ai.accPerWave, waveNum, CFG.ai.accMax, accBonus);
-  const acc = CORE.enemyDistanceAccuracy(baseAcc, dist, CORE.ENEMY_ACCURACY_FALLOFF_DIST, CFG.ai.rangedRange, CORE.ENEMY_ACCURACY_MIN_FACTOR);
+  const distAcc = CORE.enemyDistanceAccuracy(baseAcc, dist, CORE.ENEMY_ACCURACY_FALLOFF_DIST, CFG.ai.rangedRange, CORE.ENEMY_ACCURACY_MIN_FACTOR);
+  const evaMul = CORE.enemyTargetEvasionMultiplier(
+    !!player.sprinting,
+    player.tacT > 0,
+    !!player.sliding,
+    !!player.crouching,
+    !player.onGround
+  );
+  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul);
   const isHit = Math.random() < acc;
   const to = _eshotTo.copy(player.pos);
   to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);

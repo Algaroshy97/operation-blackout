@@ -707,7 +707,15 @@ function enemyShoot(en, dist) {
   const accBonus = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.accBonus)
     ? waveSpecial.accBonus : 0;
   const baseAcc = CORE.enemyAccuracy(CFG.ai.rangedAccuracy, CFG.ai.accPerWave, waveNum, CFG.ai.accMax, accBonus);
-  const acc = CORE.enemyDistanceAccuracy(baseAcc, dist, CORE.ENEMY_ACCURACY_FALLOFF_DIST, CFG.ai.rangedRange, CORE.ENEMY_ACCURACY_MIN_FACTOR);
+  const distAcc = CORE.enemyDistanceAccuracy(baseAcc, dist, CORE.ENEMY_ACCURACY_FALLOFF_DIST, CFG.ai.rangedRange, CORE.ENEMY_ACCURACY_MIN_FACTOR);
+  const evaMul = CORE.enemyTargetEvasionMultiplier(
+    !!player.sprinting,
+    player.tacT > 0,
+    !!player.sliding,
+    !!player.crouching,
+    !player.onGround
+  );
+  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul);
   const isHit = Math.random() < acc;
   const to = _eshotTo.copy(player.pos);
   to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);

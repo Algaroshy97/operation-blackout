@@ -347,7 +347,7 @@ function fireShot(preserveSchedule) {
     shotsHit++;
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
-    const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul);
+    const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
@@ -407,7 +407,9 @@ function doMelee() {
   if (idx < 0) return;
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  damageEnemy(en, CORE.MELEE_DAMAGE, _meleePoint, false);
+  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
+  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting);
+  damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
 }
 
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old

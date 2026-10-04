@@ -211,3 +211,41 @@ test('updateEnemies lands melee once, resets its sentinel over small ticks and h
   assert.ok(en.swinging > 0, 'attack can resume after cooldown');
   assert.equal(c.damage.length, 1, 'windup itself causes no damage');
 });
+
+test('melee backstab execution bypasses shields and awards critical momentum damage; target evasion scales AI accuracy', () => {
+  // Test doMelee with backstab detection and momentum
+  const enBack = { pos: new Vector3(0, 0, 1), yaw: 0, dead: false, kind: 3 }; // facing +Z, in front of player
+  const enFront = { pos: new Vector3(0, 0, 1), yaw: Math.PI, dead: false, kind: 3 }; // facing -Z, looking at player
+
+  // Player at (0, 0, 0), facing +Z (dirX = 0, dirZ = 1)
+  const dirX = 0, dirZ = 1;
+  const isBack = CORE.isMeleeBackstab(dirX, dirZ, enBack.yaw, 0, 0, enBack.pos.x, enBack.pos.z);
+  assert.equal(isBack, true, 'clean rear strike into enemy back');
+
+  const isFront = CORE.isMeleeBackstab(dirX, dirZ, enFront.yaw, 0, 0, enFront.pos.x, enFront.pos.z);
+  assert.equal(isFront, false, 'frontal strike is not a backstab');
+
+  const backstabDmg = CORE.playerMeleeDamage(150, true, false, false);
+  assert.equal(backstabDmg, 360);
+
+  const slideDmg = CORE.playerMeleeDamage(150, false, true, false);
+  assert.equal(slideDmg, 195);
+
+  const sprintDmg = CORE.playerMeleeDamage(150, false, false, true);
+  assert.equal(sprintDmg, 172.5);
+
+  // Evasion accuracy scaling
+  const baseAcc = 0.60;
+  const slideAcc = CORE.enemyEffectiveAccuracy(baseAcc, CORE.enemyTargetEvasionMultiplier(false, false, true, false, false));
+  assert.equal(slideAcc, baseAcc * 0.75);
+
+  const tacSprintAcc = CORE.enemyEffectiveAccuracy(baseAcc, CORE.enemyTargetEvasionMultiplier(true, true, false, false, false));
+  assert.equal(tacSprintAcc, baseAcc * 0.70);
+
+  const crouchAcc = CORE.enemyEffectiveAccuracy(baseAcc, CORE.enemyTargetEvasionMultiplier(false, false, false, true, false));
+  assert.equal(crouchAcc, baseAcc * 0.85);
+
+  const standAcc = CORE.enemyEffectiveAccuracy(baseAcc, CORE.enemyTargetEvasionMultiplier(false, false, false, false, false));
+  assert.equal(standAcc, baseAcc);
+});
+
