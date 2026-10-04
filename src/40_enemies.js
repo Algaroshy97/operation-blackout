@@ -123,6 +123,7 @@ function spawnEnemy(kind, x, z, opts) {
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
+    sepR: CORE.enemySeparationRadius(kind),
     // speedMul is the single knob every movement state multiplies through, so a
     // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
     speedMul: CORE.enemySpawnSpeedMultiplier(Math.random(), isElite,
@@ -612,11 +613,12 @@ function updateEnemies(dt) {
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i];
     if (a.dead) continue;
-    const ar = CORE.enemySeparationRadius(a.kind);
+    const ar = a.sepR !== undefined ? a.sepR : CORE.enemySeparationRadius(a.kind);
     for (let j = i + 1; j < enemies.length; j++) {
       const b = enemies[j];
       if (b.dead) continue;
-      const br = CORE.enemySeparationRadius(b.kind);
+      const br = b.sepR !== undefined ? b.sepR : CORE.enemySeparationRadius(b.kind);
+      if (!CORE.canEnemiesOverlap(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br)) continue;
       if (CORE.resolveSeparationPush(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br, _sepOut)) {
         a.pos.x -= _sepOut.pushX; a.pos.z -= _sepOut.pushZ;
         b.pos.x += _sepOut.pushX; b.pos.z += _sepOut.pushZ;
@@ -668,9 +670,11 @@ function throwEnemyGrenade(en) {
   // lobbed, deliberately imprecise — it is a flush, not a snipe
   const speed = CORE.enemyGrenadeSpeed(d);
   CORE.enemyGrenadeVelocity(dx, dz, d, speed, CORE.ENEMY_GRENADE_ARC_Y, Math.random(), Math.random(), CORE.ENEMY_GRENADE_JITTER, _enemyGrenadeVelOut);
-  const vel = new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z);
-  liveGrenades.push({ m: m, vel: vel, fuse: CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS), blink: blink,
-    atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
+  const fuse = CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS);
+  const rec = typeof getLiveGrenadeRecord === 'function'
+    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true)
+    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true };
+  liveGrenades.push(rec);
   scene.add(m);
   playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);
   pushKillfeed('<span class="xp">INCOMING GRENADE</span>');

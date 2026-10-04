@@ -618,13 +618,31 @@ const CORE = (function () {
     return hi - (hi - lo) * ratio;
   }
 
-  function spatialAudioParams(dx, dz, playerYaw, maxDist) {
+  function isSpatialAudioInRange(dx, dz, maxDist) {
     const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
-    const dist = Math.hypot(dx, dz);
-    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
+    return (dx * dx + dz * dz) <= (maxD * maxD);
+  }
+
+  function spatialAudioParams(dx, dz, playerYaw, maxDist, out) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const dSq = dx * dx + dz * dz;
+    const maxDSq = maxD * maxD;
+    if (dSq > maxDSq) {
+      const dist = Math.sqrt(dSq);
+      if (out && typeof out === 'object') {
+        out.dist = dist; out.pan = 0; out.vol = 0; out.cutoff = AIR_ABSORPTION_MIN_FREQ; out.audible = false;
+        return out;
+      }
+      return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
+    }
+    const dist = Math.sqrt(dSq);
     const pan = spatialAudioPan(dx, dz, playerYaw, dist);
     const vol = spatialAudioVolume(dist, maxD);
     const cutoff = spatialAudioCutoff(dist, maxD);
+    if (out && typeof out === 'object') {
+      out.dist = dist; out.pan = pan; out.vol = vol; out.cutoff = cutoff; out.audible = true;
+      return out;
+    }
     return { dist: dist, pan: pan, vol: vol, cutoff: cutoff, audible: true };
   }
 
@@ -2098,11 +2116,18 @@ const CORE = (function () {
   }
   // What a station offers depends on whether the player already holds that weapon.
   // `owned` is the weaponsOwned array; -1 entries are empty slots.
-  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax) {
-    const held = owned.indexOf(weaponIndex);
-    if (held < 0) return { action: 'buy', price: wallBuyPrice(type) };
-    if (reserve >= reserveMax) return { action: 'full', price: 0 };
-    return { action: 'ammo', price: ammoRefillPrice(type) };
+  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax, out) {
+    const held = owned ? owned.indexOf(weaponIndex) : -1;
+    let action, price;
+    if (held < 0) { action = 'buy'; price = wallBuyPrice(type); }
+    else if (reserve >= reserveMax) { action = 'full'; price = 0; }
+    else { action = 'ammo'; price = ammoRefillPrice(type); }
+    if (out && typeof out === 'object') {
+      out.action = action;
+      out.price = price;
+      return out;
+    }
+    return { action: action, price: price };
   }
 
   // ---- The armory (Pack-a-Punch) ----------------------------------------------
@@ -3177,6 +3202,13 @@ const CORE = (function () {
     return ENEMY_SEPARATION_RADIUS[kind] !== undefined ? ENEMY_SEPARATION_RADIUS[kind] : 0.85;
   }
 
+  function canEnemiesOverlap(ax, az, ar, bx, bz, br) {
+    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
+    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const rr = radA + radB;
+    return Math.abs(bx - ax) < rr && Math.abs(bz - az) < rr;
+  }
+
   // Pure separation displacement resolution between two cylindrical agent footprints.
   // Performs fast early-axis boundary rejection before evaluating quadratic distance.
   // Writes push displacement vectors to reusable `out` without heap allocations.
@@ -4190,6 +4222,17 @@ const CORE = (function () {
     const base = typeof baseStrength === 'number' && isFinite(baseStrength) ? baseStrength : 2.2;
     const ratio = typeof pullRatio === 'number' && isFinite(pullRatio) ? pullRatio : 0.25;
     return Math.min(1.0, base * ratio);
+  }
+
+  const AIM_ASSIST_FORWARD_MIN_DOT = 0.0;
+
+  function isAimCandidateInForwardSector(dirX, dirZ, toX, toZ, minDot) {
+    const threshold = (typeof minDot === 'number' && isFinite(minDot)) ? minDot : AIM_ASSIST_FORWARD_MIN_DOT;
+    return (dirX * toX + dirZ * toZ) > threshold;
+  }
+
+  function isAngleWithinThreshold(dotProduct, maxAngleCos) {
+    return dotProduct > maxAngleCos;
   }
 
   const CROSSHAIR_MIN_GAP_OFFSET = 0;
@@ -6149,6 +6192,18 @@ const CORE = (function () {
     return horizDist(px, pz, bx, bz) < r;
   }
 
+  const GRENADE_POOL_MAX = 12;
+
+  function canRecycleGrenade(fuseOrCount, atRestOrMax) {
+    if (typeof atRestOrMax === 'boolean') {
+      const fuse = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+      return fuse <= 0 || atRestOrMax;
+    }
+    const maxP = typeof atRestOrMax === 'number' && isFinite(atRestOrMax) && atRestOrMax > 0 ? atRestOrMax : GRENADE_POOL_MAX;
+    const count = typeof fuseOrCount === 'number' && isFinite(fuseOrCount) ? fuseOrCount : 0;
+    return count < maxP;
+  }
+
   // ---- Ballistic spread, aim assist dynamics, enemy AI state kinetics, mantle & grenade loft balance rules (v110 balance tuning) ----
   const SPREAD_LONGITUDINAL_SCALE = 0.3;
   const AIM_ASSIST_HEAD_THRESHOLD = 0.55;
@@ -7962,7 +8017,14 @@ const CORE = (function () {
     ENEMY_EVASION_CROUCH_MUL: ENEMY_EVASION_CROUCH_MUL,
     ENEMY_EVASION_AIRBORNE_MUL: ENEMY_EVASION_AIRBORNE_MUL,
     enemyTargetEvasionMultiplier: enemyTargetEvasionMultiplier,
-    enemyEffectiveAccuracy: enemyEffectiveAccuracy
+    enemyEffectiveAccuracy: enemyEffectiveAccuracy,
+    isSpatialAudioInRange: isSpatialAudioInRange,
+    AIM_ASSIST_FORWARD_MIN_DOT: AIM_ASSIST_FORWARD_MIN_DOT,
+    isAimCandidateInForwardSector: isAimCandidateInForwardSector,
+    isAngleWithinThreshold: isAngleWithinThreshold,
+    canEnemiesOverlap: canEnemiesOverlap,
+    GRENADE_POOL_MAX: GRENADE_POOL_MAX,
+    canRecycleGrenade: canRecycleGrenade
   };
 })();
 

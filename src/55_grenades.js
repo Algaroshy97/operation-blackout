@@ -49,6 +49,63 @@ function releaseBlastRing(ring) {
   blastRingPool.push(ring);
 }
 
+// ---- Live grenade pooling (zero per-throw object/Vector3 allocation) ----
+const _grenadePool = [];
+function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy) {
+  const g = _grenadePool.length > 0 ? _grenadePool.pop() : {
+    m: null,
+    vel: new THREE.Vector3(),
+    fuse: 0,
+    blink: null,
+    atRest: false,
+    ring: null,
+    restFuse: 1,
+    def: null,
+    stuck: false,
+    armT: 0,
+    faceX: 0,
+    faceZ: 0,
+    grounded: 0,
+    fromEnemy: false
+  };
+  g.m = m;
+  g.vel.set(vx, vy, vz);
+  g.fuse = fuse;
+  g.blink = blink;
+  g.atRest = false;
+  g.ring = null;
+  g.restFuse = isFinite(fuse) ? fuse : 1;
+  g.def = def || null;
+  g.stuck = false;
+  g.armT = 0;
+  g.faceX = typeof faceX === 'number' ? faceX : 0;
+  g.faceZ = typeof faceZ === 'number' ? faceZ : 0;
+  g.grounded = 0;
+  g.fromEnemy = !!fromEnemy;
+  return g;
+}
+
+function releaseLiveGrenadeRecord(g) {
+  if (!g) return;
+  if (g.ring) {
+    if (typeof releaseBlastRing === 'function') releaseBlastRing(g.ring);
+    else scene.remove(g.ring);
+    g.ring = null;
+  }
+  if (g.m) {
+    scene.remove(g.m);
+    g.m = null;
+  }
+  g.blink = null;
+  g.def = null;
+  g.atRest = false;
+  g.stuck = false;
+  g.grounded = 0;
+  if (CORE.canRecycleGrenade(_grenadePool.length, CORE.GRENADE_POOL_MAX)) {
+    _grenadePool.push(g);
+  }
+}
+
 // ---- Grenade hold-to-charge state ----
 // ---- Equipment selection ----
 // The grenade was the most reusable system here and the only thing mounted on it
@@ -324,19 +381,7 @@ function throwGrenade(customSpeed, def) {
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
   CORE.planarFacingDirection(_throwDir.x, _throwDir.z, _throwFacingOut);
   const faceX = _throwFacingOut.x, faceZ = _throwFacingOut.z;
-  liveGrenades.push({
-    m: m,
-    vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
-    fuse: fuse,
-    blink: blink,
-    atRest: false,
-    ring: null,
-    restFuse: isFinite(fuse) ? fuse : 1,
-    def: d,
-    stuck: false,
-    armT: 0,
-    faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
-  });
+  liveGrenades.push(getLiveGrenadeRecord(m, _throwVelOut.x, _throwVelOut.y, _throwVelOut.z, fuse, blink, d, faceX, faceZ, false));
   scene.add(m);
   const deploySnd = CORE.equipmentDeploySound(d.mode, d.key);
   playSound(deploySnd);
@@ -488,8 +533,7 @@ function detonate(g, i, def) {
   } else {
     explodeGrenade(p);
   }
-  if (g.ring) { releaseBlastRing(g.ring); g.ring = null; }
-  scene.remove(g.m);
+  releaseLiveGrenadeRecord(g);
   liveGrenades.splice(i, 1);
 }
 

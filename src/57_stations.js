@@ -209,59 +209,99 @@ function resetStations() {
 // ---- Offers -----------------------------------------------------------------
 // One function decides both what a station says and what it costs, so the prompt
 // can never advertise a price the purchase does not charge.
-function stationOffer(st) {
+const _wallOfferOut = { action: '', price: 0 };
+const _stationOfferOut = { label: '', price: 0, ok: false, action: '', cycle: false };
+
+function stationOffer(st, out) {
+  const res = out || _stationOfferOut;
+  res.cycle = false;
   if (st.kind === 'wall') {
     const w = CFG.weapons[st.weapon];
     const held = weaponsOwned.indexOf(st.weapon);
     const s = held >= 0 ? wState[held] : null;
     const reserve = s ? s.reserve : 0;
     const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
-    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax);
-    if (offer.action === 'full') return { label: w.name.toUpperCase() + ' — FULL', price: 0, ok: false, action: 'full' };
-    if (offer.action === 'ammo') return { label: 'AMMO · ' + w.name.toUpperCase(), price: offer.price, ok: true, action: 'ammo' };
-    return { label: w.name.toUpperCase(), price: offer.price, ok: true, action: 'buy' };
+    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax, _wallOfferOut);
+    if (offer.action === 'full') {
+      res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
+      return res;
+    }
+    if (offer.action === 'ammo') {
+      res.label = 'AMMO · ' + w.name.toUpperCase(); res.price = offer.price; res.ok = true; res.action = 'ammo';
+      return res;
+    }
+    res.label = w.name.toUpperCase(); res.price = offer.price; res.ok = true; res.action = 'buy';
+    return res;
   }
   if (st.kind === 'armory') {
     if (!CORE.armoryAvailable(waveNum)) {
-      return { label: 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE, price: 0, ok: false, action: 'locked' };
+      res.label = 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE; res.price = 0; res.ok = false; res.action = 'locked';
+      return res;
     }
     const s = curS();
-    if (!s) return { label: 'ARMORY', price: 0, ok: false, action: 'none' };
-    if (s.up) return { label: curW().name.toUpperCase() + ' — ALREADY UPGRADED', price: 0, ok: false, action: 'upgraded' };
-    return { label: 'UPGRADE ' + curW().name.toUpperCase(), price: CORE.ARMORY_PRICE, ok: true, action: 'upgrade' };
+    if (!s) {
+      res.label = 'ARMORY'; res.price = 0; res.ok = false; res.action = 'none';
+      return res;
+    }
+    if (s.up) {
+      res.label = curW().name.toUpperCase() + ' — ALREADY UPGRADED'; res.price = 0; res.ok = false; res.action = 'upgraded';
+      return res;
+    }
+    res.label = 'UPGRADE ' + curW().name.toUpperCase(); res.price = CORE.ARMORY_PRICE; res.ok = true; res.action = 'upgrade';
+    return res;
   }
   if (st.kind === 'plate') {
-    if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false, action: 'full' };
-    return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true, action: 'plate' };
+    if (plates >= CORE.PLATE_MAX) {
+      res.label = 'PLATES — FULL'; res.price = 0; res.ok = false; res.action = 'full';
+      return res;
+    }
+    res.label = 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')'; res.price = CORE.PLATE_PRICE; res.ok = true; res.action = 'plate';
+    return res;
   }
   if (st.kind === 'door') {
     const d = CORE.districtByKey(st.district);
-    if (!d) return { label: 'DOOR', price: 0, ok: false, action: 'door' };
-    if (openDistricts.indexOf(st.district) >= 0) {
-      return { label: d.name + ' — OPEN', price: 0, ok: false, action: 'open' };
+    if (!d) {
+      res.label = 'DOOR'; res.price = 0; res.ok = false; res.action = 'door';
+      return res;
     }
-    return { label: 'OPEN ' + d.name, price: d.price, ok: true, action: 'door' };
+    if (openDistricts.indexOf(st.district) >= 0) {
+      res.label = d.name + ' — OPEN'; res.price = 0; res.ok = false; res.action = 'open';
+      return res;
+    }
+    res.label = 'OPEN ' + d.name; res.price = d.price; res.ok = true; res.action = 'door';
+    return res;
   }
   if (st.kind === 'lethal') {
     const d = CORE.LETHALS[lethalIdx];
     if (d.key === equippedLethal) {
-      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
+      res.label = d.name + ' — EQUIPPED  (USE TO CYCLE)'; res.price = 0; res.ok = true; res.cycle = true; res.action = 'cycle';
+      return res;
     }
-    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true, action: 'buy' };
+    res.label = d.name + '  (TAP TO CYCLE)'; res.price = d.price; res.ok = true; res.action = 'buy';
+    return res;
   }
   if (st.kind === 'tactical') {
     const d = CORE.TACTICALS[tacticalIdx];
     if (d.key === equippedTactical && tacticalCount >= TACTICAL_MAX) {
-      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
+      res.label = d.name + ' — FULL  (USE TO CYCLE)'; res.price = 0; res.ok = true; res.cycle = true; res.action = 'cycle';
+      return res;
     }
     const refill = d.key === equippedTactical;
-    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true, action: refill ? 'ammo' : 'buy' };
+    res.label = (refill ? 'RESUPPLY ' : '') + d.name; res.price = refill ? Math.round(d.price / 2) : d.price; res.ok = true; res.action = refill ? 'ammo' : 'buy';
+    return res;
   }
   const p = CORE.perkByKey(st.perk);
-  if (!p) return { label: 'PERK', price: 0, ok: false, action: 'perk' };
+  if (!p) {
+    res.label = 'PERK'; res.price = 0; res.ok = false; res.action = 'perk';
+    return res;
+  }
   const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
-  if (blocker) return { label: p.name + ' — ' + blocker, price: p.price, ok: false, action: 'blocked' };
-  return { label: p.name + ' · ' + p.blurb.toUpperCase(), price: p.price, ok: true, action: 'perk' };
+  if (blocker) {
+    res.label = p.name + ' — ' + blocker; res.price = p.price; res.ok = false; res.action = 'blocked';
+    return res;
+  }
+  res.label = p.name + ' · ' + p.blurb.toUpperCase(); res.price = p.price; res.ok = true; res.action = 'perk';
+  return res;
 }
 
 function purchase(st) {

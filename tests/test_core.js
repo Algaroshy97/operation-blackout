@@ -7841,3 +7841,74 @@ test('tactical combat balance, target evasion, backstab execution, and weapon fa
   assert.strictEqual(CORE.enemyEffectiveAccuracy(1.0, 1.2), 1.0); // clamped to 1.0
 });
 
+// ============================================================================
+// Phase 125 — Performance optimization rules (v125 perf win)
+// ============================================================================
+test('v125 performance optimization rules: spatial audio range culling, forward sector gating, enemy overlap check, grenade pooling, and wall buy offer pooling', () => {
+  // 1. Spatial audio range culling and output pooling
+  assert.strictEqual(CORE.isSpatialAudioInRange(0, 0, 50), true);
+  assert.strictEqual(CORE.isSpatialAudioInRange(30, 40, 50), true); // 30^2 + 40^2 = 2500 <= 2500
+  assert.strictEqual(CORE.isSpatialAudioInRange(31, 40, 50), false); // 31^2 + 40^2 = 2561 > 2500
+  assert.strictEqual(CORE.isSpatialAudioInRange(0, 50.1, 50), false);
+
+  const audioOut = {};
+  const inRange = CORE.spatialAudioParams(10, 0, 0, 50, audioOut);
+  assert.strictEqual(inRange, audioOut);
+  assert.strictEqual(audioOut.audible, true);
+  assert.strictEqual(audioOut.dist, 10);
+
+  const outOfRange = CORE.spatialAudioParams(60, 0, 0, 50, audioOut);
+  assert.strictEqual(outOfRange, audioOut);
+  assert.strictEqual(audioOut.audible, false);
+  assert.strictEqual(audioOut.dist, 60);
+
+  // 2. Aim assist forward sector gating and angle thresholding
+  assert.strictEqual(CORE.AIM_ASSIST_FORWARD_MIN_DOT, 0.0);
+  // Forward target (dir=(0, 1), target at (0, 10))
+  assert.strictEqual(CORE.isAimCandidateInForwardSector(0, 1, 0, 10), true);
+  // Behind target (dir=(0, 1), target at (0, -10))
+  assert.strictEqual(CORE.isAimCandidateInForwardSector(0, 1, 0, -10), false);
+  // 90-degree perpendicular target (dir=(0, 1), target at (10, 0))
+  assert.strictEqual(CORE.isAimCandidateInForwardSector(0, 1, 10, 0), false);
+
+  assert.strictEqual(CORE.isAngleWithinThreshold(0.8, 0.5), true);
+  assert.strictEqual(CORE.isAngleWithinThreshold(0.3, 0.5), false);
+
+  // 3. Enemy separation AABB overlap pre-check
+  // Radii 0.85 each: sum of radii = 1.70
+  assert.strictEqual(CORE.canEnemiesOverlap(0, 0, 0.85, 1.0, 0, 0.85), true);
+  assert.strictEqual(CORE.canEnemiesOverlap(0, 0, 0.85, 2.0, 0, 0.85), false);
+  assert.strictEqual(CORE.canEnemiesOverlap(0, 0, 0.85, 0, 1.6, 0.85), true);
+  assert.strictEqual(CORE.canEnemiesOverlap(0, 0, 0.85, 0, 1.8, 0.85), false);
+
+  // 4. Grenade pool constants and recycling predicate
+  assert.strictEqual(CORE.GRENADE_POOL_MAX, 12);
+  // Fuse/rest state semantics
+  assert.strictEqual(CORE.canRecycleGrenade(0, false), true);
+  assert.strictEqual(CORE.canRecycleGrenade(-0.1, false), true);
+  assert.strictEqual(CORE.canRecycleGrenade(1.5, false), false);
+  assert.strictEqual(CORE.canRecycleGrenade(1.5, true), true);
+  // Pool capacity semantics
+  assert.strictEqual(CORE.canRecycleGrenade(5, 12), true);
+  assert.strictEqual(CORE.canRecycleGrenade(12, 12), false);
+  assert.strictEqual(CORE.canRecycleGrenade(13, 12), false);
+
+  // 5. Wall buy offer with pre-allocated output object
+  const offerOut = {};
+  const buyOffer = CORE.wallBuyOffer([0, 1], 2, 'ar', 0, 120, offerOut);
+  assert.strictEqual(buyOffer, offerOut);
+  assert.strictEqual(offerOut.action, 'buy');
+  assert.strictEqual(offerOut.price, CORE.wallBuyPrice('ar'));
+
+  const ammoOffer = CORE.wallBuyOffer([0, 1], 1, 'smg', 60, 120, offerOut);
+  assert.strictEqual(ammoOffer, offerOut);
+  assert.strictEqual(offerOut.action, 'ammo');
+  assert.strictEqual(offerOut.price, CORE.ammoRefillPrice('smg'));
+
+  const fullOffer = CORE.wallBuyOffer([0, 1], 1, 'smg', 120, 120, offerOut);
+  assert.strictEqual(fullOffer, offerOut);
+  assert.strictEqual(offerOut.action, 'full');
+  assert.strictEqual(offerOut.price, 0);
+});
+
+

@@ -168,3 +168,43 @@ test('shadow caster pooling, sentry target range check, and pickup opacity throt
   assert.equal(CORE.shouldUpdatePickupOpacity(10, 20, 1.0, 1.0), false);
   assert.equal(CORE.shouldUpdatePickupOpacity(22, 20, 1.0, 0.75), true);
 });
+
+test('v125 audio range culling, aim assist forward gating, enemy separation overlap pre-check, and grenade/offer pooling', () => {
+  // 1. Spatial audio range and reusable output
+  assert.equal(CORE.isSpatialAudioInRange(10, 10, 50), true);
+  assert.equal(CORE.isSpatialAudioInRange(40, 40, 50), false); // 1600+1600 = 3200 > 2500
+  const outObj = { dist: 0, pan: 0, vol: 0, cutoff: 0, audible: false };
+  const res = CORE.spatialAudioParams(20, 0, 0, 50, outObj);
+  assert.equal(res, outObj);
+  assert.equal(res.audible, true);
+  assert.equal(res.dist, 20);
+
+  // 2. Aim assist forward sector pruning
+  // Target in front
+  assert.equal(CORE.isAimCandidateInForwardSector(0, -1, 0, -5), true);
+  // Target behind
+  assert.equal(CORE.isAimCandidateInForwardSector(0, -1, 0, 5), false);
+  // Target 90 degrees
+  assert.equal(CORE.isAimCandidateInForwardSector(0, -1, 5, 0), false);
+
+  // 3. Enemy separation pre-check
+  assert.equal(CORE.canEnemiesOverlap(0, 0, 0.85, 0.5, 0.5, 0.85), true);
+  assert.equal(CORE.canEnemiesOverlap(0, 0, 0.85, 2.5, 0.5, 0.85), false);
+  assert.equal(CORE.canEnemiesOverlap(0, 0, 0.85, 0.5, 2.5, 0.85), false);
+
+  // 4. Grenade pooling predicate
+  assert.equal(CORE.GRENADE_POOL_MAX, 12);
+  assert.equal(CORE.canRecycleGrenade(0, false), true);
+  assert.equal(CORE.canRecycleGrenade(2.0, false), false);
+  assert.equal(CORE.canRecycleGrenade(2.0, true), true);
+  assert.equal(CORE.canRecycleGrenade(11, CORE.GRENADE_POOL_MAX), true);
+  assert.equal(CORE.canRecycleGrenade(12, CORE.GRENADE_POOL_MAX), false);
+
+  // 5. Station offer pooling
+  const offerOut = { action: '', price: 0 };
+  const offer = CORE.wallBuyOffer([0, 1], 1, 'smg', 30, 120, offerOut);
+  assert.equal(offer, offerOut);
+  assert.equal(offer.action, 'ammo');
+  assert.equal(offer.price, CORE.ammoRefillPrice('smg'));
+});
+

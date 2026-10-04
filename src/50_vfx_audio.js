@@ -703,10 +703,10 @@ function prerenderSounds() {
   for (const name in SOUND_RECIPES) renderSoundBuffer(name);
 }
 
-function playSound(name, dest) {
+function playSound(name, dest, skipThrottle) {
   const ctx = audioCtx();
   if (!ctx) return;
-  if (soundThrottled(name)) return;
+  if (!skipThrottle && soundThrottled(name)) return;
   const out = dest || audioMaster() || ctx.destination;
   const buf = _sndBuffers[name];
   if (buf) {
@@ -728,12 +728,16 @@ function playSound(name, dest) {
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
 // A distance-scaled lowpass filter simulates high-frequency air absorption:
 // nearby sounds are full-spectrum; distant sounds become progressively muffled.
+const _spatialAudioOut = { dist: 0, pan: 0, vol: 0, cutoff: 0, audible: false };
+
 function playSound3D(name, x, y, z, maxDist) {
   const ctx = audioCtx();
   if (!ctx) return;
   if (!player || !player.pos) return;
   const dx = x - player.pos.x, dz = z - player.pos.z;
-  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
+  if (!CORE.isSpatialAudioInRange(dx, dz, maxDist)) return;
+  if (soundThrottled(name)) return;
+  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist, _spatialAudioOut);
   if (!spatial.audible) return;
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
@@ -748,7 +752,7 @@ function playSound3D(name, x, y, z, maxDist) {
     p.pan.value = spatial.pan;
     lp.connect(p); p.connect(audioMaster() || ctx.destination);
   } else lp.connect(audioMaster() || ctx.destination);
-  playSound(name, g);
+  playSound(name, g, true);
   setTimeout(() => {
     try {
       if (p) p.disconnect();

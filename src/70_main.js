@@ -103,11 +103,15 @@ function resetGame() {
   for (let i = pickups.length - 1; i >= 0; i--) scene.remove(pickups[i].m);
   pickups.length = 0;
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
-    if (liveGrenades[i].ring) {
-      scene.remove(liveGrenades[i].ring);
-      if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+    if (typeof releaseLiveGrenadeRecord === 'function') {
+      releaseLiveGrenadeRecord(liveGrenades[i]);
+    } else {
+      if (liveGrenades[i].ring) {
+        scene.remove(liveGrenades[i].ring);
+        if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+      }
+      scene.remove(liveGrenades[i].m);
     }
-    scene.remove(liveGrenades[i].m);
   }
   liveGrenades.length = 0;
   // clear vfx

@@ -3497,7 +3497,62 @@ def main() -> int:
         }""")
         checks.append(("tactical-combat-balance-and-evasion-rules", combat_balance_check))
 
-        # 75) Clean console throughout gameplay.
+        # 75) v125 Performance optimization: spatial audio range culling, aim assist forward sector gating,
+        # enemy separation overlap pre-check, grenade pooling, and wall buy offer pooling.
+        perf_optimization_v125_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Spatial audio range culling and output pooling
+            const range1 = CORE.isSpatialAudioInRange(0, 0, 50) === true;
+            const range2 = CORE.isSpatialAudioInRange(30, 40, 50) === true;
+            const range3 = CORE.isSpatialAudioInRange(31, 40, 50) === false;
+            const rangeOk = range1 && range2 && range3;
+
+            const audioOut = {};
+            const inRangeRes = CORE.spatialAudioParams(10, 0, 0, 50, audioOut);
+            const inRangeOk = (inRangeRes === audioOut) && audioOut.audible === true && audioOut.dist === 10;
+            const outRangeRes = CORE.spatialAudioParams(60, 0, 0, 50, audioOut);
+            const outRangeOk = (outRangeRes === audioOut) && audioOut.audible === false && audioOut.dist === 60;
+
+            // 2. Aim assist forward sector gating
+            const fwdDotOk = CORE.AIM_ASSIST_FORWARD_MIN_DOT === 0.0;
+            const fwdOk = CORE.isAimCandidateInForwardSector(0, 1, 0, 10) === true;
+            const behindOk = CORE.isAimCandidateInForwardSector(0, 1, 0, -10) === false;
+            const flankOk = CORE.isAimCandidateInForwardSector(0, 1, 10, 0) === false;
+            const angleThreshOk = CORE.isAngleWithinThreshold(0.8, 0.5) === true &&
+                                  CORE.isAngleWithinThreshold(0.3, 0.5) === false;
+
+            // 3. Enemy separation AABB overlap pre-check
+            const overlap1 = CORE.canEnemiesOverlap(0, 0, 0.85, 1.0, 0, 0.85) === true;
+            const overlap2 = CORE.canEnemiesOverlap(0, 0, 0.85, 2.0, 0, 0.85) === false;
+            const overlap3 = CORE.canEnemiesOverlap(0, 0, 0.85, 0, 1.6, 0.85) === true;
+            const overlap4 = CORE.canEnemiesOverlap(0, 0, 0.85, 0, 1.8, 0.85) === false;
+            const overlapOk = overlap1 && overlap2 && overlap3 && overlap4;
+
+            // 4. Grenade pooling rules
+            const poolConstOk = CORE.GRENADE_POOL_MAX === 12;
+            const rec1 = CORE.canRecycleGrenade(0, false) === true;
+            const rec2 = CORE.canRecycleGrenade(1.5, false) === false;
+            const rec3 = CORE.canRecycleGrenade(1.5, true) === true;
+            const rec4 = CORE.canRecycleGrenade(5, 12) === true;
+            const rec5 = CORE.canRecycleGrenade(12, 12) === false;
+            const recOk = rec1 && rec2 && rec3 && rec4 && rec5;
+
+            // 5. Wall buy offer with pre-allocated out object
+            const offerOut = {};
+            const buyRes = CORE.wallBuyOffer([0, 1], 2, 'ar', 0, 120, offerOut);
+            const buyOk = (buyRes === offerOut) && offerOut.action === 'buy';
+            const ammoRes = CORE.wallBuyOffer([0, 1], 1, 'smg', 60, 120, offerOut);
+            const ammoOk = (ammoRes === offerOut) && offerOut.action === 'ammo';
+            const fullRes = CORE.wallBuyOffer([0, 1], 1, 'smg', 120, 120, offerOut);
+            const fullOk = (fullRes === offerOut) && offerOut.action === 'full' && offerOut.price === 0;
+
+            return rangeOk && inRangeOk && outRangeOk && fwdDotOk && fwdOk && behindOk && flankOk &&
+                   angleThreshOk && overlapOk && poolConstOk && recOk && buyOk && ammoOk && fullOk;
+        }""")
+        checks.append(("spatial-audio-aim-assist-enemy-separation-and-offer-pooling-perf-rules", perf_optimization_v125_check))
+
+        # 76) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

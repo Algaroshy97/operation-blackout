@@ -5340,13 +5340,31 @@ const CORE = (function () {
     return hi - (hi - lo) * ratio;
   }
 
-  function spatialAudioParams(dx, dz, playerYaw, maxDist) {
+  function isSpatialAudioInRange(dx, dz, maxDist) {
     const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
-    const dist = Math.hypot(dx, dz);
-    if (dist > maxD) return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
+    return (dx * dx + dz * dz) <= (maxD * maxD);
+  }
+
+  function spatialAudioParams(dx, dz, playerYaw, maxDist, out) {
+    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const dSq = dx * dx + dz * dz;
+    const maxDSq = maxD * maxD;
+    if (dSq > maxDSq) {
+      const dist = Math.sqrt(dSq);
+      if (out && typeof out === 'object') {
+        out.dist = dist; out.pan = 0; out.vol = 0; out.cutoff = AIR_ABSORPTION_MIN_FREQ; out.audible = false;
+        return out;
+      }
+      return { dist: dist, pan: 0, vol: 0, cutoff: AIR_ABSORPTION_MIN_FREQ, audible: false };
+    }
+    const dist = Math.sqrt(dSq);
     const pan = spatialAudioPan(dx, dz, playerYaw, dist);
     const vol = spatialAudioVolume(dist, maxD);
     const cutoff = spatialAudioCutoff(dist, maxD);
+    if (out && typeof out === 'object') {
+      out.dist = dist; out.pan = pan; out.vol = vol; out.cutoff = cutoff; out.audible = true;
+      return out;
+    }
     return { dist: dist, pan: pan, vol: vol, cutoff: cutoff, audible: true };
   }
 
@@ -6820,11 +6838,18 @@ const CORE = (function () {
   }
   // What a station offers depends on whether the player already holds that weapon.
   // `owned` is the weaponsOwned array; -1 entries are empty slots.
-  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax) {
-    const held = owned.indexOf(weaponIndex);
-    if (held < 0) return { action: 'buy', price: wallBuyPrice(type) };
-    if (reserve >= reserveMax) return { action: 'full', price: 0 };
-    return { action: 'ammo', price: ammoRefillPrice(type) };
+  function wallBuyOffer(owned, weaponIndex, type, reserve, reserveMax, out) {
+    const held = owned ? owned.indexOf(weaponIndex) : -1;
+    let action, price;
+    if (held < 0) { action = 'buy'; price = wallBuyPrice(type); }
+    else if (reserve >= reserveMax) { action = 'full'; price = 0; }
+    else { action = 'ammo'; price = ammoRefillPrice(type); }
+    if (out && typeof out === 'object') {
+      out.action = action;
+      out.price = price;
+      return out;
+    }
+    return { action: action, price: price };
   }
 
   // ---- The armory (Pack-a-Punch) ----------------------------------------------
@@ -7899,6 +7924,13 @@ const CORE = (function () {
     return ENEMY_SEPARATION_RADIUS[kind] !== undefined ? ENEMY_SEPARATION_RADIUS[kind] : 0.85;
   }
 
+  function canEnemiesOverlap(ax, az, ar, bx, bz, br) {
+    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
+    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const rr = radA + radB;
+    return Math.abs(bx - ax) < rr && Math.abs(bz - az) < rr;
+  }
+
   // Pure separation displacement resolution between two cylindrical agent footprints.
   // Performs fast early-axis boundary rejection before evaluating quadratic distance.
   // Writes push displacement vectors to reusable `out` without heap allocations.
@@ -8912,6 +8944,17 @@ const CORE = (function () {
     const base = typeof baseStrength === 'number' && isFinite(baseStrength) ? baseStrength : 2.2;
     const ratio = typeof pullRatio === 'number' && isFinite(pullRatio) ? pullRatio : 0.25;
     return Math.min(1.0, base * ratio);
+  }
+
+  const AIM_ASSIST_FORWARD_MIN_DOT = 0.0;
+
+  function isAimCandidateInForwardSector(dirX, dirZ, toX, toZ, minDot) {
+    const threshold = (typeof minDot === 'number' && isFinite(minDot)) ? minDot : AIM_ASSIST_FORWARD_MIN_DOT;
+    return (dirX * toX + dirZ * toZ) > threshold;
+  }
+
+  function isAngleWithinThreshold(dotProduct, maxAngleCos) {
+    return dotProduct > maxAngleCos;
   }
 
   const CROSSHAIR_MIN_GAP_OFFSET = 0;
@@ -10871,6 +10914,18 @@ const CORE = (function () {
     return horizDist(px, pz, bx, bz) < r;
   }
 
+  const GRENADE_POOL_MAX = 12;
+
+  function canRecycleGrenade(fuseOrCount, atRestOrMax) {
+    if (typeof atRestOrMax === 'boolean') {
+      const fuse = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+      return fuse <= 0 || atRestOrMax;
+    }
+    const maxP = typeof atRestOrMax === 'number' && isFinite(atRestOrMax) && atRestOrMax > 0 ? atRestOrMax : GRENADE_POOL_MAX;
+    const count = typeof fuseOrCount === 'number' && isFinite(fuseOrCount) ? fuseOrCount : 0;
+    return count < maxP;
+  }
+
   // ---- Ballistic spread, aim assist dynamics, enemy AI state kinetics, mantle & grenade loft balance rules (v110 balance tuning) ----
   const SPREAD_LONGITUDINAL_SCALE = 0.3;
   const AIM_ASSIST_HEAD_THRESHOLD = 0.55;
@@ -12684,7 +12739,14 @@ const CORE = (function () {
     ENEMY_EVASION_CROUCH_MUL: ENEMY_EVASION_CROUCH_MUL,
     ENEMY_EVASION_AIRBORNE_MUL: ENEMY_EVASION_AIRBORNE_MUL,
     enemyTargetEvasionMultiplier: enemyTargetEvasionMultiplier,
-    enemyEffectiveAccuracy: enemyEffectiveAccuracy
+    enemyEffectiveAccuracy: enemyEffectiveAccuracy,
+    isSpatialAudioInRange: isSpatialAudioInRange,
+    AIM_ASSIST_FORWARD_MIN_DOT: AIM_ASSIST_FORWARD_MIN_DOT,
+    isAimCandidateInForwardSector: isAimCandidateInForwardSector,
+    isAngleWithinThreshold: isAngleWithinThreshold,
+    canEnemiesOverlap: canEnemiesOverlap,
+    GRENADE_POOL_MAX: GRENADE_POOL_MAX,
+    canRecycleGrenade: canRecycleGrenade
   };
 })();
 
@@ -15422,6 +15484,8 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
+    if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
@@ -15456,6 +15520,8 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
+    if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_magTo);
@@ -17232,6 +17298,7 @@ function spawnEnemy(kind, x, z, opts) {
     flankT: CORE.flankWindow(Math.random()),
     strafeT: 0,
     walkPhase: Math.random() * 10,
+    sepR: CORE.enemySeparationRadius(kind),
     // speedMul is the single knob every movement state multiplies through, so a
     // Blitz wave and an elite roll stack here rather than as new cases in moveEnemy.
     speedMul: CORE.enemySpawnSpeedMultiplier(Math.random(), isElite,
@@ -17721,11 +17788,12 @@ function updateEnemies(dt) {
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i];
     if (a.dead) continue;
-    const ar = CORE.enemySeparationRadius(a.kind);
+    const ar = a.sepR !== undefined ? a.sepR : CORE.enemySeparationRadius(a.kind);
     for (let j = i + 1; j < enemies.length; j++) {
       const b = enemies[j];
       if (b.dead) continue;
-      const br = CORE.enemySeparationRadius(b.kind);
+      const br = b.sepR !== undefined ? b.sepR : CORE.enemySeparationRadius(b.kind);
+      if (!CORE.canEnemiesOverlap(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br)) continue;
       if (CORE.resolveSeparationPush(a.pos.x, a.pos.z, ar, b.pos.x, b.pos.z, br, _sepOut)) {
         a.pos.x -= _sepOut.pushX; a.pos.z -= _sepOut.pushZ;
         b.pos.x += _sepOut.pushX; b.pos.z += _sepOut.pushZ;
@@ -17777,9 +17845,11 @@ function throwEnemyGrenade(en) {
   // lobbed, deliberately imprecise — it is a flush, not a snipe
   const speed = CORE.enemyGrenadeSpeed(d);
   CORE.enemyGrenadeVelocity(dx, dz, d, speed, CORE.ENEMY_GRENADE_ARC_Y, Math.random(), Math.random(), CORE.ENEMY_GRENADE_JITTER, _enemyGrenadeVelOut);
-  const vel = new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z);
-  liveGrenades.push({ m: m, vel: vel, fuse: CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS), blink: blink,
-    atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true });
+  const fuse = CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS);
+  const rec = typeof getLiveGrenadeRecord === 'function'
+    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true)
+    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true };
+  liveGrenades.push(rec);
   scene.add(m);
   playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);
   pushKillfeed('<span class="xp">INCOMING GRENADE</span>');
@@ -19214,10 +19284,10 @@ function prerenderSounds() {
   for (const name in SOUND_RECIPES) renderSoundBuffer(name);
 }
 
-function playSound(name, dest) {
+function playSound(name, dest, skipThrottle) {
   const ctx = audioCtx();
   if (!ctx) return;
-  if (soundThrottled(name)) return;
+  if (!skipThrottle && soundThrottled(name)) return;
   const out = dest || audioMaster() || ctx.destination;
   const buf = _sndBuffers[name];
   if (buf) {
@@ -19239,12 +19309,16 @@ function playSound(name, dest) {
 // maxDist sounds fade to nothing; pan -1 (full left) .. +1 (full right).
 // A distance-scaled lowpass filter simulates high-frequency air absorption:
 // nearby sounds are full-spectrum; distant sounds become progressively muffled.
+const _spatialAudioOut = { dist: 0, pan: 0, vol: 0, cutoff: 0, audible: false };
+
 function playSound3D(name, x, y, z, maxDist) {
   const ctx = audioCtx();
   if (!ctx) return;
   if (!player || !player.pos) return;
   const dx = x - player.pos.x, dz = z - player.pos.z;
-  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist);
+  if (!CORE.isSpatialAudioInRange(dx, dz, maxDist)) return;
+  if (soundThrottled(name)) return;
+  const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist, _spatialAudioOut);
   if (!spatial.audible) return;
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
@@ -19259,7 +19333,7 @@ function playSound3D(name, x, y, z, maxDist) {
     p.pan.value = spatial.pan;
     lp.connect(p); p.connect(audioMaster() || ctx.destination);
   } else lp.connect(audioMaster() || ctx.destination);
-  playSound(name, g);
+  playSound(name, g, true);
   setTimeout(() => {
     try {
       if (p) p.disconnect();
@@ -19436,6 +19510,63 @@ function releaseBlastRing(ring) {
   if (!ring) return;
   scene.remove(ring);
   blastRingPool.push(ring);
+}
+
+// ---- Live grenade pooling (zero per-throw object/Vector3 allocation) ----
+const _grenadePool = [];
+function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy) {
+  const g = _grenadePool.length > 0 ? _grenadePool.pop() : {
+    m: null,
+    vel: new THREE.Vector3(),
+    fuse: 0,
+    blink: null,
+    atRest: false,
+    ring: null,
+    restFuse: 1,
+    def: null,
+    stuck: false,
+    armT: 0,
+    faceX: 0,
+    faceZ: 0,
+    grounded: 0,
+    fromEnemy: false
+  };
+  g.m = m;
+  g.vel.set(vx, vy, vz);
+  g.fuse = fuse;
+  g.blink = blink;
+  g.atRest = false;
+  g.ring = null;
+  g.restFuse = isFinite(fuse) ? fuse : 1;
+  g.def = def || null;
+  g.stuck = false;
+  g.armT = 0;
+  g.faceX = typeof faceX === 'number' ? faceX : 0;
+  g.faceZ = typeof faceZ === 'number' ? faceZ : 0;
+  g.grounded = 0;
+  g.fromEnemy = !!fromEnemy;
+  return g;
+}
+
+function releaseLiveGrenadeRecord(g) {
+  if (!g) return;
+  if (g.ring) {
+    if (typeof releaseBlastRing === 'function') releaseBlastRing(g.ring);
+    else scene.remove(g.ring);
+    g.ring = null;
+  }
+  if (g.m) {
+    scene.remove(g.m);
+    g.m = null;
+  }
+  g.blink = null;
+  g.def = null;
+  g.atRest = false;
+  g.stuck = false;
+  g.grounded = 0;
+  if (CORE.canRecycleGrenade(_grenadePool.length, CORE.GRENADE_POOL_MAX)) {
+    _grenadePool.push(g);
+  }
 }
 
 // ---- Grenade hold-to-charge state ----
@@ -19713,19 +19844,7 @@ function throwGrenade(customSpeed, def) {
   const fuse = d.mode === 'proximity' ? Infinity : d.fuse;
   CORE.planarFacingDirection(_throwDir.x, _throwDir.z, _throwFacingOut);
   const faceX = _throwFacingOut.x, faceZ = _throwFacingOut.z;
-  liveGrenades.push({
-    m: m,
-    vel: new THREE.Vector3(_throwVelOut.x, _throwVelOut.y, _throwVelOut.z),
-    fuse: fuse,
-    blink: blink,
-    atRest: false,
-    ring: null,
-    restFuse: isFinite(fuse) ? fuse : 1,
-    def: d,
-    stuck: false,
-    armT: 0,
-    faceX: faceX, faceZ: faceZ      // claymore cone, unit length on XZ
-  });
+  liveGrenades.push(getLiveGrenadeRecord(m, _throwVelOut.x, _throwVelOut.y, _throwVelOut.z, fuse, blink, d, faceX, faceZ, false));
   scene.add(m);
   const deploySnd = CORE.equipmentDeploySound(d.mode, d.key);
   playSound(deploySnd);
@@ -19877,8 +19996,7 @@ function detonate(g, i, def) {
   } else {
     explodeGrenade(p);
   }
-  if (g.ring) { releaseBlastRing(g.ring); g.ring = null; }
-  scene.remove(g.m);
+  releaseLiveGrenadeRecord(g);
   liveGrenades.splice(i, 1);
 }
 
@@ -20440,59 +20558,99 @@ function resetStations() {
 // ---- Offers -----------------------------------------------------------------
 // One function decides both what a station says and what it costs, so the prompt
 // can never advertise a price the purchase does not charge.
-function stationOffer(st) {
+const _wallOfferOut = { action: '', price: 0 };
+const _stationOfferOut = { label: '', price: 0, ok: false, action: '', cycle: false };
+
+function stationOffer(st, out) {
+  const res = out || _stationOfferOut;
+  res.cycle = false;
   if (st.kind === 'wall') {
     const w = CFG.weapons[st.weapon];
     const held = weaponsOwned.indexOf(st.weapon);
     const s = held >= 0 ? wState[held] : null;
     const reserve = s ? s.reserve : 0;
     const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
-    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax);
-    if (offer.action === 'full') return { label: w.name.toUpperCase() + ' — FULL', price: 0, ok: false, action: 'full' };
-    if (offer.action === 'ammo') return { label: 'AMMO · ' + w.name.toUpperCase(), price: offer.price, ok: true, action: 'ammo' };
-    return { label: w.name.toUpperCase(), price: offer.price, ok: true, action: 'buy' };
+    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax, _wallOfferOut);
+    if (offer.action === 'full') {
+      res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
+      return res;
+    }
+    if (offer.action === 'ammo') {
+      res.label = 'AMMO · ' + w.name.toUpperCase(); res.price = offer.price; res.ok = true; res.action = 'ammo';
+      return res;
+    }
+    res.label = w.name.toUpperCase(); res.price = offer.price; res.ok = true; res.action = 'buy';
+    return res;
   }
   if (st.kind === 'armory') {
     if (!CORE.armoryAvailable(waveNum)) {
-      return { label: 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE, price: 0, ok: false, action: 'locked' };
+      res.label = 'ARMORY — LOCKED UNTIL WAVE ' + CORE.ARMORY_WAVE; res.price = 0; res.ok = false; res.action = 'locked';
+      return res;
     }
     const s = curS();
-    if (!s) return { label: 'ARMORY', price: 0, ok: false, action: 'none' };
-    if (s.up) return { label: curW().name.toUpperCase() + ' — ALREADY UPGRADED', price: 0, ok: false, action: 'upgraded' };
-    return { label: 'UPGRADE ' + curW().name.toUpperCase(), price: CORE.ARMORY_PRICE, ok: true, action: 'upgrade' };
+    if (!s) {
+      res.label = 'ARMORY'; res.price = 0; res.ok = false; res.action = 'none';
+      return res;
+    }
+    if (s.up) {
+      res.label = curW().name.toUpperCase() + ' — ALREADY UPGRADED'; res.price = 0; res.ok = false; res.action = 'upgraded';
+      return res;
+    }
+    res.label = 'UPGRADE ' + curW().name.toUpperCase(); res.price = CORE.ARMORY_PRICE; res.ok = true; res.action = 'upgrade';
+    return res;
   }
   if (st.kind === 'plate') {
-    if (plates >= CORE.PLATE_MAX) return { label: 'PLATES — FULL', price: 0, ok: false, action: 'full' };
-    return { label: 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')', price: CORE.PLATE_PRICE, ok: true, action: 'plate' };
+    if (plates >= CORE.PLATE_MAX) {
+      res.label = 'PLATES — FULL'; res.price = 0; res.ok = false; res.action = 'full';
+      return res;
+    }
+    res.label = 'ARMOR PLATE (' + plates + '/' + CORE.PLATE_MAX + ')'; res.price = CORE.PLATE_PRICE; res.ok = true; res.action = 'plate';
+    return res;
   }
   if (st.kind === 'door') {
     const d = CORE.districtByKey(st.district);
-    if (!d) return { label: 'DOOR', price: 0, ok: false, action: 'door' };
-    if (openDistricts.indexOf(st.district) >= 0) {
-      return { label: d.name + ' — OPEN', price: 0, ok: false, action: 'open' };
+    if (!d) {
+      res.label = 'DOOR'; res.price = 0; res.ok = false; res.action = 'door';
+      return res;
     }
-    return { label: 'OPEN ' + d.name, price: d.price, ok: true, action: 'door' };
+    if (openDistricts.indexOf(st.district) >= 0) {
+      res.label = d.name + ' — OPEN'; res.price = 0; res.ok = false; res.action = 'open';
+      return res;
+    }
+    res.label = 'OPEN ' + d.name; res.price = d.price; res.ok = true; res.action = 'door';
+    return res;
   }
   if (st.kind === 'lethal') {
     const d = CORE.LETHALS[lethalIdx];
     if (d.key === equippedLethal) {
-      return { label: d.name + ' — EQUIPPED  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
+      res.label = d.name + ' — EQUIPPED  (USE TO CYCLE)'; res.price = 0; res.ok = true; res.cycle = true; res.action = 'cycle';
+      return res;
     }
-    return { label: d.name + '  (TAP TO CYCLE)', price: d.price, ok: true, action: 'buy' };
+    res.label = d.name + '  (TAP TO CYCLE)'; res.price = d.price; res.ok = true; res.action = 'buy';
+    return res;
   }
   if (st.kind === 'tactical') {
     const d = CORE.TACTICALS[tacticalIdx];
     if (d.key === equippedTactical && tacticalCount >= TACTICAL_MAX) {
-      return { label: d.name + ' — FULL  (USE TO CYCLE)', price: 0, ok: true, cycle: true, action: 'cycle' };
+      res.label = d.name + ' — FULL  (USE TO CYCLE)'; res.price = 0; res.ok = true; res.cycle = true; res.action = 'cycle';
+      return res;
     }
     const refill = d.key === equippedTactical;
-    return { label: (refill ? 'RESUPPLY ' : '') + d.name, price: refill ? Math.round(d.price / 2) : d.price, ok: true, action: refill ? 'ammo' : 'buy' };
+    res.label = (refill ? 'RESUPPLY ' : '') + d.name; res.price = refill ? Math.round(d.price / 2) : d.price; res.ok = true; res.action = refill ? 'ammo' : 'buy';
+    return res;
   }
   const p = CORE.perkByKey(st.perk);
-  if (!p) return { label: 'PERK', price: 0, ok: false, action: 'perk' };
+  if (!p) {
+    res.label = 'PERK'; res.price = 0; res.ok = false; res.action = 'perk';
+    return res;
+  }
   const blocker = CORE.perkBuyBlocker(perks, st.perk, credits);
-  if (blocker) return { label: p.name + ' — ' + blocker, price: p.price, ok: false, action: 'blocked' };
-  return { label: p.name + ' · ' + p.blurb.toUpperCase(), price: p.price, ok: true, action: 'perk' };
+  if (blocker) {
+    res.label = p.name + ' — ' + blocker; res.price = p.price; res.ok = false; res.action = 'blocked';
+    return res;
+  }
+  res.label = p.name + ' · ' + p.blurb.toUpperCase(); res.price = p.price; res.ok = true; res.action = 'perk';
+  return res;
 }
 
 function purchase(st) {
@@ -21988,6 +22146,7 @@ function drawMinimap() {
     }
   }
   // enemies
+  const cbMarkers = typeof getSetting === 'function' ? !!getSetting('colorblindMarkers') : false;
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.dead) continue;
@@ -22001,7 +22160,7 @@ function drawMinimap() {
       mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad + 2.5, 0, 7); mmCtx.stroke();
     }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
-    if (getSetting('colorblindMarkers') && e.kind !== 0) {
+    if (cbMarkers && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
       mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 6, 0, 7); mmCtx.stroke();
     }
@@ -22349,11 +22508,15 @@ function resetGame() {
   for (let i = pickups.length - 1; i >= 0; i--) scene.remove(pickups[i].m);
   pickups.length = 0;
   for (let i = liveGrenades.length - 1; i >= 0; i--) {
-    if (liveGrenades[i].ring) {
-      scene.remove(liveGrenades[i].ring);
-      if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+    if (typeof releaseLiveGrenadeRecord === 'function') {
+      releaseLiveGrenadeRecord(liveGrenades[i]);
+    } else {
+      if (liveGrenades[i].ring) {
+        scene.remove(liveGrenades[i].ring);
+        if (typeof releaseBlastRing === 'function') releaseBlastRing(liveGrenades[i].ring);
+      }
+      scene.remove(liveGrenades[i].m);
     }
-    scene.remove(liveGrenades[i].m);
   }
   liveGrenades.length = 0;
   // clear vfx

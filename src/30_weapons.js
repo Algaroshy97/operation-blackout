@@ -235,6 +235,8 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
+    if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_assistTo);
@@ -269,6 +271,8 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
+    if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();
     const ang = dir.angleTo(_magTo);

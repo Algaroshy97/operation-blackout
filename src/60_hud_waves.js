@@ -919,6 +919,7 @@ function drawMinimap() {
     }
   }
   // enemies
+  const cbMarkers = typeof getSetting === 'function' ? !!getSetting('colorblindMarkers') : false;
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.dead) continue;
@@ -932,7 +933,7 @@ function drawMinimap() {
       mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad + 2.5, 0, 7); mmCtx.stroke();
     }
     // GAP-08: colourblind players get a shape cue, not just a hue cue.
-    if (getSetting('colorblindMarkers') && e.kind !== 0) {
+    if (cbMarkers && e.kind !== 0) {
       mmCtx.strokeStyle = '#fff'; mmCtx.lineWidth = 1.2;
       mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 6, 0, 7); mmCtx.stroke();
     }
