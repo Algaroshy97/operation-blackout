@@ -39,7 +39,9 @@ function onGyroOrientation(event) {
   const betaDelta = ((event.beta - gyroLast.beta + 540) % 360) - 180;
   const gammaDelta = ((event.gamma - gyroLast.gamma + 540) % 360) - 180;
   gyroLast.beta = event.beta; gyroLast.gamma = event.gamma;
-  CORE.gyroLookDelta(betaDelta, gammaDelta, getSetting('touchSensitivity') * 7, gyroDelta);
+  const angle = window.screen && window.screen.orientation ? window.screen.orientation.angle : (window.orientation || 0);
+  const sensitivity = getSetting('gyroSensitivity') || 1;
+  CORE.gyroScreenLookDelta(betaDelta, gammaDelta, angle, sensitivity * 7, gyroDelta);
   touchState.lookX += gyroDelta.yaw;
   touchState.lookY += gyroDelta.pitch;
 }

@@ -148,6 +148,13 @@ const CORE = (function () {
     result.pitch = -wrap(b) * s;
     return result;
   }
+  function gyroScreenLookDelta(betaDelta, gammaDelta, screenAngle, sensitivity, out) {
+    const angle = ((Number(screenAngle) || 0) % 360 + 360) % 360;
+    if (angle >= 45 && angle < 135) return gyroLookDelta(gammaDelta, betaDelta, sensitivity, out);
+    if (angle >= 225 && angle < 315) return gyroLookDelta(-gammaDelta, -betaDelta, sensitivity, out);
+    if (angle >= 135 && angle < 225) return gyroLookDelta(-betaDelta, -gammaDelta, sensitivity, out);
+    return gyroLookDelta(betaDelta, gammaDelta, sensitivity, out);
+  }
 
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
@@ -376,6 +383,7 @@ const CORE = (function () {
   const SETTINGS_SCHEMA = {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
+    gyroSensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.1, label: 'Gyroscope sensitivity', help: 'Adjusts phone-tilt aiming independently of touch look.' },
     gyroAim: { type: 'bool', def: false, label: 'Gyroscope aiming', help: 'Turn your phone to aim. Enable on this device; sensor access may require permission.' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
     fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
@@ -7358,6 +7366,7 @@ const CORE = (function () {
     JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
     touchMovementKeys: touchMovementKeys,
     gyroLookDelta: gyroLookDelta,
+    gyroScreenLookDelta: gyroScreenLookDelta,
     touchReloadState: touchReloadState,
     ENEMY_HEALTH_SCALE: ENEMY_HEALTH_SCALE,
     SHIELD_ARC_COS: SHIELD_ARC_COS,

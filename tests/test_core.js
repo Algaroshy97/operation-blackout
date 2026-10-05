@@ -23,6 +23,23 @@ test('gyro look converts wrapped sensor angles into finite scaled camera deltas'
   assert.equal(out.pitch, 0);
 });
 
+test('gyro sensitivity is independently configurable and sanitized', () => {
+  const defaults = CORE.defaultSettings();
+  assert.equal(defaults.gyroSensitivity, 1);
+  assert.equal(CORE.sanitizeSettings({ gyroSensitivity: 2.5 }).gyroSensitivity, 2.5);
+  assert.equal(CORE.sanitizeSettings({ gyroSensitivity: 99 }).gyroSensitivity, 4);
+});
+
+test('gyro vertical and horizontal axes follow landscape screen orientation', () => {
+  const out = {};
+  CORE.gyroScreenLookDelta(3, 7, 90, 1, out);
+  assert.equal(out.yaw, -3);
+  assert.equal(out.pitch, -7);
+  CORE.gyroScreenLookDelta(3, 7, 270, 1, out);
+  assert.equal(out.yaw, 3);
+  assert.equal(out.pitch, 7);
+});
+
 // The real arena geometry, rebuilt from the same numbers 10_config_world.js uses,
 // so nav tests run against the map players actually play.
 function buildArenaColliders() {

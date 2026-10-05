@@ -313,7 +313,7 @@ function buildSettingsUI() {
   const list = $id('settings-list');
   list.innerHTML = '';
   for (const key in CORE.SETTINGS_SCHEMA) {
-    if (key === 'gyroAim' && !IS_TOUCH) continue;
+    if ((key === 'gyroAim' || key === 'gyroSensitivity') && !IS_TOUCH) continue;
     const spec = CORE.SETTINGS_SCHEMA[key];
     const row = document.createElement('div');
     row.className = 'set-row';
@@ -467,15 +467,18 @@ function setDeployReady(ready) {
 }
 function startGame() {
   if (!assetsReady) return;
-  // Lock where the browser allows it; the portrait overlay remains the fallback
-  // because most mobile browsers require fullscreen or an installed PWA for locking.
-  try {
-    const orientation = window.screen && window.screen.orientation;
-    if (orientation && typeof orientation.lock === 'function') {
-      const lock = orientation.lock('landscape');
-      if (lock && typeof lock.catch === 'function') lock.catch(function () {});
-    }
-  } catch (e) { /* unsupported or not permitted; the portrait overlay still applies */ }
+  if (IS_TOUCH) {
+    const root = document.documentElement;
+    const fullscreen = root.requestFullscreen || root.webkitRequestFullscreen;
+    const request = fullscreen ? fullscreen.call(root) : Promise.resolve();
+    Promise.resolve(request).catch(function () {}).then(function () {
+      const orientation = window.screen && window.screen.orientation;
+      if (orientation && typeof orientation.lock === 'function') {
+        try { const lock = orientation.lock('landscape'); if (lock && lock.catch) lock.catch(function () {}); }
+        catch (e) { /* Orientation lock is not available in every browser. */ }
+      }
+    });
+  }
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
