@@ -238,3 +238,47 @@ test('mobile touch layout sanitization clamps invalid sizes, bounds coordinates,
   assert.equal(CORE.canTouchPause(true, true, false, false), false);
   assert.equal(CORE.canTouchPause(true, false, true, false), false);
 });
+
+test('v126 mobile UI polish: downed control states, touch editor selection, and streak HUD safe area insets', () => {
+  const h = host();
+  h.ctx.player = {
+    pos: { x: 0, y: 0, z: 0 },
+    yaw: 0,
+    dead: false,
+    downed: true,
+    sliding: false,
+    crouching: true,
+    sprinting: false,
+    onGround: true,
+    mantleT: 0,
+    landStunT: 0
+  };
+  h.run('applyTouchInput()');
+  const slide = h.elements.get('tbtn-slide');
+  assert.equal(slide.classList.contains('locked'), true);
+  assert.equal(slide.textContent, 'CRAWL');
+
+  const jump = h.elements.get('tbtn-jump');
+  assert.equal(jump.classList.contains('locked'), true);
+  assert.equal(jump.textContent, 'LOCK');
+
+  const melee = h.elements.get('tbtn-melee');
+  assert.equal(melee.classList.contains('locked'), true);
+  assert.equal(melee.textContent, 'LOCKED');
+
+  // Touch layout editor selection highlight
+  h.run('openTouchLayoutEditor()');
+  const fire = h.elements.get('tbtn-fire');
+  const ads = h.elements.get('tbtn-ads');
+  fire.emit('touchstart', [finger(1)]);
+  assert.equal(fire.classList.contains('selected'), true);
+  assert.equal(ads.classList.contains('selected'), false);
+
+  ads.emit('touchstart', [finger(2)]);
+  assert.equal(ads.classList.contains('selected'), true);
+  assert.equal(fire.classList.contains('selected'), false);
+
+  // CSS safe area definitions for streak HUD
+  assert.match(head, /body\.touch\s+#streak-hud\{[^}]*var\(--sa-r\)/);
+  assert.match(head, /body\.touch-layout-left\s+#streak-hud\{[^}]*var\(--sa-l\)/);
+});

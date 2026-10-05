@@ -313,6 +313,7 @@ function buildSettingsUI() {
   const list = $id('settings-list');
   list.innerHTML = '';
   for (const key in CORE.SETTINGS_SCHEMA) {
+    if (key === 'gyroAim' && !IS_TOUCH) continue;
     const spec = CORE.SETTINGS_SCHEMA[key];
     const row = document.createElement('div');
     row.className = 'set-row';

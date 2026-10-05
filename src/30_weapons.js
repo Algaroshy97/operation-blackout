@@ -176,7 +176,7 @@ function updateWeapons(dt) {
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
   if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
   // KeyF became USE when stations landed, which is where CoD players expect it.
-  if ((pressed['KeyV'] || pressed['__melee']) && meleeT <= 0 && !player.dead) doMelee();
+  if ((pressed['KeyV'] || pressed['__melee']) && CORE.canPlayerMelee(player.dead, player.downed, meleeT)) doMelee();
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);

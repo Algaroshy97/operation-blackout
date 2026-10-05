@@ -3555,7 +3555,68 @@ def main() -> int:
         }""")
         checks.append(("spatial-audio-aim-assist-enemy-separation-and-offer-pooling-perf-rules", perf_optimization_v125_check))
 
-        # 76) Clean console throughout gameplay.
+        # 76) v126 Mobile UI polish: downed control states, touch pause button states, editor selection,
+        # streak HUD positioning, and virtual joystick indicator rules.
+        mobile_ui_polish_v126_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Downed control states and labels
+            const slideDownedStateOk = CORE.touchSlideState(false, false, true) === 'locked';
+            const slideDownedLabelOk = CORE.touchSlideLabel('locked', true) === 'CRAWL';
+            const plateDownedStateOk = CORE.touchPlateState(3, 3, false, true) === 'locked';
+            const plateDownedLabelOk = CORE.touchPlateLabel('locked', 3, true) === 'LOCKED';
+            const meleeDownedOk = CORE.canPlayerMelee(false, true, 0) === false &&
+                                  CORE.canPlayerMelee(false, false, 0) === true;
+            const meleeDownedStateOk = CORE.touchMeleeState(0, 1.0, true) === 'locked';
+            const meleeDownedLabelOk = CORE.touchMeleeLabel('locked', 0, true) === 'LOCKED';
+            const downedOk = slideDownedStateOk && slideDownedLabelOk && plateDownedStateOk &&
+                             plateDownedLabelOk && meleeDownedOk && meleeDownedStateOk && meleeDownedLabelOk;
+
+            // 2. Touch pause button state, label, and change detection
+            const pauseStateReady = CORE.touchPauseState(true, false, false, false) === 'ready';
+            const pauseStatePaused = CORE.touchPauseState(true, true, false, false) === 'paused';
+            const pauseStateEditing = CORE.touchPauseState(true, false, false, true) === 'editing';
+            const pauseStateDead = CORE.touchPauseState(true, false, true, false) === 'dead';
+            const pauseLabelReady = CORE.touchPauseLabel('ready') === 'II';
+            const pauseLabelPaused = CORE.touchPauseLabel('paused') === 'RESUME';
+            const pauseLabelEditing = CORE.touchPauseLabel('editing') === 'DONE';
+            const pauseLabelDead = CORE.touchPauseLabel('dead') === '';
+            const cache = { pauseState: 'ready', pauseLabel: 'II' };
+            const noChange = CORE.touchPauseChanged(cache, 'ready', 'II') === false;
+            const hasChange = CORE.touchPauseChanged(cache, 'paused', 'RESUME') === true;
+            CORE.syncTouchPauseState(cache, 'paused', 'RESUME');
+            const syncOk = cache.pauseState === 'paused' && cache.pauseLabel === 'RESUME';
+            const pauseOk = pauseStateReady && pauseStatePaused && pauseStateEditing && pauseStateDead &&
+                            pauseLabelReady && pauseLabelPaused && pauseLabelEditing && pauseLabelDead &&
+                            noChange && hasChange && syncOk;
+
+            // 3. Touch layout editor selection and streak HUD safe area
+            const editorSelOk = CORE.isTouchControlSelected('tbtn-fire', 'tbtn-fire') === true &&
+                                CORE.isTouchControlSelected('tbtn-ads', 'tbtn-fire') === false;
+            const streakRight = CORE.streakHudPosition(false);
+            const streakLeft = CORE.streakHudPosition(true);
+            const streakOk = streakRight.right === 'calc(16px + env(safe-area-inset-right, 0px))' &&
+                             streakRight.left === 'auto' &&
+                             streakLeft.left === 'calc(16px + env(safe-area-inset-left, 0px))' &&
+                             streakLeft.right === 'auto';
+
+            // 4. Virtual joystick indicator rules
+            const crawlTier = CORE.joystickMoveSpeedTier(0.5, true) === 'crawl';
+            const sprintTier = CORE.joystickMoveSpeedTier(0.8, false) === 'sprint';
+            const walkTier = CORE.joystickMoveSpeedTier(0.5, false) === 'walk';
+            const idleTier = CORE.joystickMoveSpeedTier(0.05, false) === 'idle';
+            const crawlClass = CORE.joystickIndicatorClass('crawl') === 'crawl';
+            const sprintClass = CORE.joystickIndicatorClass('sprint') === 'sprint';
+            const walkClass = CORE.joystickIndicatorClass('walk') === 'walk';
+            const idleClass = CORE.joystickIndicatorClass('idle') === '';
+            const joyOk = crawlTier && sprintTier && walkTier && idleTier &&
+                          crawlClass && sprintClass && walkClass && idleClass;
+
+            return downedOk && pauseOk && editorSelOk && streakOk && joyOk;
+        }""")
+        checks.append(("mobile-downed-state-pause-and-editor-polish-rules", mobile_ui_polish_v126_check))
+
+        # 77) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

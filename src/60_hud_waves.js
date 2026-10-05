@@ -83,14 +83,16 @@ function updateHudHealth(force) {
   if (isTouch) {
     const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
     if (tbtnPlate) {
-      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns);
-      const plateLabel = CORE.touchPlateLabel(curPlates, isIns);
+      const isDowned = typeof player !== 'undefined' && !!player.downed;
+      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns, isDowned);
+      const plateLabel = CORE.touchPlateLabel(curPlates, isIns, isDowned);
       if (CORE.touchPlateChanged(_touchPlateCache, plateState, plateLabel)) {
         CORE.syncTouchPlateState(_touchPlateCache, plateState, plateLabel);
         tbtnPlate.classList.toggle('empty', plateState === 'empty');
         tbtnPlate.classList.toggle('inserting', plateState === 'inserting');
         tbtnPlate.classList.toggle('urgent', plateState === 'urgent');
         tbtnPlate.classList.toggle('ready', plateState === 'ready');
+        tbtnPlate.classList.toggle('locked', plateState === 'locked');
         if (tbtnPlate.textContent !== plateLabel) tbtnPlate.textContent = plateLabel;
       }
     }

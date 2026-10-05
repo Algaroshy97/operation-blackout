@@ -10,6 +10,19 @@ const path = require('node:path');
 
 const CORE = require(path.join(__dirname, '..', 'src', '01_core.js'));
 
+test('gyro look converts wrapped sensor angles into finite scaled camera deltas', () => {
+  const out = {};
+  CORE.gyroLookDelta(1, 2, 0.5, out);
+  assert.equal(out.yaw, -1);
+  assert.equal(out.pitch, -0.5);
+  CORE.gyroLookDelta(0, 180, 2, out);
+  assert.equal(out.yaw, 360);
+  assert.equal(out.pitch, 0);
+  CORE.gyroLookDelta(NaN, Infinity, 1, out);
+  assert.equal(out.yaw, 0);
+  assert.equal(out.pitch, 0);
+});
+
 // The real arena geometry, rebuilt from the same numbers 10_config_world.js uses,
 // so nav tests run against the map players actually play.
 function buildArenaColliders() {
@@ -7909,6 +7922,110 @@ test('v125 performance optimization rules: spatial audio range culling, forward 
   assert.strictEqual(fullOffer, offerOut);
   assert.strictEqual(offerOut.action, 'full');
   assert.strictEqual(offerOut.price, 0);
+});
+
+// ============================================================================
+// Phase 126 — Mobile UI polish (v126 mobile UI polish)
+// ============================================================================
+test('v126 mobile UI polish: downed control gating, pause button feedback, editor selection, and streak HUD alignment', () => {
+  // 1. Downed stance slide / crouch button gating
+  assert.strictEqual(CORE.touchSlideState(false, true, false, true), 'locked');
+  assert.strictEqual(CORE.touchSlideState(true, false, false, true), 'locked');
+  assert.strictEqual(CORE.touchSlideState(false, false, true, true), 'locked');
+  // Backwards compatibility: when isDowned is falsy/omitted, previous behavior preserved
+  assert.strictEqual(CORE.touchSlideState(false, true, false), 'crouch');
+  assert.strictEqual(CORE.touchSlideState(true, false, false), 'sliding');
+  assert.strictEqual(CORE.touchSlideState(false, false, true), 'sprint');
+
+  assert.strictEqual(CORE.touchSlideLabel(false, true, true), 'CRAWL');
+  assert.strictEqual(CORE.touchSlideLabel(true, false, true), 'CRAWL');
+  // Backwards compatibility
+  assert.strictEqual(CORE.touchSlideLabel(false, true), 'STAND');
+  assert.strictEqual(CORE.touchSlideLabel(true, false), 'SLIDE');
+  assert.strictEqual(CORE.touchSlideLabel(false, false), 'SLIDE');
+
+  // 2. Downed armor plate button gating
+  assert.strictEqual(CORE.touchPlateState(3, 0, 50, false, true), 'locked');
+  assert.strictEqual(CORE.touchPlateState(2, 20, 50, false, true), 'locked');
+  // Backwards compatibility
+  assert.strictEqual(CORE.touchPlateState(3, 0, 50, false), 'urgent');
+  assert.strictEqual(CORE.touchPlateState(3, 30, 50, false), 'ready');
+  assert.strictEqual(CORE.touchPlateState(0, 0, 50, false), 'empty');
+
+  assert.strictEqual(CORE.touchPlateLabel(3, false, true), 'LOCKED');
+  // Backwards compatibility
+  assert.strictEqual(CORE.touchPlateLabel(3, false), 'PLT 3');
+  assert.strictEqual(CORE.touchPlateLabel(3, true), 'ARMOR');
+  assert.strictEqual(CORE.touchPlateLabel(0, false), 'EMPTY');
+
+  // 3. Melee attack eligibility and downed melee gating
+  assert.strictEqual(CORE.canPlayerMelee(false, false, 0), true);
+  assert.strictEqual(CORE.canPlayerMelee(true, false, 0), false);  // dead
+  assert.strictEqual(CORE.canPlayerMelee(false, true, 0), false);  // downed
+  assert.strictEqual(CORE.canPlayerMelee(false, false, 0.4), false); // cooldown
+
+  assert.strictEqual(CORE.touchMeleeState(true, 0, true), 'locked');
+  assert.strictEqual(CORE.touchMeleeState(false, 0, true), 'locked');
+  // Backwards compatibility
+  assert.strictEqual(CORE.touchMeleeState(true, 0), 'ready');
+  assert.strictEqual(CORE.touchMeleeState(false, 0.3), 'cooldown');
+  assert.strictEqual(CORE.touchMeleeState(false, 0), '');
+
+  assert.strictEqual(CORE.touchMeleeLabel(true, 0, true), 'LOCKED');
+  assert.strictEqual(CORE.touchMeleeLabel(false, 0, true), 'LOCKED');
+  // Backwards compatibility
+  assert.strictEqual(CORE.touchMeleeLabel(true, 0), 'STRIKE');
+  assert.strictEqual(CORE.touchMeleeLabel(false, 0.3), 'WAIT');
+  assert.strictEqual(CORE.touchMeleeLabel(false, 0), 'KNIFE');
+
+  // 4. Pause button state, label, and change detection
+  assert.strictEqual(CORE.touchPauseState(true, false, false, false), 'ready');
+  assert.strictEqual(CORE.touchPauseState(true, true, false, false), 'paused');
+  assert.strictEqual(CORE.touchPauseState(true, false, true, false), 'dead');
+  assert.strictEqual(CORE.touchPauseState(true, false, false, true), 'editing');
+  assert.strictEqual(CORE.touchPauseState(false, false, false, false), 'empty');
+
+  assert.strictEqual(CORE.touchPauseLabel('ready'), 'II');
+  assert.strictEqual(CORE.touchPauseLabel('paused'), 'PLAY');
+  assert.strictEqual(CORE.touchPauseLabel('editing'), 'EDIT');
+  assert.strictEqual(CORE.touchPauseLabel('dead'), '--');
+  assert.strictEqual(CORE.touchPauseLabel('empty'), '--');
+
+  assert.strictEqual(CORE.touchPauseChanged(null, 'ready', 'II'), true);
+  const pauseCache = { state: 'ready', label: 'II' };
+  assert.strictEqual(CORE.touchPauseChanged(pauseCache, 'ready', 'II'), false);
+  assert.strictEqual(CORE.touchPauseChanged(pauseCache, 'paused', 'PLAY'), true);
+  CORE.syncTouchPauseState(pauseCache, 'paused', 'PLAY');
+  assert.strictEqual(pauseCache.state, 'paused');
+  assert.strictEqual(pauseCache.label, 'PLAY');
+
+  // 5. Touch editor control selection
+  assert.strictEqual(CORE.isTouchControlSelected('tbtn-fire', 'tbtn-fire'), true);
+  assert.strictEqual(CORE.isTouchControlSelected('tbtn-fire', 'tbtn-ads'), false);
+  assert.strictEqual(CORE.isTouchControlSelected('', 'tbtn-fire'), false);
+  assert.strictEqual(CORE.isTouchControlSelected(null, 'tbtn-fire'), false);
+
+  // 6. Streak HUD safe area & layout alignment
+  assert.deepStrictEqual(CORE.streakHudPosition(false, false), {
+    top: '134px', side: 'right', inset: '30px'
+  });
+  assert.deepStrictEqual(CORE.streakHudPosition(true, false), {
+    top: 'calc(96px + var(--sa-t))', side: 'right', inset: 'calc(16px + var(--sa-r))'
+  });
+  assert.deepStrictEqual(CORE.streakHudPosition(true, true), {
+    top: 'calc(96px + var(--sa-t))', side: 'left', inset: 'calc(16px + var(--sa-l))'
+  });
+
+  // 7. Joystick locomotion tiers
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0, false, true), 'crawl');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0.9, true, false), 'sprint');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.4, 0.3, false, false), 'walk');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0, false, false), 'idle');
+
+  assert.strictEqual(CORE.joystickIndicatorClass('crawl'), 'crawl');
+  assert.strictEqual(CORE.joystickIndicatorClass('sprint'), 'sprint');
+  assert.strictEqual(CORE.joystickIndicatorClass('walk'), 'walk');
+  assert.strictEqual(CORE.joystickIndicatorClass('idle'), '');
 });
 
 

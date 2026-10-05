@@ -241,9 +241,11 @@
   body.touch #joy-base{position:absolute;left:calc(26px + var(--sa-l));bottom:calc(90px + var(--sa-b));width:112px;height:112px;border-radius:50%;background:transparent;border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none;}
      body.touch #joy-base.on{border-color:rgba(255,210,74,.8);}
      body.touch #joy-base.sprint{border-color:rgba(80,180,255,.9);}
+     body.touch #joy-base.crawl{border-color:rgba(255,95,74,.85);}
      body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:transparent;border:2px solid rgba(255,255,255,.5);pointer-events:none;}
      body.touch #joy-base.on #joy-stick{background:transparent;border-color:#ffd24a;}
      body.touch #joy-base.sprint #joy-stick{background:transparent;border-color:#50b4ff;}
+     body.touch #joy-base.crawl #joy-stick{background:transparent;border-color:#ff5f4a;}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{min-width:44px;min-height:44px;flex-direction:column;gap:2px;line-height:1.1;text-align:center;padding:2px;-webkit-touch-callout:none;position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:transparent;border:2px solid rgba(255,255,255,.7);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   /* Generated transparent PNG atlas, embedded once for offline/self-contained builds.
@@ -291,6 +293,7 @@
   body.touch #tbtn-slide.sliding{background:transparent;border-color:#50b4ff;color:#fff;}
   body.touch #tbtn-slide.crouch{border-color:#ffaa3a;color:#ffdf8a;}
   body.touch #tbtn-slide.sprint{border-color:#80d4ff;color:#fff;}
+  body.touch #tbtn-slide.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-reload{right:calc(92px + var(--sa-r));bottom:calc(188px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-reload.urgent{border-color:#ff4a3d;color:#ff5f4a;}
   body.touch #tbtn-reload.reloading{border-color:#ffd24a;color:#ffd24a;}
@@ -308,6 +311,7 @@
   body.touch #tbtn-melee{left:calc(216px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-melee.ready{border-color:#ff5f4a;color:#fff;}
   body.touch #tbtn-melee.cooldown{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
+  body.touch #tbtn-melee.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-use{left:calc(216px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;}
   body.touch #tbtn-use.ready{border-color:#7ee08a;color:#7ee08a;}
   body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;}
@@ -318,6 +322,7 @@
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-plate.ready{border-color:#4fa3d8;color:#4fa3d8;}
   body.touch #tbtn-plate.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
+  body.touch #tbtn-plate.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-tactical.ready{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-tactical.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
@@ -328,6 +333,9 @@
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:transparent}
+  body.touch #tbtn-pause.paused{border-color:#50b4ff;color:#50b4ff;}
+  body.touch #tbtn-pause.editing{border-color:#ffd24a;color:#ffd24a;}
+  body.touch #tbtn-pause.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35);}
   body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
   body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
   body.touch-layout-left.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom left}
@@ -352,6 +360,8 @@
   body.touch-layout-left #health-container{left:auto;right:calc(16px + var(--sa-r))}
   body.touch-layout-left #armor-container{left:auto;right:calc(16px + var(--sa-r))}
   body.touch-layout-left #fps-counter{left:auto;right:calc(8px + var(--sa-r))}
+  body.touch-layout-left #streak-hud{right:auto;left:calc(16px + var(--sa-l));justify-content:flex-start}
+  body.touch #streak-hud{top:calc(96px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud{top:calc(66px + var(--sa-t));right:calc(16px + var(--sa-r))}
   body.touch #score-hud .val{font-size:20px}
   /* Ammo is the readout you check mid-fight, and anchoring it bottom-right put it
@@ -380,7 +390,7 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #slide-vignette,body.reduced-motion #scoping-overlay,body.reduced-motion #steady-ind,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #slide-vignette,body.reduced-motion #scoping-overlay,body.reduced-motion #steady-ind,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #tbtn-pause,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
   body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transform:none}
   body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
   body.reduced-motion .health-bar-bg.critical{animation:none}
@@ -405,6 +415,7 @@
   body.touch-editing #touch-ui{z-index:90}
   body.touch-editing #look-zone{display:none}
   body.touch-editing #touch-ui .tbtn,body.touch-editing #touch-ui #joy-base{outline:2px dashed rgba(255,210,74,.8);outline-offset:3px}
+  body.touch-editing #touch-ui .tbtn.selected,body.touch-editing #touch-ui #joy-base.selected{outline:3px solid #50b4ff;outline-offset:3px;border-color:#50b4ff;color:#50b4ff}
   @media (max-height:480px){#settings-screen{padding-top:8px}.set-row{min-height:36px;padding:4px 7px}#settings-actions{margin-top:7px}#settings-screen .set-note{margin-top:5px}}  #menu-stats{color:rgba(255,255,255,.7);font-size:12px;line-height:1.7;margin:14px 0 0;text-align:center}
   #diff-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:0 0 20px}
   .diff-btn{padding:9px 22px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:rgba(20,26,20,.85);color:rgba(255,255,255,.75);font-size:12px;letter-spacing:3px;font-weight:800;cursor:pointer;pointer-events:auto;transition:all .15s;text-align:center}

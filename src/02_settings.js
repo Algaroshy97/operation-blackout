@@ -104,6 +104,9 @@ function applySetting(key) {
       if (fire) fire.textContent = SETTINGS.fireMode === 'ads + fire' ? 'ADS+FIRE' : 'FIRE';
       break;
     }
+    case 'gyroAim':
+      if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
+      break;
     // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }

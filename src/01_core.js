@@ -138,6 +138,17 @@ const CORE = (function () {
     return res;
   }
 
+  function gyroLookDelta(betaDelta, gammaDelta, sensitivity, out) {
+    const b = typeof betaDelta === 'number' && isFinite(betaDelta) ? betaDelta : 0;
+    const g = typeof gammaDelta === 'number' && isFinite(gammaDelta) ? gammaDelta : 0;
+    const s = typeof sensitivity === 'number' && isFinite(sensitivity) ? sensitivity : 1;
+    const wrap = value => ((value + 180) % 360 + 360) % 360 - 180;
+    const result = out && typeof out === 'object' ? out : {};
+    result.yaw = -wrap(g) * s;
+    result.pitch = -wrap(b) * s;
+    return result;
+  }
+
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
   // repositioned, so the head stayed inside the slab: a big enough dt or a boosted
   // slide-jump would carry it through (BUG-11). Clamp the eye down so the head sits
@@ -365,6 +376,7 @@ const CORE = (function () {
   const SETTINGS_SCHEMA = {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
+    gyroAim: { type: 'bool', def: false, label: 'Gyroscope aiming', help: 'Turn your phone to aim. Enable on this device; sensor access may require permission.' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
     fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
     fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
@@ -2277,9 +2289,12 @@ const CORE = (function () {
   }
   // Mobile touch plate button feedback state: returns 'inserting' during plate application,
   // 'empty' when plate inventory is 0, 'urgent' when plates are held and armor is depleted
+  // Mobile touch plate button state: returns 'locked' while downed, 'inserting' while actively plating,
+  // 'empty' when out of plates, 'urgent' when armor is broken (0)
   // or critically low (<= 25% max), 'ready' when armor is damaged and can accept a plate,
   // or '' when armor is already at full capacity.
-  function touchPlateState(plates, armor, armorMax, inserting) {
+  function touchPlateState(plates, armor, armorMax, inserting, isDowned) {
+    if (isDowned) return 'locked';
     if (inserting) return 'inserting';
     if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'empty';
     const curA = typeof armor === 'number' && isFinite(armor) ? armor : 0;
@@ -2389,24 +2404,27 @@ const CORE = (function () {
     target.action = action;
     return target;
   }
-  // Mobile touch stance/slide button state: returns 'sliding' during an active slide,
+  // Mobile touch stance/slide button state: returns 'locked' while downed, 'sliding' during an active slide,
   // 'crouch' while crouching, 'sprint' when forward sprint momentum is ready to slide,
   // or '' during standard movement.
-  function touchSlideState(sliding, crouching, isSprint) {
+  function touchSlideState(sliding, crouching, isSprint, isDowned) {
+    if (isDowned) return 'locked';
     if (sliding) return 'sliding';
     if (crouching) return 'crouch';
     if (isSprint) return 'sprint';
     return '';
   }
-  // Mobile touch stance/slide button label: returns 'STAND' when crouched, or 'SLIDE' otherwise.
-  function touchSlideLabel(sliding, crouching) {
+  // Mobile touch stance/slide button label: returns 'CRAWL' when downed, 'STAND' when crouched, or 'SLIDE' otherwise.
+  function touchSlideLabel(sliding, crouching, isDowned) {
+    if (isDowned) return 'CRAWL';
     if (sliding) return 'SLIDE';
     if (crouching) return 'STAND';
     return 'SLIDE';
   }
-  // Mobile touch plate button label: returns 'ARMOR' while inserting, 'PLT ' + count
+  // Mobile touch plate button label: returns 'LOCKED' when downed, 'ARMOR' while inserting, 'PLT ' + count
   // when plates are available, or 'EMPTY' when inventory is 0.
-  function touchPlateLabel(plates, inserting) {
+  function touchPlateLabel(plates, inserting, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (inserting) return 'ARMOR';
     if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
     return 'PLT ' + plates;
@@ -2452,17 +2470,24 @@ const CORE = (function () {
     }
     return 'STRK';
   }
-  // Mobile touch melee button state: returns 'cooldown' while melee swing recovers,
+  // Evaluates player eligibility to initiate a blade melee attack.
+  function canPlayerMelee(isDead, isDowned, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    return !isDead && !isDowned && cd <= 0;
+  }
+  // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
-  function touchMeleeState(hasTarget, cooldownRemaining) {
+  function touchMeleeState(hasTarget, cooldownRemaining, isDowned) {
+    if (isDowned) return 'locked';
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'cooldown';
     if (hasTarget) return 'ready';
     return '';
   }
-  // Mobile touch melee button label: returns 'WAIT' during swing recovery,
+  // Mobile touch melee button label: returns 'LOCKED' while downed, 'WAIT' during swing recovery,
   // 'STRIKE' when an enemy is within blade strike range, or 'KNIFE' default.
-  function touchMeleeLabel(hasTarget, cooldownRemaining) {
+  function touchMeleeLabel(hasTarget, cooldownRemaining, isDowned) {
+    if (isDowned) return 'LOCKED';
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'WAIT';
     if (hasTarget) return 'STRIKE';
@@ -2744,6 +2769,74 @@ const CORE = (function () {
   // Evaluates whether a touch button state represents a depleted or unavailable action.
   function isTouchControlEmpty(state) {
     return state === 'empty' || state === 'cooldown' || state === 'locked';
+  }
+
+  // Mobile touch pause button state: returns 'editing' during layout customization,
+  // 'empty' when game is not started, 'dead' on player death, 'paused' when paused,
+  // or 'ready' during active gameplay.
+  function touchPauseState(started, paused, isDead, isEditing) {
+    if (isEditing) return 'editing';
+    if (!started) return 'empty';
+    if (isDead) return 'dead';
+    if (paused) return 'paused';
+    return 'ready';
+  }
+
+  // Mobile touch pause button label: returns 'PLAY' while paused, 'EDIT' during touch
+  // layout customization, '--' when dead/empty, or 'II' during active gameplay.
+  function touchPauseLabel(state) {
+    if (state === 'paused') return 'PLAY';
+    if (state === 'editing') return 'EDIT';
+    if (state === 'dead' || state === 'empty') return '--';
+    return 'II';
+  }
+
+  // Change-detection for mobile touch pause button to gate DOM updates.
+  function touchPauseChanged(lastState, state, label) {
+    if (!lastState) return true;
+    return lastState.state !== state || lastState.label !== label;
+  }
+
+  // Synchronizes mobile touch pause button cache in-place without heap allocations.
+  function syncTouchPauseState(lastState, state, label) {
+    if (lastState) {
+      lastState.state = state;
+      lastState.label = label;
+    }
+    return lastState;
+  }
+
+  // Evaluates whether a touch control element is actively selected in the layout editor.
+  function isTouchControlSelected(controlId, selectedId) {
+    return typeof controlId === 'string' && controlId.length > 0 && controlId === selectedId;
+  }
+
+  // Evaluates scorestreak HUD positioning and safe area insets for mobile landscape viewports.
+  function streakHudPosition(isTouch, isLeftLayout) {
+    if (!isTouch) return { top: '134px', side: 'right', inset: '30px' };
+    return {
+      top: 'calc(96px + var(--sa-t))',
+      side: isLeftLayout ? 'left' : 'right',
+      inset: isLeftLayout ? 'calc(16px + var(--sa-l))' : 'calc(16px + var(--sa-r))'
+    };
+  }
+
+  // Resolves locomotion velocity tier for mobile virtual joystick visual indicator.
+  function joystickMoveSpeedTier(moveX, moveZ, isSprint, isDowned) {
+    if (isDowned) return 'crawl';
+    if (isSprint) return 'sprint';
+    const mag = Math.hypot(typeof moveX === 'number' && isFinite(moveX) ? moveX : 0,
+                           typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0);
+    if (mag > 0.15) return 'walk';
+    return 'idle';
+  }
+
+  // Maps locomotion velocity tier to CSS class modifier.
+  function joystickIndicatorClass(tier) {
+    if (tier === 'crawl') return 'crawl';
+    if (tier === 'sprint') return 'sprint';
+    if (tier === 'walk') return 'walk';
+    return '';
   }
 
   // Change-detection for mobile touch fire button to prevent redundant DOM updates.
@@ -7264,6 +7357,7 @@ const CORE = (function () {
     grenadeContactSound: grenadeContactSound,
     JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
     touchMovementKeys: touchMovementKeys,
+    gyroLookDelta: gyroLookDelta,
     touchReloadState: touchReloadState,
     ENEMY_HEALTH_SCALE: ENEMY_HEALTH_SCALE,
     SHIELD_ARC_COS: SHIELD_ARC_COS,
@@ -8024,7 +8118,16 @@ const CORE = (function () {
     isAngleWithinThreshold: isAngleWithinThreshold,
     canEnemiesOverlap: canEnemiesOverlap,
     GRENADE_POOL_MAX: GRENADE_POOL_MAX,
-    canRecycleGrenade: canRecycleGrenade
+    canRecycleGrenade: canRecycleGrenade,
+    canPlayerMelee: canPlayerMelee,
+    touchPauseState: touchPauseState,
+    touchPauseLabel: touchPauseLabel,
+    touchPauseChanged: touchPauseChanged,
+    syncTouchPauseState: syncTouchPauseState,
+    isTouchControlSelected: isTouchControlSelected,
+    streakHudPosition: streakHudPosition,
+    joystickMoveSpeedTier: joystickMoveSpeedTier,
+    joystickIndicatorClass: joystickIndicatorClass
   };
 })();
 

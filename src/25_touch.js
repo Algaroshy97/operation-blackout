@@ -3,6 +3,46 @@
 // IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
+let gyroEnabled = false;
+let gyroLast = null;
+const gyroDelta = { yaw: 0, pitch: 0 };
+function setGyroAimEnabled(enabled) {
+  if (!enabled) {
+    gyroEnabled = false; gyroLast = null;
+    if (typeof window !== 'undefined') window.removeEventListener('deviceorientation', onGyroOrientation);
+    return;
+  }
+  if (!IS_TOUCH || !window.isSecureContext || !('DeviceOrientationEvent' in window)) {
+    return;
+  }
+  if (gyroEnabled) return;
+  let request;
+  try {
+    request = typeof DeviceOrientationEvent.requestPermission === 'function'
+      ? DeviceOrientationEvent.requestPermission() : Promise.resolve('granted');
+  } catch (e) { return; } // iOS requires a trusted user gesture; retry on the next tap.
+  request.then(function (permission) {
+    if (permission !== 'granted') throw new Error('orientation permission denied');
+    gyroEnabled = true; gyroLast = null;
+    window.addEventListener('deviceorientation', onGyroOrientation, { passive: true });
+  }).catch(function () {
+    gyroEnabled = false; gyroLast = null;
+  });
+}
+if (typeof window !== 'undefined') window.addEventListener('click', function () {
+  if (typeof getSetting === 'function' && getSetting('gyroAim') && !gyroEnabled) setGyroAimEnabled(true);
+}, { passive: true });
+function onGyroOrientation(event) {
+  if (!gyroEnabled || !touchState.active || !touchGameplayEnabled() ||
+      typeof event.beta !== 'number' || typeof event.gamma !== 'number') return;
+  if (!gyroLast) { gyroLast = { beta: event.beta, gamma: event.gamma }; return; }
+  const betaDelta = ((event.beta - gyroLast.beta + 540) % 360) - 180;
+  const gammaDelta = ((event.gamma - gyroLast.gamma + 540) % 360) - 180;
+  gyroLast.beta = event.beta; gyroLast.gamma = event.gamma;
+  CORE.gyroLookDelta(betaDelta, gammaDelta, getSetting('touchSensitivity') * 7, gyroDelta);
+  touchState.lookX += gyroDelta.yaw;
+  touchState.lookY += gyroDelta.pitch;
+}
 let joyBaseEl = null;
 let resetTouchControls = function () {};
 function touchGameplayEnabled() {
@@ -107,7 +147,7 @@ function touchGameplayEnabled() {
     window.__analogMove = null;
     for (const k of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ShiftLeft', 'Mouse2', 'KeyC', 'KeyG', '__use']) keys[k] = false;
     for (const k of ['Space', 'KeyR', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
-    joyBase.classList.remove('on', 'sprint');
+    joyBase.classList.remove('on', 'sprint', 'crawl');
     joyStick.style.transform = 'translate(0,0)';
     document.getElementById('tbtn-fire').classList.remove('on');
     for (const reset of holdResets) reset();
@@ -269,7 +309,7 @@ function openTouchLayoutEditor() {
     bar.querySelector('#touch-editor-reset').addEventListener('click', function () {
       touchLayoutPositions = {};
       try { localStorage.removeItem(TOUCH_LAYOUT_KEY); } catch (e) {}
-      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = ''; el.style.width = ''; el.style.height = ''; });
+      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = ''; el.style.width = ''; el.style.height = ''; el.classList.remove('selected'); });
       bar.dataset.selected = '';
       bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
         ? CORE.touchEditorControlLabel(null)
@@ -278,7 +318,9 @@ function openTouchLayoutEditor() {
     });
     bar.querySelector('#touch-editor-done').addEventListener('click', function () {
       localStorage.setItem(TOUCH_LAYOUT_KEY, JSON.stringify(touchLayoutPositions));
-      document.body.classList.remove('touch-editing'); bar.remove();
+      document.body.classList.remove('touch-editing');
+      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.classList.remove('selected'); });
+      bar.remove();
       if (settings) { settings.style.display = 'flex'; buildSettingsUI(); }
     });
     bar.querySelector('#touch-editor-size').addEventListener('input', function (e) {
@@ -308,6 +350,12 @@ function openTouchLayoutEditor() {
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
+    selectable.forEach(function (btn) {
+      const isSel = (typeof CORE !== 'undefined' && typeof CORE.isTouchControlSelected === 'function')
+        ? CORE.isTouchControlSelected(btn.id, el.id)
+        : btn.id === el.id;
+      btn.classList.toggle('selected', isSel);
+    });
     const baseW = Math.round(r.width);
     const curSize = (touchLayoutPositions[el.id] && touchLayoutPositions[el.id].size)
       || ((typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
@@ -363,7 +411,14 @@ function applyTouchInput() {
     // Full forward stick automatically sprints; ease the stick back to walk.
     const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
     keys['ShiftLeft'] = isSprint;
-    if (joyBaseEl) joyBaseEl.classList.toggle('sprint', isSprint);
+    const isDowned = typeof player !== 'undefined' && !!player.downed;
+    const joyTier = (typeof CORE !== 'undefined' && typeof CORE.joystickMoveSpeedTier === 'function')
+      ? CORE.joystickMoveSpeedTier(touchState.moveX, touchState.moveZ, isSprint, isDowned)
+      : (isSprint ? 'sprint' : 'walk');
+    if (joyBaseEl) {
+      joyBaseEl.classList.toggle('sprint', isSprint);
+      joyBaseEl.classList.toggle('crawl', joyTier === 'crawl');
+    }
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
     keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
@@ -372,7 +427,10 @@ function applyTouchInput() {
     const adsVal = typeof adsAmount === 'number' ? adsAmount : 0;
     const isSteady = CORE.isMobileSteadyAim(touchState.ads, adsVal, wType, touchState.moveX, touchState.moveZ);
     keys['ShiftLeft'] = isSteady;
-    if (joyBaseEl) joyBaseEl.classList.remove('sprint');
+    if (joyBaseEl) {
+      joyBaseEl.classList.remove('sprint');
+      joyBaseEl.classList.remove('crawl');
+    }
     window.__analogMove = null;
   }
   // firing: mirror the touch button every frame so release cannot latch automatic fire
@@ -392,6 +450,8 @@ function applyTouchInput() {
   updateTouchAdsBtn();
   // Jump airborne availability indicator
   updateTouchJumpBtn();
+  // Pause button feedback and state
+  updateTouchPauseBtn();
 }
 
 let tbtnSlideEl = null;
@@ -400,14 +460,16 @@ function updateTouchSlideBtn() {
   if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
   if (!tbtnSlideEl || typeof player === 'undefined') return;
   const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
-  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint);
-  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching);
+  const isDowned = !!player.downed;
+  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint, isDowned);
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching, isDowned);
   if (!CORE.touchSlideChanged(_touchSlideCache, slideState, slideLabel)) return;
   CORE.syncTouchSlideState(_touchSlideCache, slideState, slideLabel);
 
   tbtnSlideEl.classList.toggle('sliding', slideState === 'sliding');
   tbtnSlideEl.classList.toggle('crouch', slideState === 'crouch');
   tbtnSlideEl.classList.toggle('sprint', slideState === 'sprint');
+  tbtnSlideEl.classList.toggle('locked', slideState === 'locked');
   if (tbtnSlideEl.textContent !== slideLabel) tbtnSlideEl.textContent = slideLabel;
 }
 
@@ -421,14 +483,40 @@ function updateTouchMeleeBtn() {
     ? CORE.meleeTarget(enemies, player.pos.x, player.pos.z, dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE)
     : -1;
   const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
-  const mState = CORE.touchMeleeState(targetIdx >= 0, cd);
-  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd);
+  const isDowned = !!player.downed;
+  const mState = CORE.touchMeleeState(targetIdx >= 0, cd, isDowned);
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd, isDowned);
   if (!CORE.touchMeleeChanged(_touchMeleeCache, mState, mLabel)) return;
   CORE.syncTouchMeleeState(_touchMeleeCache, mState, mLabel);
 
   tbtnMeleeEl.classList.toggle('ready', mState === 'ready');
   tbtnMeleeEl.classList.toggle('cooldown', mState === 'cooldown');
+  tbtnMeleeEl.classList.toggle('locked', mState === 'locked');
   if (tbtnMeleeEl.textContent !== mLabel) tbtnMeleeEl.textContent = mLabel;
+}
+
+let tbtnPauseEl = null;
+let _touchPauseCache = { state: '', label: 'II' };
+function updateTouchPauseBtn() {
+  if (!tbtnPauseEl) tbtnPauseEl = document.getElementById('tbtn-pause');
+  if (!tbtnPauseEl) return;
+  const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+  const isDead = typeof player !== 'undefined' && !!(player && player.dead);
+  const pState = (typeof CORE !== 'undefined' && typeof CORE.touchPauseState === 'function')
+    ? CORE.touchPauseState(started, paused, isDead, isEditing)
+    : (isEditing ? 'editing' : (paused ? 'paused' : 'ready'));
+  const pLabel = (typeof CORE !== 'undefined' && typeof CORE.touchPauseLabel === 'function')
+    ? CORE.touchPauseLabel(pState)
+    : 'II';
+  if (typeof CORE !== 'undefined' && typeof CORE.touchPauseChanged === 'function') {
+    if (!CORE.touchPauseChanged(_touchPauseCache, pState, pLabel)) return;
+    CORE.syncTouchPauseState(_touchPauseCache, pState, pLabel);
+  }
+  tbtnPauseEl.classList.toggle('paused', pState === 'paused');
+  tbtnPauseEl.classList.toggle('editing', pState === 'editing');
+  tbtnPauseEl.classList.toggle('empty', pState === 'empty' || pState === 'dead');
+  tbtnPauseEl.classList.toggle('ready', pState === 'ready');
+  if (tbtnPauseEl.textContent !== pLabel) tbtnPauseEl.textContent = pLabel;
 }
 
 // ADS button: cyan active glow while aiming, bright scoped ring when sniper/BR scope is locked in,
