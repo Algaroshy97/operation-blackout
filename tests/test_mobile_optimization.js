@@ -8,6 +8,12 @@ const source = fs.readFileSync(path.join(__dirname, '../src/25_touch.js'), 'utf8
 const head = fs.readFileSync(path.join(__dirname, '../src/00_head.html'), 'utf8');
 const CORE = require('../src/01_core.js');
 
+test('portrait phones are held on a landscape-required screen', () => {
+  assert.match(head, /#landscape-required/);
+  assert.match(head, /@media\s*\(orientation:\s*portrait\)\s*and\s*\(pointer:\s*coarse\)/);
+  assert.match(head, /Rotate your device to landscape/);
+});
+
 // Minimal event/DOM host: execute the production touch listeners, not copies of their rules.
 function host(touch = true) {
   const elements = new Map(), timers = new Map();

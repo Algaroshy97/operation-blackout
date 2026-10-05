@@ -467,6 +467,15 @@ function setDeployReady(ready) {
 }
 function startGame() {
   if (!assetsReady) return;
+  // Lock where the browser allows it; the portrait overlay remains the fallback
+  // because most mobile browsers require fullscreen or an installed PWA for locking.
+  try {
+    const orientation = window.screen && window.screen.orientation;
+    if (orientation && typeof orientation.lock === 'function') {
+      const lock = orientation.lock('landscape');
+      if (lock && typeof lock.catch === 'function') lock.catch(function () {});
+    }
+  } catch (e) { /* unsupported or not permitted; the portrait overlay still applies */ }
   started = true;
   paused = false;              // belt & suspenders
   resetGame();

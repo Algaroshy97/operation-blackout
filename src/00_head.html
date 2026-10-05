@@ -11,6 +11,10 @@
   :root{--sa-t:env(safe-area-inset-top,0px);--sa-r:env(safe-area-inset-right,0px);--sa-b:env(safe-area-inset-bottom,0px);--sa-l:env(safe-area-inset-left,0px)}
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',Arial,sans-serif;user-select:none;-webkit-user-select:none;cursor:default}
   #game-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
+  #landscape-required{display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center;
+    padding:24px;box-sizing:border-box;background:#080b09;color:#ffdf8a;text-align:center;
+    font-size:clamp(20px,6vw,32px);font-weight:800;letter-spacing:2px}
+  @media (orientation:portrait) and (pointer:coarse){#landscape-required{display:flex}}
   .hud{position:absolute;pointer-events:none;z-index:10}
   #crosshair{top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;transition:opacity .12s ease-out}
   #crosshair .c-line{position:absolute;background:#eaffea;box-shadow:0 0 3px rgba(0,0,0,.9)}
@@ -434,6 +438,7 @@
 </style>
 </head>
 <body>
+<div id="landscape-required" role="status" aria-live="polite">Rotate your device to landscape</div>
 <canvas id="game-canvas"></canvas>
 <div id="scoping-overlay" class="hud"><div class="scope-cross"><div class="h"></div><div class="v"></div><div class="post pl"></div><div class="post pr"></div><div class="post pb"></div><div class="mil"></div><div class="scope-range" id="scope-range"></div></div></div>
 <div id="slide-vignette" class="hud"></div>
