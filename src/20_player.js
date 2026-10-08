@@ -405,7 +405,7 @@ function updatePlayer(dt) {
       player.vel.x *= mul;
       player.vel.z *= mul;
       player.landStunT = CORE.landingStunDuration(mul);
-      damagePlayer(dmg, undefined);
+      damagePlayer(dmg, undefined, 'fall');
       playSound(CORE.landingSound(true));
       playSound('hurt');
     }
@@ -417,9 +417,9 @@ function updatePlayer(dt) {
 }
 
 // damage entry point (called by enemies/projectiles)
-function damagePlayer(amount, dirDeg) {
+function damagePlayer(amount, dirDeg, damageType) {
   if (player.dead || godMode) return;
-  const res = CORE.resolveArmorDamage(amount, player.armor);
+  const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor);
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;

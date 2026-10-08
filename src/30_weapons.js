@@ -484,8 +484,9 @@ function updateViewmodel(dt) {
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
-  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), w ? w.adsSpeed : 1);
-  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt);
+  const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
+  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), CORE.weaponAdsSpeed(w ? w.type : '', w ? w.adsSpeed : undefined));
+  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt, CORE.weaponSwitchSpeed(w ? w.type : '', hasFastHands));
 
   const s = curS();
   const isSniper = w.type === 'SR';

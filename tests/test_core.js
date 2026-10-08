@@ -8157,3 +8157,89 @@ test('v128 audio polish: melee combat impact acoustics, through-cover penetratio
   assert.strictEqual(CORE.landingSound(null), 'land');
   assert.strictEqual(CORE.landingSound(undefined), 'land');
 });
+
+// ============================================================================
+// Phase 129 — Balance tuning (v129 tactical combat balance)
+// ============================================================================
+test('v129 balance tuning: damage-type armor mitigation, fall-damage bypass, and weapon handling agility rules', () => {
+  // 1. Damage-type armor absorption ratios
+  assert.strictEqual(CORE.ARMOR_ABSORB_RATIO_BULLET, 0.65);
+  assert.strictEqual(CORE.ARMOR_ABSORB_RATIO_BLAST, 0.75);
+  assert.strictEqual(CORE.ARMOR_ABSORB_RATIO_MELEE, 0.50);
+  assert.strictEqual(CORE.ARMOR_ABSORB_RATIO_FALL, 0.00);
+
+  assert.strictEqual(CORE.armorAbsorbRatioForType('bullet'), 0.65);
+  assert.strictEqual(CORE.armorAbsorbRatioForType('blast'), 0.75);
+  assert.strictEqual(CORE.armorAbsorbRatioForType('explosion'), 0.75);
+  assert.strictEqual(CORE.armorAbsorbRatioForType('melee'), 0.50);
+  assert.strictEqual(CORE.armorAbsorbRatioForType('fall'), 0.00);
+  assert.strictEqual(CORE.armorAbsorbRatioForType('unknown'), 0.65);
+  assert.strictEqual(CORE.armorAbsorbRatioForType(null), 0.65);
+
+  // 2. resolveArmorDamage with damageType and absorbedDamage property
+  // Bullet damage (65% absorbed)
+  const rBullet = CORE.resolveArmorDamage(20, 50, undefined, 'bullet');
+  assert.strictEqual(rBullet.absorbed, 13);
+  assert.strictEqual(rBullet.absorbedDamage, 13);
+  assert.strictEqual(rBullet.healthDamage, 7);
+  assert.strictEqual(rBullet.remainingArmor, 37);
+
+  // Blast damage (75% absorbed by armor/flak)
+  const rBlast = CORE.resolveArmorDamage(40, 50, undefined, 'blast');
+  assert.strictEqual(rBlast.absorbed, 30);
+  assert.strictEqual(rBlast.absorbedDamage, 30);
+  assert.strictEqual(rBlast.healthDamage, 10);
+  assert.strictEqual(rBlast.remainingArmor, 20);
+
+  // Melee damage (50% absorbed, blunt kinetic trauma slips through)
+  const rMelee = CORE.resolveArmorDamage(20, 50, undefined, 'melee');
+  assert.strictEqual(rMelee.absorbed, 10);
+  assert.strictEqual(rMelee.absorbedDamage, 10);
+  assert.strictEqual(rMelee.healthDamage, 10);
+  assert.strictEqual(rMelee.remainingArmor, 40);
+
+  // Fall damage (0% absorbed, blunt landing shock bypasses torso plates)
+  const rFall = CORE.resolveArmorDamage(30, 50, undefined, 'fall');
+  assert.strictEqual(rFall.absorbed, 0);
+  assert.strictEqual(rFall.absorbedDamage, 0);
+  assert.strictEqual(rFall.healthDamage, 30);
+  assert.strictEqual(rFall.remainingArmor, 50);
+
+  // Explicit absorbRatio override takes precedence over damageType
+  const rCustom = CORE.resolveArmorDamage(20, 50, 0.80, 'bullet');
+  assert.strictEqual(rCustom.absorbed, 16);
+  assert.strictEqual(rCustom.absorbedDamage, 16);
+  assert.strictEqual(rCustom.healthDamage, 4);
+  assert.strictEqual(rCustom.remainingArmor, 34);
+
+  // 3. Weapon archetype switch speeds
+  assert.strictEqual(CORE.WEAPON_SWITCH_SPEED_SMG, 4.6);
+  assert.strictEqual(CORE.WEAPON_SWITCH_SPEED_AR, 3.6);
+  assert.strictEqual(CORE.WEAPON_SWITCH_SPEED_BR, 3.0);
+  assert.strictEqual(CORE.WEAPON_SWITCH_SPEED_SR, 2.4);
+  assert.strictEqual(CORE.FAST_HANDS_SWITCH_MUL, 1.35);
+
+  assert.strictEqual(CORE.weaponSwitchSpeed('SMG', false), 4.6);
+  assert.ok(Math.abs(CORE.weaponSwitchSpeed('SMG', true) - 4.6 * 1.35) < 1e-4);
+  assert.strictEqual(CORE.weaponSwitchSpeed('AR', false), 3.6);
+  assert.ok(Math.abs(CORE.weaponSwitchSpeed('AR', true) - 3.6 * 1.35) < 1e-4);
+  assert.strictEqual(CORE.weaponSwitchSpeed('BR', false), 3.0);
+  assert.ok(Math.abs(CORE.weaponSwitchSpeed('BR', true) - 3.0 * 1.35) < 1e-4);
+  assert.strictEqual(CORE.weaponSwitchSpeed('SR', false), 2.4);
+  assert.ok(Math.abs(CORE.weaponSwitchSpeed('SR', true) - 2.4 * 1.35) < 1e-4);
+  assert.strictEqual(CORE.weaponSwitchSpeed('other', false), 3.5);
+
+  // 4. Weapon archetype ADS speeds
+  assert.strictEqual(CORE.WEAPON_ADS_SPEED_SMG, 1.25);
+  assert.strictEqual(CORE.WEAPON_ADS_SPEED_AR, 1.00);
+  assert.strictEqual(CORE.WEAPON_ADS_SPEED_BR, 0.88);
+  assert.strictEqual(CORE.WEAPON_ADS_SPEED_SR, 0.70);
+
+  assert.strictEqual(CORE.weaponAdsSpeed('SMG'), 1.25);
+  assert.strictEqual(CORE.weaponAdsSpeed('AR'), 1.00);
+  assert.strictEqual(CORE.weaponAdsSpeed('BR'), 0.88);
+  assert.strictEqual(CORE.weaponAdsSpeed('SR'), 0.70);
+  assert.strictEqual(CORE.weaponAdsSpeed('AR', 1.6), 1.6);
+  assert.strictEqual(CORE.weaponAdsSpeed('other'), 1.00);
+});
+

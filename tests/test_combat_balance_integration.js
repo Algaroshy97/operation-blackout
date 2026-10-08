@@ -295,3 +295,41 @@ test('v128 melee combat impact acoustics, penetration hitmarker sound, and locom
   assert.equal(CORE.landingSound(true), 'land_heavy');
   assert.equal(CORE.landingSound(false), 'land');
 });
+
+test('v129 tactical damage-type armor mitigation, fall-damage bypass, and weapon handling integration', () => {
+  // Test damage resolution across damage types
+  const bulletRes = CORE.resolveArmorDamage(24, 40, undefined, 'bullet');
+  assert.equal(bulletRes.absorbed, 24 * 0.65);
+  assert.equal(bulletRes.absorbedDamage, 24 * 0.65);
+  assert.equal(bulletRes.healthDamage, 24 * 0.35);
+
+  const blastRes = CORE.resolveArmorDamage(40, 50, undefined, 'blast');
+  assert.equal(blastRes.absorbed, 30);
+  assert.equal(blastRes.absorbedDamage, 30);
+  assert.equal(blastRes.healthDamage, 10);
+
+  const meleeRes = CORE.resolveArmorDamage(30, 50, undefined, 'melee');
+  assert.equal(meleeRes.absorbed, 15);
+  assert.equal(meleeRes.absorbedDamage, 15);
+  assert.equal(meleeRes.healthDamage, 15);
+
+  const fallRes = CORE.resolveArmorDamage(25, 50, undefined, 'fall');
+  assert.equal(fallRes.absorbed, 0);
+  assert.equal(fallRes.absorbedDamage, 0);
+  assert.equal(fallRes.healthDamage, 25);
+  assert.equal(fallRes.remainingArmor, 50);
+
+  // Weapon switch speeds
+  assert.equal(CORE.weaponSwitchSpeed('SMG', false), 4.6);
+  assert.equal(CORE.weaponSwitchSpeed('AR', false), 3.6);
+  assert.equal(CORE.weaponSwitchSpeed('BR', false), 3.0);
+  assert.equal(CORE.weaponSwitchSpeed('SR', false), 2.4);
+  assert.equal(CORE.weaponSwitchSpeed('SMG', true), 4.6 * 1.35);
+
+  // Weapon ADS speeds
+  assert.equal(CORE.weaponAdsSpeed('SMG'), 1.25);
+  assert.equal(CORE.weaponAdsSpeed('AR'), 1.00);
+  assert.equal(CORE.weaponAdsSpeed('BR'), 0.88);
+  assert.equal(CORE.weaponAdsSpeed('SR'), 0.70);
+});
+

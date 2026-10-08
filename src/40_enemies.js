@@ -565,7 +565,7 @@ function updateEnemies(dt) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
-            damagePlayer(meleeDmg, dirToDeg(en));
+            damagePlayer(meleeDmg, dirToDeg(en), 'melee');
             playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(gameT);
           }
@@ -754,7 +754,7 @@ function enemyShoot(en, dist) {
           player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
       if (CORE.smokeBlocks(ox, oy, oz,
           player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
-      damagePlayer(dmg, hitDeg);
+      damagePlayer(dmg, hitDeg, 'bullet');
     }, travelDelay);
   } else {
     const missX = to.x, missY = to.y, missZ = to.z;

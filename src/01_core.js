@@ -1178,18 +1178,32 @@ const CORE = (function () {
   // letting a calculated bleed-through fraction pass to health. This rewards picking
   // up armor and inserting plates without creating full invulnerability.
   const ARMOR_ABSORB_RATIO = 0.65;
-  function resolveArmorDamage(amount, currentArmor, absorbRatio) {
+  const ARMOR_ABSORB_RATIO_BULLET = 0.65;
+  const ARMOR_ABSORB_RATIO_BLAST = 0.75;
+  const ARMOR_ABSORB_RATIO_MELEE = 0.50;
+  const ARMOR_ABSORB_RATIO_FALL = 0.00;
+
+  function armorAbsorbRatioForType(damageType) {
+    if (damageType === 'fall') return ARMOR_ABSORB_RATIO_FALL;
+    if (damageType === 'melee') return ARMOR_ABSORB_RATIO_MELEE;
+    if (damageType === 'blast' || damageType === 'explosion') return ARMOR_ABSORB_RATIO_BLAST;
+    if (damageType === 'bullet') return ARMOR_ABSORB_RATIO_BULLET;
+    return ARMOR_ABSORB_RATIO_BULLET;
+  }
+
+  function resolveArmorDamage(amount, currentArmor, absorbRatio, damageType) {
     const amt = typeof amount === 'number' && isFinite(amount) ? Math.max(0, amount) : 0;
     const armor = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
     if (amt <= 0 || armor <= 0) {
-      return { absorbed: 0, healthDamage: amt, remainingArmor: armor };
+      return { absorbed: 0, absorbedDamage: 0, healthDamage: amt, remainingArmor: armor };
     }
     const ratio = typeof absorbRatio === 'number' && isFinite(absorbRatio) && absorbRatio >= 0 && absorbRatio <= 1
       ? absorbRatio
-      : ARMOR_ABSORB_RATIO;
+      : armorAbsorbRatioForType(damageType);
     const absorbed = Math.min(armor, amt * ratio);
     return {
       absorbed: absorbed,
+      absorbedDamage: absorbed,
       healthDamage: amt - absorbed,
       remainingArmor: armor - absorbed
     };
@@ -4483,6 +4497,15 @@ const CORE = (function () {
   const JUMP_BUFFER_TIME = 0.15;
   const ADS_BASE_SPEED = 12;
   const GUN_SWITCH_SPEED = 3.5;
+  const WEAPON_SWITCH_SPEED_SMG = 4.6;
+  const WEAPON_SWITCH_SPEED_AR = 3.6;
+  const WEAPON_SWITCH_SPEED_BR = 3.0;
+  const WEAPON_SWITCH_SPEED_SR = 2.4;
+  const FAST_HANDS_SWITCH_MUL = 1.35;
+  const WEAPON_ADS_SPEED_SMG = 1.25;
+  const WEAPON_ADS_SPEED_AR = 1.00;
+  const WEAPON_ADS_SPEED_BR = 0.88;
+  const WEAPON_ADS_SPEED_SR = 0.70;
   const SNIPER_UNSCOPE_FACTOR = 0.45;
   const SHOT_KICK_IMPULSE = 0.5;
   const SHOT_KICK_MAX = 1.4;
@@ -4590,6 +4613,24 @@ const CORE = (function () {
     const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
     const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0.1, speed) : GUN_SWITCH_SPEED;
     return Math.min(1, cur + delta * spd);
+  }
+
+  function weaponSwitchSpeed(weaponType, hasFastHands) {
+    let base = GUN_SWITCH_SPEED;
+    if (weaponType === 'SMG') base = WEAPON_SWITCH_SPEED_SMG;
+    else if (weaponType === 'AR') base = WEAPON_SWITCH_SPEED_AR;
+    else if (weaponType === 'BR') base = WEAPON_SWITCH_SPEED_BR;
+    else if (weaponType === 'SR') base = WEAPON_SWITCH_SPEED_SR;
+    return hasFastHands ? base * FAST_HANDS_SWITCH_MUL : base;
+  }
+
+  function weaponAdsSpeed(weaponType, customSpeed) {
+    if (typeof customSpeed === 'number' && isFinite(customSpeed) && customSpeed > 0) return customSpeed;
+    if (weaponType === 'SMG') return WEAPON_ADS_SPEED_SMG;
+    if (weaponType === 'AR') return WEAPON_ADS_SPEED_AR;
+    if (weaponType === 'BR') return WEAPON_ADS_SPEED_BR;
+    if (weaponType === 'SR') return WEAPON_ADS_SPEED_SR;
+    return WEAPON_ADS_SPEED_AR;
   }
 
   function applyShotKick(currentKick, impulse, maxKick) {
@@ -8239,7 +8280,23 @@ const CORE = (function () {
     MELEE_BACKSTAB_SOUND: MELEE_BACKSTAB_SOUND,
     meleeHitSound: meleeHitSound,
     hitmarkerSound: hitmarkerSound,
-    landingSound: landingSound
+    landingSound: landingSound,
+    ARMOR_ABSORB_RATIO_BULLET: ARMOR_ABSORB_RATIO_BULLET,
+    ARMOR_ABSORB_RATIO_BLAST: ARMOR_ABSORB_RATIO_BLAST,
+    ARMOR_ABSORB_RATIO_MELEE: ARMOR_ABSORB_RATIO_MELEE,
+    ARMOR_ABSORB_RATIO_FALL: ARMOR_ABSORB_RATIO_FALL,
+    armorAbsorbRatioForType: armorAbsorbRatioForType,
+    WEAPON_SWITCH_SPEED_SMG: WEAPON_SWITCH_SPEED_SMG,
+    WEAPON_SWITCH_SPEED_AR: WEAPON_SWITCH_SPEED_AR,
+    WEAPON_SWITCH_SPEED_BR: WEAPON_SWITCH_SPEED_BR,
+    WEAPON_SWITCH_SPEED_SR: WEAPON_SWITCH_SPEED_SR,
+    FAST_HANDS_SWITCH_MUL: FAST_HANDS_SWITCH_MUL,
+    weaponSwitchSpeed: weaponSwitchSpeed,
+    WEAPON_ADS_SPEED_SMG: WEAPON_ADS_SPEED_SMG,
+    WEAPON_ADS_SPEED_AR: WEAPON_ADS_SPEED_AR,
+    WEAPON_ADS_SPEED_BR: WEAPON_ADS_SPEED_BR,
+    WEAPON_ADS_SPEED_SR: WEAPON_ADS_SPEED_SR,
+    weaponAdsSpeed: weaponAdsSpeed
   };
 })();
 

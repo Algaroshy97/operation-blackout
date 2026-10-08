@@ -750,7 +750,7 @@ function explodeGrenade(pos, scale) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-      damagePlayer(selfDmg, blastDeg);
+      damagePlayer(selfDmg, blastDeg, 'blast');
     }
   }
   // camera shake kick with distance attenuation

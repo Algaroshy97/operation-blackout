@@ -3691,7 +3691,52 @@ def main() -> int:
         }""")
         checks.append(("melee-impact-penetration-hitmarker-and-locomotion-audio-rules", audio_polish_v128_check))
 
-        # 79) Clean console throughout gameplay.
+        # 79) Balance tuning: damage-type armor mitigation, fall-damage bypass, and weapon handling agility rules.
+        combat_balance_v129_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Damage-type armor absorption ratios
+            const ratioOk = CORE.ARMOR_ABSORB_RATIO_BULLET === 0.65 &&
+                            CORE.ARMOR_ABSORB_RATIO_BLAST === 0.75 &&
+                            CORE.ARMOR_ABSORB_RATIO_MELEE === 0.50 &&
+                            CORE.ARMOR_ABSORB_RATIO_FALL === 0.00 &&
+                            CORE.armorAbsorbRatioForType('bullet') === 0.65 &&
+                            CORE.armorAbsorbRatioForType('blast') === 0.75 &&
+                            CORE.armorAbsorbRatioForType('melee') === 0.50 &&
+                            CORE.armorAbsorbRatioForType('fall') === 0.00;
+
+            // 2. Armor damage resolution
+            const rBul = CORE.resolveArmorDamage(20, 50, undefined, 'bullet');
+            const bulOk = rBul.absorbed === 13 && rBul.absorbedDamage === 13 && rBul.healthDamage === 7 && rBul.remainingArmor === 37;
+            const rBlast = CORE.resolveArmorDamage(40, 50, undefined, 'blast');
+            const blastOk = rBlast.absorbed === 30 && rBlast.absorbedDamage === 30 && rBlast.healthDamage === 10 && rBlast.remainingArmor === 20;
+            const rFall = CORE.resolveArmorDamage(30, 50, undefined, 'fall');
+            const fallOk = rFall.absorbed === 0 && rFall.absorbedDamage === 0 && rFall.healthDamage === 30 && rFall.remainingArmor === 50;
+
+            // 3. Weapon archetype switch speeds
+            const swSpeedOk = CORE.WEAPON_SWITCH_SPEED_SMG === 4.6 &&
+                              CORE.WEAPON_SWITCH_SPEED_AR === 3.6 &&
+                              CORE.WEAPON_SWITCH_SPEED_BR === 3.0 &&
+                              CORE.WEAPON_SWITCH_SPEED_SR === 2.4 &&
+                              CORE.FAST_HANDS_SWITCH_MUL === 1.35 &&
+                              CORE.weaponSwitchSpeed('SMG', false) === 4.6 &&
+                              Math.abs(CORE.weaponSwitchSpeed('SMG', true) - 4.6 * 1.35) < 1e-4 &&
+                              CORE.weaponSwitchSpeed('SR', false) === 2.4;
+
+            // 4. Weapon archetype ADS speeds
+            const adsSpeedOk = CORE.WEAPON_ADS_SPEED_SMG === 1.25 &&
+                               CORE.WEAPON_ADS_SPEED_AR === 1.00 &&
+                               CORE.WEAPON_ADS_SPEED_BR === 0.88 &&
+                               CORE.WEAPON_ADS_SPEED_SR === 0.70 &&
+                               CORE.weaponAdsSpeed('SMG') === 1.25 &&
+                               CORE.weaponAdsSpeed('SR') === 0.70 &&
+                               CORE.weaponAdsSpeed('AR', 1.5) === 1.5;
+
+            return ratioOk && bulOk && blastOk && fallOk && swSpeedOk && adsSpeedOk;
+        }""")
+        checks.append(("tactical-armor-mitigation-and-weapon-agility-balance-rules", combat_balance_v129_check))
+
+        # 80) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
