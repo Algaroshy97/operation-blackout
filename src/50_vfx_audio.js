@@ -491,7 +491,8 @@ const SND_MIN_GAP = {
   draw_heavy: 0.15, draw_light: 0.15,
   heartbeat: 0.3, eshot_elite: 0.05,
   shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
-  plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5
+  plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5,
+  melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -609,7 +610,12 @@ const SOUND_RECIPES = {
   sniper_suppressed: [['noise', 0.09, 0.36, 420, 1.1], ['osc', 'sine', 110, 32, 0.14, 0.28], ['noise', 0.04, 0.22, 2200, 3.0]],
   plate_insert:      [['noise', 0.16, 0.26, 680, 1.2], ['osc', 'sine', 120, 80, 0.12, 0.14], ['noise', 0.08, 0.18, 1600, 2.0]],
   plate_lock:        [['osc', 'square', 480, 220, 0.06, 0.22], ['noise', 0.08, 0.24, 1800, 2.2], ['osc', 'sine', 160, 60, 0.09, 0.24]],
-  tinnitus:          [['osc', 'sine', 3400, 3000, 1.8, 0.15], ['osc', 'sine', 6800, 6000, 1.2, 0.03]]
+  tinnitus:          [['osc', 'sine', 3400, 3000, 1.8, 0.15], ['osc', 'sine', 6800, 6000, 1.2, 0.03]],
+  melee_hit:         [['noise', 0.08, 0.32, 1200, 1.8], ['osc', 'sawtooth', 220, 70, 0.08, 0.24], ['osc', 'sine', 160, 40, 0.10, 0.28]],
+  melee_backstab:    [['noise', 0.14, 0.42, 850, 1.2], ['osc', 'sawtooth', 310, 60, 0.16, 0.32], ['osc', 'sine', 120, 30, 0.22, 0.40]],
+  hit_cover:         [['noise', 0.06, 0.28, 950, 1.4], ['osc', 'sine', 380, 180, 0.08, 0.18], ['osc', 'square', 180, 90, 0.04, 0.12]],
+  step_tac:          [['noise', 0.05, 0.11, 420, 1.1], ['osc', 'sine', 130, 45, 0.06, 0.16]],
+  land_heavy:        [['noise', 0.16, 0.32, 180, 0.6], ['osc', 'sine', 140, 30, 0.20, 0.35], ['osc', 'square', 75, 25, 0.12, 0.18]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -630,7 +636,8 @@ const SOUND_VARIED = {
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
   bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1,
   shot_suppressed: 1, smg_suppressed: 1, br_suppressed: 1, sniper_suppressed: 1,
-  plate_insert: 1, plate_lock: 1, tinnitus: 1
+  plate_insert: 1, plate_lock: 1, tinnitus: 1,
+  melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1
 };
 
 function recipeDuration(recipe) {
@@ -771,7 +778,7 @@ function updateFootsteps(dt) {
     const cadence = CORE.footstepCadence(player.sprinting, isTac, player.crouching);
     stepT -= dt * cadence;
     if (stepT <= 0) {
-      playSound(CORE.playerFootstepSound(player.crouching));
+      playSound(CORE.playerFootstepSound(player.crouching, isTac));
       stepT = 1;
     }
   }

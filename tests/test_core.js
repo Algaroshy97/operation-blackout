@@ -8118,3 +8118,42 @@ test('v127 visual polish: sentry gun muzzle flash VFX, barrel light dynamics, th
   assert.strictEqual(CORE.canMeleeStrikeWorld(-1, -1, 2.2), false);
   assert.strictEqual(CORE.canMeleeStrikeWorld(-1, null, 2.2), false);
 });
+
+// ============================================================================
+// Phase 128 — Audio polish (v128 audio polish)
+// ============================================================================
+test('v128 audio polish: melee combat impact acoustics, through-cover penetration hitmarker, tactical sprint footsteps, and heavy landing shock rules', () => {
+  // 1. Melee impact acoustics
+  assert.strictEqual(CORE.MELEE_HIT_SOUND, 'melee_hit');
+  assert.strictEqual(CORE.MELEE_BACKSTAB_SOUND, 'melee_backstab');
+  assert.strictEqual(CORE.meleeHitSound(true), 'melee_backstab');
+  assert.strictEqual(CORE.meleeHitSound(false), 'melee_hit');
+  assert.strictEqual(CORE.meleeHitSound(null), 'melee_hit');
+  assert.strictEqual(CORE.meleeHitSound(undefined), 'melee_hit');
+
+  // 2. Through-cover penetration hitmarker acoustics
+  assert.strictEqual(CORE.hitmarkerSound('cover', false), 'hit_cover');
+  assert.strictEqual(CORE.hitmarkerSound('cover', true), 'headshot');
+  assert.strictEqual(CORE.hitmarkerSound('block', false), 'block');
+  assert.strictEqual(CORE.hitmarkerSound('block', true), 'block');
+  assert.strictEqual(CORE.hitmarkerSound('kill', false), null);
+  assert.strictEqual(CORE.hitmarkerSound('kill', true), null);
+  assert.strictEqual(CORE.hitmarkerSound('hit', false), 'hit');
+  assert.strictEqual(CORE.hitmarkerSound('hit', true), 'headshot');
+  assert.strictEqual(CORE.hitmarkerSound(null, false), 'hit');
+  assert.strictEqual(CORE.hitmarkerSound(null, true), 'headshot');
+
+  // 3. Tactical sprint athletic footstep acoustics
+  assert.strictEqual(CORE.playerFootstepSound(false, true), 'step_tac');
+  assert.strictEqual(CORE.playerFootstepSound(true, true), 'step_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(true, false), 'step_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(false, false), 'step');
+  assert.strictEqual(CORE.playerFootstepSound(false), 'step');
+  assert.strictEqual(CORE.playerFootstepSound(true), 'step_crouch');
+
+  // 4. Heavy fall-damage landing shock acoustics
+  assert.strictEqual(CORE.landingSound(true), 'land_heavy');
+  assert.strictEqual(CORE.landingSound(false), 'land');
+  assert.strictEqual(CORE.landingSound(null), 'land');
+  assert.strictEqual(CORE.landingSound(undefined), 'land');
+});

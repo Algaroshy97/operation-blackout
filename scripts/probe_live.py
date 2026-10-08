@@ -3646,7 +3646,52 @@ def main() -> int:
         }""")
         checks.append(("sentry-muzzle-vfx-and-combat-penetration-visual-rules", visual_polish_v127_check))
 
-        # 78) Clean console throughout gameplay.
+        # 78) Audio polish: melee combat impact acoustics, penetration hitmarker sound, tactical sprint footsteps, and heavy landing rules.
+        audio_polish_v128_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Melee impact acoustics
+            const meleeHitOk = CORE.MELEE_HIT_SOUND === 'melee_hit' &&
+                               CORE.MELEE_BACKSTAB_SOUND === 'melee_backstab' &&
+                               CORE.meleeHitSound(true) === 'melee_backstab' &&
+                               CORE.meleeHitSound(false) === 'melee_hit';
+
+            // 2. Through-cover penetration hitmarker acoustics
+            const hitmarkerOk = CORE.hitmarkerSound('cover', false) === 'hit_cover' &&
+                                CORE.hitmarkerSound('cover', true) === 'headshot' &&
+                                CORE.hitmarkerSound('block', false) === 'block' &&
+                                CORE.hitmarkerSound('kill', false) === null &&
+                                CORE.hitmarkerSound('hit', false) === 'hit';
+
+            // 3. Tactical sprint athletic footstep acoustics
+            const footstepOk = CORE.playerFootstepSound(false, true) === 'step_tac' &&
+                               CORE.playerFootstepSound(true, true) === 'step_crouch' &&
+                               CORE.playerFootstepSound(false, false) === 'step';
+
+            // 4. Heavy fall-damage landing shock acoustics
+            const landingOk = CORE.landingSound(true) === 'land_heavy' &&
+                              CORE.landingSound(false) === 'land';
+
+            // 5. Sound recipes registered in SOUND_RECIPES and SOUND_VARIED
+            const recipesOk = typeof SOUND_RECIPES !== 'undefined' &&
+                              Boolean(SOUND_RECIPES.melee_hit) &&
+                              Boolean(SOUND_RECIPES.melee_backstab) &&
+                              Boolean(SOUND_RECIPES.hit_cover) &&
+                              Boolean(SOUND_RECIPES.step_tac) &&
+                              Boolean(SOUND_RECIPES.land_heavy);
+
+            const variedOk = typeof SOUND_VARIED !== 'undefined' &&
+                             SOUND_VARIED.melee_hit === 1 &&
+                             SOUND_VARIED.melee_backstab === 1 &&
+                             SOUND_VARIED.hit_cover === 1 &&
+                             SOUND_VARIED.step_tac === 1 &&
+                             SOUND_VARIED.land_heavy === 1;
+
+            return meleeHitOk && hitmarkerOk && footstepOk && landingOk && recipesOk && variedOk;
+        }""")
+        checks.append(("melee-impact-penetration-hitmarker-and-locomotion-audio-rules", audio_polish_v128_check))
+
+        # 79) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

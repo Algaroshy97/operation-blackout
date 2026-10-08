@@ -276,3 +276,22 @@ test('v127 sentry muzzle kinematics, penetration cover impact gating, and melee 
   assert.equal(CORE.canMeleeStrikeWorld(0, 1.8, 2.2), false); // hit enemy, not world
   assert.equal(CORE.canMeleeStrikeWorld(-1, 2.6, 2.2), false); // out of reach
 });
+
+test('v128 melee combat impact acoustics, penetration hitmarker sound, and locomotion audio integration', () => {
+  // Melee impact sound resolution
+  assert.equal(CORE.meleeHitSound(true), 'melee_backstab');
+  assert.equal(CORE.meleeHitSound(false), 'melee_hit');
+
+  // Through-cover penetration hitmarker sound
+  assert.equal(CORE.hitmarkerSound('cover', false), 'hit_cover');
+  assert.equal(CORE.hitmarkerSound('cover', true), 'headshot');
+  assert.equal(CORE.hitmarkerSound('block', false), 'block');
+  assert.equal(CORE.hitmarkerSound('kill', false), null);
+
+  // Locomotion and landing audio rules
+  assert.equal(CORE.playerFootstepSound(false, true), 'step_tac');
+  assert.equal(CORE.playerFootstepSound(true, true), 'step_crouch');
+  assert.equal(CORE.playerFootstepSound(false, false), 'step');
+  assert.equal(CORE.landingSound(true), 'land_heavy');
+  assert.equal(CORE.landingSound(false), 'land');
+});

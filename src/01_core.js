@@ -829,8 +829,10 @@ const CORE = (function () {
     return FOOTSTEP_BASE_CADENCE;
   }
 
-  function playerFootstepSound(isCrouching) {
-    return isCrouching ? 'step_crouch' : 'step';
+  function playerFootstepSound(isCrouching, isTacSprint) {
+    if (Boolean(isCrouching)) return 'step_crouch';
+    if (Boolean(isTacSprint)) return 'step_tac';
+    return 'step';
   }
 
   function shouldPlayFootstep(onGround, horizontalSpeed, minSpeed) {
@@ -7166,6 +7168,26 @@ const CORE = (function () {
       worldHitDist > 0 && worldHitDist <= reach;
   }
 
+  // ---- Melee Combat Impact, Penetration Hitmarker & Landing Shock Acoustics (v128 Audio Polish) ----
+  const MELEE_HIT_SOUND = 'melee_hit';
+  const MELEE_BACKSTAB_SOUND = 'melee_backstab';
+
+  function meleeHitSound(isBackstab) {
+    return isBackstab ? MELEE_BACKSTAB_SOUND : MELEE_HIT_SOUND;
+  }
+
+  function hitmarkerSound(tier, isHead) {
+    if (tier === 'kill') return null;
+    if (tier === 'block') return 'block';
+    if (tier === 'cover') return isHead ? 'headshot' : 'hit_cover';
+    if (isHead) return 'headshot';
+    return 'hit';
+  }
+
+  function landingSound(hasFallDamage) {
+    return Boolean(hasFallDamage) ? 'land_heavy' : 'land';
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8212,7 +8234,12 @@ const CORE = (function () {
     sentryShootDirection: sentryShootDirection,
     sentryMuzzleLightParams: sentryMuzzleLightParams,
     shouldSpawnPenetrationCoverVfx: shouldSpawnPenetrationCoverVfx,
-    canMeleeStrikeWorld: canMeleeStrikeWorld
+    canMeleeStrikeWorld: canMeleeStrikeWorld,
+    MELEE_HIT_SOUND: MELEE_HIT_SOUND,
+    MELEE_BACKSTAB_SOUND: MELEE_BACKSTAB_SOUND,
+    meleeHitSound: meleeHitSound,
+    hitmarkerSound: hitmarkerSound,
+    landingSound: landingSound
   };
 })();
 

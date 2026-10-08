@@ -246,7 +246,8 @@ function showHitmarker(isHead, tier) {
     hud.hitmark.classList.remove('kill');
   }, p.duration);
   if (p.tier !== 'kill') {
-    playSound(p.tier === 'block' ? 'block' : isHead ? 'headshot' : 'hit');
+    const snd = CORE.hitmarkerSound(p.tier, isHead);
+    if (snd) playSound(snd);
   }
 }
 

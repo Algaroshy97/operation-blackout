@@ -406,6 +406,7 @@ function updatePlayer(dt) {
       player.vel.z *= mul;
       player.landStunT = CORE.landingStunDuration(mul);
       damagePlayer(dmg, undefined);
+      playSound(CORE.landingSound(true));
       playSound('hurt');
     }
   }
