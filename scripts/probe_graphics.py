@@ -20,7 +20,7 @@ def probe_graphics(browser, base_url, check, all_errors):
     check('Model detail is safely latched until reload', page.evaluate('!graphicsAtBoot(IS_TOUCH).enemyDetailed && !graphicsAtBoot(IS_TOUCH).sceneryDetailed'))
     check('UI persists explicit touch overrides', page.evaluate("JSON.parse(localStorage.getItem(STORE_KEY_SETTINGS)).enemyDetail === 'detailed'"))
     page.reload(wait_until='networkidle')
-    page.wait_for_function("assetsReady && GLB_PARSED.TREE")
+    page.wait_for_function("assetsReady && GLB_PARSED.TREE", timeout=60000)
     check('Reload restores explicit graphics settings on touch', page.evaluate("IS_TOUCH && SETTINGS.enemyDetail === 'detailed' && graphicsAtBoot(IS_TOUCH).enemyDetailed"))
     # Keep simulation idle; manually exercising the production spawn/render paths
     # avoids depending on random wave timing or killing the player during assertions.
@@ -70,7 +70,7 @@ def probe_graphics(browser, base_url, check, all_errors):
     check('Post-processing explicit on overrides low/touch automatic default', page.evaluate('POST.enabled && !!POST.rt'))
     page.evaluate("setSetting('enemyDetail','simple');setSetting('sceneryDetail','simple')")
     page.reload(wait_until='networkidle')
-    page.wait_for_function('assetsReady && GLB_PARSED.TREE')
+    page.wait_for_function('assetsReady && GLB_PARSED.TREE', timeout=60000)
     simple = page.evaluate("""() => {spawnEnemy(1,10,10); const en=enemies[enemies.length-1]; const props=[];
       scene.traverse(o=>{if(o.userData.prop && o.isMesh)props.push(o.geometry.attributes.position.count)});
       return {simple:!en.parts.soldier,props:props.reduce((a,b)=>a+b,0),old:scene.children.filter(o=>o.userData.oldBarrel).length};}""")

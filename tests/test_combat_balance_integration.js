@@ -249,3 +249,30 @@ test('melee backstab execution bypasses shields and awards critical momentum dam
   assert.equal(standAcc, baseAcc);
 });
 
+test('v127 sentry muzzle kinematics, penetration cover impact gating, and melee surface strike integration', () => {
+  // Sentry muzzle position in front of rotated sentry
+  const sentryPos = { x: 4, y: 0, z: 8 };
+  const yaw = 0; // facing north (-Z)
+  const muzzlePos = CORE.sentryMuzzlePosition(sentryPos.x, sentryPos.y, sentryPos.z, yaw);
+  assert.equal(muzzlePos.x, 4);
+  assert.equal(muzzlePos.y, 0.60);
+  assert.equal(muzzlePos.z, 8 - 0.85);
+
+  // Shoot direction to enemy target at (4, 1.2, -2)
+  const targetPos = { x: 4, y: 1.2, z: -2 };
+  const shootDir = CORE.sentryShootDirection(muzzlePos.x, muzzlePos.y, muzzlePos.z, targetPos.x, targetPos.y, targetPos.z);
+  const expectedLen = Math.hypot(0, 1.2 - 0.60, -2 - (8 - 0.85));
+  assert.equal(shootDir.x, 0);
+  assert.ok(Math.abs(shootDir.y - (0.6 / expectedLen)) < 1e-4);
+  assert.ok(Math.abs(shootDir.z - (-9.15 / expectedLen)) < 1e-4);
+
+  // Penetration cover VFX gating
+  assert.equal(CORE.shouldSpawnPenetrationCoverVfx(0.65, 3.2, 8.5), true);
+  assert.equal(CORE.shouldSpawnPenetrationCoverVfx(1.0, 3.2, 8.5), false);
+  assert.equal(CORE.shouldSpawnPenetrationCoverVfx(0.65, 10.0, 8.5), false);
+
+  // Melee world strike gating
+  assert.equal(CORE.canMeleeStrikeWorld(-1, 1.8, 2.2), true);
+  assert.equal(CORE.canMeleeStrikeWorld(0, 1.8, 2.2), false); // hit enemy, not world
+  assert.equal(CORE.canMeleeStrikeWorld(-1, 2.6, 2.2), false); // out of reach
+});

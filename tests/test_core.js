@@ -8033,11 +8033,15 @@ test('v126 mobile UI polish: downed control gating, pause button feedback, edito
     top: 'calc(96px + var(--sa-t))', side: 'left', inset: 'calc(16px + var(--sa-l))'
   });
 
-  // 7. Joystick locomotion tiers
+  // 7. Joystick locomotion tiers (both 4-arg and 2-arg distance/downed signatures)
   assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0, false, true), 'crawl');
   assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0.9, true, false), 'sprint');
   assert.strictEqual(CORE.joystickMoveSpeedTier(0.4, 0.3, false, false), 'walk');
   assert.strictEqual(CORE.joystickMoveSpeedTier(0, 0, false, false), 'idle');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.5, true), 'crawl');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.8, false), 'sprint');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.5, false), 'walk');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.05, false), 'idle');
 
   assert.strictEqual(CORE.joystickIndicatorClass('crawl'), 'crawl');
   assert.strictEqual(CORE.joystickIndicatorClass('sprint'), 'sprint');
@@ -8045,4 +8049,72 @@ test('v126 mobile UI polish: downed control gating, pause button feedback, edito
   assert.strictEqual(CORE.joystickIndicatorClass('idle'), '');
 });
 
+// ============================================================================
+// Phase 127 — Visual polish (v127 visual polish)
+// ============================================================================
+test('v127 visual polish: sentry gun muzzle flash VFX, barrel light dynamics, through-cover penetration impacts, and melee surface strike visual polish', () => {
+  // 1. Sentry muzzle position kinematics and shoot direction
+  assert.strictEqual(CORE.SENTRY_MUZZLE_FORWARD_OFFSET, 0.85);
+  assert.strictEqual(CORE.SENTRY_MUZZLE_HEIGHT_OFFSET, 0.60);
+  assert.strictEqual(CORE.SENTRY_MUZZLE_LIGHT_COLOR, 0xffaa44);
+  assert.strictEqual(CORE.SENTRY_MUZZLE_LIGHT_INTENSITY, 2.8);
+  assert.strictEqual(CORE.SENTRY_MUZZLE_LIGHT_DIST, 8.0);
+  assert.strictEqual(CORE.SENTRY_MUZZLE_LIGHT_DUR, 0.06);
 
+  const mPos = CORE.sentryMuzzlePosition(10, 0, 20, 0); // facing north (yaw=0, dirX=0, dirZ=-1)
+  assert.strictEqual(Math.abs(mPos.x - 10) < 1e-5, true);
+  assert.strictEqual(Math.abs(mPos.y - 0.60) < 1e-5, true);
+  assert.strictEqual(Math.abs(mPos.z - (20 - 0.85)) < 1e-5, true);
+
+  const mPosEast = CORE.sentryMuzzlePosition(0, 0, 0, -Math.PI / 2); // facing east (yaw=-pi/2, dirX=1, dirZ=0)
+  assert.strictEqual(Math.abs(mPosEast.x - 0.85) < 1e-5, true);
+  assert.strictEqual(Math.abs(mPosEast.y - 0.60) < 1e-5, true);
+  assert.strictEqual(Math.abs(mPosEast.z - 0) < 1e-5, true);
+
+  // Reusable output object check
+  const reusableMuzzle = { x: 0, y: 0, z: 0 };
+  const resM = CORE.sentryMuzzlePosition(5, 1, 5, 0, 0.85, 0.60, reusableMuzzle);
+  assert.strictEqual(resM, reusableMuzzle);
+
+  // Shoot direction calculation
+  const dirOut = { x: 0, y: 0, z: 0 };
+  const dirRes = CORE.sentryShootDirection(0, 0, 0, 10, 0, 0, dirOut);
+  assert.strictEqual(dirRes, dirOut);
+  assert.strictEqual(Math.abs(dirOut.x - 1.0) < 1e-5, true);
+  assert.strictEqual(Math.abs(dirOut.y - 0.0) < 1e-5, true);
+  assert.strictEqual(Math.abs(dirOut.z - 0.0) < 1e-5, true);
+
+  // Sentry light parameters
+  const lightParams = CORE.sentryMuzzleLightParams();
+  assert.strictEqual(lightParams.color, 0xffaa44);
+  assert.strictEqual(lightParams.intensity, 2.8);
+  assert.strictEqual(lightParams.distance, 8.0);
+  assert.strictEqual(lightParams.duration, 0.06);
+
+  // 2. Through-cover penetration visual impact gating
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(0.75, 4.0, 10.0), true);
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(0.50, 2.5, 6.0), true);
+  // Full damage (penMul === 1, no penetration happened)
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(1.0, 4.0, 10.0), false);
+  // Blocked shot (penMul === 0)
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(0, 4.0, 10.0), false);
+  // Enemy was in front of cover (world hit distance >= enemy hit distance)
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(0.75, 12.0, 10.0), false);
+  // Invalid inputs
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(null, 4.0, 10.0), false);
+  assert.strictEqual(CORE.shouldSpawnPenetrationCoverVfx(0.75, null, 10.0), false);
+
+  // 3. Melee world surface strike gating
+  // When no enemy in cone (enemyTargetIdx < 0) and world surface within reach
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, 1.5, 2.2), true);
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, 2.2, 2.2), true);
+  // Out of reach
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, 2.5, 2.2), false);
+  // Enemy was hit (idx >= 0, strikes flesh instead of world)
+  assert.strictEqual(CORE.canMeleeStrikeWorld(0, 1.5, 2.2), false);
+  assert.strictEqual(CORE.canMeleeStrikeWorld(2, 1.0, 2.2), false);
+  // Invalid distances
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, 0, 2.2), false);
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, -1, 2.2), false);
+  assert.strictEqual(CORE.canMeleeStrikeWorld(-1, null, 2.2), false);
+});

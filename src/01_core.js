@@ -2830,12 +2830,21 @@ const CORE = (function () {
   }
 
   // Resolves locomotion velocity tier for mobile virtual joystick visual indicator.
+  // Supports both full 4-argument signature (moveX, moveZ, isSprint, isDowned) and
+  // 2-argument signature (dist, isDowned) used by mobile HUD probes and callers.
   function joystickMoveSpeedTier(moveX, moveZ, isSprint, isDowned) {
+    if (typeof moveZ === 'boolean') {
+      if (moveZ) return 'crawl';
+      const d = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
+      if (d >= 0.75) return 'sprint';
+      if (d > JOYSTICK_MOVE_THRESHOLD) return 'walk';
+      return 'idle';
+    }
     if (isDowned) return 'crawl';
     if (isSprint) return 'sprint';
     const mag = Math.hypot(typeof moveX === 'number' && isFinite(moveX) ? moveX : 0,
                            typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0);
-    if (mag > 0.15) return 'walk';
+    if (mag > JOYSTICK_MOVE_THRESHOLD) return 'walk';
     return 'idle';
   }
 
@@ -7101,6 +7110,62 @@ const CORE = (function () {
     return true;
   }
 
+  // ---- Sentry Muzzle Kinematics, Flashlight Dynamics & Combat Penetration / Strike (v127) ----
+  const SENTRY_MUZZLE_FORWARD_OFFSET = 0.85;
+  const SENTRY_MUZZLE_HEIGHT_OFFSET = 0.60;
+  const SENTRY_MUZZLE_LIGHT_COLOR = 0xffaa44;
+  const SENTRY_MUZZLE_LIGHT_INTENSITY = 2.8;
+  const SENTRY_MUZZLE_LIGHT_DIST = 8.0;
+  const SENTRY_MUZZLE_LIGHT_DUR = 0.06;
+
+  function sentryMuzzlePosition(posX, posY, posZ, yaw, forwardOffset, heightOffset, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const fwd = (typeof forwardOffset === 'number' && isFinite(forwardOffset)) ? forwardOffset : SENTRY_MUZZLE_FORWARD_OFFSET;
+    const h = (typeof heightOffset === 'number' && isFinite(heightOffset)) ? heightOffset : SENTRY_MUZZLE_HEIGHT_OFFSET;
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const dirX = -Math.sin(y);
+    const dirZ = -Math.cos(y);
+    o.x = ((typeof posX === 'number' && isFinite(posX)) ? posX : 0) + dirX * fwd;
+    o.y = ((typeof posY === 'number' && isFinite(posY)) ? posY : 0) + h;
+    o.z = ((typeof posZ === 'number' && isFinite(posZ)) ? posZ : 0) + dirZ * fwd;
+    return o;
+  }
+
+  function sentryShootDirection(fromX, fromY, fromZ, toX, toY, toZ, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const dx = ((typeof toX === 'number' && isFinite(toX)) ? toX : 0) - ((typeof fromX === 'number' && isFinite(fromX)) ? fromX : 0);
+    const dy = ((typeof toY === 'number' && isFinite(toY)) ? toY : 0) - ((typeof fromY === 'number' && isFinite(fromY)) ? fromY : 0);
+    const dz = ((typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0) - ((typeof fromZ === 'number' && isFinite(fromZ)) ? fromZ : 0);
+    const len = Math.hypot(dx, dy, dz) || 1;
+    o.x = dx / len;
+    o.y = dy / len;
+    o.z = dz / len;
+    return o;
+  }
+
+  function sentryMuzzleLightParams() {
+    return {
+      color: SENTRY_MUZZLE_LIGHT_COLOR,
+      intensity: SENTRY_MUZZLE_LIGHT_INTENSITY,
+      distance: SENTRY_MUZZLE_LIGHT_DIST,
+      duration: SENTRY_MUZZLE_LIGHT_DUR
+    };
+  }
+
+  function shouldSpawnPenetrationCoverVfx(penMul, worldHitDist, enemyHitDist) {
+    return typeof penMul === 'number' && isFinite(penMul) && penMul > 0 && penMul < 1 &&
+      typeof worldHitDist === 'number' && isFinite(worldHitDist) &&
+      typeof enemyHitDist === 'number' && isFinite(enemyHitDist) &&
+      worldHitDist < enemyHitDist;
+  }
+
+  function canMeleeStrikeWorld(enemyTargetIdx, worldHitDist, meleeReach) {
+    const reach = (typeof meleeReach === 'number' && isFinite(meleeReach) && meleeReach > 0) ? meleeReach : MELEE_REACH;
+    return (typeof enemyTargetIdx !== 'number' || enemyTargetIdx < 0) &&
+      typeof worldHitDist === 'number' && isFinite(worldHitDist) &&
+      worldHitDist > 0 && worldHitDist <= reach;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8136,7 +8201,18 @@ const CORE = (function () {
     isTouchControlSelected: isTouchControlSelected,
     streakHudPosition: streakHudPosition,
     joystickMoveSpeedTier: joystickMoveSpeedTier,
-    joystickIndicatorClass: joystickIndicatorClass
+    joystickIndicatorClass: joystickIndicatorClass,
+    SENTRY_MUZZLE_FORWARD_OFFSET: SENTRY_MUZZLE_FORWARD_OFFSET,
+    SENTRY_MUZZLE_HEIGHT_OFFSET: SENTRY_MUZZLE_HEIGHT_OFFSET,
+    SENTRY_MUZZLE_LIGHT_COLOR: SENTRY_MUZZLE_LIGHT_COLOR,
+    SENTRY_MUZZLE_LIGHT_INTENSITY: SENTRY_MUZZLE_LIGHT_INTENSITY,
+    SENTRY_MUZZLE_LIGHT_DIST: SENTRY_MUZZLE_LIGHT_DIST,
+    SENTRY_MUZZLE_LIGHT_DUR: SENTRY_MUZZLE_LIGHT_DUR,
+    sentryMuzzlePosition: sentryMuzzlePosition,
+    sentryShootDirection: sentryShootDirection,
+    sentryMuzzleLightParams: sentryMuzzleLightParams,
+    shouldSpawnPenetrationCoverVfx: shouldSpawnPenetrationCoverVfx,
+    canMeleeStrikeWorld: canMeleeStrikeWorld
   };
 })();
 

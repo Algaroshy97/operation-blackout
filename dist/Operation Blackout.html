@@ -7563,12 +7563,21 @@ const CORE = (function () {
   }
 
   // Resolves locomotion velocity tier for mobile virtual joystick visual indicator.
+  // Supports both full 4-argument signature (moveX, moveZ, isSprint, isDowned) and
+  // 2-argument signature (dist, isDowned) used by mobile HUD probes and callers.
   function joystickMoveSpeedTier(moveX, moveZ, isSprint, isDowned) {
+    if (typeof moveZ === 'boolean') {
+      if (moveZ) return 'crawl';
+      const d = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
+      if (d >= 0.75) return 'sprint';
+      if (d > JOYSTICK_MOVE_THRESHOLD) return 'walk';
+      return 'idle';
+    }
     if (isDowned) return 'crawl';
     if (isSprint) return 'sprint';
     const mag = Math.hypot(typeof moveX === 'number' && isFinite(moveX) ? moveX : 0,
                            typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0);
-    if (mag > 0.15) return 'walk';
+    if (mag > JOYSTICK_MOVE_THRESHOLD) return 'walk';
     return 'idle';
   }
 
@@ -11834,6 +11843,62 @@ const CORE = (function () {
     return true;
   }
 
+  // ---- Sentry Muzzle Kinematics, Flashlight Dynamics & Combat Penetration / Strike (v127) ----
+  const SENTRY_MUZZLE_FORWARD_OFFSET = 0.85;
+  const SENTRY_MUZZLE_HEIGHT_OFFSET = 0.60;
+  const SENTRY_MUZZLE_LIGHT_COLOR = 0xffaa44;
+  const SENTRY_MUZZLE_LIGHT_INTENSITY = 2.8;
+  const SENTRY_MUZZLE_LIGHT_DIST = 8.0;
+  const SENTRY_MUZZLE_LIGHT_DUR = 0.06;
+
+  function sentryMuzzlePosition(posX, posY, posZ, yaw, forwardOffset, heightOffset, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const fwd = (typeof forwardOffset === 'number' && isFinite(forwardOffset)) ? forwardOffset : SENTRY_MUZZLE_FORWARD_OFFSET;
+    const h = (typeof heightOffset === 'number' && isFinite(heightOffset)) ? heightOffset : SENTRY_MUZZLE_HEIGHT_OFFSET;
+    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
+    const dirX = -Math.sin(y);
+    const dirZ = -Math.cos(y);
+    o.x = ((typeof posX === 'number' && isFinite(posX)) ? posX : 0) + dirX * fwd;
+    o.y = ((typeof posY === 'number' && isFinite(posY)) ? posY : 0) + h;
+    o.z = ((typeof posZ === 'number' && isFinite(posZ)) ? posZ : 0) + dirZ * fwd;
+    return o;
+  }
+
+  function sentryShootDirection(fromX, fromY, fromZ, toX, toY, toZ, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const dx = ((typeof toX === 'number' && isFinite(toX)) ? toX : 0) - ((typeof fromX === 'number' && isFinite(fromX)) ? fromX : 0);
+    const dy = ((typeof toY === 'number' && isFinite(toY)) ? toY : 0) - ((typeof fromY === 'number' && isFinite(fromY)) ? fromY : 0);
+    const dz = ((typeof toZ === 'number' && isFinite(toZ)) ? toZ : 0) - ((typeof fromZ === 'number' && isFinite(fromZ)) ? fromZ : 0);
+    const len = Math.hypot(dx, dy, dz) || 1;
+    o.x = dx / len;
+    o.y = dy / len;
+    o.z = dz / len;
+    return o;
+  }
+
+  function sentryMuzzleLightParams() {
+    return {
+      color: SENTRY_MUZZLE_LIGHT_COLOR,
+      intensity: SENTRY_MUZZLE_LIGHT_INTENSITY,
+      distance: SENTRY_MUZZLE_LIGHT_DIST,
+      duration: SENTRY_MUZZLE_LIGHT_DUR
+    };
+  }
+
+  function shouldSpawnPenetrationCoverVfx(penMul, worldHitDist, enemyHitDist) {
+    return typeof penMul === 'number' && isFinite(penMul) && penMul > 0 && penMul < 1 &&
+      typeof worldHitDist === 'number' && isFinite(worldHitDist) &&
+      typeof enemyHitDist === 'number' && isFinite(enemyHitDist) &&
+      worldHitDist < enemyHitDist;
+  }
+
+  function canMeleeStrikeWorld(enemyTargetIdx, worldHitDist, meleeReach) {
+    const reach = (typeof meleeReach === 'number' && isFinite(meleeReach) && meleeReach > 0) ? meleeReach : MELEE_REACH;
+    return (typeof enemyTargetIdx !== 'number' || enemyTargetIdx < 0) &&
+      typeof worldHitDist === 'number' && isFinite(worldHitDist) &&
+      worldHitDist > 0 && worldHitDist <= reach;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -12869,7 +12934,18 @@ const CORE = (function () {
     isTouchControlSelected: isTouchControlSelected,
     streakHudPosition: streakHudPosition,
     joystickMoveSpeedTier: joystickMoveSpeedTier,
-    joystickIndicatorClass: joystickIndicatorClass
+    joystickIndicatorClass: joystickIndicatorClass,
+    SENTRY_MUZZLE_FORWARD_OFFSET: SENTRY_MUZZLE_FORWARD_OFFSET,
+    SENTRY_MUZZLE_HEIGHT_OFFSET: SENTRY_MUZZLE_HEIGHT_OFFSET,
+    SENTRY_MUZZLE_LIGHT_COLOR: SENTRY_MUZZLE_LIGHT_COLOR,
+    SENTRY_MUZZLE_LIGHT_INTENSITY: SENTRY_MUZZLE_LIGHT_INTENSITY,
+    SENTRY_MUZZLE_LIGHT_DIST: SENTRY_MUZZLE_LIGHT_DIST,
+    SENTRY_MUZZLE_LIGHT_DUR: SENTRY_MUZZLE_LIGHT_DUR,
+    sentryMuzzlePosition: sentryMuzzlePosition,
+    sentryShootDirection: sentryShootDirection,
+    sentryMuzzleLightParams: sentryMuzzleLightParams,
+    shouldSpawnPenetrationCoverVfx: shouldSpawnPenetrationCoverVfx,
+    canMeleeStrikeWorld: canMeleeStrikeWorld
   };
 })();
 
@@ -15818,6 +15894,10 @@ function fireShot(preserveSchedule) {
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
+    if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
+      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object);
+      if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
+    }
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
@@ -15873,7 +15953,17 @@ function doMelee() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
   const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
     dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
-  if (idx < 0) return;
+  if (idx < 0) {
+    _meleeDir.set(dirX, 0, dirZ);
+    raycaster.set(camera.position, _meleeDir);
+    raycaster.far = CORE.MELEE_REACH;
+    _worldHitsOut.length = 0;
+    const wh = raycaster.intersectObjects(worldRayTargets(camera.position, _meleeDir, CORE.MELEE_REACH), true, _worldHitsOut);
+    if (wh.length && CORE.canMeleeStrikeWorld(idx, wh[0].distance, CORE.MELEE_REACH)) {
+      spawnImpact(wh[0].point, wh[0].face ? wh[0].face.normal : null, wh[0].object);
+    }
+    return;
+  }
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
   const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
@@ -15903,6 +15993,7 @@ let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
+const _meleeDir = new THREE.Vector3();
 
 // ---- Viewmodel ----
 // The models, materials, springs and animation live in 32_viewmodels.js. The gun
@@ -21287,6 +21378,8 @@ const sentryBarrelGeo = new THREE.BoxGeometry(0.12, 0.12, 0.8);
 const sentryMat = new THREE.MeshStandardMaterial({ color: 0x3a4a58, roughness: 0.5, metalness: 0.6 });
 const _sentryFrom = new THREE.Vector3();
 const _sentryTo = new THREE.Vector3();
+const _sentryMuzzle = new THREE.Vector3();
+const _sentryShootDir = new THREE.Vector3();
 const _sentryHitPoint = new THREE.Vector3();
 const _sentryTimerOut = { t: 0, cd: 0, expired: false, readyToFire: false };
 
@@ -21338,7 +21431,14 @@ function updateSentries(dt) {
     if (!_sentryTimerOut.readyToFire) continue;
     s.cd = SENTRY_ROF;
     _sentryTo.set(best.pos.x, CORE.sentryAimTargetY(best.pos.y, CORE.SENTRY_AIM_Y_OFFSET), best.pos.z);
-    spawnTracer(_sentryFrom, _sentryTo);
+    CORE.sentryMuzzlePosition(s.m.position.x, s.m.position.y, s.m.position.z, s.m.rotation.y, CORE.SENTRY_MUZZLE_FORWARD_OFFSET, CORE.SENTRY_MUZZLE_HEIGHT_OFFSET, _sentryMuzzle);
+    CORE.sentryShootDirection(_sentryMuzzle.x, _sentryMuzzle.y, _sentryMuzzle.z, _sentryTo.x, _sentryTo.y, _sentryTo.z, _sentryShootDir);
+    if (typeof fxMuzzle === 'function') fxMuzzle(_sentryMuzzle, _sentryShootDir, false);
+    if (typeof flashLight === 'function') {
+      const slp = CORE.sentryMuzzleLightParams();
+      flashLight(_sentryMuzzle, slp.color, slp.intensity, slp.distance, slp.duration);
+    }
+    spawnTracer(_sentryMuzzle, _sentryTo);
     _sentryHitPoint.copy(_sentryTo);
     damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);

@@ -126,6 +126,8 @@ const sentryBarrelGeo = new THREE.BoxGeometry(0.12, 0.12, 0.8);
 const sentryMat = new THREE.MeshStandardMaterial({ color: 0x3a4a58, roughness: 0.5, metalness: 0.6 });
 const _sentryFrom = new THREE.Vector3();
 const _sentryTo = new THREE.Vector3();
+const _sentryMuzzle = new THREE.Vector3();
+const _sentryShootDir = new THREE.Vector3();
 const _sentryHitPoint = new THREE.Vector3();
 const _sentryTimerOut = { t: 0, cd: 0, expired: false, readyToFire: false };
 
@@ -177,7 +179,14 @@ function updateSentries(dt) {
     if (!_sentryTimerOut.readyToFire) continue;
     s.cd = SENTRY_ROF;
     _sentryTo.set(best.pos.x, CORE.sentryAimTargetY(best.pos.y, CORE.SENTRY_AIM_Y_OFFSET), best.pos.z);
-    spawnTracer(_sentryFrom, _sentryTo);
+    CORE.sentryMuzzlePosition(s.m.position.x, s.m.position.y, s.m.position.z, s.m.rotation.y, CORE.SENTRY_MUZZLE_FORWARD_OFFSET, CORE.SENTRY_MUZZLE_HEIGHT_OFFSET, _sentryMuzzle);
+    CORE.sentryShootDirection(_sentryMuzzle.x, _sentryMuzzle.y, _sentryMuzzle.z, _sentryTo.x, _sentryTo.y, _sentryTo.z, _sentryShootDir);
+    if (typeof fxMuzzle === 'function') fxMuzzle(_sentryMuzzle, _sentryShootDir, false);
+    if (typeof flashLight === 'function') {
+      const slp = CORE.sentryMuzzleLightParams();
+      flashLight(_sentryMuzzle, slp.color, slp.intensity, slp.distance, slp.duration);
+    }
+    spawnTracer(_sentryMuzzle, _sentryTo);
     _sentryHitPoint.copy(_sentryTo);
     damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);

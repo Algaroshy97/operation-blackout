@@ -3561,9 +3561,9 @@ def main() -> int:
             if (typeof CORE === 'undefined') return false;
 
             // 1. Downed control states and labels
-            const slideDownedStateOk = CORE.touchSlideState(false, false, true) === 'locked';
-            const slideDownedLabelOk = CORE.touchSlideLabel('locked', true) === 'CRAWL';
-            const plateDownedStateOk = CORE.touchPlateState(3, 3, false, true) === 'locked';
+            const slideDownedStateOk = CORE.touchSlideState(false, false, false, true) === 'locked';
+            const slideDownedLabelOk = CORE.touchSlideLabel(false, false, true) === 'CRAWL';
+            const plateDownedStateOk = CORE.touchPlateState(3, 3, 3, false, true) === 'locked';
             const plateDownedLabelOk = CORE.touchPlateLabel('locked', 3, true) === 'LOCKED';
             const meleeDownedOk = CORE.canPlayerMelee(false, true, 0) === false &&
                                   CORE.canPlayerMelee(false, false, 0) === true;
@@ -3578,14 +3578,14 @@ def main() -> int:
             const pauseStateEditing = CORE.touchPauseState(true, false, false, true) === 'editing';
             const pauseStateDead = CORE.touchPauseState(true, false, true, false) === 'dead';
             const pauseLabelReady = CORE.touchPauseLabel('ready') === 'II';
-            const pauseLabelPaused = CORE.touchPauseLabel('paused') === 'RESUME';
-            const pauseLabelEditing = CORE.touchPauseLabel('editing') === 'DONE';
-            const pauseLabelDead = CORE.touchPauseLabel('dead') === '';
-            const cache = { pauseState: 'ready', pauseLabel: 'II' };
+            const pauseLabelPaused = CORE.touchPauseLabel('paused') === 'PLAY';
+            const pauseLabelEditing = CORE.touchPauseLabel('editing') === 'EDIT';
+            const pauseLabelDead = CORE.touchPauseLabel('dead') === '--';
+            const cache = { state: 'ready', label: 'II' };
             const noChange = CORE.touchPauseChanged(cache, 'ready', 'II') === false;
-            const hasChange = CORE.touchPauseChanged(cache, 'paused', 'RESUME') === true;
-            CORE.syncTouchPauseState(cache, 'paused', 'RESUME');
-            const syncOk = cache.pauseState === 'paused' && cache.pauseLabel === 'RESUME';
+            const hasChange = CORE.touchPauseChanged(cache, 'paused', 'PLAY') === true;
+            CORE.syncTouchPauseState(cache, 'paused', 'PLAY');
+            const syncOk = cache.state === 'paused' && cache.label === 'PLAY';
             const pauseOk = pauseStateReady && pauseStatePaused && pauseStateEditing && pauseStateDead &&
                             pauseLabelReady && pauseLabelPaused && pauseLabelEditing && pauseLabelDead &&
                             noChange && hasChange && syncOk;
@@ -3593,12 +3593,12 @@ def main() -> int:
             // 3. Touch layout editor selection and streak HUD safe area
             const editorSelOk = CORE.isTouchControlSelected('tbtn-fire', 'tbtn-fire') === true &&
                                 CORE.isTouchControlSelected('tbtn-ads', 'tbtn-fire') === false;
-            const streakRight = CORE.streakHudPosition(false);
-            const streakLeft = CORE.streakHudPosition(true);
-            const streakOk = streakRight.right === 'calc(16px + env(safe-area-inset-right, 0px))' &&
-                             streakRight.left === 'auto' &&
-                             streakLeft.left === 'calc(16px + env(safe-area-inset-left, 0px))' &&
-                             streakLeft.right === 'auto';
+            const streakRight = CORE.streakHudPosition(true, false);
+            const streakLeft = CORE.streakHudPosition(true, true);
+            const streakOk = streakRight.top === 'calc(96px + var(--sa-t))' &&
+                             streakRight.side === 'right' && streakRight.inset === 'calc(16px + var(--sa-r))' &&
+                             streakLeft.top === 'calc(96px + var(--sa-t))' &&
+                             streakLeft.side === 'left' && streakLeft.inset === 'calc(16px + var(--sa-l))';
 
             // 4. Virtual joystick indicator rules
             const crawlTier = CORE.joystickMoveSpeedTier(0.5, true) === 'crawl';
@@ -3616,7 +3616,37 @@ def main() -> int:
         }""")
         checks.append(("mobile-downed-state-pause-and-editor-polish-rules", mobile_ui_polish_v126_check))
 
-        # 77) Clean console throughout gameplay.
+        # 77) Visual polish: sentry muzzle kinematics, penetration cover impact, and melee surface strike rules.
+        visual_polish_v127_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Sentry muzzle kinematics & lighting parameters
+            const offsetOk = CORE.SENTRY_MUZZLE_FORWARD_OFFSET === 0.85 &&
+                             CORE.SENTRY_MUZZLE_HEIGHT_OFFSET === 0.60;
+            const mPos = CORE.sentryMuzzlePosition(10, 0, 20, 0);
+            const mPosOk = Math.abs(mPos.x - 10) < 1e-4 &&
+                           Math.abs(mPos.y - 0.60) < 1e-4 &&
+                           Math.abs(mPos.z - (20 - 0.85)) < 1e-4;
+            const dir = CORE.sentryShootDirection(0, 0, 0, 5, 0, 0);
+            const dirOk = Math.abs(dir.x - 1.0) < 1e-4 && Math.abs(dir.y) < 1e-4 && Math.abs(dir.z) < 1e-4;
+            const lp = CORE.sentryMuzzleLightParams();
+            const lightOk = lp.color === 0xffaa44 && lp.intensity === 2.8 && lp.distance === 8.0 && lp.duration === 0.06;
+
+            // 2. Through-cover penetration visual impact gating
+            const penCoverOk = CORE.shouldSpawnPenetrationCoverVfx(0.75, 4.0, 10.0) === true &&
+                               CORE.shouldSpawnPenetrationCoverVfx(1.0, 4.0, 10.0) === false &&
+                               CORE.shouldSpawnPenetrationCoverVfx(0.75, 12.0, 10.0) === false;
+
+            // 3. Melee world surface strike gating
+            const meleeStrikeOk = CORE.canMeleeStrikeWorld(-1, 1.8, 2.2) === true &&
+                                  CORE.canMeleeStrikeWorld(0, 1.8, 2.2) === false &&
+                                  CORE.canMeleeStrikeWorld(-1, 2.8, 2.2) === false;
+
+            return offsetOk && mPosOk && dirOk && lightOk && penCoverOk && meleeStrikeOk;
+        }""")
+        checks.append(("sentry-muzzle-vfx-and-combat-penetration-visual-rules", visual_polish_v127_check))
+
+        # 78) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -353,6 +353,10 @@ function fireShot(preserveSchedule) {
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
     damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
+    if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
+      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object);
+      if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
+    }
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
@@ -408,7 +412,17 @@ function doMelee() {
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
   const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
     dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
-  if (idx < 0) return;
+  if (idx < 0) {
+    _meleeDir.set(dirX, 0, dirZ);
+    raycaster.set(camera.position, _meleeDir);
+    raycaster.far = CORE.MELEE_REACH;
+    _worldHitsOut.length = 0;
+    const wh = raycaster.intersectObjects(worldRayTargets(camera.position, _meleeDir, CORE.MELEE_REACH), true, _worldHitsOut);
+    if (wh.length && CORE.canMeleeStrikeWorld(idx, wh[0].distance, CORE.MELEE_REACH)) {
+      spawnImpact(wh[0].point, wh[0].face ? wh[0].face.normal : null, wh[0].object);
+    }
+    return;
+  }
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
   const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
@@ -438,6 +452,7 @@ let meleeT = 0;        // cooldown / lockout
 let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
+const _meleeDir = new THREE.Vector3();
 
 // ---- Viewmodel ----
 // The models, materials, springs and animation live in 32_viewmodels.js. The gun
