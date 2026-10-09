@@ -304,6 +304,7 @@
   body.touch #tbtn-nade.charging{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-nade.ready{border-color:#ffd24a;color:#ffdf8a;}
   body.touch #tbtn-nade.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
+  body.touch #tbtn-nade.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-swap{left:calc(150px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-swap.ready{border-color:#ffd24a;color:#ffdf8a;}
   body.touch #tbtn-swap.switching{border-color:#50b4ff;color:#50b4ff;}
@@ -317,6 +318,7 @@
   body.touch #tbtn-use.holding{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-use.blocked{border-color:#ff4a3d;color:#ff5f4a;opacity:.6}
   body.touch #tbtn-use.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
+  body.touch #tbtn-use.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-plate{left:calc(282px + var(--sa-l));bottom:calc(100px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-plate.urgent{border-color:#ffaa3a;color:#ffdf8a;}
   body.touch #tbtn-plate.inserting{border-color:#ffd24a;color:#ffd24a;}
@@ -326,10 +328,12 @@
   body.touch #tbtn-tactical{left:calc(282px + var(--sa-l));bottom:calc(164px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-tactical.ready{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-tactical.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
+  body.touch #tbtn-tactical.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch #tbtn-streak{left:calc(150px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;}
   body.touch #tbtn-streak.streak{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-streak.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
+  body.touch #tbtn-streak.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:transparent}
@@ -7060,16 +7064,18 @@ const CORE = (function () {
     if (curA < maxA) return 'ready';
     return '';
   }
-  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'charging'
-  // while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
-  function touchEquipmentState(count, isCharging) {
+  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'locked'
+  // while downed, 'charging' while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
+  function touchEquipmentState(count, isCharging, isDowned) {
+    if (isDowned) return 'locked';
     if (isCharging) return 'charging';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'empty';
     return 'ready';
   }
-  // Mobile touch scorestreak/field upgrade button state: returns 'streak' when a banked
-  // streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
-  function touchStreakState(hasStreak, fieldReady) {
+  // Mobile touch scorestreak/field upgrade button state: returns 'locked' while downed,
+  // 'streak' when a banked streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
+  function touchStreakState(hasStreak, fieldReady, isDowned) {
+    if (isDowned) return 'locked';
     if (hasStreak) return 'streak';
     if (fieldReady) return 'field';
     return 'empty';
@@ -7119,19 +7125,21 @@ const CORE = (function () {
     if (!ok) return '';
     return isTouch ? 'HOLD USE — ' : 'HOLD F — ';
   }
-  // Mobile touch station USE button state: returns 'holding' when actively holding interaction,
+  // Mobile touch station USE button state: returns 'locked' while downed, 'holding' when actively holding interaction,
   // 'ready' when in range of an affordable station, 'blocked' when near an unaffordable station,
   // or 'empty' when out of range of any interactive station.
-  function touchUseState(nearStation, canAfford, isHolding) {
+  function touchUseState(nearStation, canAfford, isHolding, isDowned) {
+    if (isDowned) return 'locked';
     if (!nearStation) return 'empty';
     if (isHolding) return 'holding';
     if (canAfford) return 'ready';
     return 'blocked';
   }
-  // Mobile touch station USE button contextual label: displays 'HOLD' while purchasing,
+  // Mobile touch station USE button contextual label: displays 'LOCKED' while downed, 'HOLD' while purchasing,
   // 'LOCK' when blocked, 'UPGRADE' / 'OPEN' / 'AMMO' / 'BUY' / 'PLATE' / 'PERK' / 'CYCLE'
   // when available, or 'USE' when idle/empty.
-  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action) {
+  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (!nearStation) return 'USE';
     if (isHolding) return 'HOLD';
     if (!canAfford) return 'LOCK';
@@ -7144,21 +7152,25 @@ const CORE = (function () {
     return 'BUY';
   }
   // Change-detection for mobile touch station USE button to prevent redundant DOM updates.
-  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
     if (!lastState || typeof lastState !== 'object') return true;
+    const downedVal = !!isDowned;
+    const lastDowned = !!lastState.isDowned;
     return lastState.nearStation !== nearStation ||
            lastState.canAfford !== canAfford ||
            lastState.isHolding !== isHolding ||
            lastState.stationKind !== stationKind ||
-           lastState.action !== action;
+           lastState.action !== action ||
+           (isDowned !== undefined ? lastDowned !== downedVal : false);
   }
-  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
     const target = lastState && typeof lastState === 'object' ? lastState : {};
     target.nearStation = nearStation;
     target.canAfford = canAfford;
     target.isHolding = isHolding;
     target.stationKind = stationKind;
     target.action = action;
+    target.isDowned = !!isDowned;
     return target;
   }
   // Mobile touch stance/slide button state: returns 'locked' while downed, 'sliding' during an active slide,
@@ -7186,18 +7198,20 @@ const CORE = (function () {
     if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
     return 'PLT ' + plates;
   }
-  // Mobile touch tactical equipment button label: displays 'FLASH', 'STUN', 'SMOKE'
+  // Mobile touch tactical equipment button label: displays 'LOCKED' while downed, 'FLASH', 'STUN', 'SMOKE'
   // based on active ordnance key, 'EMPTY' when depleted, or 'TAC' fallback.
-  function touchTacticalLabel(equippedKey, count) {
+  function touchTacticalLabel(equippedKey, count, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'flash') return 'FLASH';
     if (equippedKey === 'stun') return 'STUN';
     if (equippedKey === 'smoke') return 'SMOKE';
     return 'TAC';
   }
-  // Mobile touch lethal equipment button label: displays 'HOLD' while charging, 'FRAG',
+  // Mobile touch lethal equipment button label: displays 'LOCKED' while downed, 'HOLD' while charging, 'FRAG',
   // 'SMTX', 'CLAY' based on active explosive key, 'EMPTY' when depleted, or 'NADE' fallback.
-  function touchLethalLabel(equippedKey, count, isCharging) {
+  function touchLethalLabel(equippedKey, count, isCharging, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (isCharging) return 'HOLD';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'semtex') return 'SMTX';
@@ -7205,12 +7219,13 @@ const CORE = (function () {
     if (equippedKey === 'frag') return 'FRAG';
     return 'NADE';
   }
-  // Mobile touch scorestreak / field upgrade button label: displays 'UAV', 'AIR', 'TUR'
+  // Mobile touch scorestreak / field upgrade button label: displays 'LOCKED' while downed, 'UAV', 'AIR', 'TUR'
   // for active banked streaks, 'BOX' when munitions field upgrade is ready, a charge
   // percentage (e.g. '73%') when field is charging and no streak is banked, or 'STRK'
   // fallback. Optional third argument fieldChargePct (0–100) enables the progress label;
   // omitting it preserves the previous two-argument behaviour exactly.
-  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct) {
+  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (topStreakKey) {
       if (topStreakKey === 'uav') return 'UAV';
       if (topStreakKey === 'airstrike') return 'AIR';
@@ -7231,6 +7246,31 @@ const CORE = (function () {
   function canPlayerMelee(isDead, isDowned, cooldownRemaining) {
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     return !isDead && !isDowned && cd <= 0;
+  }
+  // Evaluates player eligibility to throw lethal or tactical ordnance.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerThrowEquipment(isDead, isDowned, count, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    const cnt = typeof count === 'number' && isFinite(count) ? count : 0;
+    return !isDead && !isDowned && cnt > 0 && cd <= 0;
+  }
+  // Evaluates player eligibility to call in an earned scorestreak.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerUseStreak(isDead, isDowned, streakCount) {
+    const cnt = typeof streakCount === 'number' && isFinite(streakCount) ? streakCount : 0;
+    return !isDead && !isDowned && cnt > 0;
+  }
+  // Evaluates player eligibility to deploy a munitions field upgrade.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerUseFieldUpgrade(isDead, isDowned, currentCharge, requiredCharge) {
+    const cur = typeof currentCharge === 'number' && isFinite(currentCharge) ? currentCharge : 0;
+    const req = typeof requiredCharge === 'number' && isFinite(requiredCharge) ? requiredCharge : 100;
+    return !isDead && !isDowned && cur >= req;
+  }
+  // Evaluates player eligibility to interact with stations, doors, and wall buys.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerInteractStation(isDead, isDowned, nearStation) {
+    return !isDead && !isDowned && !!nearStation;
   }
   // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
@@ -13140,7 +13180,11 @@ const CORE = (function () {
     SOLDIER_RAGDOLL_KNOCK_BASE: SOLDIER_RAGDOLL_KNOCK_BASE,
     SOLDIER_RAGDOLL_KNOCK_MIN: SOLDIER_RAGDOLL_KNOCK_MIN,
     soldierRagdollKnockback: soldierRagdollKnockback,
-    soldierRagdollMomentum: soldierRagdollMomentum
+    soldierRagdollMomentum: soldierRagdollMomentum,
+    canPlayerThrowEquipment: canPlayerThrowEquipment,
+    canPlayerUseStreak: canPlayerUseStreak,
+    canPlayerUseFieldUpgrade: canPlayerUseFieldUpgrade,
+    canPlayerInteractStation: canPlayerInteractStation
   };
 })();
 
@@ -20375,25 +20419,26 @@ function cancelGrenadeCharge() {
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
   // Tacticals are a separate slot on a separate key, thrown at a fixed speed —
   // there is no reason to cook a flashbang, and a charge bar on one would just be
   // a second thing to learn.
-  if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
-      && !player.dead && started && !paused) {
+  if ((pressed['KeyQ'] || pressed['__tactical']) && CORE.canPlayerThrowEquipment(player.dead, isDowned, tacticalCount, grenades.cd)
+      && started && !paused) {
     throwGrenade(CFG.grenade.speed * CORE.TACTICAL_SPEED_MUL, tacticalDef());
     updateHudAmmo();
   }
   updateEquipmentEffects(dt);
 
   // Charge / aim input handling
-  const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
+  const canCharge = CORE.canPlayerThrowEquipment(player.dead, isDowned, grenades.count, grenades.cd) && started && !paused;
   if (keys['KeyG']) {
     if (!grenadeCharging && canCharge) {
       grenadeCharging = true;
       grenadeChargeT = 0;
     }
     if (grenadeCharging) {
-      if (player.dead || paused || !started || grenades.count <= 0) {
+      if (player.dead || isDowned || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
         grenadeChargeT += dt;
@@ -20407,7 +20452,7 @@ function updateGrenades(dt) {
     }
   } else {
     if (grenadeCharging) {
-      if (player.dead || paused || !started || grenades.count <= 0) {
+      if (player.dead || isDowned || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
         const throwSpeed = CORE.grenadeThrowSpeed(grenadeChargeT, CFG.grenade.speed);
@@ -21265,30 +21310,32 @@ function purchase(st) {
 let _lastTouchUseState = null;
 let _tbtnUseEl = null;
 
-function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, action) {
+function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, action, isDowned) {
   if (typeof IS_TOUCH === 'undefined' || !IS_TOUCH) return;
   if (!_tbtnUseEl) _tbtnUseEl = $id('tbtn-use');
   if (!_tbtnUseEl) return;
-  if (!_lastTouchUseState) _lastTouchUseState = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null };
-  if (!CORE.touchUseChanged(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action)) return;
-  CORE.syncTouchUseState(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action);
+  if (!_lastTouchUseState) _lastTouchUseState = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null };
+  if (!CORE.touchUseChanged(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned)) return;
+  CORE.syncTouchUseState(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned);
 
-  const uState = CORE.touchUseState(nearStation, canAfford, isHolding);
+  const uState = CORE.touchUseState(nearStation, canAfford, isHolding, isDowned);
   _tbtnUseEl.classList.toggle('empty', uState === 'empty');
   _tbtnUseEl.classList.toggle('ready', uState === 'ready');
   _tbtnUseEl.classList.toggle('holding', uState === 'holding');
   _tbtnUseEl.classList.toggle('blocked', uState === 'blocked');
+  _tbtnUseEl.classList.toggle('locked', uState === 'locked');
 
-  const lbl = CORE.touchUseLabel(nearStation, canAfford, isHolding, stationKind, action);
+  const lbl = CORE.touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned);
   if (_tbtnUseEl.textContent !== lbl) _tbtnUseEl.textContent = lbl;
 }
 
 // ---- Per-frame --------------------------------------------------------------
 function updateStations(dt) {
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
-  if (!started || paused || player.dead) {
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  if (!started || paused || player.dead || isDowned) {
     setBuyPrompt(null, 0);
-    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned);
     return;
   }
   // Plating runs to completion once started; it is a commitment, like a reload.
@@ -21311,7 +21358,7 @@ function updateStations(dt) {
   if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
   if (idx < 0) {
     setBuyPrompt(null, 0);
-    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned);
     return;
   }
   const st = stations[idx];
@@ -21319,12 +21366,12 @@ function updateStations(dt) {
   const canAfford = offer.ok && credits >= offer.price;
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
   stationHoldT = CORE.stepStationHold(stationHoldT, holding, dt, CORE.STATION_HOLD_DECAY_RATE, CORE.BUY_HOLD);
-  if (holding && stationHoldT >= CORE.BUY_HOLD) {
+  if (holding && stationHoldT >= CORE.BUY_HOLD && CORE.canPlayerInteractStation(player.dead, isDowned, st)) {
     stationHoldT = 0;
     purchase(st);
   }
   if (isTouch) {
-    updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action);
+    updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action, isDowned);
   }
   const promptPrefix = CORE.buyPromptPrefix(isTouch, offer.ok);
   const promptText = CORE.buyPromptLabel(offer.label, offer.price, promptPrefix);
@@ -21392,6 +21439,8 @@ function reviveFromDown() {
   clearDowned();
   player.health = CORE.DOWN_REVIVE_HEALTH;
   updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof updateHudStreaks === 'function') updateHudStreaks();
   showCenterMsg('BACK IN THE FIGHT');
   playSound(CORE.playerReviveSound());
 }
@@ -21722,8 +21771,9 @@ function updateMunitions(dt) {
 
 function updateStreaks(dt) {
   if (!started || paused || player.dead) return;
-  if (pressed['KeyZ'] || pressed['__streak']) useStreak();
-  if (pressed['KeyB'] || pressed['__field']) useFieldUpgrade();
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  if ((pressed['KeyZ'] || pressed['__streak']) && CORE.canPlayerUseStreak(player.dead, isDowned, streakBank.length)) useStreak();
+  if ((pressed['KeyB'] || pressed['__field']) && CORE.canPlayerUseFieldUpgrade(player.dead, isDowned, fieldCharge, CORE.FIELD_UPGRADE && CORE.FIELD_UPGRADE.charge ? CORE.FIELD_UPGRADE.charge : 100)) useFieldUpgrade();
   updateSentries(dt);
   updateMunitions(dt);
 }
@@ -21755,16 +21805,18 @@ function updateHudStreaks() {
     if (tbtnStreak) {
       const hasStreak = streakBank.length > 0;
       const fReady = CORE.fieldReady(fieldCharge);
-      const sState = CORE.touchStreakState(hasStreak, fReady);
+      const isDowned = typeof player !== 'undefined' && !!player.downed;
+      const sState = CORE.touchStreakState(hasStreak, fReady, isDowned);
       const topStreak = hasStreak ? streakBank[0] : null;
       const fieldChargePct = CORE.FIELD_UPGRADE && CORE.FIELD_UPGRADE.charge > 0
         ? fieldCharge / CORE.FIELD_UPGRADE.charge * 100 : 0;
-      const sLabel = CORE.touchStreakLabel(topStreak, fReady, fieldChargePct);
+      const sLabel = CORE.touchStreakLabel(topStreak, fReady, fieldChargePct, isDowned);
       if (CORE.touchStreakChanged(_touchStreakCache, sState, sLabel)) {
         CORE.syncTouchStreakState(_touchStreakCache, sState, sLabel);
         tbtnStreak.classList.toggle('streak', sState === 'streak');
         tbtnStreak.classList.toggle('field', sState === 'field');
         tbtnStreak.classList.toggle('empty', sState === 'empty');
+        tbtnStreak.classList.toggle('locked', sState === 'locked');
         if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
       }
     }
@@ -21965,26 +22017,29 @@ function updateHudAmmo(force) {
         if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
       }
     }
+    const isDowned = typeof player !== 'undefined' && !!player.downed;
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
-      const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
-      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
+      const nadeState = CORE.touchEquipmentState(nadeCount, isChg, isDowned);
+      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg, isDowned);
       if (CORE.touchEquipmentChanged(_touchNadeCache, nadeState, nadeLabel)) {
         CORE.syncTouchEquipmentState(_touchNadeCache, nadeState, nadeLabel);
         tbtnNade.classList.toggle('empty', nadeState === 'empty');
         tbtnNade.classList.toggle('charging', nadeState === 'charging');
         tbtnNade.classList.toggle('ready', nadeState === 'ready');
+        tbtnNade.classList.toggle('locked', nadeState === 'locked');
         if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
       }
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
-      const tacState = CORE.touchEquipmentState(tacCount, false);
-      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
+      const tacState = CORE.touchEquipmentState(tacCount, false, isDowned);
+      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount, isDowned);
       if (CORE.touchEquipmentChanged(_touchTacCache, tacState, tacLabel)) {
         CORE.syncTouchEquipmentState(_touchTacCache, tacState, tacLabel);
         tbtnTac.classList.toggle('empty', tacState === 'empty');
         tbtnTac.classList.toggle('ready', tacState === 'ready');
+        tbtnTac.classList.toggle('locked', tacState === 'locked');
         if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
       }
     }

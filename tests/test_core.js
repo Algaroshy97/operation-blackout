@@ -8334,3 +8334,89 @@ test('v130 performance optimization: countdown and downed timer change-gating, b
   assert.ok(Math.abs(mRes.z - (4.0 * 0.55 + 2.0)) < 1e-4);
 });
 
+test('v131 mobile UI polish: downed equipment, streaks, and station lockout gating rules', () => {
+  // 1. Player capability gating during downed state
+  assert.strictEqual(CORE.canPlayerThrowEquipment(false, true, 2, 0), false);
+  assert.strictEqual(CORE.canPlayerThrowEquipment(false, false, 2, 0), true);
+  assert.strictEqual(CORE.canPlayerThrowEquipment(false, false, 0, 0), false);
+  assert.strictEqual(CORE.canPlayerThrowEquipment(false, false, 2, 1.5), false);
+  assert.strictEqual(CORE.canPlayerThrowEquipment(true, false, 2, 0), false);
+
+  assert.strictEqual(CORE.canPlayerUseStreak(false, true, 1), false);
+  assert.strictEqual(CORE.canPlayerUseStreak(false, false, 1), true);
+  assert.strictEqual(CORE.canPlayerUseStreak(false, false, 0), false);
+  assert.strictEqual(CORE.canPlayerUseStreak(true, false, 1), false);
+
+  assert.strictEqual(CORE.canPlayerUseFieldUpgrade(false, true, 100, 100), false);
+  assert.strictEqual(CORE.canPlayerUseFieldUpgrade(false, false, 100, 100), true);
+  assert.strictEqual(CORE.canPlayerUseFieldUpgrade(false, false, 50, 100), false);
+  assert.strictEqual(CORE.canPlayerUseFieldUpgrade(true, false, 100, 100), false);
+
+  assert.strictEqual(CORE.canPlayerInteractStation(false, true, true), false);
+  assert.strictEqual(CORE.canPlayerInteractStation(false, false, true), true);
+  assert.strictEqual(CORE.canPlayerInteractStation(false, false, false), false);
+  assert.strictEqual(CORE.canPlayerInteractStation(true, false, true), false);
+
+  // 2. Mobile touch equipment button state & label
+  assert.strictEqual(CORE.touchEquipmentState(2, false, true), 'locked');
+  assert.strictEqual(CORE.touchEquipmentState(2, true, true), 'locked');
+  assert.strictEqual(CORE.touchEquipmentState(2, false, false), 'ready');
+  assert.strictEqual(CORE.touchEquipmentState(0, false, false), 'empty');
+  assert.strictEqual(CORE.touchEquipmentState(2, true, false), 'charging');
+
+  assert.strictEqual(CORE.touchLethalLabel('frag', 2, false, true), 'LOCKED');
+  assert.strictEqual(CORE.touchLethalLabel('frag', 2, false, false), 'FRAG');
+  assert.strictEqual(CORE.touchLethalLabel('semtex', 2, false, false), 'SMTX');
+  assert.strictEqual(CORE.touchLethalLabel('claymore', 2, false, false), 'CLAY');
+  assert.strictEqual(CORE.touchLethalLabel('frag', 0, false, false), 'EMPTY');
+  assert.strictEqual(CORE.touchLethalLabel('frag', 2, true, false), 'HOLD');
+
+  assert.strictEqual(CORE.touchTacticalLabel('flash', 2, true), 'LOCKED');
+  assert.strictEqual(CORE.touchTacticalLabel('flash', 2, false), 'FLASH');
+  assert.strictEqual(CORE.touchTacticalLabel('stun', 2, false), 'STUN');
+  assert.strictEqual(CORE.touchTacticalLabel('smoke', 2, false), 'SMOKE');
+  assert.strictEqual(CORE.touchTacticalLabel('flash', 0, false), 'EMPTY');
+
+  // 3. Mobile touch streak button state & label
+  assert.strictEqual(CORE.touchStreakState(true, false, true), 'locked');
+  assert.strictEqual(CORE.touchStreakState(false, true, true), 'locked');
+  assert.strictEqual(CORE.touchStreakState(true, false, false), 'streak');
+  assert.strictEqual(CORE.touchStreakState(false, true, false), 'field');
+  assert.strictEqual(CORE.touchStreakState(false, false, false), 'empty');
+
+  assert.strictEqual(CORE.touchStreakLabel('uav', false, 0, true), 'LOCKED');
+  assert.strictEqual(CORE.touchStreakLabel('uav', false, 0, false), 'UAV');
+  assert.strictEqual(CORE.touchStreakLabel('airstrike', false, 0, false), 'AIR');
+  assert.strictEqual(CORE.touchStreakLabel('sentry', false, 0, false), 'TUR');
+  assert.strictEqual(CORE.touchStreakLabel(null, true, 0, false), 'BOX');
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 75, false), '75%');
+  assert.strictEqual(CORE.touchStreakLabel(null, false, 0, false), 'STRK');
+
+  // 4. Mobile touch station USE button state & label
+  assert.strictEqual(CORE.touchUseState(true, true, false, true), 'locked');
+  assert.strictEqual(CORE.touchUseState(true, true, false, false), 'ready');
+  assert.strictEqual(CORE.touchUseState(true, false, false, false), 'blocked');
+  assert.strictEqual(CORE.touchUseState(true, true, true, false), 'holding');
+  assert.strictEqual(CORE.touchUseState(false, true, false, false), 'empty');
+
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', true), 'LOCKED');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false), 'UPGRADE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'door', 'door', false), 'OPEN');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'plate', 'plate', false), 'PLATE');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'perk', 'perk', false), 'PERK');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'wall', 'ammo', false), 'AMMO');
+  assert.strictEqual(CORE.touchUseLabel(true, true, false, 'wall', 'buy', false), 'BUY');
+  assert.strictEqual(CORE.touchUseLabel(true, false, false, 'wall', 'buy', false), 'LOCK');
+  assert.strictEqual(CORE.touchUseLabel(true, true, true, 'wall', 'buy', false), 'HOLD');
+  assert.strictEqual(CORE.touchUseLabel(false, true, false, 'wall', 'buy', false), 'USE');
+
+  // 5. Change detection for touch USE button with isDowned
+  const useInit = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null };
+  assert.strictEqual(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', true), true);
+  CORE.syncTouchUseState(useInit, true, true, false, 'wall', 'buy', true);
+  assert.strictEqual(useInit.isDowned, true);
+  assert.strictEqual(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', true), false);
+  assert.strictEqual(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false), true);
+});
+
+

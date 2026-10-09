@@ -2327,16 +2327,18 @@ const CORE = (function () {
     if (curA < maxA) return 'ready';
     return '';
   }
-  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'charging'
-  // while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
-  function touchEquipmentState(count, isCharging) {
+  // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'locked'
+  // while downed, 'charging' while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
+  function touchEquipmentState(count, isCharging, isDowned) {
+    if (isDowned) return 'locked';
     if (isCharging) return 'charging';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'empty';
     return 'ready';
   }
-  // Mobile touch scorestreak/field upgrade button state: returns 'streak' when a banked
-  // streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
-  function touchStreakState(hasStreak, fieldReady) {
+  // Mobile touch scorestreak/field upgrade button state: returns 'locked' while downed,
+  // 'streak' when a banked streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
+  function touchStreakState(hasStreak, fieldReady, isDowned) {
+    if (isDowned) return 'locked';
     if (hasStreak) return 'streak';
     if (fieldReady) return 'field';
     return 'empty';
@@ -2386,19 +2388,21 @@ const CORE = (function () {
     if (!ok) return '';
     return isTouch ? 'HOLD USE — ' : 'HOLD F — ';
   }
-  // Mobile touch station USE button state: returns 'holding' when actively holding interaction,
+  // Mobile touch station USE button state: returns 'locked' while downed, 'holding' when actively holding interaction,
   // 'ready' when in range of an affordable station, 'blocked' when near an unaffordable station,
   // or 'empty' when out of range of any interactive station.
-  function touchUseState(nearStation, canAfford, isHolding) {
+  function touchUseState(nearStation, canAfford, isHolding, isDowned) {
+    if (isDowned) return 'locked';
     if (!nearStation) return 'empty';
     if (isHolding) return 'holding';
     if (canAfford) return 'ready';
     return 'blocked';
   }
-  // Mobile touch station USE button contextual label: displays 'HOLD' while purchasing,
+  // Mobile touch station USE button contextual label: displays 'LOCKED' while downed, 'HOLD' while purchasing,
   // 'LOCK' when blocked, 'UPGRADE' / 'OPEN' / 'AMMO' / 'BUY' / 'PLATE' / 'PERK' / 'CYCLE'
   // when available, or 'USE' when idle/empty.
-  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action) {
+  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (!nearStation) return 'USE';
     if (isHolding) return 'HOLD';
     if (!canAfford) return 'LOCK';
@@ -2411,21 +2415,25 @@ const CORE = (function () {
     return 'BUY';
   }
   // Change-detection for mobile touch station USE button to prevent redundant DOM updates.
-  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
     if (!lastState || typeof lastState !== 'object') return true;
+    const downedVal = !!isDowned;
+    const lastDowned = !!lastState.isDowned;
     return lastState.nearStation !== nearStation ||
            lastState.canAfford !== canAfford ||
            lastState.isHolding !== isHolding ||
            lastState.stationKind !== stationKind ||
-           lastState.action !== action;
+           lastState.action !== action ||
+           (isDowned !== undefined ? lastDowned !== downedVal : false);
   }
-  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action) {
+  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
     const target = lastState && typeof lastState === 'object' ? lastState : {};
     target.nearStation = nearStation;
     target.canAfford = canAfford;
     target.isHolding = isHolding;
     target.stationKind = stationKind;
     target.action = action;
+    target.isDowned = !!isDowned;
     return target;
   }
   // Mobile touch stance/slide button state: returns 'locked' while downed, 'sliding' during an active slide,
@@ -2453,18 +2461,20 @@ const CORE = (function () {
     if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
     return 'PLT ' + plates;
   }
-  // Mobile touch tactical equipment button label: displays 'FLASH', 'STUN', 'SMOKE'
+  // Mobile touch tactical equipment button label: displays 'LOCKED' while downed, 'FLASH', 'STUN', 'SMOKE'
   // based on active ordnance key, 'EMPTY' when depleted, or 'TAC' fallback.
-  function touchTacticalLabel(equippedKey, count) {
+  function touchTacticalLabel(equippedKey, count, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'flash') return 'FLASH';
     if (equippedKey === 'stun') return 'STUN';
     if (equippedKey === 'smoke') return 'SMOKE';
     return 'TAC';
   }
-  // Mobile touch lethal equipment button label: displays 'HOLD' while charging, 'FRAG',
+  // Mobile touch lethal equipment button label: displays 'LOCKED' while downed, 'HOLD' while charging, 'FRAG',
   // 'SMTX', 'CLAY' based on active explosive key, 'EMPTY' when depleted, or 'NADE' fallback.
-  function touchLethalLabel(equippedKey, count, isCharging) {
+  function touchLethalLabel(equippedKey, count, isCharging, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (isCharging) return 'HOLD';
     if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'semtex') return 'SMTX';
@@ -2472,12 +2482,13 @@ const CORE = (function () {
     if (equippedKey === 'frag') return 'FRAG';
     return 'NADE';
   }
-  // Mobile touch scorestreak / field upgrade button label: displays 'UAV', 'AIR', 'TUR'
+  // Mobile touch scorestreak / field upgrade button label: displays 'LOCKED' while downed, 'UAV', 'AIR', 'TUR'
   // for active banked streaks, 'BOX' when munitions field upgrade is ready, a charge
   // percentage (e.g. '73%') when field is charging and no streak is banked, or 'STRK'
   // fallback. Optional third argument fieldChargePct (0–100) enables the progress label;
   // omitting it preserves the previous two-argument behaviour exactly.
-  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct) {
+  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct, isDowned) {
+    if (isDowned) return 'LOCKED';
     if (topStreakKey) {
       if (topStreakKey === 'uav') return 'UAV';
       if (topStreakKey === 'airstrike') return 'AIR';
@@ -2498,6 +2509,31 @@ const CORE = (function () {
   function canPlayerMelee(isDead, isDowned, cooldownRemaining) {
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     return !isDead && !isDowned && cd <= 0;
+  }
+  // Evaluates player eligibility to throw lethal or tactical ordnance.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerThrowEquipment(isDead, isDowned, count, cooldownRemaining) {
+    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    const cnt = typeof count === 'number' && isFinite(count) ? count : 0;
+    return !isDead && !isDowned && cnt > 0 && cd <= 0;
+  }
+  // Evaluates player eligibility to call in an earned scorestreak.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerUseStreak(isDead, isDowned, streakCount) {
+    const cnt = typeof streakCount === 'number' && isFinite(streakCount) ? streakCount : 0;
+    return !isDead && !isDowned && cnt > 0;
+  }
+  // Evaluates player eligibility to deploy a munitions field upgrade.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerUseFieldUpgrade(isDead, isDowned, currentCharge, requiredCharge) {
+    const cur = typeof currentCharge === 'number' && isFinite(currentCharge) ? currentCharge : 0;
+    const req = typeof requiredCharge === 'number' && isFinite(requiredCharge) ? requiredCharge : 100;
+    return !isDead && !isDowned && cur >= req;
+  }
+  // Evaluates player eligibility to interact with stations, doors, and wall buys.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerInteractStation(isDead, isDowned, nearStation) {
+    return !isDead && !isDowned && !!nearStation;
   }
   // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
@@ -8407,7 +8443,11 @@ const CORE = (function () {
     SOLDIER_RAGDOLL_KNOCK_BASE: SOLDIER_RAGDOLL_KNOCK_BASE,
     SOLDIER_RAGDOLL_KNOCK_MIN: SOLDIER_RAGDOLL_KNOCK_MIN,
     soldierRagdollKnockback: soldierRagdollKnockback,
-    soldierRagdollMomentum: soldierRagdollMomentum
+    soldierRagdollMomentum: soldierRagdollMomentum,
+    canPlayerThrowEquipment: canPlayerThrowEquipment,
+    canPlayerUseStreak: canPlayerUseStreak,
+    canPlayerUseFieldUpgrade: canPlayerUseFieldUpgrade,
+    canPlayerInteractStation: canPlayerInteractStation
   };
 })();
 

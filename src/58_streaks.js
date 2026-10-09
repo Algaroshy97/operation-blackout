@@ -240,8 +240,9 @@ function updateMunitions(dt) {
 
 function updateStreaks(dt) {
   if (!started || paused || player.dead) return;
-  if (pressed['KeyZ'] || pressed['__streak']) useStreak();
-  if (pressed['KeyB'] || pressed['__field']) useFieldUpgrade();
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  if ((pressed['KeyZ'] || pressed['__streak']) && CORE.canPlayerUseStreak(player.dead, isDowned, streakBank.length)) useStreak();
+  if ((pressed['KeyB'] || pressed['__field']) && CORE.canPlayerUseFieldUpgrade(player.dead, isDowned, fieldCharge, CORE.FIELD_UPGRADE && CORE.FIELD_UPGRADE.charge ? CORE.FIELD_UPGRADE.charge : 100)) useFieldUpgrade();
   updateSentries(dt);
   updateMunitions(dt);
 }
@@ -273,16 +274,18 @@ function updateHudStreaks() {
     if (tbtnStreak) {
       const hasStreak = streakBank.length > 0;
       const fReady = CORE.fieldReady(fieldCharge);
-      const sState = CORE.touchStreakState(hasStreak, fReady);
+      const isDowned = typeof player !== 'undefined' && !!player.downed;
+      const sState = CORE.touchStreakState(hasStreak, fReady, isDowned);
       const topStreak = hasStreak ? streakBank[0] : null;
       const fieldChargePct = CORE.FIELD_UPGRADE && CORE.FIELD_UPGRADE.charge > 0
         ? fieldCharge / CORE.FIELD_UPGRADE.charge * 100 : 0;
-      const sLabel = CORE.touchStreakLabel(topStreak, fReady, fieldChargePct);
+      const sLabel = CORE.touchStreakLabel(topStreak, fReady, fieldChargePct, isDowned);
       if (CORE.touchStreakChanged(_touchStreakCache, sState, sLabel)) {
         CORE.syncTouchStreakState(_touchStreakCache, sState, sLabel);
         tbtnStreak.classList.toggle('streak', sState === 'streak');
         tbtnStreak.classList.toggle('field', sState === 'field');
         tbtnStreak.classList.toggle('empty', sState === 'empty');
+        tbtnStreak.classList.toggle('locked', sState === 'locked');
         if (tbtnStreak.textContent !== sLabel) tbtnStreak.textContent = sLabel;
       }
     }

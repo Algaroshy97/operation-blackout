@@ -398,25 +398,26 @@ function cancelGrenadeCharge() {
 
 function updateGrenades(dt) {
   grenades.cd = Math.max(0, grenades.cd - dt);
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
   // Tacticals are a separate slot on a separate key, thrown at a fixed speed —
   // there is no reason to cook a flashbang, and a charge bar on one would just be
   // a second thing to learn.
-  if ((pressed['KeyQ'] || pressed['__tactical']) && tacticalCount > 0 && grenades.cd <= 0
-      && !player.dead && started && !paused) {
+  if ((pressed['KeyQ'] || pressed['__tactical']) && CORE.canPlayerThrowEquipment(player.dead, isDowned, tacticalCount, grenades.cd)
+      && started && !paused) {
     throwGrenade(CFG.grenade.speed * CORE.TACTICAL_SPEED_MUL, tacticalDef());
     updateHudAmmo();
   }
   updateEquipmentEffects(dt);
 
   // Charge / aim input handling
-  const canCharge = grenades.count > 0 && grenades.cd <= 0 && !player.dead && started && !paused;
+  const canCharge = CORE.canPlayerThrowEquipment(player.dead, isDowned, grenades.count, grenades.cd) && started && !paused;
   if (keys['KeyG']) {
     if (!grenadeCharging && canCharge) {
       grenadeCharging = true;
       grenadeChargeT = 0;
     }
     if (grenadeCharging) {
-      if (player.dead || paused || !started || grenades.count <= 0) {
+      if (player.dead || isDowned || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
         grenadeChargeT += dt;
@@ -430,7 +431,7 @@ function updateGrenades(dt) {
     }
   } else {
     if (grenadeCharging) {
-      if (player.dead || paused || !started || grenades.count <= 0) {
+      if (player.dead || isDowned || paused || !started || grenades.count <= 0) {
         cancelGrenadeCharge();
       } else {
         const throwSpeed = CORE.grenadeThrowSpeed(grenadeChargeT, CFG.grenade.speed);

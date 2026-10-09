@@ -192,26 +192,29 @@ function updateHudAmmo(force) {
         if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
       }
     }
+    const isDowned = typeof player !== 'undefined' && !!player.downed;
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
-      const nadeState = CORE.touchEquipmentState(nadeCount, isChg);
-      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg);
+      const nadeState = CORE.touchEquipmentState(nadeCount, isChg, isDowned);
+      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg, isDowned);
       if (CORE.touchEquipmentChanged(_touchNadeCache, nadeState, nadeLabel)) {
         CORE.syncTouchEquipmentState(_touchNadeCache, nadeState, nadeLabel);
         tbtnNade.classList.toggle('empty', nadeState === 'empty');
         tbtnNade.classList.toggle('charging', nadeState === 'charging');
         tbtnNade.classList.toggle('ready', nadeState === 'ready');
+        tbtnNade.classList.toggle('locked', nadeState === 'locked');
         if (tbtnNade.textContent !== nadeLabel) tbtnNade.textContent = nadeLabel;
       }
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
-      const tacState = CORE.touchEquipmentState(tacCount, false);
-      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount);
+      const tacState = CORE.touchEquipmentState(tacCount, false, isDowned);
+      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount, isDowned);
       if (CORE.touchEquipmentChanged(_touchTacCache, tacState, tacLabel)) {
         CORE.syncTouchEquipmentState(_touchTacCache, tacState, tacLabel);
         tbtnTac.classList.toggle('empty', tacState === 'empty');
         tbtnTac.classList.toggle('ready', tacState === 'ready');
+        tbtnTac.classList.toggle('locked', tacState === 'locked');
         if (tbtnTac.textContent !== tacLabel) tbtnTac.textContent = tacLabel;
       }
     }

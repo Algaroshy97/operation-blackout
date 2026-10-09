@@ -3780,7 +3780,63 @@ def main() -> int:
         }""")
         checks.append(("countdown-downed-blast-and-ragdoll-perf-rules", perf_optimization_v130_check))
 
-        # 81) Clean console throughout gameplay.
+        # 81) Mobile UI polish: downed equipment, streaks, and station lockout gating rules.
+        mobile_polish_v131_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Player capability gating during downed state
+            const eqGateOk = CORE.canPlayerThrowEquipment(false, true, 2, 0) === false &&
+                             CORE.canPlayerThrowEquipment(false, false, 2, 0) === true &&
+                             CORE.canPlayerThrowEquipment(false, false, 0, 0) === false &&
+                             CORE.canPlayerThrowEquipment(false, false, 2, 1.5) === false &&
+                             CORE.canPlayerThrowEquipment(true, false, 2, 0) === false;
+
+            const streakGateOk = CORE.canPlayerUseStreak(false, true, 1) === false &&
+                                 CORE.canPlayerUseStreak(false, false, 1) === true &&
+                                 CORE.canPlayerUseStreak(false, false, 0) === false;
+
+            const fieldGateOk = CORE.canPlayerUseFieldUpgrade(false, true, 100, 100) === false &&
+                                CORE.canPlayerUseFieldUpgrade(false, false, 100, 100) === true &&
+                                CORE.canPlayerUseFieldUpgrade(false, false, 50, 100) === false;
+
+            const stationGateOk = CORE.canPlayerInteractStation(false, true, true) === false &&
+                                  CORE.canPlayerInteractStation(false, false, true) === true &&
+                                  CORE.canPlayerInteractStation(false, false, false) === false;
+
+            // 2. Mobile touch equipment button state & label
+            const eqTouchOk = CORE.touchEquipmentState(2, false, true) === 'locked' &&
+                              CORE.touchEquipmentState(2, false, false) === 'ready' &&
+                              CORE.touchLethalLabel('frag', 2, false, true) === 'LOCKED' &&
+                              CORE.touchLethalLabel('frag', 2, false, false) === 'FRAG' &&
+                              CORE.touchTacticalLabel('flash', 2, true) === 'LOCKED' &&
+                              CORE.touchTacticalLabel('flash', 2, false) === 'FLASH';
+
+            // 3. Mobile touch streak button state & label
+            const streakTouchOk = CORE.touchStreakState(true, false, true) === 'locked' &&
+                                  CORE.touchStreakState(true, false, false) === 'streak' &&
+                                  CORE.touchStreakLabel('uav', false, 0, true) === 'LOCKED' &&
+                                  CORE.touchStreakLabel('uav', false, 0, false) === 'UAV';
+
+            // 4. Mobile touch station USE button state & label
+            const useTouchOk = CORE.touchUseState(true, true, false, true) === 'locked' &&
+                               CORE.touchUseState(true, true, false, false) === 'ready' &&
+                               CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', true) === 'LOCKED' &&
+                               CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false) === 'UPGRADE';
+
+            // 5. Change detection for touch USE button with isDowned
+            const useInit = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null };
+            const uChg1 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', true);
+            CORE.syncTouchUseState(useInit, true, true, false, 'wall', 'buy', true);
+            const uChg2 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', true);
+            const uChg3 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false);
+            const useChangeOk = uChg1 === true && useInit.isDowned === true && uChg2 === false && uChg3 === true;
+
+            return eqGateOk && streakGateOk && fieldGateOk && stationGateOk &&
+                   eqTouchOk && streakTouchOk && useTouchOk && useChangeOk;
+        }""")
+        checks.append(("mobile-downed-equipment-streaks-and-station-lockout-rules", mobile_polish_v131_check))
+
+        # 82) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
