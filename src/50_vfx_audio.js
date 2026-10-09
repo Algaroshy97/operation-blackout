@@ -492,7 +492,8 @@ const SND_MIN_GAP = {
   heartbeat: 0.3, eshot_elite: 0.05,
   shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
   plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5,
-  melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20
+  melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20,
+  jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -615,7 +616,11 @@ const SOUND_RECIPES = {
   melee_backstab:    [['noise', 0.14, 0.42, 850, 1.2], ['osc', 'sawtooth', 310, 60, 0.16, 0.32], ['osc', 'sine', 120, 30, 0.22, 0.40]],
   hit_cover:         [['noise', 0.06, 0.28, 950, 1.4], ['osc', 'sine', 380, 180, 0.08, 0.18], ['osc', 'square', 180, 90, 0.04, 0.12]],
   step_tac:          [['noise', 0.05, 0.11, 420, 1.1], ['osc', 'sine', 130, 45, 0.06, 0.16]],
-  land_heavy:        [['noise', 0.16, 0.32, 180, 0.6], ['osc', 'sine', 140, 30, 0.20, 0.35], ['osc', 'square', 75, 25, 0.12, 0.18]]
+  land_heavy:        [['noise', 0.16, 0.32, 180, 0.6], ['osc', 'sine', 140, 30, 0.20, 0.35], ['osc', 'square', 75, 25, 0.12, 0.18]],
+  jump_slide:        [['noise', 0.08, 0.12, 520, 1.2], ['osc', 'sine', 150, 260, 0.08, 0.14]],
+  chamber_empty:     [['osc', 'square', 680, 260, 0.035, 0.10], ['noise', 0.03, 0.12, 2800, 2.8]],
+  enemy_hit:         [['noise', 0.08, 0.25, 750, 1.4], ['osc', 'sawtooth', 150, 50, 0.09, 0.20]],
+  enemy_hit_heavy:   [['noise', 0.15, 0.35, 200, 0.7], ['osc', 'sine', 110, 30, 0.16, 0.32], ['osc', 'square', 75, 25, 0.09, 0.16]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -637,7 +642,8 @@ const SOUND_VARIED = {
   bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1,
   shot_suppressed: 1, smg_suppressed: 1, br_suppressed: 1, sniper_suppressed: 1,
   plate_insert: 1, plate_lock: 1, tinnitus: 1,
-  melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1
+  melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1,
+  jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1
 };
 
 function recipeDuration(recipe) {

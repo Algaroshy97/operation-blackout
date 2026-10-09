@@ -7390,6 +7390,32 @@ const CORE = (function () {
     return { sparks: hasHelmet ? HEADSHOT_SPARK_COUNT_HELMET : HEADSHOT_SPARK_COUNT_BARE, blood: hasHelmet ? HEADSHOT_BLOOD_MIST_HELMET : HEADSHOT_BLOOD_MIST_BARE, sparkColor: 0xffe080 };
   }
 
+  // ---- Tactical Combat & Locomotion Acoustics (v133 Audio Polish) ----
+  const JUMP_SLIDE_SOUND = 'jump_slide', JUMP_SOUND = 'jump';
+  const CHAMBER_EMPTY_SOUND = 'chamber_empty';
+  const GRENADE_COOK_SOUND = 'pin';
+  const ENEMY_HIT_SOUND = 'enemy_hit', ENEMY_HIT_HEAVY_SOUND = 'enemy_hit_heavy';
+
+  function jumpSound(isSlideJump) {
+    return Boolean(isSlideJump) ? JUMP_SLIDE_SOUND : JUMP_SOUND;
+  }
+
+  function chamberEmptySound(ammoAfterShot) {
+    return (typeof ammoAfterShot === 'number' && isFinite(ammoAfterShot) && ammoAfterShot === 0) ? CHAMBER_EMPTY_SOUND : null;
+  }
+
+  function grenadeCookSound() {
+    return GRENADE_COOK_SOUND;
+  }
+
+  function grenadeThrowSound(wasCooked, mode, key) {
+    return Boolean(wasCooked) ? 'draw' : equipmentDeploySound(mode, key);
+  }
+
+  function enemyMeleeHitSound(isTank, isElite) {
+    return Boolean(isTank || isElite) ? ENEMY_HIT_HEAVY_SOUND : ENEMY_HIT_SOUND;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8316,47 +8342,17 @@ const CORE = (function () {
     heartbeatBpm: heartbeatBpm,
     heartbeatInterval: heartbeatInterval,
     stepHeartbeatTimer: stepHeartbeatTimer,
-    shouldPlayHeartbeat: shouldPlayHeartbeat,
-    heartbeatSound: heartbeatSound,
-    enemyGunfireSound: enemyGunfireSound,
-    STANCE_SPREAD_CROUCH: STANCE_SPREAD_CROUCH,
-    STANCE_SPREAD_SLIDE: STANCE_SPREAD_SLIDE,
-    STANCE_SPREAD_AIRBORNE_PENALTY: STANCE_SPREAD_AIRBORNE_PENALTY,
-    stanceSpreadMultiplier: stanceSpreadMultiplier,
-    EXPLOSION_KICK_MAX_DIST: EXPLOSION_KICK_MAX_DIST,
-    EXPLOSION_POST_KICK_MAX: EXPLOSION_POST_KICK_MAX,
-    EXPLOSION_SHOT_KICK_MAX: EXPLOSION_SHOT_KICK_MAX,
-    EXPLOSION_SHOT_KICK_CAP: EXPLOSION_SHOT_KICK_CAP,
-    HEADSHOT_MUL_SR: HEADSHOT_MUL_SR,
-    HEADSHOT_MUL_BR: HEADSHOT_MUL_BR,
-    HEADSHOT_MUL_AR: HEADSHOT_MUL_AR,
-    HEADSHOT_MUL_SMG: HEADSHOT_MUL_SMG,
-    ENEMY_ACCURACY_FALLOFF_DIST: ENEMY_ACCURACY_FALLOFF_DIST,
-    ENEMY_ACCURACY_MIN_FACTOR: ENEMY_ACCURACY_MIN_FACTOR,
-    explosionKickIntensity: explosionKickIntensity,
-    explosionPostKick: explosionPostKick,
-    explosionShotKick: explosionShotKick,
-    applyExplosionShotKick: applyExplosionShotKick,
-    weaponHeadshotMultiplier: weaponHeadshotMultiplier,
-    enemyDistanceAccuracy: enemyDistanceAccuracy,
-    FLASH_LIGHT_DECAY_EXPONENT: FLASH_LIGHT_DECAY_EXPONENT,
-    SENTRY_TARGET_ACQUIRE_EPSILON: SENTRY_TARGET_ACQUIRE_EPSILON,
-    stepFlashLightLife: stepFlashLightLife,
-    flashLightIntensity: flashLightIntensity,
-    particlePerspectiveScale: particlePerspectiveScale,
-    isSentryTargetInRange: isSentryTargetInRange,
-    buildShadowCasterMask: buildShadowCasterMask,
-    planarFacingDirection: planarFacingDirection,
-    shouldUpdatePickupOpacity: shouldUpdatePickupOpacity,
-    TOUCH_MIN_CONTROL_SIZE: TOUCH_MIN_CONTROL_SIZE,
-    TOUCH_MAX_CONTROL_SIZE: TOUCH_MAX_CONTROL_SIZE,
-    TOUCH_DEFAULT_CONTROL_SIZE: TOUCH_DEFAULT_CONTROL_SIZE,
-    TOUCH_MAX_LOOK_DELTA: TOUCH_MAX_LOOK_DELTA,
-    clampTouchControlSize: clampTouchControlSize,
-    clampTouchLayoutCoord: clampTouchLayoutCoord,
-    sanitizeTouchLayoutPosition: sanitizeTouchLayoutPosition,
-    sanitizeTouchLayout: sanitizeTouchLayout,
-    isTouchGameplayEnabled: isTouchGameplayEnabled,
+    shouldPlayHeartbeat, heartbeatSound, enemyGunfireSound,
+    STANCE_SPREAD_CROUCH, STANCE_SPREAD_SLIDE, STANCE_SPREAD_AIRBORNE_PENALTY, stanceSpreadMultiplier,
+    EXPLOSION_KICK_MAX_DIST, EXPLOSION_POST_KICK_MAX, EXPLOSION_SHOT_KICK_MAX, EXPLOSION_SHOT_KICK_CAP,
+    HEADSHOT_MUL_SR, HEADSHOT_MUL_BR, HEADSHOT_MUL_AR, HEADSHOT_MUL_SMG,
+    ENEMY_ACCURACY_FALLOFF_DIST, ENEMY_ACCURACY_MIN_FACTOR,
+    explosionKickIntensity, explosionPostKick, explosionShotKick, applyExplosionShotKick,
+    weaponHeadshotMultiplier, enemyDistanceAccuracy, FLASH_LIGHT_DECAY_EXPONENT, SENTRY_TARGET_ACQUIRE_EPSILON,
+    stepFlashLightLife, flashLightIntensity, particlePerspectiveScale, isSentryTargetInRange,
+    buildShadowCasterMask, planarFacingDirection, shouldUpdatePickupOpacity,
+    TOUCH_MIN_CONTROL_SIZE, TOUCH_MAX_CONTROL_SIZE, TOUCH_DEFAULT_CONTROL_SIZE, TOUCH_MAX_LOOK_DELTA,
+    clampTouchControlSize, clampTouchLayoutCoord, sanitizeTouchLayoutPosition, sanitizeTouchLayout, isTouchGameplayEnabled,
     canTouchPause, touchLookDelta, isTouchControlEmpty,
     BLOOD_POOL_MAX, BLOOD_POOL_LIFETIME, BLOOD_POOL_FADE_DURATION, BLOOD_POOL_BASE_SIZE, BLOOD_POOL_HEAD_MUL, BLOOD_POOL_BASE_OPACITY, BLOOD_POOL_STANDOFF, BLOOD_POOL_EXPANSION_DURATION, BLOOD_POOL_SPAWN_MAX_DIST,
     bloodPoolScale, bloodPoolScaleProgress, bloodPoolOpacity, stepBloodPoolLife, isBloodPoolExpired, bloodPoolRotation, bloodPoolElevation, canSpawnBloodPool,
@@ -8384,7 +8380,11 @@ const CORE = (function () {
     TACTICAL_FLASH_LIGHT_STUN_COLOR, TACTICAL_FLASH_LIGHT_STUN_INTENSITY, TACTICAL_FLASH_LIGHT_STUN_DIST, TACTICAL_FLASH_LIGHT_STUN_DUR,
     tacticalFlashLightParams, tacticalParticleParams,
     HEADSHOT_SPARK_COUNT_HELMET, HEADSHOT_SPARK_COUNT_BARE, HEADSHOT_BLOOD_MIST_HELMET, HEADSHOT_BLOOD_MIST_BARE,
-    enemyHasHelmet, headshotVfxParams
+    enemyHasHelmet, headshotVfxParams,
+    JUMP_SLIDE_SOUND, JUMP_SOUND, jumpSound,
+    CHAMBER_EMPTY_SOUND, chamberEmptySound,
+    GRENADE_COOK_SOUND, grenadeCookSound, grenadeThrowSound,
+    ENEMY_HIT_SOUND, ENEMY_HIT_HEAVY_SOUND, enemyMeleeHitSound
   };
 })();
 

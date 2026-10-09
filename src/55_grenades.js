@@ -355,7 +355,7 @@ function updateGrenadePreview(speed) {
   }
 }
 
-function throwGrenade(customSpeed, def) {
+function throwGrenade(customSpeed, def, wasCooked) {
   const d = def || lethalDef();
   const tactical = d.mode === 'tactical';
   if (tactical) {
@@ -383,9 +383,9 @@ function throwGrenade(customSpeed, def) {
   const faceX = _throwFacingOut.x, faceZ = _throwFacingOut.z;
   liveGrenades.push(getLiveGrenadeRecord(m, _throwVelOut.x, _throwVelOut.y, _throwVelOut.z, fuse, blink, d, faceX, faceZ, false));
   scene.add(m);
-  const deploySnd = CORE.equipmentDeploySound(d.mode, d.key);
+  const deploySnd = CORE.grenadeThrowSound(wasCooked, d.mode, d.key);
   playSound(deploySnd);
-  if (deploySnd !== 'claymore_plant') playSound('draw');
+  if (deploySnd !== 'claymore_plant' && deploySnd !== 'draw') playSound('draw');
   updateHudAmmo();
 }
 
@@ -415,6 +415,7 @@ function updateGrenades(dt) {
     if (!grenadeCharging && canCharge) {
       grenadeCharging = true;
       grenadeChargeT = 0;
+      playSound(CORE.grenadeCookSound());
     }
     if (grenadeCharging) {
       if (player.dead || isDowned || paused || !started || grenades.count <= 0) {
@@ -436,7 +437,7 @@ function updateGrenades(dt) {
       } else {
         const throwSpeed = CORE.grenadeThrowSpeed(grenadeChargeT, CFG.grenade.speed);
         cancelGrenadeCharge();
-        throwGrenade(throwSpeed);
+        throwGrenade(throwSpeed, undefined, true);
       }
     } else {
       hidePreviewDots();

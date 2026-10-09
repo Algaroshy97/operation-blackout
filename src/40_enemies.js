@@ -572,7 +572,7 @@ function updateEnemies(dt) {
           if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
             damagePlayer(meleeDmg, dirToDeg(en), 'melee');
-            playSound3D('melee', en.pos.x, en.pos.y, en.pos.z);
+            playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(gameT);
           }
         }

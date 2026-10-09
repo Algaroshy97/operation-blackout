@@ -3883,7 +3883,33 @@ def main() -> int:
         }""")
         checks.append(("tactical-detonation-and-headshot-visual-rules", visual_polish_v132_check))
 
-        # 83) Clean console throughout gameplay.
+        # 83) Audio polish: tactical combat and locomotion acoustics rules.
+        audio_polish_v133_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const jumpSlide = CORE.jumpSound(true) === 'jump_slide' &&
+                              CORE.jumpSound(false) === 'jump' &&
+                              CORE.jumpSound() === 'jump';
+
+            const chamberEmpty = CORE.chamberEmptySound(0) === 'chamber_empty' &&
+                                 CORE.chamberEmptySound(1) === null &&
+                                 CORE.chamberEmptySound(-1) === null;
+
+            const grenadeAudio = CORE.grenadeCookSound() === 'pin' &&
+                                 CORE.grenadeThrowSound(true, 'lethal', 'frag') === 'draw' &&
+                                 CORE.grenadeThrowSound(false, 'lethal', 'frag') === 'pin' &&
+                                 CORE.grenadeThrowSound(false, 'proximity', 'claymore') === 'claymore_plant';
+
+            const enemyHit = CORE.enemyMeleeHitSound(true, false) === 'enemy_hit_heavy' &&
+                             CORE.enemyMeleeHitSound(false, true) === 'enemy_hit_heavy' &&
+                             CORE.enemyMeleeHitSound(false, false) === 'enemy_hit' &&
+                             CORE.enemyMeleeHitSound() === 'enemy_hit';
+
+            return jumpSlide && chamberEmpty && grenadeAudio && enemyHit;
+        }""")
+        checks.append(("tactical-combat-and-locomotion-acoustics-rules", audio_polish_v133_check))
+
+        # 84) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

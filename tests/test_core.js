@@ -8493,4 +8493,46 @@ test('v132 visual polish: tactical equipment detonation VFX & headshot ballistic
   assert.strictEqual(bareVfx.sparkColor, 0xffe080);
 });
 
+test('v133 audio polish: tactical combat and locomotion acoustics rules', () => {
+  // 1. Slide-jump kinetic momentum boost acoustics
+  assert.strictEqual(CORE.JUMP_SLIDE_SOUND, 'jump_slide');
+  assert.strictEqual(CORE.JUMP_SOUND, 'jump');
+  assert.strictEqual(CORE.jumpSound(true), 'jump_slide');
+  assert.strictEqual(CORE.jumpSound(false), 'jump');
+  assert.strictEqual(CORE.jumpSound(), 'jump');
+  assert.strictEqual(CORE.jumpSound(null), 'jump');
+
+  // 2. Empty magazine slide-lock / chamber-empty acoustics
+  assert.strictEqual(CORE.CHAMBER_EMPTY_SOUND, 'chamber_empty');
+  assert.strictEqual(CORE.chamberEmptySound(0), 'chamber_empty');
+  assert.strictEqual(CORE.chamberEmptySound(1), null);
+  assert.strictEqual(CORE.chamberEmptySound(30), null);
+  assert.strictEqual(CORE.chamberEmptySound(-1), null);
+  assert.strictEqual(CORE.chamberEmptySound('0'), null);
+  assert.strictEqual(CORE.chamberEmptySound(NaN), null);
+  assert.strictEqual(CORE.chamberEmptySound(Infinity), null);
+  assert.strictEqual(CORE.chamberEmptySound(undefined), null);
+
+  // 3. Grenade priming cook and throw release acoustics
+  assert.strictEqual(CORE.GRENADE_COOK_SOUND, 'pin');
+  assert.strictEqual(CORE.grenadeCookSound(), 'pin');
+  assert.strictEqual(CORE.grenadeThrowSound(true, 'lethal', 'frag'), 'draw');
+  assert.strictEqual(CORE.grenadeThrowSound(true, 'proximity', 'claymore'), 'draw');
+  assert.strictEqual(CORE.grenadeThrowSound(true, 'tactical', 'flash'), 'draw');
+  assert.strictEqual(CORE.grenadeThrowSound(false, 'lethal', 'frag'), 'pin');
+  assert.strictEqual(CORE.grenadeThrowSound(false, 'proximity', 'claymore'), 'claymore_plant');
+  assert.strictEqual(CORE.grenadeThrowSound(false, 'tactical', 'flash'), 'pin');
+
+  // 4. Hostile melee strike impact acoustics
+  assert.strictEqual(CORE.ENEMY_HIT_SOUND, 'enemy_hit');
+  assert.strictEqual(CORE.ENEMY_HIT_HEAVY_SOUND, 'enemy_hit_heavy');
+  assert.strictEqual(CORE.enemyMeleeHitSound(true, false), 'enemy_hit_heavy');
+  assert.strictEqual(CORE.enemyMeleeHitSound(false, true), 'enemy_hit_heavy');
+  assert.strictEqual(CORE.enemyMeleeHitSound(true, true), 'enemy_hit_heavy');
+  assert.strictEqual(CORE.enemyMeleeHitSound(false, false), 'enemy_hit');
+  assert.strictEqual(CORE.enemyMeleeHitSound(), 'enemy_hit');
+  assert.strictEqual(CORE.enemyMeleeHitSound(undefined, undefined), 'enemy_hit');
+});
+
+
 

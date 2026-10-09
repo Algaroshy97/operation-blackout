@@ -392,6 +392,8 @@ function fireShot(preserveSchedule) {
   playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
+  const emptySnd = CORE.chamberEmptySound(s.ammo);
+  if (emptySnd) playSound(emptySnd);
   triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
   flashMuzzleLight();
   kickViewmodel(w, vmTune);

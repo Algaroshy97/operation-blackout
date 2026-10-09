@@ -382,3 +382,34 @@ test('v132 tactical detonation visual effects and headshot ballistic impact inte
   assert.equal(bareVfx.blood, 14);
 });
 
+test('v133 tactical combat and locomotion acoustics integration', () => {
+  // 1. Slide-jump kinetic momentum boost acoustics
+  assert.equal(CORE.JUMP_SLIDE_SOUND, 'jump_slide');
+  assert.equal(CORE.JUMP_SOUND, 'jump');
+  assert.equal(CORE.jumpSound(true), 'jump_slide');
+  assert.equal(CORE.jumpSound(false), 'jump');
+  assert.equal(CORE.jumpSound(), 'jump');
+
+  // 2. Empty magazine slide-lock / chamber-empty acoustics
+  assert.equal(CORE.CHAMBER_EMPTY_SOUND, 'chamber_empty');
+  assert.equal(CORE.chamberEmptySound(0), 'chamber_empty');
+  assert.equal(CORE.chamberEmptySound(1), null);
+  assert.equal(CORE.chamberEmptySound(-1), null);
+  assert.equal(CORE.chamberEmptySound(undefined), null);
+
+  // 3. Grenade cook and throw release acoustics
+  assert.equal(CORE.GRENADE_COOK_SOUND, 'pin');
+  assert.equal(CORE.grenadeCookSound(), 'pin');
+  assert.equal(CORE.grenadeThrowSound(true, 'lethal', 'frag'), 'draw');
+  assert.equal(CORE.grenadeThrowSound(false, 'lethal', 'frag'), 'pin');
+  assert.equal(CORE.grenadeThrowSound(false, 'proximity', 'claymore'), 'claymore_plant');
+
+  // 4. Hostile melee strike impact acoustics
+  assert.equal(CORE.ENEMY_HIT_SOUND, 'enemy_hit');
+  assert.equal(CORE.ENEMY_HIT_HEAVY_SOUND, 'enemy_hit_heavy');
+  assert.equal(CORE.enemyMeleeHitSound(true, false), 'enemy_hit_heavy');
+  assert.equal(CORE.enemyMeleeHitSound(false, true), 'enemy_hit_heavy');
+  assert.equal(CORE.enemyMeleeHitSound(false, false), 'enemy_hit');
+  assert.equal(CORE.enemyMeleeHitSound(), 'enemy_hit');
+});
+

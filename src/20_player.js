@@ -250,7 +250,7 @@ function updatePlayer(dt) {
       player.onGround = false;
       player.jumpBufT = 0;
       player.coyoteT = 0;
-      playSound('jump');
+      playSound(CORE.jumpSound(true));
       spawnSlideDust(player.pos);
     }
   }
