@@ -8419,4 +8419,78 @@ test('v131 mobile UI polish: downed equipment, streaks, and station lockout gati
   assert.strictEqual(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false), true);
 });
 
+// ============================================================================
+// Phase 132 — Visual Polish (v132 visual polish)
+// ============================================================================
+test('v132 visual polish: tactical equipment detonation VFX & headshot ballistic impact rules', () => {
+  // 1. Tactical flash light constants & parameters
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_BLIND_COLOR, 0xffffff);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_BLIND_INTENSITY, 18.0);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_BLIND_DIST, 24.0);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_BLIND_DUR, 0.30);
+
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_STUN_COLOR, 0x60b0ff);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_STUN_INTENSITY, 12.0);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_STUN_DIST, 18.0);
+  assert.strictEqual(CORE.TACTICAL_FLASH_LIGHT_STUN_DUR, 0.20);
+
+  const blindLight = CORE.tacticalFlashLightParams('blind');
+  assert.strictEqual(blindLight.color, 0xffffff);
+  assert.strictEqual(blindLight.intensity, 18.0);
+  assert.strictEqual(blindLight.distance, 24.0);
+  assert.strictEqual(blindLight.duration, 0.30);
+
+  const stunLight = CORE.tacticalFlashLightParams('stun');
+  assert.strictEqual(stunLight.color, 0x60b0ff);
+  assert.strictEqual(stunLight.intensity, 12.0);
+  assert.strictEqual(stunLight.distance, 18.0);
+  assert.strictEqual(stunLight.duration, 0.20);
+
+  const smokeLight = CORE.tacticalFlashLightParams('smoke');
+  assert.strictEqual(smokeLight.intensity, 0);
+
+  // 2. Tactical particle burst parameters
+  const blindPfx = CORE.tacticalParticleParams('blind');
+  assert.strictEqual(blindPfx.flashCount, 16);
+  assert.strictEqual(blindPfx.sparkCount, 22);
+  assert.strictEqual(blindPfx.smokeCount, 14);
+  assert.strictEqual(blindPfx.coreColor0, 0xffffff);
+
+  const stunPfx = CORE.tacticalParticleParams('stun');
+  assert.strictEqual(stunPfx.flashCount, 10);
+  assert.strictEqual(stunPfx.sparkCount, 18);
+  assert.strictEqual(stunPfx.smokeCount, 10);
+  assert.strictEqual(stunPfx.coreColor0, 0x80d8ff);
+
+  assert.strictEqual(CORE.tacticalParticleParams('smoke'), null);
+  assert.strictEqual(CORE.tacticalParticleParams('unknown'), null);
+
+  // 3. Enemy helmet identification
+  assert.strictEqual(CORE.enemyHasHelmet('rifleman'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('tank'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('shielded'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('grenadier'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('runner'), false);
+  assert.strictEqual(CORE.enemyHasHelmet('scout'), false);
+  assert.strictEqual(CORE.enemyHasHelmet('civilian'), false);
+  assert.strictEqual(CORE.enemyHasHelmet(''), false);
+  assert.strictEqual(CORE.enemyHasHelmet(undefined), false);
+
+  // 4. Headshot ballistic impact constants & parameters
+  assert.strictEqual(CORE.HEADSHOT_SPARK_COUNT_HELMET, 6);
+  assert.strictEqual(CORE.HEADSHOT_SPARK_COUNT_BARE, 0);
+  assert.strictEqual(CORE.HEADSHOT_BLOOD_MIST_HELMET, 8);
+  assert.strictEqual(CORE.HEADSHOT_BLOOD_MIST_BARE, 14);
+
+  const helmetVfx = CORE.headshotVfxParams(true);
+  assert.strictEqual(helmetVfx.sparks, 6);
+  assert.strictEqual(helmetVfx.blood, 8);
+  assert.strictEqual(helmetVfx.sparkColor, 0xffe080);
+
+  const bareVfx = CORE.headshotVfxParams(false);
+  assert.strictEqual(bareVfx.sparks, 0);
+  assert.strictEqual(bareVfx.blood, 14);
+  assert.strictEqual(bareVfx.sparkColor, 0xffe080);
+});
+
 

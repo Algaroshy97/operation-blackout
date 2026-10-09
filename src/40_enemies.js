@@ -215,10 +215,16 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
   spawnBlood(point, isHead);
-  if (en.parts.soldier && point) {
-    // flinch: the torso (or head) springs away from the round
+  if (point) {
     _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
-    soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
+    if (isHead && CORE.enemyHasHelmet(en.kind)) {
+      if (typeof fxHeadshotSparks === 'function') fxHeadshotSparks(point, _hitDir);
+      if (typeof flashLight === 'function') flashLight(point, 0xffd080, 0.8, 3.0, 0.04);
+    }
+    if (en.parts.soldier) {
+      // flinch: the torso (or head) springs away from the round
+      soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
+    }
   }
   if (isKill) killEnemy(en, isHead);
   else {

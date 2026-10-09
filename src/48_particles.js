@@ -288,6 +288,13 @@ function fxBlood(p, dir, isHead) {
       pfxRnd(0.3, 0.6), 0.12, isHead ? 0.8 : 0.5, 0x6a0808, 0x3a0404, 0.5, 4, 0.5, 0);
   }
 }
+function fxHeadshotSparks(p, dir) {
+  const dx = dir ? dir.x : 0, dz = dir ? dir.z : 0;
+  for (let i = 0; i < CORE.HEADSHOT_SPARK_COUNT_HELMET; i++) {
+    const s = pfxRnd(2.5, 6);
+    pfxEmit(PFX_ADD, p.x, p.y, p.z, dx * s + pfxRnd(-2, 2), pfxRnd(1, 4), dz * s + pfxRnd(-2, 2), pfxRnd(0.12, 0.3), 0.03, 0.012, 0xfff0b0, 0xff7020, 3, 1.5, 12, PF_BOUNCE);
+  }
+}
 function fxDust(p, n, spread, color) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, s = pfxRnd(0.4, 1.4) * (spread || 1);
@@ -329,6 +336,22 @@ function fxExplosion(p, scale) {
       pfxRnd(1.2, 2.2), 0.09, 0.07, 0x2a2624, 0x1a1816, 1.0, 0.2, 15, PF_BOUNCE);
   }
   flashLight(p, 0xff9040, 14 * scale, 22 * scale, 0.45);
+}
+function fxTactical(p, effect) {
+  const cfg = CORE.tacticalParticleParams(effect);
+  if (!cfg) return;
+  for (let i = 0; i < cfg.flashCount; i++) {
+    const a = Math.random() * 6.283, b = Math.random() * 3.1416, s = pfxRnd(1.5, 6);
+    pfxEmit(PFX_ADD, p.x, p.y + 0.1, p.z, Math.cos(a) * Math.sin(b) * s, Math.abs(Math.cos(b)) * s * 0.8 + 0.5, Math.sin(a) * Math.sin(b) * s, pfxRnd(0.12, 0.28), 0.5, pfxRnd(1.4, 2.2), cfg.coreColor0, cfg.coreColor1, 2.8, 4, -1, 0);
+  }
+  for (let i = 0; i < cfg.sparkCount; i++) {
+    const a = Math.random() * 6.283, s = pfxRnd(3, 10);
+    pfxEmit(PFX_ADD, p.x, p.y + 0.1, p.z, Math.cos(a) * s, pfxRnd(2, 7), Math.sin(a) * s, pfxRnd(0.3, 0.8), 0.045, 0.02, cfg.sparkColor0, cfg.sparkColor1, 3, 1.2, 12, PF_BOUNCE);
+  }
+  for (let i = 0; i < cfg.smokeCount; i++) {
+    const a = Math.random() * 6.283, r = pfxRnd(0, 0.8);
+    pfxEmit(PFX_SMOKE, p.x + Math.cos(a) * r, p.y + pfxRnd(0.1, 0.5), p.z + Math.sin(a) * r, Math.cos(a) * pfxRnd(0.3, 1.2), pfxRnd(0.6, 1.6), Math.sin(a) * pfxRnd(0.3, 1.2), pfxRnd(1.2, 2.2), 0.35, pfxRnd(1.2, 2.0), cfg.smokeColor, 0x4a4a50, 0.45, 1.5, -0.2, 0);
+  }
 }
 // Sniper vapour trail: a thin line of slow-fading haze along the bullet path.
 function sniperTrail(from, to) {

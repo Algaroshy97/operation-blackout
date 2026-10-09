@@ -7365,6 +7365,31 @@ const CORE = (function () {
     return { x: vx, y: 0, z: vz };
   }
 
+  // ---- Tactical Detonation VFX & Headshot Ballistic Impact Visual Polish (v132) ----
+  const TACTICAL_FLASH_LIGHT_BLIND_COLOR = 0xffffff, TACTICAL_FLASH_LIGHT_BLIND_INTENSITY = 18.0, TACTICAL_FLASH_LIGHT_BLIND_DIST = 24.0, TACTICAL_FLASH_LIGHT_BLIND_DUR = 0.30;
+  const TACTICAL_FLASH_LIGHT_STUN_COLOR = 0x60b0ff, TACTICAL_FLASH_LIGHT_STUN_INTENSITY = 12.0, TACTICAL_FLASH_LIGHT_STUN_DIST = 18.0, TACTICAL_FLASH_LIGHT_STUN_DUR = 0.20;
+  const HEADSHOT_SPARK_COUNT_HELMET = 6, HEADSHOT_SPARK_COUNT_BARE = 0, HEADSHOT_BLOOD_MIST_HELMET = 8, HEADSHOT_BLOOD_MIST_BARE = 14;
+
+  function tacticalFlashLightParams(effect) {
+    if (effect === 'blind') return { color: TACTICAL_FLASH_LIGHT_BLIND_COLOR, intensity: TACTICAL_FLASH_LIGHT_BLIND_INTENSITY, distance: TACTICAL_FLASH_LIGHT_BLIND_DIST, duration: TACTICAL_FLASH_LIGHT_BLIND_DUR };
+    if (effect === 'stun') return { color: TACTICAL_FLASH_LIGHT_STUN_COLOR, intensity: TACTICAL_FLASH_LIGHT_STUN_INTENSITY, distance: TACTICAL_FLASH_LIGHT_STUN_DIST, duration: TACTICAL_FLASH_LIGHT_STUN_DUR };
+    return { color: 0, intensity: 0, distance: 0, duration: 0 };
+  }
+
+  function tacticalParticleParams(effect) {
+    if (effect === 'blind') return { coreColor0: 0xffffff, coreColor1: 0xfff0c0, sparkColor0: 0xffffff, sparkColor1: 0xffc860, smokeColor: 0xe8e8ea, flashCount: 16, sparkCount: 22, smokeCount: 14 };
+    if (effect === 'stun') return { coreColor0: 0x80d8ff, coreColor1: 0x3060ff, sparkColor0: 0x90e0ff, sparkColor1: 0x2050e0, smokeColor: 0x8a98a8, flashCount: 10, sparkCount: 18, smokeCount: 10 };
+    return null;
+  }
+
+  function enemyHasHelmet(kind) {
+    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier';
+  }
+
+  function headshotVfxParams(hasHelmet) {
+    return { sparks: hasHelmet ? HEADSHOT_SPARK_COUNT_HELMET : HEADSHOT_SPARK_COUNT_BARE, blood: hasHelmet ? HEADSHOT_BLOOD_MIST_HELMET : HEADSHOT_BLOOD_MIST_BARE, sparkColor: 0xffe080 };
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8332,122 +8357,34 @@ const CORE = (function () {
     sanitizeTouchLayoutPosition: sanitizeTouchLayoutPosition,
     sanitizeTouchLayout: sanitizeTouchLayout,
     isTouchGameplayEnabled: isTouchGameplayEnabled,
-    canTouchPause: canTouchPause,
-    touchLookDelta: touchLookDelta,
-    isTouchControlEmpty: isTouchControlEmpty,
-    BLOOD_POOL_MAX: BLOOD_POOL_MAX,
-    BLOOD_POOL_LIFETIME: BLOOD_POOL_LIFETIME,
-    BLOOD_POOL_FADE_DURATION: BLOOD_POOL_FADE_DURATION,
-    BLOOD_POOL_BASE_SIZE: BLOOD_POOL_BASE_SIZE,
-    BLOOD_POOL_HEAD_MUL: BLOOD_POOL_HEAD_MUL,
-    BLOOD_POOL_BASE_OPACITY: BLOOD_POOL_BASE_OPACITY,
-    BLOOD_POOL_STANDOFF: BLOOD_POOL_STANDOFF,
-    BLOOD_POOL_EXPANSION_DURATION: BLOOD_POOL_EXPANSION_DURATION,
-    BLOOD_POOL_SPAWN_MAX_DIST: BLOOD_POOL_SPAWN_MAX_DIST,
-    bloodPoolScale: bloodPoolScale,
-    bloodPoolScaleProgress: bloodPoolScaleProgress,
-    bloodPoolOpacity: bloodPoolOpacity,
-    stepBloodPoolLife: stepBloodPoolLife,
-    isBloodPoolExpired: isBloodPoolExpired,
-    bloodPoolRotation: bloodPoolRotation,
-    bloodPoolElevation: bloodPoolElevation,
-    canSpawnBloodPool: canSpawnBloodPool,
-    TINNITUS_MIN_THRESHOLD: TINNITUS_MIN_THRESHOLD,
-    TINNITUS_MAX_DURATION: TINNITUS_MAX_DURATION,
-    TINNITUS_BASE_GAIN: TINNITUS_BASE_GAIN,
-    plateInsertSound: plateInsertSound,
-    plateLockSound: plateLockSound,
-    tinnitusSound: tinnitusSound,
-    shouldTriggerTinnitus: shouldTriggerTinnitus,
-    tinnitusVolume: tinnitusVolume,
-    shouldPlayFleshHurt: shouldPlayFleshHurt,
-    playerDamageAcoustics: playerDamageAcoustics,
-    FALLOFF_SMG_KNEE: FALLOFF_SMG_KNEE,
-    FALLOFF_SMG_MIN_MUL: FALLOFF_SMG_MIN_MUL,
-    FALLOFF_AR_KNEE: FALLOFF_AR_KNEE,
-    FALLOFF_AR_MIN_MUL: FALLOFF_AR_MIN_MUL,
-    FALLOFF_BR_KNEE: FALLOFF_BR_KNEE,
-    FALLOFF_BR_MIN_MUL: FALLOFF_BR_MIN_MUL,
-    FALLOFF_SR_KNEE: FALLOFF_SR_KNEE,
-    FALLOFF_SR_MIN_MUL: FALLOFF_SR_MIN_MUL,
-    weaponFalloffParams: weaponFalloffParams,
-    weaponDistanceFalloff: weaponDistanceFalloff,
-    MELEE_BACKSTAB_MUL: MELEE_BACKSTAB_MUL,
-    MELEE_SLIDE_MOMENTUM_MUL: MELEE_SLIDE_MOMENTUM_MUL,
-    MELEE_SPRINT_MOMENTUM_MUL: MELEE_SPRINT_MOMENTUM_MUL,
-    MELEE_BACKSTAB_COS_THRESHOLD: MELEE_BACKSTAB_COS_THRESHOLD,
-    isMeleeBackstab: isMeleeBackstab,
-    playerMeleeDamage: playerMeleeDamage,
-    ENEMY_EVASION_SPRINT_MUL: ENEMY_EVASION_SPRINT_MUL,
-    ENEMY_EVASION_TAC_SPRINT_MUL: ENEMY_EVASION_TAC_SPRINT_MUL,
-    ENEMY_EVASION_SLIDE_MUL: ENEMY_EVASION_SLIDE_MUL,
-    ENEMY_EVASION_CROUCH_MUL: ENEMY_EVASION_CROUCH_MUL,
-    ENEMY_EVASION_AIRBORNE_MUL: ENEMY_EVASION_AIRBORNE_MUL,
-    enemyTargetEvasionMultiplier: enemyTargetEvasionMultiplier,
-    enemyEffectiveAccuracy: enemyEffectiveAccuracy,
-    isSpatialAudioInRange: isSpatialAudioInRange,
-    AIM_ASSIST_FORWARD_MIN_DOT: AIM_ASSIST_FORWARD_MIN_DOT,
-    isAimCandidateInForwardSector: isAimCandidateInForwardSector,
-    isAngleWithinThreshold: isAngleWithinThreshold,
-    canEnemiesOverlap: canEnemiesOverlap,
-    GRENADE_POOL_MAX: GRENADE_POOL_MAX,
-    canRecycleGrenade: canRecycleGrenade,
-    canPlayerMelee: canPlayerMelee,
-    touchPauseState: touchPauseState,
-    touchPauseLabel: touchPauseLabel,
-    touchPauseChanged: touchPauseChanged,
-    syncTouchPauseState: syncTouchPauseState,
-    isTouchControlSelected: isTouchControlSelected,
-    streakHudPosition: streakHudPosition,
-    joystickMoveSpeedTier: joystickMoveSpeedTier,
-    joystickIndicatorClass: joystickIndicatorClass,
-    SENTRY_MUZZLE_FORWARD_OFFSET: SENTRY_MUZZLE_FORWARD_OFFSET,
-    SENTRY_MUZZLE_HEIGHT_OFFSET: SENTRY_MUZZLE_HEIGHT_OFFSET,
-    SENTRY_MUZZLE_LIGHT_COLOR: SENTRY_MUZZLE_LIGHT_COLOR,
-    SENTRY_MUZZLE_LIGHT_INTENSITY: SENTRY_MUZZLE_LIGHT_INTENSITY,
-    SENTRY_MUZZLE_LIGHT_DIST: SENTRY_MUZZLE_LIGHT_DIST,
-    SENTRY_MUZZLE_LIGHT_DUR: SENTRY_MUZZLE_LIGHT_DUR,
-    sentryMuzzlePosition: sentryMuzzlePosition,
-    sentryShootDirection: sentryShootDirection,
-    sentryMuzzleLightParams: sentryMuzzleLightParams,
-    shouldSpawnPenetrationCoverVfx: shouldSpawnPenetrationCoverVfx,
-    canMeleeStrikeWorld: canMeleeStrikeWorld,
-    MELEE_HIT_SOUND: MELEE_HIT_SOUND,
-    MELEE_BACKSTAB_SOUND: MELEE_BACKSTAB_SOUND,
-    meleeHitSound: meleeHitSound,
-    hitmarkerSound: hitmarkerSound,
-    landingSound: landingSound,
-    ARMOR_ABSORB_RATIO_BULLET: ARMOR_ABSORB_RATIO_BULLET,
-    ARMOR_ABSORB_RATIO_BLAST: ARMOR_ABSORB_RATIO_BLAST,
-    ARMOR_ABSORB_RATIO_MELEE: ARMOR_ABSORB_RATIO_MELEE,
-    ARMOR_ABSORB_RATIO_FALL: ARMOR_ABSORB_RATIO_FALL,
-    armorAbsorbRatioForType: armorAbsorbRatioForType,
-    WEAPON_SWITCH_SPEED_SMG: WEAPON_SWITCH_SPEED_SMG,
-    WEAPON_SWITCH_SPEED_AR: WEAPON_SWITCH_SPEED_AR,
-    WEAPON_SWITCH_SPEED_BR: WEAPON_SWITCH_SPEED_BR,
-    WEAPON_SWITCH_SPEED_SR: WEAPON_SWITCH_SPEED_SR,
-    FAST_HANDS_SWITCH_MUL: FAST_HANDS_SWITCH_MUL,
-    weaponSwitchSpeed: weaponSwitchSpeed,
-    WEAPON_ADS_SPEED_SMG: WEAPON_ADS_SPEED_SMG,
-    WEAPON_ADS_SPEED_AR: WEAPON_ADS_SPEED_AR,
-    WEAPON_ADS_SPEED_BR: WEAPON_ADS_SPEED_BR,
-    WEAPON_ADS_SPEED_SR: WEAPON_ADS_SPEED_SR,
-    weaponAdsSpeed: weaponAdsSpeed,
-    waveCountdownChanged: waveCountdownChanged,
-    syncWaveCountdownState: syncWaveCountdownState,
-    downedTimerChanged: downedTimerChanged,
-    syncDownedTimerState: syncDownedTimerState,
-    flashOverlayChanged: flashOverlayChanged,
-    isTargetInBlastRadius: isTargetInBlastRadius,
-    SOLDIER_RAGDOLL_MOMENTUM_SCALE: SOLDIER_RAGDOLL_MOMENTUM_SCALE,
-    SOLDIER_RAGDOLL_KNOCK_BASE: SOLDIER_RAGDOLL_KNOCK_BASE,
-    SOLDIER_RAGDOLL_KNOCK_MIN: SOLDIER_RAGDOLL_KNOCK_MIN,
-    soldierRagdollKnockback: soldierRagdollKnockback,
-    soldierRagdollMomentum: soldierRagdollMomentum,
-    canPlayerThrowEquipment: canPlayerThrowEquipment,
-    canPlayerUseStreak: canPlayerUseStreak,
-    canPlayerUseFieldUpgrade: canPlayerUseFieldUpgrade,
-    canPlayerInteractStation: canPlayerInteractStation
+    canTouchPause, touchLookDelta, isTouchControlEmpty,
+    BLOOD_POOL_MAX, BLOOD_POOL_LIFETIME, BLOOD_POOL_FADE_DURATION, BLOOD_POOL_BASE_SIZE, BLOOD_POOL_HEAD_MUL, BLOOD_POOL_BASE_OPACITY, BLOOD_POOL_STANDOFF, BLOOD_POOL_EXPANSION_DURATION, BLOOD_POOL_SPAWN_MAX_DIST,
+    bloodPoolScale, bloodPoolScaleProgress, bloodPoolOpacity, stepBloodPoolLife, isBloodPoolExpired, bloodPoolRotation, bloodPoolElevation, canSpawnBloodPool,
+    TINNITUS_MIN_THRESHOLD, TINNITUS_MAX_DURATION, TINNITUS_BASE_GAIN,
+    plateInsertSound, plateLockSound, tinnitusSound, shouldTriggerTinnitus, tinnitusVolume, shouldPlayFleshHurt, playerDamageAcoustics,
+    FALLOFF_SMG_KNEE, FALLOFF_SMG_MIN_MUL, FALLOFF_AR_KNEE, FALLOFF_AR_MIN_MUL, FALLOFF_BR_KNEE, FALLOFF_BR_MIN_MUL, FALLOFF_SR_KNEE, FALLOFF_SR_MIN_MUL,
+    weaponFalloffParams, weaponDistanceFalloff,
+    MELEE_BACKSTAB_MUL, MELEE_SLIDE_MOMENTUM_MUL, MELEE_SPRINT_MOMENTUM_MUL, MELEE_BACKSTAB_COS_THRESHOLD, isMeleeBackstab, playerMeleeDamage,
+    ENEMY_EVASION_SPRINT_MUL, ENEMY_EVASION_TAC_SPRINT_MUL, ENEMY_EVASION_SLIDE_MUL, ENEMY_EVASION_CROUCH_MUL, ENEMY_EVASION_AIRBORNE_MUL,
+    enemyTargetEvasionMultiplier, enemyEffectiveAccuracy, isSpatialAudioInRange,
+    AIM_ASSIST_FORWARD_MIN_DOT, isAimCandidateInForwardSector, isAngleWithinThreshold, canEnemiesOverlap,
+    GRENADE_POOL_MAX, canRecycleGrenade, canPlayerMelee,
+    touchPauseState, touchPauseLabel, touchPauseChanged, syncTouchPauseState, isTouchControlSelected,
+    streakHudPosition, joystickMoveSpeedTier, joystickIndicatorClass,
+    SENTRY_MUZZLE_FORWARD_OFFSET, SENTRY_MUZZLE_HEIGHT_OFFSET, SENTRY_MUZZLE_LIGHT_COLOR, SENTRY_MUZZLE_LIGHT_INTENSITY, SENTRY_MUZZLE_LIGHT_DIST, SENTRY_MUZZLE_LIGHT_DUR,
+    sentryMuzzlePosition, sentryShootDirection, sentryMuzzleLightParams, shouldSpawnPenetrationCoverVfx, canMeleeStrikeWorld,
+    MELEE_HIT_SOUND, MELEE_BACKSTAB_SOUND, meleeHitSound, hitmarkerSound, landingSound,
+    ARMOR_ABSORB_RATIO_BULLET, ARMOR_ABSORB_RATIO_BLAST, ARMOR_ABSORB_RATIO_MELEE, ARMOR_ABSORB_RATIO_FALL, armorAbsorbRatioForType,
+    WEAPON_SWITCH_SPEED_SMG, WEAPON_SWITCH_SPEED_AR, WEAPON_SWITCH_SPEED_BR, WEAPON_SWITCH_SPEED_SR, FAST_HANDS_SWITCH_MUL, weaponSwitchSpeed,
+    WEAPON_ADS_SPEED_SMG, WEAPON_ADS_SPEED_AR, WEAPON_ADS_SPEED_BR, WEAPON_ADS_SPEED_SR, weaponAdsSpeed,
+    waveCountdownChanged, syncWaveCountdownState, downedTimerChanged, syncDownedTimerState, flashOverlayChanged, isTargetInBlastRadius,
+    SOLDIER_RAGDOLL_MOMENTUM_SCALE, SOLDIER_RAGDOLL_KNOCK_BASE, SOLDIER_RAGDOLL_KNOCK_MIN, soldierRagdollKnockback, soldierRagdollMomentum,
+    canPlayerThrowEquipment, canPlayerUseStreak, canPlayerUseFieldUpgrade, canPlayerInteractStation,
+    TACTICAL_FLASH_LIGHT_BLIND_COLOR, TACTICAL_FLASH_LIGHT_BLIND_INTENSITY, TACTICAL_FLASH_LIGHT_BLIND_DIST, TACTICAL_FLASH_LIGHT_BLIND_DUR,
+    TACTICAL_FLASH_LIGHT_STUN_COLOR, TACTICAL_FLASH_LIGHT_STUN_INTENSITY, TACTICAL_FLASH_LIGHT_STUN_DIST, TACTICAL_FLASH_LIGHT_STUN_DUR,
+    tacticalFlashLightParams, tacticalParticleParams,
+    HEADSHOT_SPARK_COUNT_HELMET, HEADSHOT_SPARK_COUNT_BARE, HEADSHOT_BLOOD_MIST_HELMET, HEADSHOT_BLOOD_MIST_BARE,
+    enemyHasHelmet, headshotVfxParams
   };
 })();
 

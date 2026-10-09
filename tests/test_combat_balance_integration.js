@@ -333,3 +333,52 @@ test('v129 tactical damage-type armor mitigation, fall-damage bypass, and weapon
   assert.equal(CORE.weaponAdsSpeed('SR'), 0.70);
 });
 
+test('v132 tactical detonation visual effects and headshot ballistic impact integration', () => {
+  // Tactical detonation flash light parameters
+  const blindLight = CORE.tacticalFlashLightParams('blind');
+  assert.equal(blindLight.color, 0xffffff);
+  assert.equal(blindLight.intensity, 18.0);
+  assert.equal(blindLight.distance, 24.0);
+  assert.equal(blindLight.duration, 0.30);
+
+  const stunLight = CORE.tacticalFlashLightParams('stun');
+  assert.equal(stunLight.color, 0x60b0ff);
+  assert.equal(stunLight.intensity, 12.0);
+  assert.equal(stunLight.distance, 18.0);
+  assert.equal(stunLight.duration, 0.20);
+
+  const smokeLight = CORE.tacticalFlashLightParams('smoke');
+  assert.equal(smokeLight.intensity, 0);
+
+  // Tactical particle parameters
+  const blindPfx = CORE.tacticalParticleParams('blind');
+  assert.equal(blindPfx.flashCount, 16);
+  assert.equal(blindPfx.sparkCount, 22);
+  assert.equal(blindPfx.smokeCount, 14);
+
+  const stunPfx = CORE.tacticalParticleParams('stun');
+  assert.equal(stunPfx.flashCount, 10);
+  assert.equal(stunPfx.sparkCount, 18);
+  assert.equal(stunPfx.smokeCount, 10);
+
+  assert.equal(CORE.tacticalParticleParams('smoke'), null);
+
+  // Enemy helmet identification
+  assert.equal(CORE.enemyHasHelmet('rifleman'), true);
+  assert.equal(CORE.enemyHasHelmet('tank'), true);
+  assert.equal(CORE.enemyHasHelmet('shielded'), true);
+  assert.equal(CORE.enemyHasHelmet('grenadier'), true);
+  assert.equal(CORE.enemyHasHelmet('runner'), false);
+  assert.equal(CORE.enemyHasHelmet('scout'), false);
+  assert.equal(CORE.enemyHasHelmet('other'), false);
+
+  // Headshot VFX parameters
+  const helmetVfx = CORE.headshotVfxParams(true);
+  assert.equal(helmetVfx.sparks, 6);
+  assert.equal(helmetVfx.blood, 8);
+
+  const bareVfx = CORE.headshotVfxParams(false);
+  assert.equal(bareVfx.sparks, 0);
+  assert.equal(bareVfx.blood, 14);
+});
+

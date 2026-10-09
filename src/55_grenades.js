@@ -547,6 +547,11 @@ function applyTactical(def, pos) {
     return;
   }
   playSound3D(snd, pos.x, pos.y, pos.z);
+  if (typeof fxTactical === 'function') fxTactical(pos, def.effect);
+  if (typeof flashLight === 'function') {
+    const tlp = CORE.tacticalFlashLightParams(def.effect);
+    if (tlp && tlp.intensity > 0) flashLight(pos, tlp.color, tlp.intensity, tlp.distance, tlp.duration);
+  }
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;

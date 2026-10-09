@@ -3836,7 +3836,54 @@ def main() -> int:
         }""")
         checks.append(("mobile-downed-equipment-streaks-and-station-lockout-rules", mobile_polish_v131_check))
 
-        # 82) Clean console throughout gameplay.
+        # 82) Visual polish: tactical equipment detonation VFX & headshot ballistic impact rules.
+        visual_polish_v132_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Tactical equipment flash light parameters
+            const blindLight = CORE.tacticalFlashLightParams('blind');
+            const stunLight = CORE.tacticalFlashLightParams('stun');
+            const smokeLight = CORE.tacticalFlashLightParams('smoke');
+            const lightOk = blindLight.color === CORE.TACTICAL_FLASH_LIGHT_BLIND_COLOR &&
+                            blindLight.intensity === CORE.TACTICAL_FLASH_LIGHT_BLIND_INTENSITY &&
+                            blindLight.distance === CORE.TACTICAL_FLASH_LIGHT_BLIND_DIST &&
+                            blindLight.duration === CORE.TACTICAL_FLASH_LIGHT_BLIND_DUR &&
+                            stunLight.color === CORE.TACTICAL_FLASH_LIGHT_STUN_COLOR &&
+                            stunLight.intensity === CORE.TACTICAL_FLASH_LIGHT_STUN_INTENSITY &&
+                            stunLight.distance === CORE.TACTICAL_FLASH_LIGHT_STUN_DIST &&
+                            stunLight.duration === CORE.TACTICAL_FLASH_LIGHT_STUN_DUR &&
+                            smokeLight.intensity === 0;
+
+            // 2. Tactical equipment particle configuration
+            const blindPfx = CORE.tacticalParticleParams('blind');
+            const stunPfx = CORE.tacticalParticleParams('stun');
+            const smokePfx = CORE.tacticalParticleParams('smoke');
+            const pfxOk = blindPfx !== null && blindPfx.flashCount === 16 && blindPfx.sparkCount === 22 &&
+                          stunPfx !== null && stunPfx.flashCount === 10 && stunPfx.sparkCount === 18 &&
+                          smokePfx === null;
+
+            // 3. Enemy helmet identification
+            const helmetOk = CORE.enemyHasHelmet('rifleman') === true &&
+                             CORE.enemyHasHelmet('tank') === true &&
+                             CORE.enemyHasHelmet('shielded') === true &&
+                             CORE.enemyHasHelmet('grenadier') === true &&
+                             CORE.enemyHasHelmet('runner') === false &&
+                             CORE.enemyHasHelmet('scout') === false &&
+                             CORE.enemyHasHelmet('unknown') === false;
+
+            // 4. Headshot VFX parameters
+            const helmetVfx = CORE.headshotVfxParams(true);
+            const bareVfx = CORE.headshotVfxParams(false);
+            const headshotOk = helmetVfx.sparks === CORE.HEADSHOT_SPARK_COUNT_HELMET &&
+                               helmetVfx.blood === CORE.HEADSHOT_BLOOD_MIST_HELMET &&
+                               bareVfx.sparks === CORE.HEADSHOT_SPARK_COUNT_BARE &&
+                               bareVfx.blood === CORE.HEADSHOT_BLOOD_MIST_BARE;
+
+            return lightOk && pfxOk && helmetOk && headshotOk;
+        }""")
+        checks.append(("tactical-detonation-and-headshot-visual-rules", visual_polish_v132_check))
+
+        # 83) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
