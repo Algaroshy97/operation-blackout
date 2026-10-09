@@ -3736,7 +3736,51 @@ def main() -> int:
         }""")
         checks.append(("tactical-armor-mitigation-and-weapon-agility-balance-rules", combat_balance_v129_check))
 
-        # 80) Clean console throughout gameplay.
+        # 80) Performance optimization: wave countdown & downed timer change-gating, blast radial culling, and zero-allocation ragdoll rules.
+        perf_optimization_v130_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Wave countdown change gating & state tracking
+            const cdInit = { active: false, sec: -1 };
+            const cdChg1 = CORE.waveCountdownChanged(cdInit, true, 5);
+            const cdSync1 = CORE.syncWaveCountdownState(cdInit, true, 5);
+            const cdChg2 = CORE.waveCountdownChanged(cdInit, true, 5);
+            const cdChg3 = CORE.waveCountdownChanged(cdInit, true, 4);
+            const cdOk = cdChg1 === true && cdSync1.active === true && cdSync1.sec === 5 &&
+                         cdChg2 === false && cdChg3 === true;
+
+            // 2. Downed bleed-out timer change gating
+            const dtInit = { downed: false, tenths: -1 };
+            const dtChg1 = CORE.downedTimerChanged(dtInit, true, 8.42);
+            const dtSync1 = CORE.syncDownedTimerState(dtInit, true, 8.42);
+            const dtChg2 = CORE.downedTimerChanged(dtInit, true, 8.44);
+            const dtChg3 = CORE.downedTimerChanged(dtInit, true, 8.31);
+            const dtOk = dtChg1 === true && dtSync1.downed === true && dtSync1.tenths === 84 &&
+                         dtChg2 === false && dtChg3 === true;
+
+            // 3. Flash overlay opacity change gating
+            const foOk = CORE.flashOverlayChanged(0.5, 0.502, 0.008) === false &&
+                         CORE.flashOverlayChanged(0.5, 0.520, 0.008) === true;
+
+            // 4. Blast radial spatial culling
+            const radSq = 6.5 * 6.5;
+            const blastOk = CORE.isTargetInBlastRadius(2, 0, 3, radSq) === true &&
+                            CORE.isTargetInBlastRadius(6, 0, 4, radSq) === false;
+
+            // 5. Zero-allocation ragdoll knockback & momentum rules
+            const knockOut = { x: 0, z: 0 };
+            const momOut = { x: 0, y: 0, z: 0 };
+            const knockRes = CORE.soldierRagdollKnockback(10, 5, 6, 2, knockOut);
+            const knockSame = knockRes === knockOut && Math.abs(knockOut.x - 3.2) < 1e-4 && Math.abs(knockOut.z - 2.4) < 1e-4;
+            const momRes = CORE.soldierRagdollMomentum(4, -2, 2, 1, CORE.SOLDIER_RAGDOLL_MOMENTUM_SCALE, momOut);
+            const momSame = momRes === momOut && Math.abs(momOut.x - (4 * 0.55 + 2)) < 1e-4 &&
+                            Math.abs(momOut.z - (-2 * 0.55 + 1)) < 1e-4 && momOut.y === 0;
+
+            return cdOk && dtOk && foOk && blastOk && knockSame && momSame;
+        }""")
+        checks.append(("countdown-downed-blast-and-ragdoll-perf-rules", perf_optimization_v130_check))
+
+        # 81) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -489,14 +489,20 @@ function downPlayer() {
   updateHudHealth();
 }
 
+let _downTimerEl = null;
+const _downedTimerState = { downed: null, tenths: -1 };
+
 function updateDowned(dt) {
   if (!player.downed || player.dead) return;
   downT += dt;
   const left = CORE.bleedOutRemaining(downT);
-  const el = $id('down-timer');
-  if (el) {
-    el.style.opacity = '1';
-    el.textContent = CORE.downBleedoutLabel(left);
+  if (!_downTimerEl) _downTimerEl = $id('down-timer');
+  if (_downTimerEl) {
+    if (CORE.downedTimerChanged(_downedTimerState, true, left)) {
+      CORE.syncDownedTimerState(_downedTimerState, true, left);
+      if (_downTimerEl.style.opacity !== '1') _downTimerEl.style.opacity = '1';
+      _downTimerEl.textContent = CORE.downBleedoutLabel(left);
+    }
   }
   if (left <= 0) { clearDowned(); killPlayer(); }
 }
@@ -514,8 +520,9 @@ function reviveFromDown() {
 function clearDowned() {
   player.downed = false;
   downT = 0;
-  const el = $id('down-timer');
-  if (el) el.style.opacity = '0';
+  CORE.syncDownedTimerState(_downedTimerState, false, 0);
+  if (!_downTimerEl) _downTimerEl = $id('down-timer');
+  if (_downTimerEl) _downTimerEl.style.opacity = '0';
 }
 
 // ---- HUD --------------------------------------------------------------------

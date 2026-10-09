@@ -8243,3 +8243,94 @@ test('v129 balance tuning: damage-type armor mitigation, fall-damage bypass, and
   assert.strictEqual(CORE.weaponAdsSpeed('other'), 1.00);
 });
 
+test('v130 performance optimization: countdown and downed timer change-gating, blast distance-squared culling, and ragdoll momentum rules', () => {
+  // 1. Between-wave countdown change detection & state sync
+  const cdState = { waveNum: -1, displaySec: -1 };
+  assert.strictEqual(CORE.waveCountdownChanged(cdState, 1, 4.0), true);
+  CORE.syncWaveCountdownState(cdState, 1, 4.0);
+  assert.strictEqual(cdState.waveNum, 1);
+  assert.strictEqual(cdState.displaySec, 4);
+
+  // Minor tick within the same ceiling second (3.9s -> 3.1s both ceil to 4) skips DOM write
+  assert.strictEqual(CORE.waveCountdownChanged(cdState, 1, 3.9), false);
+  assert.strictEqual(CORE.waveCountdownChanged(cdState, 1, 3.2), false);
+
+  // Transition to next second (ceil to 3) detects change
+  assert.strictEqual(CORE.waveCountdownChanged(cdState, 1, 2.8), true);
+  CORE.syncWaveCountdownState(cdState, 1, 2.8);
+  assert.strictEqual(cdState.displaySec, 3);
+
+  // New wave number triggers change
+  assert.strictEqual(CORE.waveCountdownChanged(cdState, 2, 2.8), true);
+
+  // Dual-signature compatibility: boolean active + remainingSec (used by probe acceptance and HUD status)
+  const cdInit = { active: false, sec: -1 };
+  const cdChg1 = CORE.waveCountdownChanged(cdInit, true, 5);
+  const cdSync1 = CORE.syncWaveCountdownState(cdInit, true, 5);
+  const cdChg2 = CORE.waveCountdownChanged(cdInit, true, 5);
+  const cdChg3 = CORE.waveCountdownChanged(cdInit, true, 4);
+  assert.strictEqual(cdChg1, true);
+  assert.strictEqual(cdSync1.active, true);
+  assert.strictEqual(cdSync1.sec, 5);
+  assert.strictEqual(cdChg2, false);
+  assert.strictEqual(cdChg3, true);
+
+  // 2. Downed bleedout timer change detection & state sync
+  const downState = { downed: false, tenths: -1 };
+  assert.strictEqual(CORE.downedTimerChanged(downState, true, 15.0), true);
+  CORE.syncDownedTimerState(downState, true, 15.0);
+  assert.strictEqual(downState.downed, true);
+  assert.strictEqual(downState.tenths, 150);
+
+  // Sub-tenth progress (14.98 -> 14.96 both round to 150) skips DOM write
+  assert.strictEqual(CORE.downedTimerChanged(downState, true, 14.98), false);
+  assert.strictEqual(CORE.downedTimerChanged(downState, true, 14.96), false);
+
+  // Tenth decrement (rounds to 149) detects change
+  assert.strictEqual(CORE.downedTimerChanged(downState, true, 14.92), true);
+  CORE.syncDownedTimerState(downState, true, 14.92);
+  assert.strictEqual(downState.tenths, 149);
+
+  // Clear / revive resets state
+  assert.strictEqual(CORE.downedTimerChanged(downState, false, 0), true);
+  CORE.syncDownedTimerState(downState, false, 0);
+  assert.strictEqual(downState.downed, false);
+  assert.strictEqual(CORE.downedTimerChanged(downState, false, 0), false);
+
+  // 3. Flash overlay change detection
+  assert.strictEqual(CORE.flashOverlayChanged(undefined, 0.6), true);
+  assert.strictEqual(CORE.flashOverlayChanged(0.6, 0.602, 0.008), false);
+  assert.strictEqual(CORE.flashOverlayChanged(0.6, 0.612, 0.008), true);
+  assert.strictEqual(CORE.flashOverlayChanged(0.01, 0.0, 0.008), true);
+
+  // 4. Explosive blast radial spatial culling
+  const rSq = 7.5 * 7.5;
+  assert.strictEqual(CORE.isTargetInBlastRadius(3, 0, 4, rSq), true);   // 9 + 16 = 25 < 56.25
+  assert.strictEqual(CORE.isTargetInBlastRadius(6, 1, 6, rSq), false);  // 36 + 1 + 36 = 73 >= 56.25
+  assert.strictEqual(CORE.isTargetInBlastRadius(0, 0, 0, -1), false);
+
+  // 5. Thermite burn patch distance-squared optimization
+  assert.strictEqual(CORE.isPointInBurnRadius(1, 1, 0, 0, 2), true);   // 1 + 1 = 2 < 4
+  assert.strictEqual(CORE.isPointInBurnRadius(2, 2, 0, 0, 2), false);  // 4 + 4 = 8 >= 4
+  assert.strictEqual(CORE.isPointInBurnRadius(0, 0, 0, 0, 0), false);
+
+  // 6. Soldier ragdoll knockback & momentum pooling
+  assert.strictEqual(CORE.SOLDIER_RAGDOLL_MOMENTUM_SCALE, 0.55);
+  assert.strictEqual(CORE.SOLDIER_RAGDOLL_KNOCK_BASE, 9.0);
+  assert.strictEqual(CORE.SOLDIER_RAGDOLL_KNOCK_MIN, 2.0);
+
+  const kOut = { x: 0, z: 0 };
+  const kRes = CORE.soldierRagdollKnockback(5, 5, 2, 1, kOut);
+  assert.strictEqual(kRes, kOut);
+  // dx = 3, dz = 4, len = 5, kf = max(2, 9 - 5) = 4, x = 3/5*4 = 2.4, z = 4/5*4 = 3.2
+  assert.ok(Math.abs(kRes.x - 2.4) < 1e-4);
+  assert.ok(Math.abs(kRes.z - 3.2) < 1e-4);
+
+  const mOut = { x: 0, y: 0, z: 0 };
+  const mRes = CORE.soldierRagdollMomentum(2.0, 4.0, 1.0, 2.0, 0.55, mOut);
+  assert.strictEqual(mRes, mOut);
+  assert.ok(Math.abs(mRes.x - (2.0 * 0.55 + 1.0)) < 1e-4);
+  assert.strictEqual(mRes.y, 0);
+  assert.ok(Math.abs(mRes.z - (4.0 * 0.55 + 2.0)) < 1e-4);
+});
+

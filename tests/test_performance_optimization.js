@@ -208,3 +208,87 @@ test('v125 audio range culling, aim assist forward gating, enemy separation over
   assert.equal(offer.price, CORE.ammoRefillPrice('smg'));
 });
 
+test('v130 performance optimization rules: countdown and downed timer change-gating, blast distance-squared culling, and ragdoll momentum rules', () => {
+  // 1. Between-wave countdown change detection
+  const cdState = { waveNum: -1, displaySec: -1 };
+  assert.equal(CORE.waveCountdownChanged(cdState, 1, 3.8), true);
+  CORE.syncWaveCountdownState(cdState, 1, 3.8);
+  assert.equal(cdState.waveNum, 1);
+  assert.equal(cdState.displaySec, 4);
+  // Same second ceil: 3.8 -> 3.2 (both ceil to 4) should NOT trigger DOM update
+  assert.equal(CORE.waveCountdownChanged(cdState, 1, 3.2), false);
+  // Cross to next second: 2.9 (ceil to 3) triggers change
+  assert.equal(CORE.waveCountdownChanged(cdState, 1, 2.9), true);
+  CORE.syncWaveCountdownState(cdState, 1, 2.9);
+  assert.equal(cdState.displaySec, 3);
+  // Next wave number triggers change
+  assert.equal(CORE.waveCountdownChanged(cdState, 2, 2.9), true);
+
+  // Dual-signature compatibility: boolean active + remainingSec (used by probe acceptance and HUD status)
+  const cdInit = { active: false, sec: -1 };
+  const cdChg1 = CORE.waveCountdownChanged(cdInit, true, 5);
+  const cdSync1 = CORE.syncWaveCountdownState(cdInit, true, 5);
+  const cdChg2 = CORE.waveCountdownChanged(cdInit, true, 5);
+  const cdChg3 = CORE.waveCountdownChanged(cdInit, true, 4);
+  assert.equal(cdChg1, true);
+  assert.equal(cdSync1.active, true);
+  assert.equal(cdSync1.sec, 5);
+  assert.equal(cdChg2, false);
+  assert.equal(cdChg3, true);
+
+  // 2. Downed bleedout timer change detection
+  const downState = { downed: false, tenths: -1 };
+  assert.equal(CORE.downedTimerChanged(downState, true, 14.24), true);
+  CORE.syncDownedTimerState(downState, true, 14.24);
+  assert.equal(downState.downed, true);
+  assert.equal(downState.tenths, 142);
+  // Sub-tenth delta: 14.24 -> 14.21 (both round to 142) should NOT trigger change
+  assert.equal(CORE.downedTimerChanged(downState, true, 14.21), false);
+  // Tenth decrement: 14.14 (rounds to 141) triggers change
+  assert.equal(CORE.downedTimerChanged(downState, true, 14.14), true);
+  CORE.syncDownedTimerState(downState, true, 14.14);
+  assert.equal(downState.tenths, 141);
+  // Revived/cleared: downed transitions to false
+  assert.equal(CORE.downedTimerChanged(downState, false, 0), true);
+  CORE.syncDownedTimerState(downState, false, 0);
+  assert.equal(downState.downed, false);
+  assert.equal(CORE.downedTimerChanged(downState, false, 0), false);
+
+  // 3. Flash overlay change detection
+  assert.equal(CORE.flashOverlayChanged(undefined, 0.5), true);
+  assert.equal(CORE.flashOverlayChanged(0.5, 0.502, 0.008), false);
+  assert.equal(CORE.flashOverlayChanged(0.5, 0.515, 0.008), true);
+  assert.equal(CORE.flashOverlayChanged(0.01, 0.0, 0.008), true);
+
+  // 4. Explosive blast radial spatial culling
+  const blastRadSq = 7.5 * 7.5; // 56.25
+  // Hostile 4m away: 16 + 0 + 9 = 25 < 56.25
+  assert.equal(CORE.isTargetInBlastRadius(4, 0, 3, blastRadSq), true);
+  // Hostile 10m away: 64 + 0 + 36 = 100 >= 56.25
+  assert.equal(CORE.isTargetInBlastRadius(8, 0, 6, blastRadSq), false);
+  // Invalid/degenerate radius
+  assert.equal(CORE.isTargetInBlastRadius(1, 0, 1, 0), false);
+
+  // 5. Thermite burn patch distance-squared optimization
+  assert.equal(CORE.isPointInBurnRadius(2, 2, 0, 0, 3), true); // 4+4=8 < 9
+  assert.equal(CORE.isPointInBurnRadius(3, 3, 0, 0, 3), false); // 9+9=18 >= 9
+
+  // 6. Soldier ragdoll knockback & momentum pooling
+  assert.equal(CORE.SOLDIER_RAGDOLL_MOMENTUM_SCALE, 0.55);
+  assert.equal(CORE.SOLDIER_RAGDOLL_KNOCK_BASE, 9.0);
+  assert.equal(CORE.SOLDIER_RAGDOLL_KNOCK_MIN, 2.0);
+  const knockOut = { x: 0, z: 0 };
+  const resKnock = CORE.soldierRagdollKnockback(10, 10, 7, 6, knockOut);
+  assert.equal(resKnock, knockOut);
+  // dist = hypot(3, 4) = 5. kf = max(2, 9 - 5) = 4. ox = 3/5*4 = 2.4, oz = 4/5*4 = 3.2
+  assert.ok(Math.abs(resKnock.x - 2.4) < 1e-4);
+  assert.ok(Math.abs(resKnock.z - 3.2) < 1e-4);
+
+  const momOut = { x: 0, y: 0, z: 0 };
+  const resMom = CORE.soldierRagdollMomentum(4.0, 6.0, 2.4, 3.2, 0.55, momOut);
+  assert.equal(resMom, momOut);
+  assert.ok(Math.abs(resMom.x - (4.0 * 0.55 + 2.4)) < 1e-4);
+  assert.ok(Math.abs(resMom.z - (6.0 * 0.55 + 3.2)) < 1e-4);
+  assert.equal(resMom.y, 0);
+});
+

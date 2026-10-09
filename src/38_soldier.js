@@ -437,6 +437,9 @@ const RD_PARTS = [['hips', 0, 1, 0], ['spine', 0, 1, 1], ['neck', 1, 2, 1], ['he
   ['shR', 6, 7, 1], ['elR', 7, 8, 1], ['haR', 7, 8, 1], ['hipL', 9, 10, 0], ['knL', 10, 11, 0], ['anL', 10, 11, 0], ['hipR', 12, 13, 0], ['knR', 13, 14, 0], ['anR', 13, 14, 0]];
 const RD_H = 1 / 60, RD_G = 16;
 const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sr = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sz = new THREE.Vector3();
+const _sdKnockOut = { x: 0, z: 0 };
+const _sdMomOut = new THREE.Vector3();
+const _sdF0 = new THREE.Matrix4(), _sdInv = new THREE.Matrix4();
 function sdGet(P, i, out) { return out.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); }
 function sdFrame(P, a, b, refUpper, out) {
   sdGet(P, a, _sa); sdGet(P, b, _sb);
@@ -463,14 +466,13 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
     settled: false, order: [], en: en };
   for (let i = 0; i < 15; i++) R.order.push({ x: 0, y: 0, z: 0 });
   const explosive = !!blastPos;
-  const knock = { x: 0, z: 0 };
+  let knockX = 0, knockZ = 0;
   if (explosive) {
-    const kx = en.pos.x - blastPos.x, kz = en.pos.z - blastPos.z, kl = Math.hypot(kx, kz) || 1;
-    const kf = Math.max(2, 9 - kl);
-    knock.x = kx / kl * kf; knock.z = kz / kl * kf;
+    CORE.soldierRagdollKnockback(en.pos.x, en.pos.z, blastPos.x, blastPos.z, _sdKnockOut);
+    knockX = _sdKnockOut.x; knockZ = _sdKnockOut.z;
   }
   // most of the running momentum carries into the fall; the kill shot then wins
-  const v = new THREE.Vector3(en.vel.x * 0.55 + knock.x, 0, en.vel.z * 0.55 + knock.z);
+  CORE.soldierRagdollMomentum(en.vel.x, en.vel.z, knockX, knockZ, CORE.SOLDIER_RAGDOLL_MOMENTUM_SCALE, _sdMomOut);
   for (let i = 0; i < 15; i++) {
     const o = J[RD_MARK[i]];
     o.getWorldPosition(_sa);
@@ -489,8 +491,8 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
     if (d < best) { best = d; hitIdx = i; }
   }
   for (let i = 0; i < 15; i++) {
-    let vx = v.x, vy = 0, vz = v.z;
-    if (explosive) { vx += knock.x * 0.6 * (0.8 + Math.random() * 0.4); vy += 3.5 + Math.random() * 2.5 + (i === 2 ? 1 : 0); vz += knock.z * 0.6 * (0.8 + Math.random() * 0.4); }
+    let vx = _sdMomOut.x, vy = 0, vz = _sdMomOut.z;
+    if (explosive) { vx += knockX * 0.6 * (0.8 + Math.random() * 0.4); vy += 3.5 + Math.random() * 2.5 + (i === 2 ? 1 : 0); vz += knockZ * 0.6 * (0.8 + Math.random() * 0.4); }
     if (impulseDir) {
       const near = i === hitIdx ? 1 : RD_BONES.some(function (bn) { return (bn[0] === i && bn[1] === hitIdx) || (bn[1] === i && bn[0] === hitIdx); }) ? 0.7 : 0.45;
       vx += impulseDir.x * impulse * near; vy += impulseDir.y * impulse * near + impulse * 0.08 * near; vz += impulseDir.z * impulse * near;
@@ -499,13 +501,12 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
   }
   // hand the visual parts over: record each part relative to its bone frame
   scene.add(R.container);
-  const F0 = new THREE.Matrix4(), inv = new THREE.Matrix4();
   for (let i = 0; i < RD_PARTS.length; i++) {
     const d = RD_PARTS[i], g = J[d[0]];
     if (!g) continue;
     g.updateMatrixWorld(true);
-    sdFrame(R.P, d[1], d[2], d[3], F0);
-    const rel = inv.copy(F0).invert().multiply(g.matrixWorld).clone();
+    sdFrame(R.P, d[1], d[2], d[3], _sdF0);
+    const rel = _sdInv.copy(_sdF0).invert().multiply(g.matrixWorld).clone();
     R.parts.push({ g: g, a: d[1], b: d[2], ref: d[3], rel: rel });
   }
   for (let i = 0; i < R.parts.length; i++) {

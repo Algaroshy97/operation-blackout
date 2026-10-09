@@ -584,6 +584,8 @@ function applyTactical(def, pos) {
 }
 
 let playerFlashT = 0;
+let _flashOverlayEl = null;
+let _lastFlashOpacity = -1;
 
 function addBurnPatch(x, z, def) {
   const ring = getBurnPatchMesh();
@@ -611,8 +613,16 @@ function smokeVolumes() { return smokeClouds; }
 function updateEquipmentEffects(dt) {
   if (playerFlashT > 0) {
     playerFlashT = Math.max(0, playerFlashT - dt);
-    const el = $id('flash-overlay');
-    if (el) el.style.opacity = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
+    if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+    const op = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
+    if (CORE.flashOverlayChanged(_lastFlashOpacity, op)) {
+      _lastFlashOpacity = op;
+      if (_flashOverlayEl) _flashOverlayEl.style.opacity = op;
+    }
+  } else if (_lastFlashOpacity > 0) {
+    _lastFlashOpacity = 0;
+    if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+    if (_flashOverlayEl) _flashOverlayEl.style.opacity = '0';
   }
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     const b = burnPatches[i];
@@ -653,6 +663,9 @@ function resetEquipment() {
   equippedTactical = null;
   tacticalCount = 0;
   playerFlashT = 0;
+  _lastFlashOpacity = 0;
+  if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+  if (_flashOverlayEl) _flashOverlayEl.style.opacity = '0';
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     releaseBurnPatchMesh(burnPatches[i].m);
   }
@@ -733,12 +746,15 @@ function explodeGrenade(pos, scale) {
   spawnScorch(pos, dmgScale);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
+  const blastRadSq = CFG.grenade.radius * CFG.grenade.radius;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const dx = en.pos.x - pos.x, dy = en.pos.y - pos.y, dz = en.pos.z - pos.z;
+    if (!CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) continue;
     const d = en.pos.distanceTo(pos);
     _blastTarget.set(en.pos.x, 1.1, en.pos.z);
-    if (d < CFG.grenade.radius && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
+    if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
       damageEnemy(en, dmg, _blastTarget, false);
     }

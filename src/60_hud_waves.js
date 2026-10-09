@@ -765,17 +765,27 @@ function showWaveBanner(n, cleared) {
   clearTimeout(hud.waveBanner._t);
   // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
   // the sub text and the next startWave() replaces and auto-hides the banner.
+  _waveCountdownState.waveNum = -1;
+  _waveCountdownState.displaySec = -1;
   if (n >= 1 && !cleared) hud.waveBanner._t = setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
 }
 // Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
-// pause with no feedback). Runs from updateWaves only while playing.
+// pause with no feedback). Runs from updateWaves only while playing. Change-gated
+// so DOM textContent is only mutated once per second instead of 60 Hz.
+const _waveCountdownState = { waveNum: -1, displaySec: -1 };
 function updateWaveCountdown() {
+  if (!CORE.waveCountdownChanged(_waveCountdownState, waveNum, betweenWaveT)) return;
+  CORE.syncWaveCountdownState(_waveCountdownState, waveNum, betweenWaveT);
   hud.waveSub.textContent = CORE.waveCountdownLabel(waveNum, betweenWaveT);
 }
+let _centerMsgTimer = null;
 function showCenterMsg(txt) {
+  if (!hud.centerMsg) hud.centerMsg = $id('center-msg');
+  if (!hud.centerMsg) return;
   hud.centerMsg.textContent = txt;
-  hud.centerMsg.style.opacity = 1;
-  setTimeout(function () { hud.centerMsg.style.opacity = 0; }, 1800);
+  hud.centerMsg.style.opacity = '1';
+  clearTimeout(_centerMsgTimer);
+  _centerMsgTimer = setTimeout(function () { if (hud.centerMsg) hud.centerMsg.style.opacity = '0'; }, 1800);
 }
 
 // ---- Minimap + compass ----

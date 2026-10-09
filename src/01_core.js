@@ -6342,7 +6342,8 @@ const CORE = (function () {
   function isPointInBurnRadius(px, pz, bx, bz, radius) {
     const r = (typeof radius === 'number' && isFinite(radius)) ? radius : 0;
     if (r <= 0) return false;
-    return horizDist(px, pz, bx, bz) < r;
+    const dx = px - bx, dz = pz - bz;
+    return (dx * dx + dz * dz) < (r * r);
   }
 
   const GRENADE_POOL_MAX = 12;
@@ -7227,6 +7228,105 @@ const CORE = (function () {
 
   function landingSound(hasFallDamage) {
     return Boolean(hasFallDamage) ? 'land_heavy' : 'land';
+  }
+
+  // ---- Performance Optimization: Countdown & Downed Timer Change-Gating, Blast Spatial Culling & Ragdoll Momentum (v130) ----
+  function waveCountdownChanged(lastState, waveNumOrActive, countdownSec) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    const t = (typeof countdownSec === 'number' && isFinite(countdownSec)) ? countdownSec : 0;
+    const n = Math.max(1, Math.ceil(t));
+    if (typeof waveNumOrActive === 'boolean') {
+      const active = waveNumOrActive;
+      const curSec = (typeof lastState.sec === 'number') ? lastState.sec : lastState.displaySec;
+      return lastState.active !== active || curSec !== n;
+    }
+    const wn = (typeof waveNumOrActive === 'number' && isFinite(waveNumOrActive)) ? waveNumOrActive : 0;
+    const curSec = (typeof lastState.displaySec === 'number') ? lastState.displaySec : lastState.sec;
+    return lastState.waveNum !== wn || curSec !== n;
+  }
+
+  function syncWaveCountdownState(lastState, waveNumOrActive, countdownSec) {
+    if (!lastState || typeof lastState !== 'object') return lastState;
+    const t = (typeof countdownSec === 'number' && isFinite(countdownSec)) ? countdownSec : 0;
+    const n = Math.max(1, Math.ceil(t));
+    if (typeof waveNumOrActive === 'boolean') {
+      const active = waveNumOrActive;
+      lastState.active = active;
+      lastState.sec = n;
+      lastState.displaySec = n;
+      if (lastState.waveNum === undefined) {
+        lastState.waveNum = active ? 1 : 0;
+      }
+    } else {
+      const wn = (typeof waveNumOrActive === 'number' && isFinite(waveNumOrActive)) ? waveNumOrActive : 0;
+      lastState.waveNum = wn;
+      lastState.displaySec = n;
+      lastState.sec = n;
+      lastState.active = wn > 0;
+    }
+    return lastState;
+  }
+
+  function downedTimerChanged(lastState, isDowned, leftSec) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    const downed = !!isDowned;
+    if (lastState.downed !== downed) return true;
+    if (!downed) return false;
+    const left = Math.max(0, (typeof leftSec === 'number' && isFinite(leftSec)) ? leftSec : 0);
+    const tenths = Math.round(left * 10);
+    return lastState.tenths !== tenths;
+  }
+
+  function syncDownedTimerState(lastState, isDowned, leftSec) {
+    if (!lastState || typeof lastState !== 'object') return lastState;
+    const downed = !!isDowned;
+    const left = Math.max(0, (typeof leftSec === 'number' && isFinite(leftSec)) ? leftSec : 0);
+    lastState.downed = downed;
+    lastState.tenths = downed ? Math.round(left * 10) : -1;
+    return lastState;
+  }
+
+  function flashOverlayChanged(lastOpacity, curOpacity, epsilon) {
+    if (typeof lastOpacity !== 'number' || !isFinite(lastOpacity)) return true;
+    const cur = (typeof curOpacity === 'number' && isFinite(curOpacity)) ? curOpacity : 0;
+    const eps = (typeof epsilon === 'number' && isFinite(epsilon) && epsilon > 0) ? epsilon : 0.008;
+    return Math.abs(cur - lastOpacity) >= eps;
+  }
+
+  function isTargetInBlastRadius(dx, dy, dz, maxRadiusSq) {
+    const limSq = (typeof maxRadiusSq === 'number' && isFinite(maxRadiusSq) && maxRadiusSq > 0) ? maxRadiusSq : 0;
+    if (limSq <= 0) return false;
+    const dSq = dx * dx + dy * dy + dz * dz;
+    return dSq < limSq;
+  }
+
+  const SOLDIER_RAGDOLL_MOMENTUM_SCALE = 0.55;
+  const SOLDIER_RAGDOLL_KNOCK_BASE = 9.0;
+  const SOLDIER_RAGDOLL_KNOCK_MIN = 2.0;
+
+  function soldierRagdollKnockback(enX, enZ, blastX, blastZ, out) {
+    const kx = enX - blastX, kz = enZ - blastZ;
+    const kl = Math.hypot(kx, kz) || 1;
+    const kf = Math.max(SOLDIER_RAGDOLL_KNOCK_MIN, SOLDIER_RAGDOLL_KNOCK_BASE - kl);
+    const ox = (kx / kl) * kf, oz = (kz / kl) * kf;
+    if (out && typeof out === 'object') {
+      out.x = ox; out.z = oz;
+      return out;
+    }
+    return { x: ox, z: oz };
+  }
+
+  function soldierRagdollMomentum(velX, velZ, knockX, knockZ, momentumScale, out) {
+    const ms = (typeof momentumScale === 'number' && isFinite(momentumScale)) ? momentumScale : SOLDIER_RAGDOLL_MOMENTUM_SCALE;
+    const kx = (typeof knockX === 'number' && isFinite(knockX)) ? knockX : 0;
+    const kz = (typeof knockZ === 'number' && isFinite(knockZ)) ? knockZ : 0;
+    const vx = velX * ms + kx;
+    const vz = velZ * ms + kz;
+    if (out && typeof out === 'object') {
+      out.x = vx; out.y = 0; out.z = vz;
+      return out;
+    }
+    return { x: vx, y: 0, z: vz };
   }
 
   return {
@@ -8296,7 +8396,18 @@ const CORE = (function () {
     WEAPON_ADS_SPEED_AR: WEAPON_ADS_SPEED_AR,
     WEAPON_ADS_SPEED_BR: WEAPON_ADS_SPEED_BR,
     WEAPON_ADS_SPEED_SR: WEAPON_ADS_SPEED_SR,
-    weaponAdsSpeed: weaponAdsSpeed
+    weaponAdsSpeed: weaponAdsSpeed,
+    waveCountdownChanged: waveCountdownChanged,
+    syncWaveCountdownState: syncWaveCountdownState,
+    downedTimerChanged: downedTimerChanged,
+    syncDownedTimerState: syncDownedTimerState,
+    flashOverlayChanged: flashOverlayChanged,
+    isTargetInBlastRadius: isTargetInBlastRadius,
+    SOLDIER_RAGDOLL_MOMENTUM_SCALE: SOLDIER_RAGDOLL_MOMENTUM_SCALE,
+    SOLDIER_RAGDOLL_KNOCK_BASE: SOLDIER_RAGDOLL_KNOCK_BASE,
+    SOLDIER_RAGDOLL_KNOCK_MIN: SOLDIER_RAGDOLL_KNOCK_MIN,
+    soldierRagdollKnockback: soldierRagdollKnockback,
+    soldierRagdollMomentum: soldierRagdollMomentum
   };
 })();
 

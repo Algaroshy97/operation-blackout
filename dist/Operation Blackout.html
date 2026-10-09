@@ -11075,7 +11075,8 @@ const CORE = (function () {
   function isPointInBurnRadius(px, pz, bx, bz, radius) {
     const r = (typeof radius === 'number' && isFinite(radius)) ? radius : 0;
     if (r <= 0) return false;
-    return horizDist(px, pz, bx, bz) < r;
+    const dx = px - bx, dz = pz - bz;
+    return (dx * dx + dz * dz) < (r * r);
   }
 
   const GRENADE_POOL_MAX = 12;
@@ -11960,6 +11961,105 @@ const CORE = (function () {
 
   function landingSound(hasFallDamage) {
     return Boolean(hasFallDamage) ? 'land_heavy' : 'land';
+  }
+
+  // ---- Performance Optimization: Countdown & Downed Timer Change-Gating, Blast Spatial Culling & Ragdoll Momentum (v130) ----
+  function waveCountdownChanged(lastState, waveNumOrActive, countdownSec) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    const t = (typeof countdownSec === 'number' && isFinite(countdownSec)) ? countdownSec : 0;
+    const n = Math.max(1, Math.ceil(t));
+    if (typeof waveNumOrActive === 'boolean') {
+      const active = waveNumOrActive;
+      const curSec = (typeof lastState.sec === 'number') ? lastState.sec : lastState.displaySec;
+      return lastState.active !== active || curSec !== n;
+    }
+    const wn = (typeof waveNumOrActive === 'number' && isFinite(waveNumOrActive)) ? waveNumOrActive : 0;
+    const curSec = (typeof lastState.displaySec === 'number') ? lastState.displaySec : lastState.sec;
+    return lastState.waveNum !== wn || curSec !== n;
+  }
+
+  function syncWaveCountdownState(lastState, waveNumOrActive, countdownSec) {
+    if (!lastState || typeof lastState !== 'object') return lastState;
+    const t = (typeof countdownSec === 'number' && isFinite(countdownSec)) ? countdownSec : 0;
+    const n = Math.max(1, Math.ceil(t));
+    if (typeof waveNumOrActive === 'boolean') {
+      const active = waveNumOrActive;
+      lastState.active = active;
+      lastState.sec = n;
+      lastState.displaySec = n;
+      if (lastState.waveNum === undefined) {
+        lastState.waveNum = active ? 1 : 0;
+      }
+    } else {
+      const wn = (typeof waveNumOrActive === 'number' && isFinite(waveNumOrActive)) ? waveNumOrActive : 0;
+      lastState.waveNum = wn;
+      lastState.displaySec = n;
+      lastState.sec = n;
+      lastState.active = wn > 0;
+    }
+    return lastState;
+  }
+
+  function downedTimerChanged(lastState, isDowned, leftSec) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    const downed = !!isDowned;
+    if (lastState.downed !== downed) return true;
+    if (!downed) return false;
+    const left = Math.max(0, (typeof leftSec === 'number' && isFinite(leftSec)) ? leftSec : 0);
+    const tenths = Math.round(left * 10);
+    return lastState.tenths !== tenths;
+  }
+
+  function syncDownedTimerState(lastState, isDowned, leftSec) {
+    if (!lastState || typeof lastState !== 'object') return lastState;
+    const downed = !!isDowned;
+    const left = Math.max(0, (typeof leftSec === 'number' && isFinite(leftSec)) ? leftSec : 0);
+    lastState.downed = downed;
+    lastState.tenths = downed ? Math.round(left * 10) : -1;
+    return lastState;
+  }
+
+  function flashOverlayChanged(lastOpacity, curOpacity, epsilon) {
+    if (typeof lastOpacity !== 'number' || !isFinite(lastOpacity)) return true;
+    const cur = (typeof curOpacity === 'number' && isFinite(curOpacity)) ? curOpacity : 0;
+    const eps = (typeof epsilon === 'number' && isFinite(epsilon) && epsilon > 0) ? epsilon : 0.008;
+    return Math.abs(cur - lastOpacity) >= eps;
+  }
+
+  function isTargetInBlastRadius(dx, dy, dz, maxRadiusSq) {
+    const limSq = (typeof maxRadiusSq === 'number' && isFinite(maxRadiusSq) && maxRadiusSq > 0) ? maxRadiusSq : 0;
+    if (limSq <= 0) return false;
+    const dSq = dx * dx + dy * dy + dz * dz;
+    return dSq < limSq;
+  }
+
+  const SOLDIER_RAGDOLL_MOMENTUM_SCALE = 0.55;
+  const SOLDIER_RAGDOLL_KNOCK_BASE = 9.0;
+  const SOLDIER_RAGDOLL_KNOCK_MIN = 2.0;
+
+  function soldierRagdollKnockback(enX, enZ, blastX, blastZ, out) {
+    const kx = enX - blastX, kz = enZ - blastZ;
+    const kl = Math.hypot(kx, kz) || 1;
+    const kf = Math.max(SOLDIER_RAGDOLL_KNOCK_MIN, SOLDIER_RAGDOLL_KNOCK_BASE - kl);
+    const ox = (kx / kl) * kf, oz = (kz / kl) * kf;
+    if (out && typeof out === 'object') {
+      out.x = ox; out.z = oz;
+      return out;
+    }
+    return { x: ox, z: oz };
+  }
+
+  function soldierRagdollMomentum(velX, velZ, knockX, knockZ, momentumScale, out) {
+    const ms = (typeof momentumScale === 'number' && isFinite(momentumScale)) ? momentumScale : SOLDIER_RAGDOLL_MOMENTUM_SCALE;
+    const kx = (typeof knockX === 'number' && isFinite(knockX)) ? knockX : 0;
+    const kz = (typeof knockZ === 'number' && isFinite(knockZ)) ? knockZ : 0;
+    const vx = velX * ms + kx;
+    const vz = velZ * ms + kz;
+    if (out && typeof out === 'object') {
+      out.x = vx; out.y = 0; out.z = vz;
+      return out;
+    }
+    return { x: vx, y: 0, z: vz };
   }
 
   return {
@@ -13029,7 +13129,18 @@ const CORE = (function () {
     WEAPON_ADS_SPEED_AR: WEAPON_ADS_SPEED_AR,
     WEAPON_ADS_SPEED_BR: WEAPON_ADS_SPEED_BR,
     WEAPON_ADS_SPEED_SR: WEAPON_ADS_SPEED_SR,
-    weaponAdsSpeed: weaponAdsSpeed
+    weaponAdsSpeed: weaponAdsSpeed,
+    waveCountdownChanged: waveCountdownChanged,
+    syncWaveCountdownState: syncWaveCountdownState,
+    downedTimerChanged: downedTimerChanged,
+    syncDownedTimerState: syncDownedTimerState,
+    flashOverlayChanged: flashOverlayChanged,
+    isTargetInBlastRadius: isTargetInBlastRadius,
+    SOLDIER_RAGDOLL_MOMENTUM_SCALE: SOLDIER_RAGDOLL_MOMENTUM_SCALE,
+    SOLDIER_RAGDOLL_KNOCK_BASE: SOLDIER_RAGDOLL_KNOCK_BASE,
+    SOLDIER_RAGDOLL_KNOCK_MIN: SOLDIER_RAGDOLL_KNOCK_MIN,
+    soldierRagdollKnockback: soldierRagdollKnockback,
+    soldierRagdollMomentum: soldierRagdollMomentum
   };
 })();
 
@@ -17245,6 +17356,9 @@ const RD_PARTS = [['hips', 0, 1, 0], ['spine', 0, 1, 1], ['neck', 1, 2, 1], ['he
   ['shR', 6, 7, 1], ['elR', 7, 8, 1], ['haR', 7, 8, 1], ['hipL', 9, 10, 0], ['knL', 10, 11, 0], ['anL', 10, 11, 0], ['hipR', 12, 13, 0], ['knR', 13, 14, 0], ['anR', 13, 14, 0]];
 const RD_H = 1 / 60, RD_G = 16;
 const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sr = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sz = new THREE.Vector3();
+const _sdKnockOut = { x: 0, z: 0 };
+const _sdMomOut = new THREE.Vector3();
+const _sdF0 = new THREE.Matrix4(), _sdInv = new THREE.Matrix4();
 function sdGet(P, i, out) { return out.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); }
 function sdFrame(P, a, b, refUpper, out) {
   sdGet(P, a, _sa); sdGet(P, b, _sb);
@@ -17271,14 +17385,13 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
     settled: false, order: [], en: en };
   for (let i = 0; i < 15; i++) R.order.push({ x: 0, y: 0, z: 0 });
   const explosive = !!blastPos;
-  const knock = { x: 0, z: 0 };
+  let knockX = 0, knockZ = 0;
   if (explosive) {
-    const kx = en.pos.x - blastPos.x, kz = en.pos.z - blastPos.z, kl = Math.hypot(kx, kz) || 1;
-    const kf = Math.max(2, 9 - kl);
-    knock.x = kx / kl * kf; knock.z = kz / kl * kf;
+    CORE.soldierRagdollKnockback(en.pos.x, en.pos.z, blastPos.x, blastPos.z, _sdKnockOut);
+    knockX = _sdKnockOut.x; knockZ = _sdKnockOut.z;
   }
   // most of the running momentum carries into the fall; the kill shot then wins
-  const v = new THREE.Vector3(en.vel.x * 0.55 + knock.x, 0, en.vel.z * 0.55 + knock.z);
+  CORE.soldierRagdollMomentum(en.vel.x, en.vel.z, knockX, knockZ, CORE.SOLDIER_RAGDOLL_MOMENTUM_SCALE, _sdMomOut);
   for (let i = 0; i < 15; i++) {
     const o = J[RD_MARK[i]];
     o.getWorldPosition(_sa);
@@ -17297,8 +17410,8 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
     if (d < best) { best = d; hitIdx = i; }
   }
   for (let i = 0; i < 15; i++) {
-    let vx = v.x, vy = 0, vz = v.z;
-    if (explosive) { vx += knock.x * 0.6 * (0.8 + Math.random() * 0.4); vy += 3.5 + Math.random() * 2.5 + (i === 2 ? 1 : 0); vz += knock.z * 0.6 * (0.8 + Math.random() * 0.4); }
+    let vx = _sdMomOut.x, vy = 0, vz = _sdMomOut.z;
+    if (explosive) { vx += knockX * 0.6 * (0.8 + Math.random() * 0.4); vy += 3.5 + Math.random() * 2.5 + (i === 2 ? 1 : 0); vz += knockZ * 0.6 * (0.8 + Math.random() * 0.4); }
     if (impulseDir) {
       const near = i === hitIdx ? 1 : RD_BONES.some(function (bn) { return (bn[0] === i && bn[1] === hitIdx) || (bn[1] === i && bn[0] === hitIdx); }) ? 0.7 : 0.45;
       vx += impulseDir.x * impulse * near; vy += impulseDir.y * impulse * near + impulse * 0.08 * near; vz += impulseDir.z * impulse * near;
@@ -17307,13 +17420,12 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
   }
   // hand the visual parts over: record each part relative to its bone frame
   scene.add(R.container);
-  const F0 = new THREE.Matrix4(), inv = new THREE.Matrix4();
   for (let i = 0; i < RD_PARTS.length; i++) {
     const d = RD_PARTS[i], g = J[d[0]];
     if (!g) continue;
     g.updateMatrixWorld(true);
-    sdFrame(R.P, d[1], d[2], d[3], F0);
-    const rel = inv.copy(F0).invert().multiply(g.matrixWorld).clone();
+    sdFrame(R.P, d[1], d[2], d[3], _sdF0);
+    const rel = _sdInv.copy(_sdF0).invert().multiply(g.matrixWorld).clone();
     R.parts.push({ g: g, a: d[1], b: d[2], ref: d[3], rel: rel });
   }
   for (let i = 0; i < R.parts.length; i++) {
@@ -20449,6 +20561,8 @@ function applyTactical(def, pos) {
 }
 
 let playerFlashT = 0;
+let _flashOverlayEl = null;
+let _lastFlashOpacity = -1;
 
 function addBurnPatch(x, z, def) {
   const ring = getBurnPatchMesh();
@@ -20476,8 +20590,16 @@ function smokeVolumes() { return smokeClouds; }
 function updateEquipmentEffects(dt) {
   if (playerFlashT > 0) {
     playerFlashT = Math.max(0, playerFlashT - dt);
-    const el = $id('flash-overlay');
-    if (el) el.style.opacity = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
+    if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+    const op = CORE.flashOverlayOpacity(playerFlashT, CORE.FLASH_OVERLAY_DURATION_SCALE, CORE.FLASH_OVERLAY_MAX_ALPHA);
+    if (CORE.flashOverlayChanged(_lastFlashOpacity, op)) {
+      _lastFlashOpacity = op;
+      if (_flashOverlayEl) _flashOverlayEl.style.opacity = op;
+    }
+  } else if (_lastFlashOpacity > 0) {
+    _lastFlashOpacity = 0;
+    if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+    if (_flashOverlayEl) _flashOverlayEl.style.opacity = '0';
   }
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     const b = burnPatches[i];
@@ -20518,6 +20640,9 @@ function resetEquipment() {
   equippedTactical = null;
   tacticalCount = 0;
   playerFlashT = 0;
+  _lastFlashOpacity = 0;
+  if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
+  if (_flashOverlayEl) _flashOverlayEl.style.opacity = '0';
   for (let i = burnPatches.length - 1; i >= 0; i--) {
     releaseBurnPatchMesh(burnPatches[i].m);
   }
@@ -20598,12 +20723,15 @@ function explodeGrenade(pos, scale) {
   spawnScorch(pos, dmgScale);
   // damage with distance falloff and real cover occlusion
   _blastFrom.copy(pos); _blastFrom.y += 0.12;
+  const blastRadSq = CFG.grenade.radius * CFG.grenade.radius;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    const dx = en.pos.x - pos.x, dy = en.pos.y - pos.y, dz = en.pos.z - pos.z;
+    if (!CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) continue;
     const d = en.pos.distanceTo(pos);
     _blastTarget.set(en.pos.x, 1.1, en.pos.z);
-    if (d < CFG.grenade.radius && grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
+    if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
       damageEnemy(en, dmg, _blastTarget, false);
     }
@@ -21240,14 +21368,20 @@ function downPlayer() {
   updateHudHealth();
 }
 
+let _downTimerEl = null;
+const _downedTimerState = { downed: null, tenths: -1 };
+
 function updateDowned(dt) {
   if (!player.downed || player.dead) return;
   downT += dt;
   const left = CORE.bleedOutRemaining(downT);
-  const el = $id('down-timer');
-  if (el) {
-    el.style.opacity = '1';
-    el.textContent = CORE.downBleedoutLabel(left);
+  if (!_downTimerEl) _downTimerEl = $id('down-timer');
+  if (_downTimerEl) {
+    if (CORE.downedTimerChanged(_downedTimerState, true, left)) {
+      CORE.syncDownedTimerState(_downedTimerState, true, left);
+      if (_downTimerEl.style.opacity !== '1') _downTimerEl.style.opacity = '1';
+      _downTimerEl.textContent = CORE.downBleedoutLabel(left);
+    }
   }
   if (left <= 0) { clearDowned(); killPlayer(); }
 }
@@ -21265,8 +21399,9 @@ function reviveFromDown() {
 function clearDowned() {
   player.downed = false;
   downT = 0;
-  const el = $id('down-timer');
-  if (el) el.style.opacity = '0';
+  CORE.syncDownedTimerState(_downedTimerState, false, 0);
+  if (!_downTimerEl) _downTimerEl = $id('down-timer');
+  if (_downTimerEl) _downTimerEl.style.opacity = '0';
 }
 
 // ---- HUD --------------------------------------------------------------------
@@ -22403,17 +22538,27 @@ function showWaveBanner(n, cleared) {
   clearTimeout(hud.waveBanner._t);
   // cleared/ready banners stay visible; the countdown (updateWaveCountdown) ticks
   // the sub text and the next startWave() replaces and auto-hides the banner.
+  _waveCountdownState.waveNum = -1;
+  _waveCountdownState.displaySec = -1;
   if (n >= 1 && !cleared) hud.waveBanner._t = setTimeout(function () { hud.waveBanner.style.opacity = 0; }, 2200);
 }
 // Live "NEXT WAVE IN N" countdown during the between-wave gap (was a dead 4 s
-// pause with no feedback). Runs from updateWaves only while playing.
+// pause with no feedback). Runs from updateWaves only while playing. Change-gated
+// so DOM textContent is only mutated once per second instead of 60 Hz.
+const _waveCountdownState = { waveNum: -1, displaySec: -1 };
 function updateWaveCountdown() {
+  if (!CORE.waveCountdownChanged(_waveCountdownState, waveNum, betweenWaveT)) return;
+  CORE.syncWaveCountdownState(_waveCountdownState, waveNum, betweenWaveT);
   hud.waveSub.textContent = CORE.waveCountdownLabel(waveNum, betweenWaveT);
 }
+let _centerMsgTimer = null;
 function showCenterMsg(txt) {
+  if (!hud.centerMsg) hud.centerMsg = $id('center-msg');
+  if (!hud.centerMsg) return;
   hud.centerMsg.textContent = txt;
-  hud.centerMsg.style.opacity = 1;
-  setTimeout(function () { hud.centerMsg.style.opacity = 0; }, 1800);
+  hud.centerMsg.style.opacity = '1';
+  clearTimeout(_centerMsgTimer);
+  _centerMsgTimer = setTimeout(function () { if (hud.centerMsg) hud.centerMsg.style.opacity = '0'; }, 1800);
 }
 
 // ---- Minimap + compass ----
