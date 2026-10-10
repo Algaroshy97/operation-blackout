@@ -399,6 +399,8 @@ function updatePlayer(dt) {
   } else if (player.airSpeedY > 0) {
     const impact = player.airSpeedY;
     player.airSpeedY = 0;
+    const dust = CORE.landingDustParams(impact);
+    if (dust && typeof fxDust === 'function') fxDust(player.pos, dust.count, dust.spread, dust.color);
     const dmg = CORE.fallDamage(impact);
     if (dmg > 0) {
       const mul = CORE.landingSpeedMul(impact);

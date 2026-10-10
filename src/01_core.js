@@ -7436,6 +7436,7 @@ const CORE = (function () {
   }
 
   function enemyHasHelmet(kind) {
+    if (typeof kind === 'number') return kind === 1 || kind === 2 || kind === 3 || kind === 5;
     return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier';
   }
 
@@ -7517,6 +7518,46 @@ const CORE = (function () {
     if (rSq <= 0) return false;
     const dSq = dx * dx + dz * dz;
     return dSq <= rSq && dSq >= 1e-12;
+  }
+
+  // ---- Ballistic Shield Deflection & Concussive Landing Dust (v137 Visual Polish) ----
+  const SHIELD_DEFLECT_SPARK_COUNT = 12;
+  const SHIELD_DEFLECT_SPARK_COLOR0 = 0x90e0ff;
+  const SHIELD_DEFLECT_SPARK_COLOR1 = 0xffa040;
+  const SHIELD_DEFLECT_LIGHT_COLOR = 0x60b0ff;
+  const SHIELD_DEFLECT_LIGHT_INTENSITY = 2.4;
+  const SHIELD_DEFLECT_LIGHT_DIST = 4.5;
+  const SHIELD_DEFLECT_LIGHT_DUR = 0.05;
+  const LANDING_DUST_HEAVY_COUNT = 12;
+  const LANDING_DUST_LIGHT_COUNT = 5;
+  const LANDING_DUST_COLOR = 0x8a8076;
+
+  function shieldDeflectNormal(enYaw, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    const yaw = (typeof enYaw === 'number' && isFinite(enYaw)) ? enYaw : 0;
+    o.x = Math.sin(yaw);
+    o.y = 0;
+    o.z = Math.cos(yaw);
+    return o;
+  }
+
+  function shieldDeflectVfxParams(shieldMul) {
+    return {
+      sparks: SHIELD_DEFLECT_SPARK_COUNT,
+      sparkColor0: SHIELD_DEFLECT_SPARK_COLOR0,
+      sparkColor1: SHIELD_DEFLECT_SPARK_COLOR1,
+      lightColor: SHIELD_DEFLECT_LIGHT_COLOR,
+      lightIntensity: SHIELD_DEFLECT_LIGHT_INTENSITY,
+      lightDist: SHIELD_DEFLECT_LIGHT_DIST,
+      lightDur: SHIELD_DEFLECT_LIGHT_DUR
+    };
+  }
+
+  function landingDustParams(impactSpeed) {
+    if (typeof impactSpeed !== 'number' || !isFinite(impactSpeed)) return null;
+    if (impactSpeed > FALL_SAFE_SPEED) return { count: LANDING_DUST_HEAVY_COUNT, spread: 2.0, color: LANDING_DUST_COLOR };
+    if (impactSpeed > 6.0) return { count: LANDING_DUST_LIGHT_COUNT, spread: 1.0, color: LANDING_DUST_COLOR };
+    return null;
   }
 
   return {
@@ -7646,143 +7687,36 @@ const CORE = (function () {
     wallBuyPrice: wallBuyPrice,
     ammoRefillPrice: ammoRefillPrice,
     wallBuyOffer: wallBuyOffer,
-    ARMORY_WAVE: ARMORY_WAVE,
-    ARMORY_PRICE: ARMORY_PRICE,
-    armoryAvailable: armoryAvailable,
-    armoryUpgrade: armoryUpgrade,
-    PERK_SLOTS: PERK_SLOTS,
-    PERKS: PERKS,
-    perkByKey: perkByKey,
-    perkBuyBlocker: perkBuyBlocker,
-    hasPerk: hasPerk,
-    perkMaxHealth: perkMaxHealth,
-    HEALTH_LOW_THRESHOLD: HEALTH_LOW_THRESHOLD,
-    isHealthLow: isHealthLow,
-    ARMOR_LOW_RATIO: ARMOR_LOW_RATIO,
-    isArmorLow: isArmorLow,
-    isArmorEmpty: isArmorEmpty,
-    AMMO_LOW_RATIO: AMMO_LOW_RATIO,
-    isAmmoLow: isAmmoLow,
-    isAmmoEmpty: isAmmoEmpty,
-    reloadPrompt: reloadPrompt,
-    perkReloadMul: perkReloadMul,
-    perkBloomMul: perkBloomMul,
-    perkAdsMul: perkAdsMul,
-    perkPickupMul: perkPickupMul,
-    PLATE_MAX: PLATE_MAX,
-    PLATE_PRICE: PLATE_PRICE,
-    PLATE_TIME: PLATE_TIME,
-    plateApply: plateApply,
-    platesAffordable: platesAffordable,
-    DOWN_TIME: DOWN_TIME,
-    DOWN_REVIVE_HEALTH: DOWN_REVIVE_HEALTH,
-    DOWN_SPEED_MUL: DOWN_SPEED_MUL,
-    lethalOutcome: lethalOutcome,
-    bleedOutRemaining: bleedOutRemaining,
-    LETHALS: LETHALS,
-    TACTICALS: TACTICALS,
-    equipmentByKey: equipmentByKey,
-    flashStrength: flashStrength,
-    flashDuration: flashDuration,
-    segmentHitsSphere: segmentHitsSphere,
-    smokeBlocks: smokeBlocks,
-    STREAKS: STREAKS,
-    streakByKey: streakByKey,
-    streaksEarnedAt: streaksEarnedAt,
-    nextStreak: nextStreak,
-    FIELD_UPGRADE: FIELD_UPGRADE,
-    fieldChargeAfter: fieldChargeAfter,
-    fieldReady: fieldReady,
-    coneHit: coneHit,
-    SPECIAL_WAVES: SPECIAL_WAVES,
-    SPECIAL_EVERY: SPECIAL_EVERY,
-    specialWaveAt: specialWaveAt,
-    specialKind: specialKind,
-    ELITE_FROM_WAVE: ELITE_FROM_WAVE,
-    ELITE: ELITE,
-    eliteChance: eliteChance,
-    rollElite: rollElite,
-    DISTRICTS: DISTRICTS,
-    districtByKey: districtByKey,
-    insideDistrict: insideDistrict,
-    spawnPointSealed: spawnPointSealed,
-    usableSpawnPoints: usableSpawnPoints,
-    WAVE_QUEUE_CAP: WAVE_QUEUE_CAP,
-    waveQueueSize: waveQueueSize,
-    RAGDOLL_NODES: RAGDOLL_NODES,
-    RAGDOLL_LINKS: RAGDOLL_LINKS,
-    RAGDOLL_ITERATIONS: RAGDOLL_ITERATIONS,
-    makeRagdoll: makeRagdoll,
-    ragdollStep: ragdollStep,
-    ragdollImpulse: ragdollImpulse,
-    ragdollCollide: ragdollCollide,
-    ragdollEnergy: ragdollEnergy,
-    dist3: dist3,
-    FALL_SAFE_SPEED: FALL_SAFE_SPEED,
-    FALL_LETHAL_SPEED: FALL_LETHAL_SPEED,
-    fallDamage: fallDamage,
-    landingImpactSpeed: landingImpactSpeed,
-    landingSpeedMul: landingSpeedMul,
-    MAX_RANK: MAX_RANK,
-    xpForRank: xpForRank,
-    rankForXp: rankForXp,
-    rankProgress: rankProgress,
-    XP_PER: XP_PER,
-    runXp: runXp,
-    WEAPON_UNLOCK_RANK: WEAPON_UNLOCK_RANK,
-    weaponUnlockRank: weaponUnlockRank,
-    weaponUnlocked: weaponUnlocked,
-    CHALLENGES: CHALLENGES,
-    challengeProgress: challengeProgress,
-    challengesDone: challengesDone,
-    ATTACH_SLOTS: ATTACH_SLOTS,
-    ATTACH_SLOT_NAME: ATTACH_SLOT_NAME,
-    ATTACHMENTS: ATTACHMENTS,
-    attachmentByKey: attachmentByKey,
-    attachmentsForSlot: attachmentsForSlot,
-    attachmentUnlocked: attachmentUnlocked,
-    sanitizeLoadout: sanitizeLoadout,
-    applyAttachments: applyAttachments,
-    attachmentDelta: attachmentDelta,
-    OBJECTIVE_EVERY: OBJECTIVE_EVERY,
-    OBJECTIVE_HOLD: OBJECTIVE_HOLD,
-    OBJECTIVE_RADIUS: OBJECTIVE_RADIUS,
-    OBJECTIVE_CREDITS: OBJECTIVE_CREDITS,
-    objectiveWaveAt: objectiveWaveAt,
-    objectiveProgress: objectiveProgress,
-    objectiveComplete: objectiveComplete,
-    pickObjectiveSpot: pickObjectiveSpot,
-    REACH_MAX_VERT: REACH_MAX_VERT,
-    withinReach: withinReach,
-    UNREACHABLE: UNREACHABLE,
-    SOUND_VARIED_RANGE: SOUND_VARIED_RANGE,
-    soundPlaybackRate: soundPlaybackRate,
-    SPATIAL_AUDIO_MAX_DIST: SPATIAL_AUDIO_MAX_DIST,
-    SPATIAL_AUDIO_PAN_BOOST: SPATIAL_AUDIO_PAN_BOOST,
-    SPATIAL_AUDIO_MIN_VOL: SPATIAL_AUDIO_MIN_VOL,
-    spatialAudioPan: spatialAudioPan,
-    spatialAudioVolume: spatialAudioVolume,
-    spatialAudioParams: spatialAudioParams,
-    JOYSTICK_SPRINT_FORWARD: JOYSTICK_SPRINT_FORWARD,
-    JOYSTICK_SPRINT_MAGNITUDE: JOYSTICK_SPRINT_MAGNITUDE,
-    isAutoSprint: isAutoSprint,
-    JOYSTICK_RADIUS: JOYSTICK_RADIUS,
-    JOYSTICK_DEADZONE: JOYSTICK_DEADZONE,
-    joystickInput: joystickInput,
-    resolveAabbXZ: resolveAabbXZ,
-    ARMOR_ABSORB_RATIO: ARMOR_ABSORB_RATIO,
-    resolveArmorDamage: resolveArmorDamage,
-    enemyMeleeDamage: enemyMeleeDamage,
-    enemyRangedDamage: enemyRangedDamage,
-    resolveVerticalBounds: resolveVerticalBounds,
-    findFloorY: findFloorY,
-    hasCrouchHeadroom: hasCrouchHeadroom,
-    SPATIAL_EXPLOSION_MAX_DIST: SPATIAL_EXPLOSION_MAX_DIST,
-    spatialExplosionParams: spatialExplosionParams,
-    tacticalDetonationSound: tacticalDetonationSound,
-    grenadeContactSound: grenadeContactSound,
-    JOYSTICK_MOVE_THRESHOLD: JOYSTICK_MOVE_THRESHOLD,
-    touchMovementKeys: touchMovementKeys,
+    ARMORY_WAVE, ARMORY_PRICE, armoryAvailable, armoryUpgrade,
+    PERK_SLOTS, PERKS, perkByKey, perkBuyBlocker, hasPerk, perkMaxHealth,
+    HEALTH_LOW_THRESHOLD, isHealthLow, ARMOR_LOW_RATIO, isArmorLow, isArmorEmpty,
+    AMMO_LOW_RATIO, isAmmoLow, isAmmoEmpty, reloadPrompt, perkReloadMul,
+    perkBloomMul, perkAdsMul, perkPickupMul, PLATE_MAX, PLATE_PRICE, PLATE_TIME,
+    plateApply, platesAffordable, DOWN_TIME, DOWN_REVIVE_HEALTH, DOWN_SPEED_MUL,
+    lethalOutcome, bleedOutRemaining, LETHALS, TACTICALS, equipmentByKey,
+    flashStrength, flashDuration, segmentHitsSphere, smokeBlocks,
+    STREAKS, streakByKey, streaksEarnedAt, nextStreak, FIELD_UPGRADE,
+    fieldChargeAfter, fieldReady, coneHit, SPECIAL_WAVES, SPECIAL_EVERY,
+    specialWaveAt, specialKind, ELITE_FROM_WAVE, ELITE, eliteChance, rollElite,
+    DISTRICTS, districtByKey, insideDistrict, spawnPointSealed, usableSpawnPoints,
+    WAVE_QUEUE_CAP, waveQueueSize, RAGDOLL_NODES, RAGDOLL_LINKS, RAGDOLL_ITERATIONS,
+    makeRagdoll, ragdollStep, ragdollImpulse, ragdollCollide, ragdollEnergy, dist3,
+    FALL_SAFE_SPEED, FALL_LETHAL_SPEED, fallDamage, landingImpactSpeed,
+    landingSpeedMul, MAX_RANK, xpForRank, rankForXp, rankProgress, XP_PER, runXp,
+    WEAPON_UNLOCK_RANK, weaponUnlockRank, weaponUnlocked, CHALLENGES, challengeProgress,
+    challengesDone, ATTACH_SLOTS, ATTACH_SLOT_NAME, ATTACHMENTS, attachmentByKey,
+    attachmentsForSlot, attachmentUnlocked, sanitizeLoadout, applyAttachments,
+    attachmentDelta, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RADIUS, OBJECTIVE_CREDITS,
+    objectiveWaveAt, objectiveProgress, objectiveComplete, pickObjectiveSpot,
+    REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
+    SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
+    spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,
+    JOYSTICK_SPRINT_MAGNITUDE, isAutoSprint, JOYSTICK_RADIUS, JOYSTICK_DEADZONE,
+    joystickInput, resolveAabbXZ, ARMOR_ABSORB_RATIO, resolveArmorDamage,
+    enemyMeleeDamage, enemyRangedDamage, resolveVerticalBounds, findFloorY,
+    hasCrouchHeadroom, SPATIAL_EXPLOSION_MAX_DIST, spatialExplosionParams,
+    tacticalDetonationSound, grenadeContactSound, JOYSTICK_MOVE_THRESHOLD,
+    touchMovementKeys,
     gyroLookDelta: gyroLookDelta,
     gyroScreenLookDelta: gyroScreenLookDelta,
     touchReloadState: touchReloadState,
@@ -8212,7 +8146,11 @@ const CORE = (function () {
     BLOOM_RECOVER_SMG, BLOOM_RECOVER_AR, BLOOM_RECOVER_BR, BLOOM_RECOVER_SR, weaponBloomRecoveryMultiplier,
     ENEMY_MELEE_TANK_BONUS, ENEMY_MELEE_SHIELD_BONUS, ENEMY_MELEE_SCOUT_PENALTY,
     grenadeChargeHudChanged, syncGrenadeChargeHudState, grenadeChargeLabel,
-    isTargetInTacticalRadius, bulletMagnetMinCos, isMagnetCandidateCloser, isTargetInConeRange
+    isTargetInTacticalRadius, bulletMagnetMinCos, isMagnetCandidateCloser, isTargetInConeRange,
+    SHIELD_DEFLECT_SPARK_COUNT, SHIELD_DEFLECT_SPARK_COLOR0, SHIELD_DEFLECT_SPARK_COLOR1,
+    SHIELD_DEFLECT_LIGHT_COLOR, SHIELD_DEFLECT_LIGHT_INTENSITY, SHIELD_DEFLECT_LIGHT_DIST, SHIELD_DEFLECT_LIGHT_DUR,
+    LANDING_DUST_HEAVY_COUNT, LANDING_DUST_LIGHT_COUNT, LANDING_DUST_COLOR,
+    shieldDeflectNormal, shieldDeflectVfxParams, landingDustParams
   };
 })();
 

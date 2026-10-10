@@ -8662,6 +8662,75 @@ test('v136 mobile UI polish rules: downed weapon swap, ADS lockout gating, and r
   assert.strictEqual(CORE.touchReloadState(30, 60, false), '');
 });
 
+test('v137 visual polish: ballistic shield deflection kinematics & VFX, helmet headshot dual-signature detection, and heavy landing dust puff rules', () => {
+  // 1. Enemy helmet headshot dual-signature detection (numeric kinds & string names)
+  assert.strictEqual(CORE.enemyHasHelmet(1), true);          // rifleman
+  assert.strictEqual(CORE.enemyHasHelmet(2), true);          // tank
+  assert.strictEqual(CORE.enemyHasHelmet(3), true);          // shielded
+  assert.strictEqual(CORE.enemyHasHelmet(5), true);          // grenadier
+  assert.strictEqual(CORE.enemyHasHelmet(0), false);         // runner (bare/cap)
+  assert.strictEqual(CORE.enemyHasHelmet(4), false);         // scout (bare/cap)
+  assert.strictEqual(CORE.enemyHasHelmet('rifleman'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('tank'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('shielded'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('grenadier'), true);
+  assert.strictEqual(CORE.enemyHasHelmet('runner'), false);
+  assert.strictEqual(CORE.enemyHasHelmet('scout'), false);
+  assert.strictEqual(CORE.enemyHasHelmet('unknown'), false);
+
+  // 2. Ballistic shield deflection normal & VFX parameters
+  const outNorm = { x: 0, y: 0, z: 0 };
+  const n0 = CORE.shieldDeflectNormal(0, outNorm);
+  assert.strictEqual(n0, outNorm);
+  assert.ok(Math.abs(n0.x - 0) < 1e-6);
+  assert.strictEqual(n0.y, 0);
+  assert.ok(Math.abs(n0.z - 1.0) < 1e-6);
+
+  CORE.shieldDeflectNormal(Math.PI / 2, outNorm);
+  assert.ok(Math.abs(outNorm.x - 1.0) < 1e-6);
+  assert.strictEqual(outNorm.y, 0);
+  assert.ok(Math.abs(outNorm.z - 0) < 1e-6);
+
+  assert.strictEqual(CORE.SHIELD_DEFLECT_SPARK_COUNT, 12);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_SPARK_COLOR0, 0x90e0ff);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_SPARK_COLOR1, 0xffa040);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_LIGHT_COLOR, 0x60b0ff);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_LIGHT_INTENSITY, 2.4);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_LIGHT_DIST, 4.5);
+  assert.strictEqual(CORE.SHIELD_DEFLECT_LIGHT_DUR, 0.05);
+
+  const shieldVfx = CORE.shieldDeflectVfxParams(0.3);
+  assert.strictEqual(shieldVfx.sparks, 12);
+  assert.strictEqual(shieldVfx.sparkColor0, 0x90e0ff);
+  assert.strictEqual(shieldVfx.sparkColor1, 0xffa040);
+  assert.strictEqual(shieldVfx.lightColor, 0x60b0ff);
+  assert.strictEqual(shieldVfx.lightIntensity, 2.4);
+  assert.strictEqual(shieldVfx.lightDist, 4.5);
+  assert.strictEqual(shieldVfx.lightDur, 0.05);
+
+  // 3. Heavy landing concussive ground impact dust puff rules
+  assert.strictEqual(CORE.LANDING_DUST_HEAVY_COUNT, 12);
+  assert.strictEqual(CORE.LANDING_DUST_LIGHT_COUNT, 5);
+  assert.strictEqual(CORE.LANDING_DUST_COLOR, 0x8a8076);
+
+  const heavyDust = CORE.landingDustParams(14.0);
+  assert.notStrictEqual(heavyDust, null);
+  assert.strictEqual(heavyDust.count, 12);
+  assert.strictEqual(heavyDust.spread, 2.0);
+  assert.strictEqual(heavyDust.color, 0x8a8076);
+
+  const lightDust = CORE.landingDustParams(8.0);
+  assert.notStrictEqual(lightDust, null);
+  assert.strictEqual(lightDust.count, 5);
+  assert.strictEqual(lightDust.spread, 1.0);
+  assert.strictEqual(lightDust.color, 0x8a8076);
+
+  assert.strictEqual(CORE.landingDustParams(4.0), null);
+  assert.strictEqual(CORE.landingDustParams(0), null);
+  assert.strictEqual(CORE.landingDustParams(-5), null);
+  assert.strictEqual(CORE.landingDustParams(undefined), null);
+});
+
 
 
 

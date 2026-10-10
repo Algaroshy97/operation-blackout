@@ -295,6 +295,16 @@ function fxHeadshotSparks(p, dir) {
     pfxEmit(PFX_ADD, p.x, p.y, p.z, dx * s + pfxRnd(-2, 2), pfxRnd(1, 4), dz * s + pfxRnd(-2, 2), pfxRnd(0.12, 0.3), 0.03, 0.012, 0xfff0b0, 0xff7020, 3, 1.5, 12, PF_BOUNCE);
   }
 }
+function fxShieldDeflect(p, normal) {
+  const cfg = CORE.shieldDeflectVfxParams();
+  const nx = normal ? normal.x : 0, nz = normal ? normal.z : 0;
+  for (let i = 0; i < cfg.sparks; i++) {
+    const s = pfxRnd(4, 9);
+    pfxEmit(PFX_ADD, p.x, p.y, p.z, nx * s + pfxRnd(-2.5, 2.5), pfxRnd(1, 4), nz * s + pfxRnd(-2.5, 2.5),
+      pfxRnd(0.12, 0.35), 0.035, 0.015, cfg.sparkColor0, cfg.sparkColor1, 3, 1.5, 12, PF_BOUNCE);
+  }
+  flashLight(p, cfg.lightColor, cfg.lightIntensity, cfg.lightDist, cfg.lightDur);
+}
 function fxDust(p, n, spread, color) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, s = pfxRnd(0.4, 1.4) * (spread || 1);

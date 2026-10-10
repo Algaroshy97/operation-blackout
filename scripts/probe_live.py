@@ -4019,7 +4019,76 @@ def main() -> int:
         }""")
         checks.append(("mobile-downed-swap-ads-and-reload-polish-rules", mobile_ui_polish_v136_check))
 
-        # 87) Clean console throughout gameplay.
+        # 87) Visual polish: ballistic shield deflection kinematics & VFX, helmet headshot dual-signature detection, and heavy landing dust puff rules.
+        visual_polish_v137_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Dual-signature enemy helmet headshot detection
+            const hNumeric = CORE.enemyHasHelmet(1) === true &&
+                             CORE.enemyHasHelmet(2) === true &&
+                             CORE.enemyHasHelmet(3) === true &&
+                             CORE.enemyHasHelmet(5) === true &&
+                             CORE.enemyHasHelmet(0) === false &&
+                             CORE.enemyHasHelmet(4) === false;
+
+            const hString = CORE.enemyHasHelmet('rifleman') === true &&
+                            CORE.enemyHasHelmet('tank') === true &&
+                            CORE.enemyHasHelmet('shielded') === true &&
+                            CORE.enemyHasHelmet('grenadier') === true &&
+                            CORE.enemyHasHelmet('runner') === false &&
+                            CORE.enemyHasHelmet('scout') === false &&
+                            CORE.enemyHasHelmet('unknown') === false;
+
+            // 2. Ballistic shield deflection normal & VFX parameters
+            const outNorm = { x: 0, y: 0, z: 0 };
+            CORE.shieldDeflectNormal(0, outNorm);
+            const n0Ok = Math.abs(outNorm.x) < 1e-6 && outNorm.y === 0 && Math.abs(outNorm.z - 1.0) < 1e-6;
+            CORE.shieldDeflectNormal(Math.PI / 2, outNorm);
+            const n90Ok = Math.abs(outNorm.x - 1.0) < 1e-6 && outNorm.y === 0 && Math.abs(outNorm.z) < 1e-6;
+
+            const constOk = CORE.SHIELD_DEFLECT_SPARK_COUNT === 12 &&
+                            CORE.SHIELD_DEFLECT_SPARK_COLOR0 === 0x90e0ff &&
+                            CORE.SHIELD_DEFLECT_SPARK_COLOR1 === 0xffa040 &&
+                            CORE.SHIELD_DEFLECT_LIGHT_COLOR === 0x60b0ff &&
+                            CORE.SHIELD_DEFLECT_LIGHT_INTENSITY === 2.4 &&
+                            CORE.SHIELD_DEFLECT_LIGHT_DIST === 4.5 &&
+                            CORE.SHIELD_DEFLECT_LIGHT_DUR === 0.05;
+
+            const vfx = CORE.shieldDeflectVfxParams(0.3);
+            const vfxOk = vfx.sparks === 12 &&
+                          vfx.sparkColor0 === 0x90e0ff &&
+                          vfx.sparkColor1 === 0xffa040 &&
+                          vfx.lightColor === 0x60b0ff &&
+                          vfx.lightIntensity === 2.4 &&
+                          vfx.lightDist === 4.5 &&
+                          vfx.lightDur === 0.05;
+
+            // 3. Heavy landing concussive ground impact dust puff rules
+            const dustConstOk = CORE.LANDING_DUST_HEAVY_COUNT === 12 &&
+                                CORE.LANDING_DUST_LIGHT_COUNT === 5 &&
+                                CORE.LANDING_DUST_COLOR === 0x8a8076;
+
+            const heavyDust = CORE.landingDustParams(14.0);
+            const hDustOk = heavyDust !== null &&
+                            heavyDust.count === 12 &&
+                            heavyDust.spread === 2.0 &&
+                            heavyDust.color === 0x8a8076;
+
+            const lightDust = CORE.landingDustParams(8.0);
+            const lDustOk = lightDust !== null &&
+                            lightDust.count === 5 &&
+                            lightDust.spread === 1.0 &&
+                            lightDust.color === 0x8a8076;
+
+            const noDustOk = CORE.landingDustParams(4.0) === null &&
+                             CORE.landingDustParams(0) === null &&
+                             CORE.landingDustParams(-5) === null;
+
+            return hNumeric && hString && n0Ok && n90Ok && constOk && vfxOk && dustConstOk && hDustOk && lDustOk && noDustOk;
+        }""")
+        checks.append(("ballistic-shield-deflection-and-landing-visual-rules", visual_polish_v137_check))
+
+        # 88) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

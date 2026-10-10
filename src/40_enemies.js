@@ -191,6 +191,7 @@ function shieldMultiplier(en, point) {
 }
 
 const _hitDir = new THREE.Vector3();
+const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (en.dead) return;
   // Remember where this shot came from and what it struck. If it turns out to be
@@ -204,7 +205,12 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   }
   en._lastHitForce = dmg;
   const shield = isHead ? 1 : shieldMultiplier(en, point);
-  if (shield < 1) { spawnImpact(point, null, null); showCenterMsgThrottled('SHIELDED — FLANK IT'); }
+  if (shield < 1) {
+    CORE.shieldDeflectNormal(en.yaw, _shieldNormOut);
+    if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
+    spawnImpact(point, _shieldNormOut, null);
+    showCenterMsgThrottled('SHIELDED — FLANK IT');
+  }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
   // would otherwise have absorbed.
   const lethal = typeof powerActive === 'function' && powerActive('instakill');
