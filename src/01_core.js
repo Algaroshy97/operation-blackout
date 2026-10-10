@@ -3095,8 +3095,10 @@ const CORE = (function () {
   // 86-degree half-angle instead of 60, which is most of a hemisphere.
   function coneHit(ox, oz, tx, tz, faceX, faceZ, range, cosArc) {
     const dx = tx - ox, dz = tz - oz;
-    const d = Math.sqrt(dx * dx + dz * dz);
-    if (d > range || d < 1e-6) return false;
+    const dSq = dx * dx + dz * dz;
+    const r = (typeof range === 'number' && isFinite(range)) ? range : 0;
+    if (dSq > r * r || dSq < 1e-12) return false;
+    const d = Math.sqrt(dSq);
     const f = Math.sqrt(faceX * faceX + faceZ * faceZ);
     if (f < 1e-6) return false;
     return (dx * faceX + dz * faceZ) / (d * f) >= cosArc;
@@ -7453,6 +7455,56 @@ const CORE = (function () {
     return Boolean(isTank || isElite) ? ENEMY_HIT_HEAVY_SOUND : ENEMY_HIT_SOUND;
   }
 
+  // ---- Performance Optimization: Grenade Charge HUD Gating, Tactical Radial Culling, Bullet Magnet Cosine Selection & Cone Range Pre-check (v135) ----
+  function grenadeChargeHudChanged(lastState, visible, pct, speed) {
+    if (!lastState || typeof lastState !== 'object') return true;
+    const vis = Boolean(visible);
+    if (lastState.visible !== vis) return true;
+    if (!vis) return false;
+    const p = Math.max(0, Math.min(100, (typeof pct === 'number' && isFinite(pct)) ? Math.round(pct) : 0));
+    const s = Math.max(0, (typeof speed === 'number' && isFinite(speed)) ? Math.round(speed) : 0);
+    return lastState.pct !== p || lastState.speed !== s;
+  }
+
+  function syncGrenadeChargeHudState(lastState, visible, pct, speed) {
+    if (!lastState || typeof lastState !== 'object') return lastState;
+    const vis = Boolean(visible);
+    lastState.visible = vis;
+    lastState.pct = vis ? Math.max(0, Math.min(100, (typeof pct === 'number' && isFinite(pct)) ? Math.round(pct) : 0)) : 0;
+    lastState.speed = vis ? Math.max(0, (typeof speed === 'number' && isFinite(speed)) ? Math.round(speed) : 0) : 0;
+    return lastState;
+  }
+
+  function grenadeChargeLabel(speed, pct) {
+    const s = Math.max(0, (typeof speed === 'number' && isFinite(speed)) ? Math.round(speed) : 0);
+    const p = Math.max(0, Math.min(100, (typeof pct === 'number' && isFinite(pct)) ? Math.round(pct) : 0));
+    return 'GRENADE ' + s + ' M/S (' + p + '%)';
+  }
+
+  function isTargetInTacticalRadius(dx, dz, maxRadiusSq) {
+    const limSq = (typeof maxRadiusSq === 'number' && isFinite(maxRadiusSq) && maxRadiusSq > 0) ? maxRadiusSq : 0;
+    if (limSq <= 0) return false;
+    return (dx * dx + dz * dz) < limSq;
+  }
+
+  function bulletMagnetMinCos(angleRad) {
+    const a = (typeof angleRad === 'number' && isFinite(angleRad)) ? angleRad : 0;
+    return Math.cos(a);
+  }
+
+  function isMagnetCandidateCloser(dotVal, bestCos) {
+    return typeof dotVal === 'number' && isFinite(dotVal) &&
+           typeof bestCos === 'number' && isFinite(bestCos) &&
+           dotVal > bestCos;
+  }
+
+  function isTargetInConeRange(dx, dz, rangeSq) {
+    const rSq = (typeof rangeSq === 'number' && isFinite(rangeSq) && rangeSq > 0) ? rangeSq : 0;
+    if (rSq <= 0) return false;
+    const dSq = dx * dx + dz * dz;
+    return dSq <= rSq && dSq >= 1e-12;
+  }
+
   return {
     horizDist: horizDist,
     horizDistSq: horizDistSq,
@@ -8095,108 +8147,34 @@ const CORE = (function () {
     CASING_MAX: CASING_MAX,
     CASING_LIFETIME: CASING_LIFETIME,
     CASING_FADE_DURATION: CASING_FADE_DURATION,
-    CASING_FLOOR_Y: CASING_FLOOR_Y,
-    CASING_GRAVITY: CASING_GRAVITY,
-    CASING_BOUNCE: CASING_BOUNCE,
-    CASING_FRICTION: CASING_FRICTION,
-    CASING_SPIN_DAMP: CASING_SPIN_DAMP,
-    CASING_REST_SPEED: CASING_REST_SPEED,
-    CASING_SND_GAP: CASING_SND_GAP,
-    VIEWMODEL_MANTLE_IN_RATE: VIEWMODEL_MANTLE_IN_RATE,
-    VIEWMODEL_MANTLE_OUT_RATE: VIEWMODEL_MANTLE_OUT_RATE,
-    casingScale: casingScale,
-    casingEjectVelocity: casingEjectVelocity,
-    stepCasingPhysics: stepCasingPhysics,
-    casingRestRotation: casingRestRotation,
-    stepMeleeKnifePose: stepMeleeKnifePose,
-    meleeGunDodgeOffsets: meleeGunDodgeOffsets,
-    stepViewmodelMantle: stepViewmodelMantle,
-    viewmodelMantleOffsets: viewmodelMantleOffsets,
-    reloadHandOffsets: reloadHandOffsets,
-    viewmodelLateralSpeed: viewmodelLateralSpeed,
-    stepViewmodelTilt: stepViewmodelTilt,
-    viewmodelLookInertiaTarget: viewmodelLookInertiaTarget,
-    BUY_PROMPT_DEFAULT_COLOR: BUY_PROMPT_DEFAULT_COLOR,
-    BUY_PROMPT_DIM_COLOR: BUY_PROMPT_DIM_COLOR,
-    buyPromptLabel: buyPromptLabel,
-    buyPromptFillPct: buyPromptFillPct,
-    buyPromptColor: buyPromptColor,
-    buyPromptChanged: buyPromptChanged,
-    syncBuyPromptState: syncBuyPromptState,
-    COMPASS_YAW_THRESHOLD: COMPASS_YAW_THRESHOLD,
-    compassNeedsRedraw: compassNeedsRedraw,
-    minimapScale: minimapScale,
-    minimapDetectRadiusSq: minimapDetectRadiusSq,
-    minimapBlipOffset: minimapBlipOffset,
-    isMinimapBlipVisible: isMinimapBlipVisible,
-    minimapEnemyRadius: minimapEnemyRadius,
-    compassTickAngle: compassTickAngle,
-    compassSnapAngle: compassSnapAngle,
-    compassTickVisible: compassTickVisible,
-    compassTickStyle: compassTickStyle,
-    RAGDOLL_SINK_DELAY: RAGDOLL_SINK_DELAY,
-    RAGDOLL_SINK_RATE: RAGDOLL_SINK_RATE,
-    RAGDOLL_SINK_MAX: RAGDOLL_SINK_MAX,
-    RAGDOLL_DROP_SCALE: RAGDOLL_DROP_SCALE,
-    isRagdollSinkReady: isRagdollSinkReady,
-    stepRagdollSink: stepRagdollSink,
-    ragdollDropOffsetY: ragdollDropOffsetY,
-    isRagdollExpired: isRagdollExpired,
-    ENEMY_PROC_WALK_THRESHOLD: ENEMY_PROC_WALK_THRESHOLD,
-    ENEMY_PROC_BASE_FREQ: ENEMY_PROC_BASE_FREQ,
-    enemyProcWalkSpeed: enemyProcWalkSpeed,
-    stepEnemyProcWalkPhase: stepEnemyProcWalkPhase,
-    enemyProcLimbSwing: enemyProcLimbSwing,
-    enemyProcPitchTrack: enemyProcPitchTrack,
-    enemyProcPose: enemyProcPose,
-    WAVE_SPAWN_PRESSURE_QUEUE: WAVE_SPAWN_PRESSURE_QUEUE,
-    WAVE_SPAWN_SWEET_SPOT: WAVE_SPAWN_SWEET_SPOT,
-    WAVE_SPAWN_JITTER: WAVE_SPAWN_JITTER,
-    AMMO_RELIEF_DRY_THRESHOLD: AMMO_RELIEF_DRY_THRESHOLD,
-    AMMO_RELIEF_COOLDOWN: AMMO_RELIEF_COOLDOWN,
-    ENEMY_BULLET_DELAY_FACTOR: ENEMY_BULLET_DELAY_FACTOR,
-    ENEMY_BULLET_MAX_DELAY_MS: ENEMY_BULLET_MAX_DELAY_MS,
-    ENEMY_MELEE_WINDUP_BASE: ENEMY_MELEE_WINDUP_BASE,
-    ENEMY_MELEE_WINDUP_RANGE: ENEMY_MELEE_WINDUP_RANGE,
-    ENEMY_MELEE_FOLLOW_REACH_PADDING: ENEMY_MELEE_FOLLOW_REACH_PADDING,
-    ENEMY_STUN_SPEED_MUL: ENEMY_STUN_SPEED_MUL,
-    ENEMY_BLIND_YAW_RATE: ENEMY_BLIND_YAW_RATE,
-    ENEMY_FALL_SPEED: ENEMY_FALL_SPEED,
-    SLIDE_CANCEL_MIN_T: SLIDE_CANCEL_MIN_T,
-    SLIDE_TIMEOUT_T: SLIDE_TIMEOUT_T,
-    SLIDE_STOP_MIN_T: SLIDE_STOP_MIN_T,
-    STATION_HOLD_DECAY_RATE: STATION_HOLD_DECAY_RATE,
-    waveSpawnPressure: waveSpawnPressure,
-    waveSpawnBurstCount: waveSpawnBurstCount,
-    waveSpawnDelay: waveSpawnDelay,
-    spawnCandidateScore: spawnCandidateScore,
-    stepAmmoReliefTimer: stepAmmoReliefTimer,
-    isAmmoReliefNeeded: isAmmoReliefNeeded,
-    enemyBulletTravelDelay: enemyBulletTravelDelay,
-    enemyRangedNextShot: enemyRangedNextShot,
-    enemyMeleeWindup: enemyMeleeWindup,
-    enemyAttackReadyTime: enemyAttackReadyTime,
-    enemyKillImpulse: enemyKillImpulse,
-    enemyStunSpeedMultiplier: enemyStunSpeedMultiplier,
-    stepEnemyBlindYaw: stepEnemyBlindYaw,
-    stepEnemyFallY: stepEnemyFallY,
-    canSlideCancel: canSlideCancel,
-    isSlideExpired: isSlideExpired,
-    stepStationHold: stepStationHold,
-    weaponFireInterval: weaponFireInterval,
-    SPATIAL_IMPACT_MAX_DIST: SPATIAL_IMPACT_MAX_DIST,
-    SNIPER_BOLT_DELAY_MS: SNIPER_BOLT_DELAY_MS,
-    surfaceImpactSound: surfaceImpactSound,
-    sniperBoltSound: sniperBoltSound,
-    streakReadySound: streakReadySound,
-    fieldUpgradeReadySound: fieldUpgradeReadySound,
-    secondWindSound: secondWindSound,
-    objectiveCompleteSound: objectiveCompleteSound,
-    weaponDrawSound: weaponDrawSound,
-    DECAL_MAX: DECAL_MAX,
-    DECAL_LIFETIME: DECAL_LIFETIME,
-    DECAL_FADE_DURATION: DECAL_FADE_DURATION,
-    DECAL_BASE_RADIUS: DECAL_BASE_RADIUS,
+    CASING_FLOOR_Y, CASING_GRAVITY, CASING_BOUNCE, CASING_FRICTION, CASING_SPIN_DAMP,
+    CASING_REST_SPEED, CASING_SND_GAP, VIEWMODEL_MANTLE_IN_RATE, VIEWMODEL_MANTLE_OUT_RATE,
+    casingScale, casingEjectVelocity, stepCasingPhysics, casingRestRotation,
+    stepMeleeKnifePose, meleeGunDodgeOffsets, stepViewmodelMantle, viewmodelMantleOffsets,
+    reloadHandOffsets, viewmodelLateralSpeed, stepViewmodelTilt, viewmodelLookInertiaTarget,
+    BUY_PROMPT_DEFAULT_COLOR, BUY_PROMPT_DIM_COLOR, buyPromptLabel, buyPromptFillPct,
+    buyPromptColor, buyPromptChanged, syncBuyPromptState, COMPASS_YAW_THRESHOLD,
+    compassNeedsRedraw, minimapScale, minimapDetectRadiusSq, minimapBlipOffset,
+    isMinimapBlipVisible, minimapEnemyRadius, compassTickAngle, compassSnapAngle,
+    compassTickVisible, compassTickStyle, RAGDOLL_SINK_DELAY, RAGDOLL_SINK_RATE,
+    RAGDOLL_SINK_MAX, RAGDOLL_DROP_SCALE, isRagdollSinkReady, stepRagdollSink,
+    ragdollDropOffsetY, isRagdollExpired, ENEMY_PROC_WALK_THRESHOLD, ENEMY_PROC_BASE_FREQ,
+    enemyProcWalkSpeed,
+    stepEnemyProcWalkPhase, enemyProcLimbSwing, enemyProcPitchTrack, enemyProcPose,
+    WAVE_SPAWN_PRESSURE_QUEUE, WAVE_SPAWN_SWEET_SPOT, WAVE_SPAWN_JITTER,
+    AMMO_RELIEF_DRY_THRESHOLD, AMMO_RELIEF_COOLDOWN,
+    ENEMY_BULLET_DELAY_FACTOR, ENEMY_BULLET_MAX_DELAY_MS,
+    ENEMY_MELEE_WINDUP_BASE, ENEMY_MELEE_WINDUP_RANGE, ENEMY_MELEE_FOLLOW_REACH_PADDING,
+    ENEMY_STUN_SPEED_MUL, ENEMY_BLIND_YAW_RATE, ENEMY_FALL_SPEED,
+    SLIDE_CANCEL_MIN_T, SLIDE_TIMEOUT_T, SLIDE_STOP_MIN_T, STATION_HOLD_DECAY_RATE,
+    waveSpawnPressure, waveSpawnBurstCount, waveSpawnDelay, spawnCandidateScore,
+    stepAmmoReliefTimer, isAmmoReliefNeeded, enemyBulletTravelDelay, enemyRangedNextShot,
+    enemyMeleeWindup, enemyAttackReadyTime, enemyKillImpulse, enemyStunSpeedMultiplier,
+    stepEnemyBlindYaw, stepEnemyFallY, canSlideCancel, isSlideExpired, stepStationHold,
+    weaponFireInterval, SPATIAL_IMPACT_MAX_DIST, SNIPER_BOLT_DELAY_MS,
+    surfaceImpactSound, sniperBoltSound, streakReadySound, fieldUpgradeReadySound,
+    secondWindSound, objectiveCompleteSound, weaponDrawSound,
+    DECAL_MAX, DECAL_LIFETIME, DECAL_FADE_DURATION, DECAL_BASE_RADIUS,
     DECAL_STANDOFF, MUZZLE_FLASH_SUPPRESSED_SCALE, TRACER_LIFETIME,
     decalCaliberScale, decalSurfaceMultiplier, decalScale, decalRotationAngle, stepDecalLife, isDecalExpired,
     muzzleFlashRotation, muzzleFlashBaseScale, stepMuzzleFlashScale, tracerThicknessScale, tracerColor,
@@ -8281,7 +8259,9 @@ const CORE = (function () {
     WEAPON_ADS_MOVE_SMG, WEAPON_ADS_MOVE_AR, WEAPON_ADS_MOVE_BR, WEAPON_ADS_MOVE_SR, weaponAdsMoveMultiplier,
     EMPTY_RELOAD_TIME_MUL,
     BLOOM_RECOVER_SMG, BLOOM_RECOVER_AR, BLOOM_RECOVER_BR, BLOOM_RECOVER_SR, weaponBloomRecoveryMultiplier,
-    ENEMY_MELEE_TANK_BONUS, ENEMY_MELEE_SHIELD_BONUS, ENEMY_MELEE_SCOUT_PENALTY
+    ENEMY_MELEE_TANK_BONUS, ENEMY_MELEE_SHIELD_BONUS, ENEMY_MELEE_SCOUT_PENALTY,
+    grenadeChargeHudChanged, syncGrenadeChargeHudState, grenadeChargeLabel,
+    isTargetInTacticalRadius, bulletMagnetMinCos, isMagnetCandidateCloser, isTargetInConeRange
   };
 })();
 

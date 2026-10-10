@@ -3936,7 +3936,39 @@ def main() -> int:
         }""")
         checks.append(("tactical-weapon-agility-and-combat-balance-rules", balance_tuning_v134_check))
 
-        # 85) Clean console throughout gameplay.
+        # 85) Performance optimization: grenade charge HUD change-gating, tactical distance-squared culling, bullet magnetism dot-product selection, and cone range pre-check.
+        perf_optimization_v135_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Grenade charge HUD change gating & label
+            const st = { visible: false, pct: -1, speed: -1 };
+            const g1 = CORE.grenadeChargeHudChanged(st, false, 0, 0) === false;
+            const g2 = CORE.grenadeChargeHudChanged(st, true, 50, 14) === true;
+            CORE.syncGrenadeChargeHudState(st, true, 50, 14);
+            const g3 = st.visible === true && st.pct === 50 && st.speed === 14;
+            const g4 = CORE.grenadeChargeHudChanged(st, true, 50, 14.2) === false;
+            const g5 = CORE.grenadeChargeLabel(14, 50) === 'GRENADE 14 M/S (50%)';
+
+            // 2. Tactical equipment radial distance-squared spatial culling
+            const tac1 = CORE.isTargetInTacticalRadius(3, 4, 36) === true;
+            const tac2 = CORE.isTargetInTacticalRadius(6, 0, 36) === false;
+
+            // 3. Bullet magnetism unit-vector dot product selection
+            const maxAng = 0.08;
+            const minCos = CORE.bulletMagnetMinCos(maxAng);
+            const mag1 = Math.abs(minCos - Math.cos(maxAng)) < 1e-6;
+            const mag2 = CORE.isMagnetCandidateCloser(0.999, minCos) === true;
+            const mag3 = CORE.isMagnetCandidateCloser(0.990, minCos) === false;
+
+            // 4. Proximity ordnance cone range pre-check
+            const cone1 = CORE.isTargetInConeRange(2, 2, 9) === true;
+            const cone2 = CORE.isTargetInConeRange(3, 3, 9) === false;
+
+            return g1 && g2 && g3 && g4 && g5 && tac1 && tac2 && mag1 && mag2 && mag3 && cone1 && cone2;
+        }""")
+        checks.append(("grenade-charge-tactical-culling-and-magnet-perf-rules", perf_optimization_v135_check))
+
+        # 86) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

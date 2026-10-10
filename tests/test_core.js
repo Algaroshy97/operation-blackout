@@ -8582,5 +8582,40 @@ test('v134 balance tuning: weapon ADS strafe mobility, empty reload duration pen
   assert.ok(Math.abs(CORE.enemyMeleeDamage(18, false, 1, 1, false) - 18.4) < 1e-4);
 });
 
+test('v135 performance optimization rules: grenade charge HUD change-gating, tactical radial distance-squared culling, bullet magnetism dot-product selection, and cone range pre-check', () => {
+  // 1. Grenade charge HUD change-gating and label
+  const st = { visible: false, pct: -1, speed: -1 };
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, false, 0, 0), false);
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, true, 50, 14), true);
+  CORE.syncGrenadeChargeHudState(st, true, 50, 14);
+  assert.strictEqual(st.visible, true);
+  assert.strictEqual(st.pct, 50);
+  assert.strictEqual(st.speed, 14);
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, true, 50, 14.2), false);
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, true, 52, 14), true);
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, false, 0, 0), true);
+  CORE.syncGrenadeChargeHudState(st, false, 0, 0);
+  assert.strictEqual(st.visible, false);
+  assert.strictEqual(CORE.grenadeChargeHudChanged(st, false, 0, 0), false);
+  assert.strictEqual(CORE.grenadeChargeLabel(14, 50), 'GRENADE 14 M/S (50%)');
+
+  // 2. Tactical equipment radial distance-squared culling
+  assert.strictEqual(CORE.isTargetInTacticalRadius(3, 4, 36), true);  // 9+16=25 < 36
+  assert.strictEqual(CORE.isTargetInTacticalRadius(6, 0, 36), false); // 36 >= 36
+  assert.strictEqual(CORE.isTargetInTacticalRadius(1, 1, 0), false);
+
+  // 3. Fast bullet magnetism unit-vector dot product selection
+  const maxAng = 0.08;
+  const minCos = CORE.bulletMagnetMinCos(maxAng);
+  assert.ok(Math.abs(minCos - Math.cos(maxAng)) < 1e-6);
+  assert.strictEqual(CORE.isMagnetCandidateCloser(0.999, minCos), true);
+  assert.strictEqual(CORE.isMagnetCandidateCloser(0.990, minCos), false);
+
+  // 4. Proximity ordnance cone range pre-check
+  assert.strictEqual(CORE.isTargetInConeRange(2, 2, 9), true);   // 4+4=8 <= 9
+  assert.strictEqual(CORE.isTargetInConeRange(3, 3, 9), false);  // 9+9=18 > 9
+  assert.strictEqual(CORE.isTargetInConeRange(0, 0, 9), false);  // degenerate dist
+});
+
 
 

@@ -292,3 +292,49 @@ test('v130 performance optimization rules: countdown and downed timer change-gat
   assert.equal(resMom.y, 0);
 });
 
+test('v135 performance optimization: grenade charge HUD change-gating, tactical distance-squared culling, bullet magnetism dot-product selection, and cone range pre-check', () => {
+  // 1. Grenade charge HUD change detection and state synchronization
+  const chargeState = { visible: false, pct: -1, speed: -1 };
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, false, 0, 0), false); // already hidden
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, true, 45, 12), true); // show charge
+  CORE.syncGrenadeChargeHudState(chargeState, true, 45, 12);
+  assert.equal(chargeState.visible, true);
+  assert.equal(chargeState.pct, 45);
+  assert.equal(chargeState.speed, 12);
+  // Unchanged progress/speed does not trigger DOM update
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, true, 45, 12.1), false);
+  // Integer progress increment triggers update
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, true, 46, 12.1), true);
+  CORE.syncGrenadeChargeHudState(chargeState, true, 46, 12.1);
+  assert.equal(chargeState.pct, 46);
+  // Hiding charge triggers update once
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, false, 0, 0), true);
+  CORE.syncGrenadeChargeHudState(chargeState, false, 0, 0);
+  assert.equal(chargeState.visible, false);
+  // Consecutive hidden frames skip DOM writes completely
+  assert.equal(CORE.grenadeChargeHudChanged(chargeState, false, 0, 0), false);
+  assert.equal(CORE.grenadeChargeLabel(15, 60), 'GRENADE 15 M/S (60%)');
+
+  // 2. Tactical equipment radial distance-squared spatial culling
+  const radSq = 8 * 8; // 64
+  assert.equal(CORE.isTargetInTacticalRadius(4, 4, radSq), true);  // 16 + 16 = 32 < 64
+  assert.equal(CORE.isTargetInTacticalRadius(6, 6, radSq), false); // 36 + 36 = 72 >= 64
+  assert.equal(CORE.isTargetInTacticalRadius(0, 0, 0), false);
+
+  // 3. Fast bullet magnetism unit-vector dot product selection
+  const maxAng = 0.08; // ~4.58 deg
+  const minCos = CORE.bulletMagnetMinCos(maxAng);
+  assert.ok(Math.abs(minCos - Math.cos(maxAng)) < 1e-6);
+  // Closer angle has higher cosine (closer to 1.0)
+  assert.equal(CORE.isMagnetCandidateCloser(0.999, minCos), true);
+  assert.equal(CORE.isMagnetCandidateCloser(0.990, minCos), false);
+  assert.equal(CORE.isMagnetCandidateCloser(0.998, 0.995), true);
+  assert.equal(CORE.isMagnetCandidateCloser(0.992, 0.995), false);
+
+  // 4. Proximity ordnance cone range pre-check
+  const coneRangeSq = 6 * 6; // 36
+  assert.equal(CORE.isTargetInConeRange(3, 4, coneRangeSq), true);  // 9 + 16 = 25 <= 36
+  assert.equal(CORE.isTargetInConeRange(5, 5, coneRangeSq), false); // 25 + 25 = 50 > 36
+  assert.equal(CORE.isTargetInConeRange(0, 0, coneRangeSq), false); // degenerate distance < 1e-6
+});
+

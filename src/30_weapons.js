@@ -267,7 +267,8 @@ function applyAimAssist(dir, from) {
 const _magTo = new THREE.Vector3();
 const _magBest = new THREE.Vector3();
 function magnetizeBullet(dir, from) {
-  let bestAng = CFG.assist.bulletAngle, found = false;
+  const minCos = CORE.bulletMagnetMinCos(CFG.assist.bulletAngle);
+  let bestCos = minCos, found = false;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
@@ -275,8 +276,12 @@ function magnetizeBullet(dir, from) {
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();
-    const ang = dir.angleTo(_magTo);
-    if (ang < bestAng) { bestAng = ang; _magBest.copy(_magTo); found = true; }
+    const dotVal = dir.dot(_magTo);
+    if (CORE.isMagnetCandidateCloser(dotVal, bestCos)) {
+      bestCos = dotVal;
+      _magBest.copy(_magTo);
+      found = true;
+    }
   }
   return found ? _magBest : dir;
 }

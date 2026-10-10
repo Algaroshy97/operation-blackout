@@ -553,11 +553,14 @@ function applyTactical(def, pos) {
     const tlp = CORE.tacticalFlashLightParams(def.effect);
     if (tlp && tlp.intensity > 0) flashLight(pos, tlp.color, tlp.intensity, tlp.distance, tlp.duration);
   }
+  const rad = def.radius || 0;
+  const radSq = rad * rad;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
-    const d = CORE.horizDist(en.pos.x, en.pos.z, pos.x, pos.z);
-    if (d >= def.radius) continue;
+    const dx = en.pos.x - pos.x, dz = en.pos.z - pos.z;
+    if (!CORE.isTargetInTacticalRadius(dx, dz, radSq)) continue;
+    const d = Math.sqrt(dx * dx + dz * dz);
     // Behind cover means behind cover: a flash through a wall is the thing that
     // makes tacticals feel arbitrary.
     if (CORE.segmentBlocked(pos.x, pos.y, pos.z,
@@ -575,9 +578,10 @@ function applyTactical(def, pos) {
   // A flashbang the player is looking at blinds the player too. Anything else
   // would make it a free win rather than a tool with a cost.
   if (def.effect === 'blind') {
-    const pd = CORE.horizDist(player.pos.x, player.pos.z, pos.x, pos.z);
-    if (pd < def.radius && !CORE.segmentBlocked(pos.x, pos.y, pos.z,
+    const pdx = player.pos.x - pos.x, pdz = player.pos.z - pos.z;
+    if (CORE.isTargetInTacticalRadius(pdx, pdz, radSq) && !CORE.segmentBlocked(pos.x, pos.y, pos.z,
         player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) {
+      const pd = Math.sqrt(pdx * pdx + pdz * pdz);
       const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
       const tx = (pos.x - player.pos.x) / (pd || 1), tz = (pos.z - player.pos.z) / (pd || 1);
       const s = CORE.flashStrength(pd, def.radius, tx * fwdX + tz * fwdZ);

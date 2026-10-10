@@ -193,6 +193,7 @@ function resetGame() {
   adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
+  if (typeof _grenadeChargeHudState !== 'undefined') { _grenadeChargeHudState.visible = null; _grenadeChargeHudState.pct = -1; _grenadeChargeHudState.speed = -1; }
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
   _slideVigOpacity = 0; _lastSlideVigWritten = -1;
   if (!_slideOvEl) _slideOvEl = $id('slide-vignette');

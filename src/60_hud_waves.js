@@ -21,6 +21,7 @@ const hud = {
   grenadeChargeFill: $id('grenade-charge-fill')
 };
 
+const _grenadeChargeHudState = { visible: null, pct: -1, speed: -1 };
 function updateHudGrenadeCharge(visible, pct, speed) {
   if (!hud.grenadeCharge) {
     hud.grenadeCharge = $id('grenade-charge');
@@ -28,13 +29,16 @@ function updateHudGrenadeCharge(visible, pct, speed) {
     hud.grenadeChargeFill = $id('grenade-charge-fill');
     if (!hud.grenadeCharge) return;
   }
-  if (!visible) {
+  const vis = Boolean(visible);
+  if (!CORE.grenadeChargeHudChanged(_grenadeChargeHudState, vis, pct, speed)) return;
+  CORE.syncGrenadeChargeHudState(_grenadeChargeHudState, vis, pct, speed);
+  if (!vis) {
     hud.grenadeCharge.style.opacity = '0';
     return;
   }
   hud.grenadeCharge.style.opacity = '1';
-  if (hud.grenadeChargeFill) hud.grenadeChargeFill.style.width = pct + '%';
-  if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = 'GRENADE ' + Math.round(speed || 0) + ' M/S (' + pct + '%)';
+  if (hud.grenadeChargeFill) hud.grenadeChargeFill.style.width = _grenadeChargeHudState.pct + '%';
+  if (hud.grenadeChargeTxt) hud.grenadeChargeTxt.textContent = CORE.grenadeChargeLabel(_grenadeChargeHudState.speed, _grenadeChargeHudState.pct);
 }
 
 // Change-driven: this runs every animation frame (60 Hz). A single flat diff on five
