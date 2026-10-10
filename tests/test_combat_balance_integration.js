@@ -413,3 +413,47 @@ test('v133 tactical combat and locomotion acoustics integration', () => {
   assert.equal(CORE.enemyMeleeHitSound(), 'enemy_hit');
 });
 
+test('v134 tactical combat balance integration: ADS strafe mobility, empty reload penalty, bloom recovery, and enemy melee tuning', () => {
+  // 1. Weapon-archetype ADS strafe mobility balance
+  assert.equal(CORE.WEAPON_ADS_MOVE_SMG, 1.20);
+  assert.equal(CORE.WEAPON_ADS_MOVE_AR, 1.00);
+  assert.equal(CORE.WEAPON_ADS_MOVE_BR, 0.88);
+  assert.equal(CORE.WEAPON_ADS_MOVE_SR, 0.70);
+  assert.equal(CORE.weaponAdsMoveMultiplier('SMG'), 1.20);
+  assert.equal(CORE.weaponAdsMoveMultiplier('AR'), 1.00);
+  assert.equal(CORE.weaponAdsMoveMultiplier('BR'), 0.88);
+  assert.equal(CORE.weaponAdsMoveMultiplier('SR'), 0.70);
+  assert.equal(CORE.weaponAdsMoveMultiplier('AR', 1.45), 1.45);
+  assert.equal(CORE.weaponAdsMoveMultiplier('custom'), 1.00);
+
+  // 2. Empty magazine reload duration penalty
+  assert.equal(CORE.EMPTY_RELOAD_TIME_MUL, 1.15);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true) - 2.30) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, false) - 2.00) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0) - 2.00) < 1e-4);
+
+  // 3. Weapon bloom recovery agility
+  assert.equal(CORE.BLOOM_RECOVER_SMG, 1.30);
+  assert.equal(CORE.BLOOM_RECOVER_AR, 1.00);
+  assert.equal(CORE.BLOOM_RECOVER_BR, 0.85);
+  assert.equal(CORE.BLOOM_RECOVER_SR, 0.65);
+  assert.equal(CORE.weaponBloomRecoveryMultiplier('SMG'), 1.30);
+  assert.equal(CORE.weaponBloomRecoveryMultiplier('AR'), 1.00);
+  assert.equal(CORE.weaponBloomRecoveryMultiplier('BR'), 0.85);
+  assert.equal(CORE.weaponBloomRecoveryMultiplier('SR'), 0.65);
+  assert.equal(CORE.weaponBloomRecoveryMultiplier('other'), 1.00);
+  const smgBloom = CORE.bloomParams(0.02, 0.008, false, 'SMG');
+  assert.ok(Math.abs(smgBloom.recover - (0.02 * CORE.BLOOM_RECOVER * 1.30)) < 1e-6);
+
+  // 4. Enemy archetype melee damage calibration
+  assert.equal(CORE.ENEMY_MELEE_TANK_BONUS, 10);
+  assert.equal(CORE.ENEMY_MELEE_SHIELD_BONUS, 5);
+  assert.equal(CORE.ENEMY_MELEE_SCOUT_PENALTY, -4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 2, 1, 1, false) - 28.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 3, 1, 1, false) - 23.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 4, 1, 1, false) - 14.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 0, 1, 1, false) - 18.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, true, 1, 1, false) - 28.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, false, 1, 1, false) - 18.4) < 1e-4);
+});
+

@@ -3909,7 +3909,34 @@ def main() -> int:
         }""")
         checks.append(("tactical-combat-and-locomotion-acoustics-rules", audio_polish_v133_check))
 
-        # 84) Clean console throughout gameplay.
+        # 84) Tactical combat balance rules: weapon ADS strafe agility, empty reload penalty, bloom recovery & enemy melee.
+        balance_tuning_v134_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const adsMoveOk = CORE.weaponAdsMoveMultiplier('SMG') === 1.20 &&
+                              CORE.weaponAdsMoveMultiplier('AR') === 1.00 &&
+                              CORE.weaponAdsMoveMultiplier('BR') === 0.88 &&
+                              CORE.weaponAdsMoveMultiplier('SR') === 0.70;
+
+            const reloadOk = CORE.EMPTY_RELOAD_TIME_MUL === 1.15 &&
+                             Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true) - 2.30) < 1e-4 &&
+                             Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, false) - 2.00) < 1e-4;
+
+            const bloomOk = CORE.weaponBloomRecoveryMultiplier('SMG') === 1.30 &&
+                            CORE.weaponBloomRecoveryMultiplier('AR') === 1.00 &&
+                            CORE.weaponBloomRecoveryMultiplier('BR') === 0.85 &&
+                            CORE.weaponBloomRecoveryMultiplier('SR') === 0.65;
+
+            const enemyMeleeOk = Math.abs(CORE.enemyMeleeDamage(18, 2, 1, 1, false) - 28.4) < 1e-4 &&
+                                 Math.abs(CORE.enemyMeleeDamage(18, 3, 1, 1, false) - 23.4) < 1e-4 &&
+                                 Math.abs(CORE.enemyMeleeDamage(18, 4, 1, 1, false) - 14.4) < 1e-4 &&
+                                 Math.abs(CORE.enemyMeleeDamage(18, 0, 1, 1, false) - 18.4) < 1e-4;
+
+            return adsMoveOk && reloadOk && bloomOk && enemyMeleeOk;
+        }""")
+        checks.append(("tactical-weapon-agility-and-combat-balance-rules", balance_tuning_v134_check))
+
+        # 85) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

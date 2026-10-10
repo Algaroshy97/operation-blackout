@@ -6607,12 +6607,24 @@ const CORE = (function () {
   const BLOOM_CAP_HIP = 1.6;     // hipfire ceiling, in base spreads
   const BLOOM_CAP_ADS = 0.35;    // ADS ceiling — far tighter, which is the point
   const BLOOM_RECOVER = 2.2;     // base spreads per second once the trigger is up
-  function bloomParams(baseSpread, adsSpread, ads) {
+  const BLOOM_RECOVER_SMG = 1.30;
+  const BLOOM_RECOVER_AR = 1.00;
+  const BLOOM_RECOVER_BR = 0.85;
+  const BLOOM_RECOVER_SR = 0.65;
+  function weaponBloomRecoveryMultiplier(weaponType) {
+    if (weaponType === 'SMG') return BLOOM_RECOVER_SMG;
+    if (weaponType === 'AR') return BLOOM_RECOVER_AR;
+    if (weaponType === 'BR') return BLOOM_RECOVER_BR;
+    if (weaponType === 'SR') return BLOOM_RECOVER_SR;
+    return BLOOM_RECOVER_AR;
+  }
+  function bloomParams(baseSpread, adsSpread, ads, weaponType) {
     const base = ads ? adsSpread : baseSpread;
+    const recMul = weaponBloomRecoveryMultiplier(weaponType);
     return {
       perShot: base * BLOOM_PER_SHOT,
       cap: base * (ads ? BLOOM_CAP_ADS : BLOOM_CAP_HIP),
-      recover: base * BLOOM_RECOVER
+      recover: base * BLOOM_RECOVER * recMul
     };
   }
   function bloomAfterShot(bloom, perShot, cap) {
@@ -7966,13 +7978,23 @@ const CORE = (function () {
   // Pure calculations for enemy melee and ranged attack damage.
   // Combines base weapon/attack damage, archetype bonuses (e.g. heavy tank melee),
   // wave progression, difficulty multipliers, and elite status multipliers (ELITE.dmgMul).
-  function enemyMeleeDamage(baseDmg, isTank, wave, diffMul, isElite) {
+  const ENEMY_MELEE_TANK_BONUS = 10;
+  const ENEMY_MELEE_SHIELD_BONUS = 5;
+  const ENEMY_MELEE_SCOUT_PENALTY = -4;
+  function enemyMeleeDamage(baseDmg, isTankOrKind, wave, diffMul, isElite) {
     const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 18;
-    const tankBonus = isTank ? 10 : 0;
+    let bonus = 0;
+    if (typeof isTankOrKind === 'boolean') {
+      bonus = isTankOrKind ? ENEMY_MELEE_TANK_BONUS : 0;
+    } else if (typeof isTankOrKind === 'number') {
+      if (isTankOrKind === 2) bonus = ENEMY_MELEE_TANK_BONUS;
+      else if (isTankOrKind === 3) bonus = ENEMY_MELEE_SHIELD_BONUS;
+      else if (isTankOrKind === 4) bonus = ENEMY_MELEE_SCOUT_PENALTY;
+    }
     const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
     const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
     const elite = isElite ? ELITE.dmgMul : 1;
-    return (base + tankBonus + w * 0.4) * diff * elite;
+    return (base + bonus + w * 0.4) * diff * elite;
   }
 
   function enemyRangedDamage(baseDmg, wave, diffMul, isElite) {
@@ -9279,6 +9301,10 @@ const CORE = (function () {
   const WEAPON_ADS_SPEED_AR = 1.00;
   const WEAPON_ADS_SPEED_BR = 0.88;
   const WEAPON_ADS_SPEED_SR = 0.70;
+  const WEAPON_ADS_MOVE_SMG = 1.20;
+  const WEAPON_ADS_MOVE_AR = 1.00;
+  const WEAPON_ADS_MOVE_BR = 0.88;
+  const WEAPON_ADS_MOVE_SR = 0.70;
   const SNIPER_UNSCOPE_FACTOR = 0.45;
   const SHOT_KICK_IMPULSE = 0.5;
   const SHOT_KICK_MAX = 1.4;
@@ -9404,6 +9430,15 @@ const CORE = (function () {
     if (weaponType === 'BR') return WEAPON_ADS_SPEED_BR;
     if (weaponType === 'SR') return WEAPON_ADS_SPEED_SR;
     return WEAPON_ADS_SPEED_AR;
+  }
+
+  function weaponAdsMoveMultiplier(weaponType, customMultiplier) {
+    if (typeof customMultiplier === 'number' && isFinite(customMultiplier) && customMultiplier > 0) return customMultiplier;
+    if (weaponType === 'SMG') return WEAPON_ADS_MOVE_SMG;
+    if (weaponType === 'AR') return WEAPON_ADS_MOVE_AR;
+    if (weaponType === 'BR') return WEAPON_ADS_MOVE_BR;
+    if (weaponType === 'SR') return WEAPON_ADS_MOVE_SR;
+    return WEAPON_ADS_MOVE_AR;
   }
 
   function applyShotKick(currentKick, impulse, maxKick) {
@@ -9958,10 +9993,12 @@ const CORE = (function () {
     return a < m;
   }
 
-  function effectiveReloadDuration(baseReload, perkMul) {
+  const EMPTY_RELOAD_TIME_MUL = 1.15;
+  function effectiveReloadDuration(baseReload, perkMul, isEmpty) {
     const base = typeof baseReload === 'number' && isFinite(baseReload) && baseReload >= 0 ? baseReload : 2.0;
     const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul >= 0 ? perkMul : 1.0;
-    return Math.max(CAN_RELOAD_MIN_DURATION, base * mul);
+    const emptyMul = isEmpty ? EMPTY_RELOAD_TIME_MUL : 1.0;
+    return Math.max(CAN_RELOAD_MIN_DURATION, base * mul * emptyMul);
   }
 
   function isReloadComplete(reloadT, duration) {
@@ -12897,188 +12934,44 @@ const CORE = (function () {
     DECAL_LIFETIME: DECAL_LIFETIME,
     DECAL_FADE_DURATION: DECAL_FADE_DURATION,
     DECAL_BASE_RADIUS: DECAL_BASE_RADIUS,
-    DECAL_STANDOFF: DECAL_STANDOFF,
-    MUZZLE_FLASH_SUPPRESSED_SCALE: MUZZLE_FLASH_SUPPRESSED_SCALE,
-    TRACER_LIFETIME: TRACER_LIFETIME,
-    decalCaliberScale: decalCaliberScale,
-    decalSurfaceMultiplier: decalSurfaceMultiplier,
-    decalScale: decalScale,
-    decalRotationAngle: decalRotationAngle,
-    stepDecalLife: stepDecalLife,
-    isDecalExpired: isDecalExpired,
-    muzzleFlashRotation: muzzleFlashRotation,
-    muzzleFlashBaseScale: muzzleFlashBaseScale,
-    stepMuzzleFlashScale: stepMuzzleFlashScale,
-    tracerThicknessScale: tracerThicknessScale,
-    tracerColor: tracerColor,
-    isColliderRelevantXZ: isColliderRelevantXZ,
-    movementTargetVelocity: movementTargetVelocity,
-    HUD_REDRAW_INTERVAL: HUD_REDRAW_INTERVAL,
-    HUD_FLICK_YAW_THRESHOLD: HUD_FLICK_YAW_THRESHOLD,
-    HUD_FLICK_COOLDOWN: HUD_FLICK_COOLDOWN,
-    shouldRedrawHudCanvas: shouldRedrawHudCanvas,
-    countAliveEnemies: countAliveEnemies,
-    hostilesRemainingLabel: hostilesRemainingLabel,
-    gunCameraFov: gunCameraFov,
-    viewmodelNarrowOffset: viewmodelNarrowOffset,
-    STEP_HEIGHT: STEP_HEIGHT,
-    SLIDE_STEER_RATE: SLIDE_STEER_RATE,
-    TAC_TAP_WINDOW: TAC_TAP_WINDOW,
-    TAC_DURATION: TAC_DURATION,
-    GRENADE_BOUNCE_LAT_DAMP: GRENADE_BOUNCE_LAT_DAMP,
-    GRENADE_ROLL_LAT_DAMP: GRENADE_ROLL_LAT_DAMP,
-    enemyScale: enemyScale,
-    enemyColliderRadius: enemyColliderRadius,
-    enemyHeadHeight: enemyHeadHeight,
-    enemySpawnSpeedMultiplier: enemySpawnSpeedMultiplier,
-    isEnemyFlanker: isEnemyFlanker,
-    enemyFallbackVelocity: enemyFallbackVelocity,
-    enemyStrafeVelocity: enemyStrafeVelocity,
-    enemyStrafeDuration: enemyStrafeDuration,
-    canEnemyThrowGrenade: canEnemyThrowGrenade,
-    enemyFootstepRate: enemyFootstepRate,
-    enemyFootstepInterval: enemyFootstepInterval,
-    relocateFacingAlignment: relocateFacingAlignment,
-    relocateCandidateScore: relocateCandidateScore,
-    stepSlideSteering: stepSlideSteering,
-    isTacSprintTriggered: isTacSprintTriggered,
-    stepGrenadeBounceVelocity: stepGrenadeBounceVelocity,
-    isGrenadeAtRest: isGrenadeAtRest,
-    downBleedoutLabel: downBleedoutLabel,
-    multikillBonus: multikillBonus,
-    waveCountdownLabel: waveCountdownLabel,
-    waveBannerLabels: waveBannerLabels,
-    SENTRY_AIM_Y_OFFSET: SENTRY_AIM_Y_OFFSET,
-    BURN_TICK_INTERVAL: BURN_TICK_INTERVAL,
-    stepTracerLife: stepTracerLife,
-    isTracerExpired: isTracerExpired,
-    stepImpactLife: stepImpactLife,
-    isImpactExpired: isImpactExpired,
-    sentryTargetYaw: sentryTargetYaw,
-    stepSentryTimers: stepSentryTimers,
-    sentryAimTargetY: sentryAimTargetY,
-    burnTickDamage: burnTickDamage,
-    isPointInBurnRadius: isPointInBurnRadius,
-    SPREAD_LONGITUDINAL_SCALE: SPREAD_LONGITUDINAL_SCALE,
-    AIM_ASSIST_HEAD_THRESHOLD: AIM_ASSIST_HEAD_THRESHOLD,
-    AIM_ASSIST_HEAD_PRIORITY: AIM_ASSIST_HEAD_PRIORITY,
-    AIM_ASSIST_PULL_WEIGHT: AIM_ASSIST_PULL_WEIGHT,
-    AIM_ASSIST_TRACK_RATE: AIM_ASSIST_TRACK_RATE,
-    AIM_ASSIST_CHEST_OFFSET: AIM_ASSIST_CHEST_OFFSET,
-    AIM_ASSIST_HEAD_OFFSET: AIM_ASSIST_HEAD_OFFSET,
-    BULLET_MAGNET_Y_OFFSET: BULLET_MAGNET_Y_OFFSET,
-    ENEMY_SPAWN_DURATION: ENEMY_SPAWN_DURATION,
-    ENEMY_STRAFE_MAX_T: ENEMY_STRAFE_MAX_T,
-    GRENADIER_STRAFE_RANGE: GRENADIER_STRAFE_RANGE,
-    GRENADIER_STRAFE_DURATION: GRENADIER_STRAFE_DURATION,
-    RIFLEMAN_STRAFE_DURATION: RIFLEMAN_STRAFE_DURATION,
-    RIFLEMAN_LOS_RETRY_DELAY: RIFLEMAN_LOS_RETRY_DELAY,
-    FLANK_STEER_WEIGHT: FLANK_STEER_WEIGHT,
-    ENEMY_OVERLAP_MIN_DIST: ENEMY_OVERLAP_MIN_DIST,
-    ENEMY_SHOT_CHEST_Y_OFFSET: ENEMY_SHOT_CHEST_Y_OFFSET,
-    MANTLE_DURATION: MANTLE_DURATION,
-    MANTLE_COYOTE_GRACE: MANTLE_COYOTE_GRACE,
-    GRENADE_PITCH_LOFT: GRENADE_PITCH_LOFT,
-    GRENADE_COOLDOWN: GRENADE_COOLDOWN,
-    TACTICAL_SPEED_MUL: TACTICAL_SPEED_MUL,
-    PLAYER_FLASH_SELF_MUL: PLAYER_FLASH_SELF_MUL,
-    ballisticSpreadVector: ballisticSpreadVector,
-    bulletPenetrationPower: bulletPenetrationPower,
-    isAimAssistHeadCandidate: isAimAssistHeadCandidate,
-    aimAssistAngularDeltas: aimAssistAngularDeltas,
-    stepAimAssistLook: stepAimAssistLook,
-    enemyAiNextState: enemyAiNextState,
-    stepFlankVelocity: stepFlankVelocity,
-    playerPushoutOffset: playerPushoutOffset,
-    enemyAimTargetY: enemyAimTargetY,
-    stepMantleProgress: stepMantleProgress,
-    grenadeThrowVelocity: grenadeThrowVelocity,
-    playerSelfFlashDuration: playerSelfFlashDuration,
-    GRENADE_RING_BASE_OPACITY: GRENADE_RING_BASE_OPACITY,
-    GRENADE_RING_MAX_OPACITY: GRENADE_RING_MAX_OPACITY,
-    MINIMAP_SENTRY_COLOR: MINIMAP_SENTRY_COLOR,
-    MINIMAP_MUNITIONS_COLOR: MINIMAP_MUNITIONS_COLOR,
-    MINIMAP_PICKUP_AMMO_COLOR: MINIMAP_PICKUP_AMMO_COLOR,
-    MINIMAP_PICKUP_MED_COLOR: MINIMAP_PICKUP_MED_COLOR,
-    MINIMAP_PICKUP_POWER_COLOR: MINIMAP_PICKUP_POWER_COLOR,
-    MINIMAP_SENTRY_RADIUS: MINIMAP_SENTRY_RADIUS,
-    MINIMAP_MUNITIONS_SIZE: MINIMAP_MUNITIONS_SIZE,
-    MINIMAP_PICKUP_BASE_RADIUS: MINIMAP_PICKUP_BASE_RADIUS,
-    BURN_PATCH_HEAT_FLICKER_FREQ: BURN_PATCH_HEAT_FLICKER_FREQ,
-    grenadeDangerRingOpacity: grenadeDangerRingOpacity,
-    burnPatchPulsingOpacity: burnPatchPulsingOpacity,
-    burnPatchFlameStrength: burnPatchFlameStrength,
-    minimapPickupColor: minimapPickupColor,
-    pickupMinimapPulse: pickupMinimapPulse,
-    sentryMinimapPointer: sentryMinimapPointer,
-    BULLET_WHIZ_MAX_DIST: BULLET_WHIZ_MAX_DIST,
-    BULLET_WHIZ_MIN_OFFSET: BULLET_WHIZ_MIN_OFFSET,
-    LOW_AMMO_THRESHOLD_AR: LOW_AMMO_THRESHOLD_AR,
-    LOW_AMMO_THRESHOLD_SMG: LOW_AMMO_THRESHOLD_SMG,
-    LOW_AMMO_THRESHOLD_BR: LOW_AMMO_THRESHOLD_BR,
-    LOW_AMMO_THRESHOLD_SR: LOW_AMMO_THRESHOLD_SR,
-    bulletWhizSound: bulletWhizSound,
-    isBulletNearMiss: isBulletNearMiss,
-    bulletNearMissOffset: bulletNearMissOffset,
-    bulletWhizVolume: bulletWhizVolume,
-    lowAmmoThreshold: lowAmmoThreshold,
-    isLowAmmo: isLowAmmo,
-    lowAmmoSound: lowAmmoSound,
-    reloadBoltSound: reloadBoltSound,
-    isEmptyReload: isEmptyReload,
-    STANCE_RECOIL_CROUCH: STANCE_RECOIL_CROUCH,
-    STANCE_RECOIL_SLIDE: STANCE_RECOIL_SLIDE,
-    STANCE_RECOIL_AIRBORNE: STANCE_RECOIL_AIRBORNE,
-    ENEMY_GRENADE_ARM_DURATION: ENEMY_GRENADE_ARM_DURATION,
-    ENEMY_LIVE_GRENADES_CAP: ENEMY_LIVE_GRENADES_CAP,
-    GRENADIER_INITIAL_NADE_DELAY: GRENADIER_INITIAL_NADE_DELAY,
-    RIFLEMAN_INITIAL_NADE_DELAY: RIFLEMAN_INITIAL_NADE_DELAY,
-    ENEMY_EYE_OFFSET_Y: ENEMY_EYE_OFFSET_Y,
-    ENEMY_LOS_JITTER: ENEMY_LOS_JITTER,
-    ENEMY_MELEE_COOLDOWN_SENTINEL: ENEMY_MELEE_COOLDOWN_SENTINEL,
-    ENEMY_MELEE_RESET_MARGIN: ENEMY_MELEE_RESET_MARGIN,
-    stanceRecoilMultiplier: stanceRecoilMultiplier,
-    effectiveRecoilKick: effectiveRecoilKick,
-    enemyInitialGrenadeDelay: enemyInitialGrenadeDelay,
-    canSpawnEnemyGrenade: canSpawnEnemyGrenade,
-    enemyGrenadeVelocity: enemyGrenadeVelocity,
-    enemyEyeHeight: enemyEyeHeight,
-    enemyLosTargetCoord: enemyLosTargetCoord,
-    isEnemyMeleeReset: isEnemyMeleeReset,
-    shouldUpdatePfxLayer: shouldUpdatePfxLayer,
-    isGrenadeLosBlocker: isGrenadeLosBlocker,
-    enemyToPlayerDir: enemyToPlayerDir,
-    totalPlayerRounds: totalPlayerRounds,
-    hasPlayerRounds: hasPlayerRounds,
-    SCORCH_MAX: SCORCH_MAX,
-    SCORCH_LIFETIME: SCORCH_LIFETIME,
-    SCORCH_FADE_DURATION: SCORCH_FADE_DURATION,
-    SCORCH_BASE_RADIUS: SCORCH_BASE_RADIUS,
-    SCORCH_BASE_OPACITY: SCORCH_BASE_OPACITY,
-    SCORCH_STANDOFF: SCORCH_STANDOFF,
-    SCORCH_EXPANSION_DURATION: SCORCH_EXPANSION_DURATION,
-    ENEMY_MUZZLE_LIGHT_COLOR: ENEMY_MUZZLE_LIGHT_COLOR,
-    ENEMY_MUZZLE_LIGHT_INTENSITY: ENEMY_MUZZLE_LIGHT_INTENSITY,
-    ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY: ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY,
-    ENEMY_MUZZLE_LIGHT_DIST: ENEMY_MUZZLE_LIGHT_DIST,
-    ENEMY_MUZZLE_LIGHT_DUR: ENEMY_MUZZLE_LIGHT_DUR,
-    scorchScale: scorchScale,
-    scorchScaleProgress: scorchScaleProgress,
-    scorchOpacity: scorchOpacity,
-    stepScorchLife: stepScorchLife,
-    isScorchExpired: isScorchExpired,
-    scorchRotation: scorchRotation,
-    scorchElevation: scorchElevation,
-    enemyMuzzleLightParams: enemyMuzzleLightParams,
-    AIR_ABSORPTION_MAX_FREQ: AIR_ABSORPTION_MAX_FREQ,
-    AIR_ABSORPTION_MIN_FREQ: AIR_ABSORPTION_MIN_FREQ,
-    AIR_ABSORPTION_Q: AIR_ABSORPTION_Q,
-    spatialAudioCutoff: spatialAudioCutoff,
-    HEARTBEAT_BPM_MIN: HEARTBEAT_BPM_MIN,
-    HEARTBEAT_BPM_MAX: HEARTBEAT_BPM_MAX,
-    heartbeatBpm: heartbeatBpm,
-    heartbeatInterval: heartbeatInterval,
-    stepHeartbeatTimer: stepHeartbeatTimer,
+    DECAL_STANDOFF, MUZZLE_FLASH_SUPPRESSED_SCALE, TRACER_LIFETIME,
+    decalCaliberScale, decalSurfaceMultiplier, decalScale, decalRotationAngle, stepDecalLife, isDecalExpired,
+    muzzleFlashRotation, muzzleFlashBaseScale, stepMuzzleFlashScale, tracerThicknessScale, tracerColor,
+    isColliderRelevantXZ, movementTargetVelocity, HUD_REDRAW_INTERVAL, HUD_FLICK_YAW_THRESHOLD, HUD_FLICK_COOLDOWN,
+    shouldRedrawHudCanvas, countAliveEnemies, hostilesRemainingLabel, gunCameraFov, viewmodelNarrowOffset,
+    STEP_HEIGHT, SLIDE_STEER_RATE, TAC_TAP_WINDOW, TAC_DURATION, GRENADE_BOUNCE_LAT_DAMP, GRENADE_ROLL_LAT_DAMP,
+    enemyScale, enemyColliderRadius, enemyHeadHeight, enemySpawnSpeedMultiplier, isEnemyFlanker,
+    enemyFallbackVelocity, enemyStrafeVelocity, enemyStrafeDuration, canEnemyThrowGrenade, enemyFootstepRate,
+    enemyFootstepInterval, relocateFacingAlignment, relocateCandidateScore, stepSlideSteering, isTacSprintTriggered,
+    stepGrenadeBounceVelocity, isGrenadeAtRest, downBleedoutLabel, multikillBonus, waveCountdownLabel, waveBannerLabels,
+    SENTRY_AIM_Y_OFFSET, BURN_TICK_INTERVAL, stepTracerLife, isTracerExpired, stepImpactLife, isImpactExpired,
+    sentryTargetYaw, stepSentryTimers, sentryAimTargetY, burnTickDamage, isPointInBurnRadius,
+    SPREAD_LONGITUDINAL_SCALE, AIM_ASSIST_HEAD_THRESHOLD, AIM_ASSIST_HEAD_PRIORITY, AIM_ASSIST_PULL_WEIGHT,
+    AIM_ASSIST_TRACK_RATE, AIM_ASSIST_CHEST_OFFSET, AIM_ASSIST_HEAD_OFFSET, BULLET_MAGNET_Y_OFFSET,
+    ENEMY_SPAWN_DURATION, ENEMY_STRAFE_MAX_T, GRENADIER_STRAFE_RANGE, GRENADIER_STRAFE_DURATION,
+    RIFLEMAN_STRAFE_DURATION, RIFLEMAN_LOS_RETRY_DELAY, FLANK_STEER_WEIGHT, ENEMY_OVERLAP_MIN_DIST,
+    ENEMY_SHOT_CHEST_Y_OFFSET, MANTLE_DURATION, MANTLE_COYOTE_GRACE, GRENADE_PITCH_LOFT, GRENADE_COOLDOWN,
+    TACTICAL_SPEED_MUL, PLAYER_FLASH_SELF_MUL, ballisticSpreadVector, bulletPenetrationPower,
+    isAimAssistHeadCandidate, aimAssistAngularDeltas, stepAimAssistLook, enemyAiNextState, stepFlankVelocity,
+    playerPushoutOffset, enemyAimTargetY, stepMantleProgress, grenadeThrowVelocity, playerSelfFlashDuration,
+    GRENADE_RING_BASE_OPACITY, GRENADE_RING_MAX_OPACITY, MINIMAP_SENTRY_COLOR, MINIMAP_MUNITIONS_COLOR,
+    MINIMAP_PICKUP_AMMO_COLOR, MINIMAP_PICKUP_MED_COLOR, MINIMAP_PICKUP_POWER_COLOR, MINIMAP_SENTRY_RADIUS,
+    MINIMAP_MUNITIONS_SIZE, MINIMAP_PICKUP_BASE_RADIUS, BURN_PATCH_HEAT_FLICKER_FREQ, grenadeDangerRingOpacity,
+    burnPatchPulsingOpacity, burnPatchFlameStrength, minimapPickupColor, pickupMinimapPulse, sentryMinimapPointer,
+    BULLET_WHIZ_MAX_DIST, BULLET_WHIZ_MIN_OFFSET, LOW_AMMO_THRESHOLD_AR, LOW_AMMO_THRESHOLD_SMG,
+    LOW_AMMO_THRESHOLD_BR, LOW_AMMO_THRESHOLD_SR, bulletWhizSound, isBulletNearMiss, bulletNearMissOffset,
+    bulletWhizVolume, lowAmmoThreshold, isLowAmmo, lowAmmoSound, reloadBoltSound, isEmptyReload,
+    STANCE_RECOIL_CROUCH, STANCE_RECOIL_SLIDE, STANCE_RECOIL_AIRBORNE, ENEMY_GRENADE_ARM_DURATION,
+    ENEMY_LIVE_GRENADES_CAP, GRENADIER_INITIAL_NADE_DELAY, RIFLEMAN_INITIAL_NADE_DELAY, ENEMY_EYE_OFFSET_Y,
+    ENEMY_LOS_JITTER, ENEMY_MELEE_COOLDOWN_SENTINEL, ENEMY_MELEE_RESET_MARGIN, stanceRecoilMultiplier,
+    effectiveRecoilKick, enemyInitialGrenadeDelay, canSpawnEnemyGrenade, enemyGrenadeVelocity, enemyEyeHeight,
+    enemyLosTargetCoord, isEnemyMeleeReset, shouldUpdatePfxLayer, isGrenadeLosBlocker, enemyToPlayerDir,
+    totalPlayerRounds, hasPlayerRounds,
+    SCORCH_MAX, SCORCH_LIFETIME, SCORCH_FADE_DURATION, SCORCH_BASE_RADIUS, SCORCH_BASE_OPACITY, SCORCH_STANDOFF, SCORCH_EXPANSION_DURATION,
+    ENEMY_MUZZLE_LIGHT_COLOR, ENEMY_MUZZLE_LIGHT_INTENSITY, ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY, ENEMY_MUZZLE_LIGHT_DIST, ENEMY_MUZZLE_LIGHT_DUR,
+    scorchScale, scorchScaleProgress, scorchOpacity, stepScorchLife, isScorchExpired, scorchRotation, scorchElevation, enemyMuzzleLightParams,
+    AIR_ABSORPTION_MAX_FREQ, AIR_ABSORPTION_MIN_FREQ, AIR_ABSORPTION_Q, spatialAudioCutoff,
+    HEARTBEAT_BPM_MIN, HEARTBEAT_BPM_MAX, heartbeatBpm, heartbeatInterval, stepHeartbeatTimer,
     shouldPlayHeartbeat, heartbeatSound, enemyGunfireSound,
     STANCE_SPREAD_CROUCH, STANCE_SPREAD_SLIDE, STANCE_SPREAD_AIRBORNE_PENALTY, stanceSpreadMultiplier,
     EXPLOSION_KICK_MAX_DIST, EXPLOSION_POST_KICK_MAX, EXPLOSION_SHOT_KICK_MAX, EXPLOSION_SHOT_KICK_CAP,
@@ -13121,7 +13014,11 @@ const CORE = (function () {
     JUMP_SLIDE_SOUND, JUMP_SOUND, jumpSound,
     CHAMBER_EMPTY_SOUND, chamberEmptySound,
     GRENADE_COOK_SOUND, grenadeCookSound, grenadeThrowSound,
-    ENEMY_HIT_SOUND, ENEMY_HIT_HEAVY_SOUND, enemyMeleeHitSound
+    ENEMY_HIT_SOUND, ENEMY_HIT_HEAVY_SOUND, enemyMeleeHitSound,
+    WEAPON_ADS_MOVE_SMG, WEAPON_ADS_MOVE_AR, WEAPON_ADS_MOVE_BR, WEAPON_ADS_MOVE_SR, weaponAdsMoveMultiplier,
+    EMPTY_RELOAD_TIME_MUL,
+    BLOOM_RECOVER_SMG, BLOOM_RECOVER_AR, BLOOM_RECOVER_BR, BLOOM_RECOVER_SR, weaponBloomRecoveryMultiplier,
+    ENEMY_MELEE_TANK_BONUS, ENEMY_MELEE_SHIELD_BONUS, ENEMY_MELEE_SCOUT_PENALTY
   };
 })();
 
@@ -14999,7 +14896,7 @@ function updatePlayer(dt) {
     adsDown(),
     CFG.player.sprintMul,
     CFG.player.crouchMul,
-    cw ? cw.moveMul : 1
+    cw ? CORE.weaponAdsMoveMultiplier(cw.type, cw.moveMul) : 1
   );
   CORE.movementTargetVelocity(ix, iz, player.yaw, speed, _targetVelOut);
   const targetVX = _targetVelOut.x, targetVZ = _targetVelOut.z;
@@ -15855,7 +15752,7 @@ function updateWeapons(dt) {
   const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
-    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks));
+    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload);
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
       CORE.completeReload(s.ammo, w.mag, s.reserve, _reloadOut);
       s.ammo = _reloadOut.ammo;
@@ -15889,7 +15786,7 @@ function updateWeapons(dt) {
   }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
-  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
+  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown(), w ? w.type : '');
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
   if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
@@ -16019,7 +15916,7 @@ function fireShot(preserveSchedule) {
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.
   const ads = adsDown();
-  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
   bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
   bp.cap *= CORE.perkBloomMul(perks);
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
@@ -18235,7 +18132,7 @@ function updateEnemies(dt) {
         if (CORE.withinReach(dist, vertGapToPlayer(en), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !player.dead) {
           // global melee damage cap: max 2 melee hits landing within any 0.8s window
           if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
-            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind === 2, waveNum, diff().dmg, en.elite);
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
             damagePlayer(meleeDmg, dirToDeg(en), 'melee');
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
             meleeHits.push(gameT);

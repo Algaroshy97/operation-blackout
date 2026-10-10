@@ -8534,5 +8534,53 @@ test('v133 audio polish: tactical combat and locomotion acoustics rules', () => 
   assert.strictEqual(CORE.enemyMeleeHitSound(undefined, undefined), 'enemy_hit');
 });
 
+test('v134 balance tuning: weapon ADS strafe mobility, empty reload duration penalty, bloom recovery, and enemy melee balance rules', () => {
+  // 1. Weapon ADS strafe mobility
+  assert.strictEqual(CORE.WEAPON_ADS_MOVE_SMG, 1.20);
+  assert.strictEqual(CORE.WEAPON_ADS_MOVE_AR, 1.00);
+  assert.strictEqual(CORE.WEAPON_ADS_MOVE_BR, 0.88);
+  assert.strictEqual(CORE.WEAPON_ADS_MOVE_SR, 0.70);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('SMG'), 1.20);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('AR'), 1.00);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('BR'), 0.88);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('SR'), 0.70);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('AR', 1.35), 1.35);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier('other'), 1.00);
+  assert.strictEqual(CORE.weaponAdsMoveMultiplier(undefined), 1.00);
+
+  // 2. Empty magazine reload duration penalty
+  assert.strictEqual(CORE.EMPTY_RELOAD_TIME_MUL, 1.15);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true) - 2.30) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, false) - 2.00) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0) - 2.00) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.1, 0.6, true) - (2.1 * 0.6 * 1.15)) < 1e-4);
+
+  // 3. Weapon bloom recovery agility
+  assert.strictEqual(CORE.BLOOM_RECOVER_SMG, 1.30);
+  assert.strictEqual(CORE.BLOOM_RECOVER_AR, 1.00);
+  assert.strictEqual(CORE.BLOOM_RECOVER_BR, 0.85);
+  assert.strictEqual(CORE.BLOOM_RECOVER_SR, 0.65);
+  assert.strictEqual(CORE.weaponBloomRecoveryMultiplier('SMG'), 1.30);
+  assert.strictEqual(CORE.weaponBloomRecoveryMultiplier('AR'), 1.00);
+  assert.strictEqual(CORE.weaponBloomRecoveryMultiplier('BR'), 0.85);
+  assert.strictEqual(CORE.weaponBloomRecoveryMultiplier('SR'), 0.65);
+  assert.strictEqual(CORE.weaponBloomRecoveryMultiplier(''), 1.00);
+  const smgBloom = CORE.bloomParams(0.02, 0.008, false, 'SMG');
+  assert.ok(Math.abs(smgBloom.recover - (0.02 * CORE.BLOOM_RECOVER * 1.30)) < 1e-6);
+  const arBloom = CORE.bloomParams(0.014, 0.004, false, 'AR');
+  assert.ok(Math.abs(arBloom.recover - (0.014 * CORE.BLOOM_RECOVER * 1.00)) < 1e-6);
+
+  // 4. Enemy archetype melee damage calibration
+  assert.strictEqual(CORE.ENEMY_MELEE_TANK_BONUS, 10);
+  assert.strictEqual(CORE.ENEMY_MELEE_SHIELD_BONUS, 5);
+  assert.strictEqual(CORE.ENEMY_MELEE_SCOUT_PENALTY, -4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 2, 1, 1, false) - 28.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 3, 1, 1, false) - 23.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 4, 1, 1, false) - 14.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, 0, 1, 1, false) - 18.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, true, 1, 1, false) - 28.4) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyMeleeDamage(18, false, 1, 1, false) - 18.4) < 1e-4);
+});
+
 
 

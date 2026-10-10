@@ -137,7 +137,7 @@ function updateWeapons(dt) {
   const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
-    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks));
+    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload);
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
       CORE.completeReload(s.ammo, w.mag, s.reserve, _reloadOut);
       s.ammo = _reloadOut.ammo;
@@ -171,7 +171,7 @@ function updateWeapons(dt) {
   }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
-  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown());
+  const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown(), w ? w.type : '');
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
   if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
@@ -301,7 +301,7 @@ function fireShot(preserveSchedule) {
   // recovers off the trigger. Previously hipfire spread was identical on shot 1 and
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.
   const ads = adsDown();
-  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads);
+  const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
   bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
   bp.cap *= CORE.perkBloomMul(perks);
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
