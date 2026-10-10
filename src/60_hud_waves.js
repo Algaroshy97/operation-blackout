@@ -192,7 +192,7 @@ function updateHudAmmo(force) {
         CORE.syncTouchReloadState(_touchReloadCache, reloadState, reloadLabel);
         tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
         tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
-        tbtnReload.classList.toggle('empty', s.ammo <= 0 && s.reserve <= 0);
+        tbtnReload.classList.toggle('empty', reloadState === 'empty');
         if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
       }
     }
@@ -225,13 +225,14 @@ function updateHudAmmo(force) {
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
       const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
-      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching);
-      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching);
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching, isDowned);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching, isDowned);
       if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
         CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
         tbtnSwap.classList.toggle('empty', swapState === 'empty');
         tbtnSwap.classList.toggle('ready', swapState === 'ready');
         tbtnSwap.classList.toggle('switching', swapState === 'switching');
+        tbtnSwap.classList.toggle('locked', swapState === 'locked');
         if (tbtnSwap.textContent !== swapLabel) tbtnSwap.textContent = swapLabel;
       }
     }

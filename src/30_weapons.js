@@ -81,6 +81,12 @@ function curS() { return wState[curWeapon]; }
 
 // Next owned slot in a direction (mouse wheel, touch SWAP), skipping empties.
 function cycleWeapon(dir) {
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
+  if (typeof CORE !== 'undefined' && typeof CORE.canPlayerSwitchWeapon === 'function') {
+    if (!CORE.canPlayerSwitchWeapon(isDead, isDowned, isSwitching)) return;
+  }
   const n = weaponsOwned.length;
   for (let k = 1; k < n; k++) {
     const s = (((curWeapon + dir * k) % n) + n) % n;
@@ -89,6 +95,12 @@ function cycleWeapon(dir) {
 }
 function switchWeapon(slot) {
   if (slot === curWeapon) return;
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
+  if (typeof CORE !== 'undefined' && typeof CORE.canPlayerSwitchWeapon === 'function') {
+    if (!CORE.canPlayerSwitchWeapon(isDead, isDowned, isSwitching)) return;
+  }
   const n = weaponsOwned.length;
   const s = ((slot % n) + n) % n;
   if (weaponsOwned[s] < 0) return;
@@ -193,7 +205,14 @@ const _muzzleW = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _aimTgt = new THREE.Vector3();
 
-function adsDown() { return !!keys['Mouse2'] && !player.sprinting && !player.dead; }
+function adsDown() {
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  const isSprint = typeof player !== 'undefined' && !!player.sprinting;
+  return !!keys['Mouse2'] && (typeof CORE !== 'undefined' && typeof CORE.canPlayerAds === 'function'
+    ? CORE.canPlayerAds(isDead, isDowned, isSprint)
+    : (!isSprint && !isDead && !isDowned));
+}
 let adsAmount = 0;   // 0..1 smooth
 let gunSwitchT = 1;  // 1 = fully raised
 

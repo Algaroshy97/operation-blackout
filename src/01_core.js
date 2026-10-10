@@ -2369,22 +2369,24 @@ const CORE = (function () {
     }
     return -1;
   }
-  // Mobile touch weapon swap button state: returns 'switching' while weapon is raising,
+  // Mobile touch weapon swap button state: returns 'locked' while downed, 'switching' while weapon is raising,
   // 'empty' when no secondary weapon is available, or 'ready' when a reserve weapon is owned
   // and can be switched to.
-  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted or falsy.
   // Pure: no side effects, no DOM, no THREE.
-  function touchSwapState(curSlot, weaponsOwned, isSwitching) {
+  function touchSwapState(curSlot, weaponsOwned, isSwitching, isDowned) {
+    if (isDowned) return 'locked';
     if (touchSwapNextSlot(curSlot, weaponsOwned) < 0) return 'empty';
     if (isSwitching) return 'switching';
     return 'ready';
   }
-  // Mobile touch weapon swap button label: returns 'DRAW' while weapon is raising, the weapon type
+  // Mobile touch weapon swap button label: returns 'LOCKED' while downed, 'DRAW' while weapon is raising, the weapon type
   // of the reserve weapon (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned,
   // or 'SWAP' when empty/unowned.
-  // Backwards-compatible: behaves identically to previous versions when isSwitching is omitted or falsy.
+  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted or falsy.
   // Pure: no side effects, no DOM, no THREE.
-  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching) {
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching, isDowned) {
+    if (isDowned) return 'LOCKED';
     const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
     if (nextSlot < 0) return 'SWAP';
     if (isSwitching) return 'DRAW';
@@ -2547,6 +2549,16 @@ const CORE = (function () {
   function canPlayerInteractStation(isDead, isDowned, nearStation) {
     return !isDead && !isDowned && !!nearStation;
   }
+  // Evaluates player eligibility to cycle or switch weapon slots.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerSwitchWeapon(isDead, isDowned, isSwitching) {
+    return !isDead && !isDowned && !isSwitching;
+  }
+  // Evaluates player eligibility to aim down sights (ADS).
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerAds(isDead, isDowned, isSprinting) {
+    return !isDead && !isDowned && !isSprinting;
+  }
   // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
   function touchMeleeState(hasTarget, cooldownRemaining, isDowned) {
@@ -2565,12 +2577,13 @@ const CORE = (function () {
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
-  // Mobile touch ADS button state: returns 'steady' when sniper breath hold is engaged,
+  // Mobile touch ADS button state: returns 'locked' while downed, 'steady' when sniper breath hold is engaged,
   // 'scoped' when optical scope is locked in (SR/BR >= threshold),
   // 'active' when aiming down sights, or '' at hip fire.
-  // Backwards-compatible: behaves identically to previous versions when isSteadyActive is omitted/falsy.
+  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted/falsy.
   // Pure: no side effects, no DOM, no THREE.
-  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive) {
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive, isDowned) {
+    if (isDowned) return 'locked';
     const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
     const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
     if (ads <= 0) return '';
@@ -2579,11 +2592,12 @@ const CORE = (function () {
     }
     return 'active';
   }
-  // Mobile touch ADS button contextual label: displays 'STEADY' while holding breath,
+  // Mobile touch ADS button contextual label: displays 'LOCKED' while downed, 'STEADY' while holding breath,
   // 'WAIT' when sniper breath is exhausted, 'SCOPE' when optical scope is engaged,
   // 'AIM' when aiming standard sights, or 'ADS' default.
   // Pure: no side effects, no DOM, no THREE.
-  function touchAdsLabel(adsState, weaponType, steadyT) {
+  function touchAdsLabel(adsState, weaponType, steadyT, isDowned) {
+    if (isDowned || adsState === 'locked') return 'LOCKED';
     if (adsState === 'steady') return 'STEADY';
     if (adsState === 'scoped') {
       if (typeof steadyT === 'number' && isFinite(steadyT) && steadyT <= 0) return 'WAIT';
@@ -7883,46 +7897,16 @@ const CORE = (function () {
     streakActivationSound: streakActivationSound,
     fieldUpgradeSound: fieldUpgradeSound,
     sentryFireSound: sentryFireSound,
-    canMunitionsResupply: canMunitionsResupply,
-    STEADY_MAX: STEADY_MAX,
-    STEADY_RECOVER: STEADY_RECOVER,
-    ADS_SCOPE_THRESHOLD: ADS_SCOPE_THRESHOLD,
-    SCOPE_LOCKED_THRESHOLD: SCOPE_LOCKED_THRESHOLD,
-    RECOIL_DECAY_RATE: RECOIL_DECAY_RATE,
-    isSteadyActive: isSteadyActive,
-    stepSteadyAim: stepSteadyAim,
-    swayAmplitude: swayAmplitude,
-    swayOffsets: swayOffsets,
-    isScoped: isScoped,
-    recoilDecay: recoilDecay,
-    aimAssistAngle: aimAssistAngle,
-    aimAssistPull: aimAssistPull,
-    CROSSHAIR_MIN_GAP_OFFSET: CROSSHAIR_MIN_GAP_OFFSET,
-    CROSSHAIR_MAX_GAP_OFFSET: CROSSHAIR_MAX_GAP_OFFSET,
-    crosshairGapOffset: crosshairGapOffset,
-    crosshairOpacity: crosshairOpacity,
-    sprintIndicatorState: sprintIndicatorState,
-    sprintIndicatorLabel: sprintIndicatorLabel,
-    touchAdsState: touchAdsState,
-    touchAdsLabel: touchAdsLabel,
-    touchAdsChanged: touchAdsChanged,
-    syncTouchAdsState: syncTouchAdsState,
-    touchJumpState: touchJumpState,
-    touchJumpLabel: touchJumpLabel,
-    touchJumpChanged: touchJumpChanged,
-    syncTouchJumpState: syncTouchJumpState,
-    touchSlideChanged: touchSlideChanged,
-    syncTouchSlideState: syncTouchSlideState,
-    touchMeleeChanged: touchMeleeChanged,
-    syncTouchMeleeState: syncTouchMeleeState,
-    isMobileSteadyAim: isMobileSteadyAim,
-    touchFireState: touchFireState,
-    touchFireLabel: touchFireLabel,
-    touchReloadLabel: touchReloadLabel,
-    TOUCH_BUTTON_DEFAULT_SIZE: TOUCH_BUTTON_DEFAULT_SIZE,
-    TOUCH_FIRE_DEFAULT_SIZE: TOUCH_FIRE_DEFAULT_SIZE,
-    TOUCH_PAUSE_DEFAULT_SIZE: TOUCH_PAUSE_DEFAULT_SIZE,
-    touchControlName: touchControlName,
+    canMunitionsResupply,
+    STEADY_MAX, STEADY_RECOVER, ADS_SCOPE_THRESHOLD, SCOPE_LOCKED_THRESHOLD, RECOIL_DECAY_RATE,
+    isSteadyActive, stepSteadyAim, swayAmplitude, swayOffsets, isScoped, recoilDecay, aimAssistAngle, aimAssistPull,
+    CROSSHAIR_MIN_GAP_OFFSET, CROSSHAIR_MAX_GAP_OFFSET, crosshairGapOffset, crosshairOpacity,
+    sprintIndicatorState, sprintIndicatorLabel,
+    touchAdsState, touchAdsLabel, touchAdsChanged, syncTouchAdsState,
+    touchJumpState, touchJumpLabel, touchJumpChanged, syncTouchJumpState,
+    touchSlideChanged, syncTouchSlideState, touchMeleeChanged, syncTouchMeleeState,
+    isMobileSteadyAim, touchFireState, touchFireLabel, touchReloadLabel,
+    TOUCH_BUTTON_DEFAULT_SIZE, TOUCH_FIRE_DEFAULT_SIZE, TOUCH_PAUSE_DEFAULT_SIZE, touchControlName,
     touchEditorControlLabel: touchEditorControlLabel,
     touchLayoutClampPercent: touchLayoutClampPercent,
     touchFireChanged: touchFireChanged,
@@ -7948,47 +7932,13 @@ const CORE = (function () {
     footstepCadence: footstepCadence,
     playerFootstepSound: playerFootstepSound,
     shouldPlayFootstep: shouldPlayFootstep,
-    SNIPER_ADS_ZOOM: SNIPER_ADS_ZOOM,
-    DEFAULT_ADS_ZOOM: DEFAULT_ADS_ZOOM,
-    SLIDE_FOV_BOOST: SLIDE_FOV_BOOST,
-    TAC_SPRINT_FOV_BOOST: TAC_SPRINT_FOV_BOOST,
-    CAMERA_MIN_FOV: CAMERA_MIN_FOV,
-    CAMERA_MAX_FOV: CAMERA_MAX_FOV,
-    CAMERA_BOB_X_SCALE: CAMERA_BOB_X_SCALE,
-    CAMERA_BOB_Y_SCALE: CAMERA_BOB_Y_SCALE,
-    CAMERA_SLIDE_DIP: CAMERA_SLIDE_DIP,
-    CAMERA_BOB_ROLL_SCALE: CAMERA_BOB_ROLL_SCALE,
-    CAMERA_SLIDE_ROLL: CAMERA_SLIDE_ROLL,
-    CAMERA_STRAFE_ROLL_SCALE: CAMERA_STRAFE_ROLL_SCALE,
-    weaponAdsZoom: weaponAdsZoom,
-    mobilityFovBoost: mobilityFovBoost,
-    targetCameraFov: targetCameraFov,
-    strafeDirection: strafeDirection,
-    cameraRoll: cameraRoll,
-    cameraPositionOffsets: cameraPositionOffsets,
-    TAC_SPRINT_SPEED_MUL: TAC_SPRINT_SPEED_MUL,
-    LAND_STUN_SPEED_MUL: LAND_STUN_SPEED_MUL,
-    ADS_MOVE_SPEED_MUL: ADS_MOVE_SPEED_MUL,
-    AIR_SLIDE_ACCEL_RATE: AIR_SLIDE_ACCEL_RATE,
-    AIR_MOVE_ACCEL_RATE: AIR_MOVE_ACCEL_RATE,
-    GROUND_DECEL_DEFAULT: GROUND_DECEL_DEFAULT,
-    VELOCITY_SNAP_THRESHOLD: VELOCITY_SNAP_THRESHOLD,
-    BOB_SPEED_THRESHOLD: BOB_SPEED_THRESHOLD,
-    BOB_FREQ_SPRINT: BOB_FREQ_SPRINT,
-    BOB_FREQ_WALK: BOB_FREQ_WALK,
-    BOB_SPEED_SCALE: BOB_SPEED_SCALE,
-    BOB_GROW_RATE: BOB_GROW_RATE,
-    BOB_DECAY_RATE: BOB_DECAY_RATE,
-    LAND_STUN_BASE_TIME: LAND_STUN_BASE_TIME,
-    LAND_STUN_SCALE: LAND_STUN_SCALE,
-    COYOTE_TIME: COYOTE_TIME,
-    JUMP_BUFFER_TIME: JUMP_BUFFER_TIME,
-    ADS_BASE_SPEED: ADS_BASE_SPEED,
-    GUN_SWITCH_SPEED: GUN_SWITCH_SPEED,
-    SNIPER_UNSCOPE_FACTOR: SNIPER_UNSCOPE_FACTOR,
-    SHOT_KICK_IMPULSE: SHOT_KICK_IMPULSE,
-    SHOT_KICK_MAX: SHOT_KICK_MAX,
-    SHOT_KICK_DECAY_BASE: SHOT_KICK_DECAY_BASE,
+    SNIPER_ADS_ZOOM, DEFAULT_ADS_ZOOM, SLIDE_FOV_BOOST, TAC_SPRINT_FOV_BOOST, CAMERA_MIN_FOV, CAMERA_MAX_FOV,
+    CAMERA_BOB_X_SCALE, CAMERA_BOB_Y_SCALE, CAMERA_SLIDE_DIP, CAMERA_BOB_ROLL_SCALE, CAMERA_SLIDE_ROLL, CAMERA_STRAFE_ROLL_SCALE,
+    weaponAdsZoom, mobilityFovBoost, targetCameraFov, strafeDirection, cameraRoll, cameraPositionOffsets,
+    TAC_SPRINT_SPEED_MUL, LAND_STUN_SPEED_MUL, ADS_MOVE_SPEED_MUL, AIR_SLIDE_ACCEL_RATE, AIR_MOVE_ACCEL_RATE,
+    GROUND_DECEL_DEFAULT, VELOCITY_SNAP_THRESHOLD, BOB_SPEED_THRESHOLD, BOB_FREQ_SPRINT, BOB_FREQ_WALK, BOB_SPEED_SCALE,
+    BOB_GROW_RATE, BOB_DECAY_RATE, LAND_STUN_BASE_TIME, LAND_STUN_SCALE, COYOTE_TIME, JUMP_BUFFER_TIME, ADS_BASE_SPEED,
+    GUN_SWITCH_SPEED, SNIPER_UNSCOPE_FACTOR, SHOT_KICK_IMPULSE, SHOT_KICK_MAX, SHOT_KICK_DECAY_BASE,
     playerMoveSpeed: playerMoveSpeed,
     movementAccelRate: movementAccelRate,
     stepHorizontalVelocity: stepHorizontalVelocity,
@@ -8247,6 +8197,7 @@ const CORE = (function () {
     waveCountdownChanged, syncWaveCountdownState, downedTimerChanged, syncDownedTimerState, flashOverlayChanged, isTargetInBlastRadius,
     SOLDIER_RAGDOLL_MOMENTUM_SCALE, SOLDIER_RAGDOLL_KNOCK_BASE, SOLDIER_RAGDOLL_KNOCK_MIN, soldierRagdollKnockback, soldierRagdollMomentum,
     canPlayerThrowEquipment, canPlayerUseStreak, canPlayerUseFieldUpgrade, canPlayerInteractStation,
+    canPlayerSwitchWeapon, canPlayerAds,
     TACTICAL_FLASH_LIGHT_BLIND_COLOR, TACTICAL_FLASH_LIGHT_BLIND_INTENSITY, TACTICAL_FLASH_LIGHT_BLIND_DIST, TACTICAL_FLASH_LIGHT_BLIND_DUR,
     TACTICAL_FLASH_LIGHT_STUN_COLOR, TACTICAL_FLASH_LIGHT_STUN_INTENSITY, TACTICAL_FLASH_LIGHT_STUN_DIST, TACTICAL_FLASH_LIGHT_STUN_DUR,
     tacticalFlashLightParams, tacticalParticleParams,

@@ -532,14 +532,16 @@ function updateTouchAdsBtn() {
   const wType = w ? w.type : '';
   const isSteady = typeof steadyActive === 'boolean' ? steadyActive : false;
   const sT = typeof steadyT === 'number' ? steadyT : 0;
-  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady);
-  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT);
+  const isDowned = !!player.downed;
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady, isDowned);
+  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT, isDowned);
   if (!CORE.touchAdsChanged(_touchAdsCache, adsState, adsLabel)) return;
   CORE.syncTouchAdsState(_touchAdsCache, adsState, adsLabel);
 
   tbtnAdsEl.classList.toggle('active', adsState === 'active');
   tbtnAdsEl.classList.toggle('scoped', adsState === 'scoped');
   tbtnAdsEl.classList.toggle('steady', adsState === 'steady');
+  tbtnAdsEl.classList.toggle('locked', adsState === 'locked');
   if (tbtnAdsEl.textContent !== adsLabel) tbtnAdsEl.textContent = adsLabel;
 }
 

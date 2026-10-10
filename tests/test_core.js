@@ -8617,5 +8617,51 @@ test('v135 performance optimization rules: grenade charge HUD change-gating, tac
   assert.strictEqual(CORE.isTargetInConeRange(0, 0, 9), false);  // degenerate dist
 });
 
+test('v136 mobile UI polish rules: downed weapon swap, ADS lockout gating, and reload state rules', () => {
+  // 1. Pure player capability gating
+  assert.strictEqual(CORE.canPlayerSwitchWeapon(false, false, false), true);
+  assert.strictEqual(CORE.canPlayerSwitchWeapon(true, false, false), false);
+  assert.strictEqual(CORE.canPlayerSwitchWeapon(false, true, false), false);
+  assert.strictEqual(CORE.canPlayerSwitchWeapon(false, false, true), false);
+
+  assert.strictEqual(CORE.canPlayerAds(false, false, false), true);
+  assert.strictEqual(CORE.canPlayerAds(true, false, false), false);
+  assert.strictEqual(CORE.canPlayerAds(false, true, false), false);
+  assert.strictEqual(CORE.canPlayerAds(false, false, true), false);
+
+  // 2. Mobile touch weapon swap button state & label
+  const wList = [{ type: 'AR' }, { type: 'SMG' }];
+  assert.strictEqual(CORE.touchSwapState(0, [0, 1], false, true), 'locked');
+  assert.strictEqual(CORE.touchSwapState(0, [0, 1], false, false), 'ready');
+  assert.strictEqual(CORE.touchSwapState(0, [0, -1], false, false), 'empty');
+  assert.strictEqual(CORE.touchSwapState(0, [0, 1], true, false), 'switching');
+
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 1], wList, false, true), 'LOCKED');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 1], wList, false, false), 'SMG');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 1], wList, true, false), 'DRAW');
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, -1], wList, false, false), 'SWAP');
+
+  // 3. Mobile touch ADS button state & label
+  assert.strictEqual(CORE.touchAdsState(1.0, 'AR', 0.82, false, true), 'locked');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'AR', 0.82, false, false), 'active');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'SR', 0.82, false, false), 'scoped');
+  assert.strictEqual(CORE.touchAdsState(1.0, 'SR', 0.82, true, false), 'steady');
+  assert.strictEqual(CORE.touchAdsState(0, 'AR', 0.82, false, false), '');
+
+  assert.strictEqual(CORE.touchAdsLabel('locked', 'AR', 0, true), 'LOCKED');
+  assert.strictEqual(CORE.touchAdsLabel('active', 'AR', 0, false), 'AIM');
+  assert.strictEqual(CORE.touchAdsLabel('scoped', 'SR', 2.0, false), 'SCOPE');
+  assert.strictEqual(CORE.touchAdsLabel('scoped', 'SR', 0, false), 'WAIT');
+  assert.strictEqual(CORE.touchAdsLabel('steady', 'SR', 2.0, false), 'STEADY');
+  assert.strictEqual(CORE.touchAdsLabel('', 'AR', 0, false), 'ADS');
+
+  // 4. Mobile touch reload button state rules
+  assert.strictEqual(CORE.touchReloadState(0, 0, false), '');
+  assert.strictEqual(CORE.touchReloadState(0, 60, false), 'urgent');
+  assert.strictEqual(CORE.touchReloadState(15, 60, true), 'reloading');
+  assert.strictEqual(CORE.touchReloadState(30, 60, false), '');
+});
+
+
 
 

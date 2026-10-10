@@ -3968,7 +3968,58 @@ def main() -> int:
         }""")
         checks.append(("grenade-charge-tactical-culling-and-magnet-perf-rules", perf_optimization_v135_check))
 
-        # 86) Clean console throughout gameplay.
+        # 86) Mobile UI polish: downed weapon swap, ADS lockout gating, and reload state rules.
+        mobile_ui_polish_v136_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Pure player capability gating
+            const g1 = CORE.canPlayerSwitchWeapon(false, false, false) === true &&
+                       CORE.canPlayerSwitchWeapon(true, false, false) === false &&
+                       CORE.canPlayerSwitchWeapon(false, true, false) === false &&
+                       CORE.canPlayerSwitchWeapon(false, false, true) === false;
+
+            const g2 = CORE.canPlayerAds(false, false, false) === true &&
+                       CORE.canPlayerAds(true, false, false) === false &&
+                       CORE.canPlayerAds(false, true, false) === false &&
+                       CORE.canPlayerAds(false, false, true) === false;
+
+            // 2. Mobile touch weapon swap button state & label
+            const wList = [{ type: 'AR' }, { type: 'SMG' }];
+            const s1 = CORE.touchSwapState(0, [0, 1], false, true) === 'locked' &&
+                       CORE.touchSwapState(0, [0, 1], false, false) === 'ready' &&
+                       CORE.touchSwapState(0, [0, -1], false, false) === 'empty' &&
+                       CORE.touchSwapState(0, [0, 1], true, false) === 'switching';
+
+            const s2 = CORE.touchSwapLabel(0, [0, 1], wList, false, true) === 'LOCKED' &&
+                       CORE.touchSwapLabel(0, [0, 1], wList, false, false) === 'SMG' &&
+                       CORE.touchSwapLabel(0, [0, 1], wList, true, false) === 'DRAW' &&
+                       CORE.touchSwapLabel(0, [0, -1], wList, false, false) === 'SWAP';
+
+            // 3. Mobile touch ADS button state & label
+            const a1 = CORE.touchAdsState(1.0, 'AR', 0.82, false, true) === 'locked' &&
+                       CORE.touchAdsState(1.0, 'AR', 0.82, false, false) === 'active' &&
+                       CORE.touchAdsState(1.0, 'SR', 0.82, false, false) === 'scoped' &&
+                       CORE.touchAdsState(1.0, 'SR', 0.82, true, false) === 'steady' &&
+                       CORE.touchAdsState(0, 'AR', 0.82, false, false) === '';
+
+            const a2 = CORE.touchAdsLabel('locked', 'AR', 0, true) === 'LOCKED' &&
+                       CORE.touchAdsLabel('active', 'AR', 0, false) === 'AIM' &&
+                       CORE.touchAdsLabel('scoped', 'SR', 2.0, false) === 'SCOPE' &&
+                       CORE.touchAdsLabel('scoped', 'SR', 0, false) === 'WAIT' &&
+                       CORE.touchAdsLabel('steady', 'SR', 2.0, false) === 'STEADY' &&
+                       CORE.touchAdsLabel('', 'AR', 0, false) === 'ADS';
+
+            // 4. Mobile touch reload button state rules
+            const r1 = CORE.touchReloadState(0, 0, false) === '' &&
+                       CORE.touchReloadState(0, 60, false) === 'urgent' &&
+                       CORE.touchReloadState(15, 60, true) === 'reloading' &&
+                       CORE.touchReloadState(30, 60, false) === '';
+
+            return g1 && g2 && s1 && s2 && a1 && a2 && r1;
+        }""")
+        checks.append(("mobile-downed-swap-ads-and-reload-polish-rules", mobile_ui_polish_v136_check))
+
+        # 87) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

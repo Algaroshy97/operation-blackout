@@ -355,3 +355,53 @@ test('v131 mobile UI polish: downed equipment, streaks, and station lockout gati
   assert.match(head, /body\.touch\s+#tbtn-use\.locked/);
 });
 
+test('v136 mobile UI polish: downed weapon swap, ADS lockout gating, and reload state rules', () => {
+  // 1. Pure player capability gating
+  assert.equal(CORE.canPlayerSwitchWeapon(false, false, false), true);
+  assert.equal(CORE.canPlayerSwitchWeapon(true, false, false), false);
+  assert.equal(CORE.canPlayerSwitchWeapon(false, true, false), false);
+  assert.equal(CORE.canPlayerSwitchWeapon(false, false, true), false);
+
+  assert.equal(CORE.canPlayerAds(false, false, false), true);
+  assert.equal(CORE.canPlayerAds(true, false, false), false);
+  assert.equal(CORE.canPlayerAds(false, true, false), false);
+  assert.equal(CORE.canPlayerAds(false, false, true), false);
+
+  // 2. Mobile touch weapon swap button state & label
+  const wList = [{ type: 'AR' }, { type: 'SMG' }];
+  assert.equal(CORE.touchSwapState(0, [0, 1], false, true), 'locked');
+  assert.equal(CORE.touchSwapState(0, [0, 1], false, false), 'ready');
+  assert.equal(CORE.touchSwapState(0, [0, -1], false, false), 'empty');
+  assert.equal(CORE.touchSwapState(0, [0, 1], true, false), 'switching');
+
+  assert.equal(CORE.touchSwapLabel(0, [0, 1], wList, false, true), 'LOCKED');
+  assert.equal(CORE.touchSwapLabel(0, [0, 1], wList, false, false), 'SMG');
+  assert.equal(CORE.touchSwapLabel(0, [0, 1], wList, true, false), 'DRAW');
+  assert.equal(CORE.touchSwapLabel(0, [0, -1], wList, false, false), 'SWAP');
+
+  // 3. Mobile touch ADS button state & label
+  assert.equal(CORE.touchAdsState(1.0, 'AR', 0.82, false, true), 'locked');
+  assert.equal(CORE.touchAdsState(1.0, 'AR', 0.82, false, false), 'active');
+  assert.equal(CORE.touchAdsState(1.0, 'SR', 0.82, false, false), 'scoped');
+  assert.equal(CORE.touchAdsState(1.0, 'SR', 0.82, true, false), 'steady');
+  assert.equal(CORE.touchAdsState(0, 'AR', 0.82, false, false), '');
+
+  assert.equal(CORE.touchAdsLabel('locked', 'AR', 0, true), 'LOCKED');
+  assert.equal(CORE.touchAdsLabel('active', 'AR', 0, false), 'AIM');
+  assert.equal(CORE.touchAdsLabel('scoped', 'SR', 2.0, false), 'SCOPE');
+  assert.equal(CORE.touchAdsLabel('scoped', 'SR', 0, false), 'WAIT');
+  assert.equal(CORE.touchAdsLabel('steady', 'SR', 2.0, false), 'STEADY');
+  assert.equal(CORE.touchAdsLabel('', 'AR', 0, false), 'ADS');
+
+  // 4. Mobile touch reload button state rules
+  assert.equal(CORE.touchReloadState(0, 0, false), '');
+  assert.equal(CORE.touchReloadState(0, 60, false), 'urgent');
+  assert.equal(CORE.touchReloadState(15, 60, true), 'reloading');
+  assert.equal(CORE.touchReloadState(30, 60, false), '');
+
+  // 5. CSS locked state definitions in head.html
+  assert.match(head, /body\.touch\s+#tbtn-swap\.locked/);
+  assert.match(head, /body\.touch\s+#tbtn-ads\.locked/);
+});
+
+
