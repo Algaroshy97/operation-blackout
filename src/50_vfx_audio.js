@@ -493,7 +493,8 @@ const SND_MIN_GAP = {
   shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
   plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5,
   melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20,
-  jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15
+  jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15,
+  shield_deflect: 0.05, helmet_hit: 0.04
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -620,7 +621,9 @@ const SOUND_RECIPES = {
   jump_slide:        [['noise', 0.08, 0.12, 520, 1.2], ['osc', 'sine', 150, 260, 0.08, 0.14]],
   chamber_empty:     [['osc', 'square', 680, 260, 0.035, 0.10], ['noise', 0.03, 0.12, 2800, 2.8]],
   enemy_hit:         [['noise', 0.08, 0.25, 750, 1.4], ['osc', 'sawtooth', 150, 50, 0.09, 0.20]],
-  enemy_hit_heavy:   [['noise', 0.15, 0.35, 200, 0.7], ['osc', 'sine', 110, 30, 0.16, 0.32], ['osc', 'square', 75, 25, 0.09, 0.16]]
+  enemy_hit_heavy:   [['noise', 0.15, 0.35, 200, 0.7], ['osc', 'sine', 110, 30, 0.16, 0.32], ['osc', 'square', 75, 25, 0.09, 0.16]],
+  shield_deflect:    [['noise', 0.05, 0.35, 2600, 2.5], ['osc', 'square', 520, 240, 0.07, 0.22], ['osc', 'sine', 960, 480, 0.10, 0.20]],
+  helmet_hit:        [['noise', 0.04, 0.28, 3600, 3.2], ['osc', 'sine', 2400, 1200, 0.08, 0.20], ['osc', 'square', 1200, 600, 0.04, 0.12]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -643,7 +646,8 @@ const SOUND_VARIED = {
   shot_suppressed: 1, smg_suppressed: 1, br_suppressed: 1, sniper_suppressed: 1,
   plate_insert: 1, plate_lock: 1, tinnitus: 1,
   melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1,
-  jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1
+  jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1,
+  shield_deflect: 1, helmet_hit: 1
 };
 
 function recipeDuration(recipe) {
@@ -789,7 +793,10 @@ function updateFootsteps(dt) {
     }
   }
   // landing
-  if (player.onGround && !wasGround) playSound('land');   // `hs >= 0` was always true
+  if (player.onGround && !wasGround) {
+    if (!player._heavyLanded) playSound(CORE.landingSound(false));
+    player._heavyLanded = false;
+  }
   wasGround = player.onGround;
 }
 let wasGround = true;

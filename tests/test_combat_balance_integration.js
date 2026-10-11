@@ -525,4 +525,31 @@ test('v137 visual polish integration: ballistic shield deflection, helmet headsh
   assert.equal(CORE.landingDustParams(), null);
 });
 
+test('v138 audio polish integration: ballistic shield deflection, helmet headshot acoustics, and heavy landing dual-signature rules', () => {
+  // 1. Ballistic shield deflection acoustics
+  assert.equal(CORE.SHIELD_DEFLECT_SOUND, 'shield_deflect');
+  assert.equal(CORE.shieldDeflectSound(true), 'shield_deflect');
+  assert.equal(CORE.shieldDeflectSound(), 'shield_deflect');
+  assert.equal(CORE.shieldDeflectSound(false), null);
+
+  // 2. Armored enemy helmet headshot acoustics
+  assert.equal(CORE.HELMET_HIT_SOUND, 'helmet_hit');
+  assert.equal(CORE.helmetHitSound(true), 'helmet_hit');
+  assert.equal(CORE.helmetHitSound(), 'helmet_hit');
+  assert.equal(CORE.helmetHitSound(false), null);
+
+  // 3. Heavy landing acoustics dual-signature support
+  assert.equal(CORE.LAND_HEAVY_SOUND, 'land_heavy');
+  assert.equal(CORE.LAND_SOUND, 'land');
+  assert.equal(CORE.landingSound(true), 'land_heavy');
+  assert.equal(CORE.landingSound(false), 'land');
+  assert.equal(CORE.landingSound(14.0), 'land_heavy');
+  assert.equal(CORE.landingSound(11.0), 'land_heavy');
+  assert.equal(CORE.landingSound(8.0), 'land');
+  assert.equal(CORE.landingSound(0), 'land');
+
+  // 4. Enemy grenadier throw acoustics
+  assert.equal(CORE.enemyGrenadeThrowSound(), 'pin');
+});
+
 

@@ -209,6 +209,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
     CORE.shieldDeflectNormal(en.yaw, _shieldNormOut);
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null);
+    if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
@@ -226,6 +227,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
     if (isHead && CORE.enemyHasHelmet(en.kind)) {
       if (typeof fxHeadshotSparks === 'function') fxHeadshotSparks(point, _hitDir);
       if (typeof flashLight === 'function') flashLight(point, 0xffd080, 0.8, 3.0, 0.04);
+      playSound3D(CORE.helmetHitSound(true), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     }
     if (en.parts.soldier) {
       // flinch: the torso (or head) springs away from the round
@@ -688,7 +690,7 @@ function throwEnemyGrenade(en) {
     : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true };
   liveGrenades.push(rec);
   scene.add(m);
-  playSound3D('pin', en.pos.x, en.pos.y, en.pos.z);
+  playSound3D(CORE.enemyGrenadeThrowSound(), en.pos.x, en.pos.y, en.pos.z);
   pushKillfeed('<span class="xp">INCOMING GRENADE</span>');
 }
 

@@ -7315,8 +7315,11 @@ const CORE = (function () {
     return 'hit';
   }
 
-  function landingSound(hasFallDamage) {
-    return Boolean(hasFallDamage) ? 'land_heavy' : 'land';
+  function landingSound(hasFallDamageOrImpactSpeed) {
+    if (typeof hasFallDamageOrImpactSpeed === 'number') {
+      return hasFallDamageOrImpactSpeed > FALL_SAFE_SPEED ? LAND_HEAVY_SOUND : LAND_SOUND;
+    }
+    return Boolean(hasFallDamageOrImpactSpeed) ? LAND_HEAVY_SOUND : LAND_SOUND;
   }
 
   // ---- Performance Optimization: Countdown & Downed Timer Change-Gating, Blast Spatial Culling & Ragdoll Momentum (v130) ----
@@ -7560,66 +7563,38 @@ const CORE = (function () {
     return null;
   }
 
+  // ---- Ballistic Shield Deflection, Helmet Headshot & Heavy Landing Acoustics (v138 Audio Polish) ----
+  const SHIELD_DEFLECT_SOUND = 'shield_deflect';
+  const HELMET_HIT_SOUND = 'helmet_hit';
+  const LAND_HEAVY_SOUND = 'land_heavy';
+  const LAND_SOUND = 'land';
+
+  function shieldDeflectSound(isShielded) {
+    return (isShielded === undefined || Boolean(isShielded)) ? SHIELD_DEFLECT_SOUND : null;
+  }
+
+  function helmetHitSound(hasHelmet) {
+    return (hasHelmet === undefined || Boolean(hasHelmet)) ? HELMET_HIT_SOUND : null;
+  }
+
+  function enemyGrenadeThrowSound() {
+    return GRENADE_COOK_SOUND;
+  }
+
   return {
-    horizDist: horizDist,
-    horizDistSq: horizDistSq,
-    subStepCount: subStepCount,
-    ceilingClamp: ceilingClamp,
-    shadowCasters: shadowCasters,
-    MAX_SUBSTEPS: MAX_SUBSTEPS,
-    advanceShotSchedule: advanceShotSchedule,
-    fireClockStep: fireClockStep,
-    shotScheduleAfterInactive: shotScheduleAfterInactive,
-    distanceFalloff: distanceFalloff,
-    waveEnemyCount: waveEnemyCount,
-    waveHpMultiplier: waveHpMultiplier,
-    waveRangedAccuracy: waveRangedAccuracy,
-    WAVE_SCORE_PER_WAVE: WAVE_SCORE_PER_WAVE,
-    waveClearScore: waveClearScore,
-    RESUPPLY_MAG_RATIO: RESUPPLY_MAG_RATIO,
-    waveResupplyAmmo: waveResupplyAmmo,
-    aabbOverlapsXZ: aabbOverlapsXZ,
-    blocksWalker: blocksWalker,
-    isSpawnValid: isSpawnValid,
-    SETTINGS_SCHEMA: SETTINGS_SCHEMA,
-    defaultSettings: defaultSettings,
-    clampSetting: clampSetting,
-    sanitizeSettings: sanitizeSettings,
-    qualityRenderSettings: qualityRenderSettings, graphicsSettings,
-    createFrameTimeTelemetry: createFrameTimeTelemetry,
-    createRuntimeTelemetry: createRuntimeTelemetry,
-    stepGrenadeMotion: stepGrenadeMotion,
-    lookSensitivity: lookSensitivity,
-    combatIntensity: combatIntensity,
-    BASE_SENSITIVITY: BASE_SENSITIVITY,
-    defaultStats: defaultStats,
-    sanitizeStats: sanitizeStats,
-    resumeCheckpointState: resumeCheckpointState,
-    settlementAccounting: settlementAccounting,
-    mergeRunIntoStats: mergeRunIntoStats,
-    DIFFICULTIES: DIFFICULTIES,
-    difficulty: difficulty,
-    BEHAVIOUR_UNLOCKS: BEHAVIOUR_UNLOCKS,
-    behavioursAtWave: behavioursAtWave,
-    newBehavioursAtWave: newBehavioursAtWave,
-    pickEnemyKind: pickEnemyKind,
-    enemyStopDistance: enemyStopDistance,
-    enemyMoveSpeed: enemyMoveSpeed,
-    flankBias: flankBias,
-    flankWindow: flankWindow,
-    flankBiasNow: flankBiasNow,
-    FLANK_WINDOW: FLANK_WINDOW,
-    enemyPreferredRange: enemyPreferredRange,
-    ENEMY_KIND_UNLOCK: ENEMY_KIND_UNLOCK,
-    enemyKindsAtWave: enemyKindsAtWave,
-    newEnemyKindsAtWave: newEnemyKindsAtWave,
-    endlessHpMultiplier: endlessHpMultiplier,
-    endlessEnemyCount: endlessEnemyCount,
-    SAVE_VERSION: SAVE_VERSION,
-    ammoDropChance: ammoDropChance,
-    MED_DROP_BASE: MED_DROP_BASE,
-    MED_DROP_CRITICAL: MED_DROP_CRITICAL,
-    medDropChance: medDropChance,
+    horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
+    advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
+    waveEnemyCount, waveHpMultiplier, waveRangedAccuracy, WAVE_SCORE_PER_WAVE, waveClearScore,
+    RESUPPLY_MAG_RATIO, waveResupplyAmmo, aabbOverlapsXZ, blocksWalker, isSpawnValid,
+    SETTINGS_SCHEMA, defaultSettings, clampSetting, sanitizeSettings,
+    qualityRenderSettings, graphicsSettings, createFrameTimeTelemetry, createRuntimeTelemetry,
+    stepGrenadeMotion, lookSensitivity, combatIntensity, BASE_SENSITIVITY, defaultStats,
+    sanitizeStats, resumeCheckpointState, settlementAccounting, mergeRunIntoStats,
+    DIFFICULTIES, difficulty, BEHAVIOUR_UNLOCKS, behavioursAtWave, newBehavioursAtWave,
+    pickEnemyKind, enemyStopDistance, enemyMoveSpeed, flankBias, flankWindow, flankBiasNow,
+    FLANK_WINDOW, enemyPreferredRange, ENEMY_KIND_UNLOCK, enemyKindsAtWave, newEnemyKindsAtWave,
+    endlessHpMultiplier, endlessEnemyCount, SAVE_VERSION, ammoDropChance, MED_DROP_BASE,
+    MED_DROP_CRITICAL, medDropChance,
     pickupDropKind: pickupDropKind,
     makeCheckpoint: makeCheckpoint,
     validateCheckpoint: validateCheckpoint,
@@ -7642,47 +7617,15 @@ const CORE = (function () {
     updateStuck: updateStuck,
     updateProgress: updateProgress,
     isClosingDistance: isClosingDistance,
-    RECOIL_PATTERNS: RECOIL_PATTERNS,
-    RECOIL_JITTER: RECOIL_JITTER,
-    RECOIL_RESET: RECOIL_RESET,
-    recoilPatternFor: recoilPatternFor,
-    recoilAt: recoilAt,
-    recoilShotIndex: recoilShotIndex,
-    absorbRecoil: absorbRecoil,
-    BLOOM_PER_SHOT: BLOOM_PER_SHOT,
-    BLOOM_CAP_HIP: BLOOM_CAP_HIP,
-    BLOOM_CAP_ADS: BLOOM_CAP_ADS,
-    BLOOM_RECOVER: BLOOM_RECOVER,
-    bloomParams: bloomParams,
-    bloomAfterShot: bloomAfterShot,
-    bloomDecay: bloomDecay,
-    effectiveSpread: effectiveSpread,
-    PENETRATION_COST: PENETRATION_COST,
-    MAX_PENETRATIONS: MAX_PENETRATIONS,
-    penetrationCost: penetrationCost,
-    penetrationPower: penetrationPower,
-    penetrate: penetrate,
-    penetrationDamageMul: penetrationDamageMul,
-    meleeTarget: meleeTarget,
-    MELEE_REACH: MELEE_REACH,
-    MELEE_CONE: MELEE_CONE,
-    MELEE_DAMAGE: MELEE_DAMAGE,
-    MELEE_COOLDOWN: MELEE_COOLDOWN,
-    mantleTarget: mantleTarget,
-    CREDITS: CREDITS,
-    creditsForDamage: creditsForDamage,
-    creditsForWave: creditsForWave,
-    POWERUPS: POWERUPS,
-    POWERUP_CHANCE: POWERUP_CHANCE,
-    powerUpDropped: powerUpDropped,
-    pickPowerUp: pickPowerUp,
-    rayBoxEntry: rayBoxEntry,
-    sweepGrenade: sweepGrenade,
-    penetrationWalk: penetrationWalk,
-    penetrationMulAt: penetrationMulAt,
-    BUY_RADIUS: BUY_RADIUS,
-    BUY_HOLD: BUY_HOLD,
-    nearestStation: nearestStation,
+    RECOIL_PATTERNS, RECOIL_JITTER, RECOIL_RESET, recoilPatternFor, recoilAt,
+    recoilShotIndex, absorbRecoil, BLOOM_PER_SHOT, BLOOM_CAP_HIP, BLOOM_CAP_ADS,
+    BLOOM_RECOVER, bloomParams, bloomAfterShot, bloomDecay, effectiveSpread,
+    PENETRATION_COST, MAX_PENETRATIONS, penetrationCost, penetrationPower,
+    penetrate, penetrationDamageMul, meleeTarget, MELEE_REACH, MELEE_CONE,
+    MELEE_DAMAGE, MELEE_COOLDOWN, mantleTarget, CREDITS, creditsForDamage,
+    creditsForWave, POWERUPS, POWERUP_CHANCE, powerUpDropped, pickPowerUp,
+    rayBoxEntry, sweepGrenade, penetrationWalk, penetrationMulAt, BUY_RADIUS,
+    BUY_HOLD, nearestStation,
     WALL_BUY_PRICE: WALL_BUY_PRICE,
     wallBuyPrice: wallBuyPrice,
     ammoRefillPrice: ammoRefillPrice,
@@ -8150,7 +8093,9 @@ const CORE = (function () {
     SHIELD_DEFLECT_SPARK_COUNT, SHIELD_DEFLECT_SPARK_COLOR0, SHIELD_DEFLECT_SPARK_COLOR1,
     SHIELD_DEFLECT_LIGHT_COLOR, SHIELD_DEFLECT_LIGHT_INTENSITY, SHIELD_DEFLECT_LIGHT_DIST, SHIELD_DEFLECT_LIGHT_DUR,
     LANDING_DUST_HEAVY_COUNT, LANDING_DUST_LIGHT_COUNT, LANDING_DUST_COLOR,
-    shieldDeflectNormal, shieldDeflectVfxParams, landingDustParams
+    shieldDeflectNormal, shieldDeflectVfxParams, landingDustParams,
+    SHIELD_DEFLECT_SOUND, HELMET_HIT_SOUND, LAND_HEAVY_SOUND, LAND_SOUND,
+    shieldDeflectSound, helmetHitSound, enemyGrenadeThrowSound
   };
 })();
 

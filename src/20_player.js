@@ -408,6 +408,7 @@ function updatePlayer(dt) {
       player.vel.z *= mul;
       player.landStunT = CORE.landingStunDuration(mul);
       damagePlayer(dmg, undefined, 'fall');
+      player._heavyLanded = true;
       playSound(CORE.landingSound(true));
       playSound('hurt');
     }

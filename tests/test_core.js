@@ -8731,6 +8731,40 @@ test('v137 visual polish: ballistic shield deflection kinematics & VFX, helmet h
   assert.strictEqual(CORE.landingDustParams(undefined), null);
 });
 
+test('v138 audio polish: ballistic shield deflection acoustics, helmet headshot acoustics, and heavy landing dual-signature rules', () => {
+  // 1. Shield deflection sound
+  assert.strictEqual(CORE.SHIELD_DEFLECT_SOUND, 'shield_deflect');
+  assert.strictEqual(CORE.shieldDeflectSound(true), 'shield_deflect');
+  assert.strictEqual(CORE.shieldDeflectSound(1), 'shield_deflect');
+  assert.strictEqual(CORE.shieldDeflectSound(false), null);
+  assert.strictEqual(CORE.shieldDeflectSound(0), null);
+  assert.strictEqual(CORE.shieldDeflectSound(undefined), 'shield_deflect');
+
+  // 2. Helmet headshot sound
+  assert.strictEqual(CORE.HELMET_HIT_SOUND, 'helmet_hit');
+  assert.strictEqual(CORE.helmetHitSound(true), 'helmet_hit');
+  assert.strictEqual(CORE.helmetHitSound(1), 'helmet_hit');
+  assert.strictEqual(CORE.helmetHitSound(false), null);
+  assert.strictEqual(CORE.helmetHitSound(0), null);
+  assert.strictEqual(CORE.helmetHitSound(undefined), 'helmet_hit');
+
+  // 3. Heavy landing sound dual-signature support
+  assert.strictEqual(CORE.LAND_HEAVY_SOUND, 'land_heavy');
+  assert.strictEqual(CORE.LAND_SOUND, 'land');
+  assert.strictEqual(CORE.landingSound(true), 'land_heavy');
+  assert.strictEqual(CORE.landingSound(false), 'land');
+  assert.strictEqual(CORE.landingSound(15.0), 'land_heavy');
+  assert.strictEqual(CORE.landingSound(11.0), 'land_heavy');
+  assert.strictEqual(CORE.landingSound(9.6), 'land_heavy');
+  assert.strictEqual(CORE.landingSound(9.5), 'land');
+  assert.strictEqual(CORE.landingSound(5.0), 'land');
+  assert.strictEqual(CORE.landingSound(0), 'land');
+  assert.strictEqual(CORE.landingSound(-5), 'land');
+
+  // 4. Enemy grenadier throw sound
+  assert.strictEqual(CORE.enemyGrenadeThrowSound(), 'pin');
+});
+
 
 
 

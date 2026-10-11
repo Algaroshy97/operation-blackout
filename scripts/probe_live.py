@@ -4088,7 +4088,46 @@ def main() -> int:
         }""")
         checks.append(("ballistic-shield-deflection-and-landing-visual-rules", visual_polish_v137_check))
 
-        # 88) Clean console throughout gameplay.
+        # 88) Ballistic shield deflection, helmet headshot, and heavy landing dual-signature acoustics rules.
+        audio_polish_v138_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined' ||
+                typeof CORE.shieldDeflectSound !== 'function' ||
+                typeof CORE.helmetHitSound !== 'function' ||
+                typeof CORE.landingSound !== 'function' ||
+                typeof CORE.enemyGrenadeThrowSound !== 'function') return false;
+
+            // 1. Ballistic shield deflection sound
+            const sConstOk = CORE.SHIELD_DEFLECT_SOUND === 'shield_deflect';
+            const sDeflectOk = CORE.shieldDeflectSound(true) === 'shield_deflect' &&
+                               CORE.shieldDeflectSound() === 'shield_deflect' &&
+                               CORE.shieldDeflectSound(false) === null;
+
+            // 2. Helmet headshot sound
+            const hConstOk = CORE.HELMET_HIT_SOUND === 'helmet_hit';
+            const hHitOk = CORE.helmetHitSound(true) === 'helmet_hit' &&
+                           CORE.helmetHitSound() === 'helmet_hit' &&
+                           CORE.helmetHitSound(false) === null;
+
+            // 3. Heavy landing sound dual-signature support
+            const lConstOk = CORE.LAND_HEAVY_SOUND === 'land_heavy' &&
+                             CORE.LAND_SOUND === 'land';
+            const lSoundOk = CORE.landingSound(true) === 'land_heavy' &&
+                             CORE.landingSound(false) === 'land' &&
+                             CORE.landingSound(15.0) === 'land_heavy' &&
+                             CORE.landingSound(11.0) === 'land_heavy' &&
+                             CORE.landingSound(9.6) === 'land_heavy' &&
+                             CORE.landingSound(9.5) === 'land' &&
+                             CORE.landingSound(5.0) === 'land' &&
+                             CORE.landingSound(0) === 'land';
+
+            // 4. Enemy grenadier throw sound
+            const throwOk = CORE.enemyGrenadeThrowSound() === 'pin';
+
+            return sConstOk && sDeflectOk && hConstOk && hHitOk && lConstOk && lSoundOk && throwOk;
+        }""")
+        checks.append(("shield-deflection-helmet-and-landing-audio-rules", audio_polish_v138_check))
+
+        # 89) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
