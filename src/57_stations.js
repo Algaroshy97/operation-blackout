@@ -455,10 +455,21 @@ function updateStations(dt) {
 }
 
 function usePlate() {
-  if (player.dead || player.downed) return;
-  if (plateT > 0) return;
-  if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
-  if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  const curPlates = typeof plates !== 'undefined' ? plates : 0;
+  const curArmor = typeof player !== 'undefined' ? player.armor : 0;
+  const maxArmor = typeof CFG !== 'undefined' && CFG.player ? CFG.player.armor : 50;
+  const isIns = typeof plateT === 'number' && plateT > 0;
+  if (typeof CORE !== 'undefined' && typeof CORE.canPlayerUsePlate === 'function') {
+    if (!CORE.canPlayerUsePlate(isDead, isDowned, curPlates, curArmor, maxArmor, isIns)) {
+      if (!isDead && !isDowned && !isIns && curPlates <= 0) showCenterMsg('NO PLATES');
+      return;
+    }
+  } else {
+    if (isDead || isDowned || isIns || curArmor >= maxArmor) return;
+    if (curPlates <= 0) { showCenterMsg('NO PLATES'); return; }
+  }
   plateT = CORE.PLATE_TIME;
   playSound(CORE.plateInsertSound ? CORE.plateInsertSound() : 'plate_insert');
 }
@@ -481,6 +492,7 @@ function downPlayer() {
   }
   player.downed = true;
   downT = 0;
+  if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
   player.health = 1;
   player.crouching = true;

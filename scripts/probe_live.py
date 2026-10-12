@@ -4127,7 +4127,54 @@ def main() -> int:
         }""")
         checks.append(("shield-deflection-helmet-and-landing-audio-rules", audio_polish_v138_check))
 
-        # 89) Clean console throughout gameplay.
+        # 89) Tactical combat balance rules: weapon bloom per-shot accumulation, tactical sprint melee momentum & armor plate action gating.
+        balance_tuning_v139_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Weapon-archetype bloom per-shot accumulation constants & multiplier
+            const bloomConstOk = CORE.BLOOM_PER_SHOT_SMG === 0.75 &&
+                                 CORE.BLOOM_PER_SHOT_AR === 1.00 &&
+                                 CORE.BLOOM_PER_SHOT_BR === 1.25 &&
+                                 CORE.BLOOM_PER_SHOT_SR === 1.60;
+
+            const bloomMulOk = CORE.weaponBloomPerShotMultiplier('SMG') === 0.75 &&
+                               CORE.weaponBloomPerShotMultiplier('AR') === 1.00 &&
+                               CORE.weaponBloomPerShotMultiplier('BR') === 1.25 &&
+                               CORE.weaponBloomPerShotMultiplier('SR') === 1.60 &&
+                               CORE.weaponBloomPerShotMultiplier('unknown') === 1.00;
+
+            const smgB = CORE.bloomParams(0.020, 0.008, false, 'SMG');
+            const arB = CORE.bloomParams(0.014, 0.004, false, 'AR');
+            const brB = CORE.bloomParams(0.011, 0.003, false, 'BR');
+            const srB = CORE.bloomParams(0.055, 0.0006, false, 'SR');
+            const bloomParamsOk = Math.abs(smgB.perShot - (0.020 * CORE.BLOOM_PER_SHOT * 0.75)) < 1e-6 &&
+                                  Math.abs(arB.perShot - (0.014 * CORE.BLOOM_PER_SHOT * 1.00)) < 1e-6 &&
+                                  Math.abs(brB.perShot - (0.011 * CORE.BLOOM_PER_SHOT * 1.25)) < 1e-6 &&
+                                  Math.abs(srB.perShot - (0.055 * CORE.BLOOM_PER_SHOT * 1.60)) < 1e-6;
+
+            // 2. Tactical sprint kinetic melee momentum strike balance
+            const meleeConstOk = CORE.MELEE_TAC_SPRINT_MOMENTUM_MUL === 1.28;
+            const meleeDmgOk = CORE.playerMeleeDamage(150, false, false, false, true) === 192 &&
+                               CORE.playerMeleeDamage(150, false, false, true, false) === 172.5 &&
+                               CORE.playerMeleeDamage(150, false, true, false, false) === 195 &&
+                               CORE.playerMeleeDamage(150, true, false, false, false) === 360 &&
+                               CORE.playerMeleeDamage(150, false, false, false, false) === 150 &&
+                               Math.abs(CORE.playerMeleeDamage(100, false, false, false, true) - 128) < 1e-4 &&
+                               Math.abs(CORE.playerMeleeDamage(100, false, false, true, false) - 115) < 1e-4;
+
+            // 3. Armor plate action gating & eligibility
+            const plateGatingOk = CORE.canPlayerUsePlate(false, false, 2, 20, 50, false) === true &&
+                                  CORE.canPlayerUsePlate(true, false, 2, 20, 50, false) === false &&
+                                  CORE.canPlayerUsePlate(false, true, 2, 20, 50, false) === false &&
+                                  CORE.canPlayerUsePlate(false, false, 0, 20, 50, false) === false &&
+                                  CORE.canPlayerUsePlate(false, false, 2, 50, 50, false) === false &&
+                                  CORE.canPlayerUsePlate(false, false, 2, 20, 50, true) === false;
+
+            return bloomConstOk && bloomMulOk && bloomParamsOk && meleeConstOk && meleeDmgOk && plateGatingOk;
+        }""")
+        checks.append(("tactical-weapon-bloom-sprint-melee-and-plate-balance-rules", balance_tuning_v139_check))
+
+        # 90) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

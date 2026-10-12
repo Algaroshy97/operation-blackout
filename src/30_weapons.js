@@ -451,8 +451,8 @@ function doMelee() {
   }
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
-  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting);
+  const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);
   damageEnemy(en, meleeDmg, _meleePoint, isBackstab);

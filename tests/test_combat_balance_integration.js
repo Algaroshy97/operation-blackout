@@ -552,4 +552,44 @@ test('v138 audio polish integration: ballistic shield deflection, helmet headsho
   assert.equal(CORE.enemyGrenadeThrowSound(), 'pin');
 });
 
+test('v139 tactical combat balance integration: weapon bloom per-shot accumulation, tactical sprint melee momentum & armor plate action gating', () => {
+  // 1. Weapon-archetype hipfire bloom per-shot accumulation agility
+  assert.equal(CORE.BLOOM_PER_SHOT_SMG, 0.75);
+  assert.equal(CORE.BLOOM_PER_SHOT_AR, 1.00);
+  assert.equal(CORE.BLOOM_PER_SHOT_BR, 1.25);
+  assert.equal(CORE.BLOOM_PER_SHOT_SR, 1.60);
+  assert.equal(CORE.weaponBloomPerShotMultiplier('SMG'), 0.75);
+  assert.equal(CORE.weaponBloomPerShotMultiplier('AR'), 1.00);
+  assert.equal(CORE.weaponBloomPerShotMultiplier('BR'), 1.25);
+  assert.equal(CORE.weaponBloomPerShotMultiplier('SR'), 1.60);
+  assert.equal(CORE.weaponBloomPerShotMultiplier('other'), 1.00);
+
+  const smgBloom = CORE.bloomParams(0.020, 0.008, false, 'SMG');
+  assert.ok(Math.abs(smgBloom.perShot - (0.020 * CORE.BLOOM_PER_SHOT * 0.75)) < 1e-6);
+  const arBloom = CORE.bloomParams(0.014, 0.004, false, 'AR');
+  assert.ok(Math.abs(arBloom.perShot - (0.014 * CORE.BLOOM_PER_SHOT * 1.00)) < 1e-6);
+  const brBloom = CORE.bloomParams(0.011, 0.003, false, 'BR');
+  assert.ok(Math.abs(brBloom.perShot - (0.011 * CORE.BLOOM_PER_SHOT * 1.25)) < 1e-6);
+  const srBloom = CORE.bloomParams(0.055, 0.0006, false, 'SR');
+  assert.ok(Math.abs(srBloom.perShot - (0.055 * CORE.BLOOM_PER_SHOT * 1.60)) < 1e-6);
+
+  // 2. Tactical sprint kinetic melee momentum strike balance
+  assert.equal(CORE.MELEE_TAC_SPRINT_MOMENTUM_MUL, 1.28);
+  assert.equal(CORE.playerMeleeDamage(150, false, false, false, true), 192);
+  assert.equal(CORE.playerMeleeDamage(150, false, false, true, false), 172.5);
+  assert.equal(CORE.playerMeleeDamage(150, false, true, false, false), 195);
+  assert.equal(CORE.playerMeleeDamage(150, true, false, false, false), 360);
+  assert.equal(CORE.playerMeleeDamage(150, false, false, false, false), 150);
+  assert.ok(Math.abs(CORE.playerMeleeDamage(100, false, false, false, true) - 128) < 1e-4);
+  assert.ok(Math.abs(CORE.playerMeleeDamage(100, false, false, true, false) - 115) < 1e-4);
+
+  // 3. Armor plate tactical insertion action gating & eligibility
+  assert.equal(CORE.canPlayerUsePlate(false, false, 2, 20, 50, false), true);
+  assert.equal(CORE.canPlayerUsePlate(true, false, 2, 20, 50, false), false);
+  assert.equal(CORE.canPlayerUsePlate(false, true, 2, 20, 50, false), false);
+  assert.equal(CORE.canPlayerUsePlate(false, false, 0, 20, 50, false), false);
+  assert.equal(CORE.canPlayerUsePlate(false, false, 2, 50, 50, false), false);
+  assert.equal(CORE.canPlayerUsePlate(false, false, 2, 20, 50, true), false);
+});
+
 

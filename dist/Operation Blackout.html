@@ -6613,6 +6613,17 @@ const CORE = (function () {
   const BLOOM_RECOVER_AR = 1.00;
   const BLOOM_RECOVER_BR = 0.85;
   const BLOOM_RECOVER_SR = 0.65;
+  const BLOOM_PER_SHOT_SMG = 0.75;
+  const BLOOM_PER_SHOT_AR = 1.00;
+  const BLOOM_PER_SHOT_BR = 1.25;
+  const BLOOM_PER_SHOT_SR = 1.60;
+  function weaponBloomPerShotMultiplier(weaponType) {
+    const t = String(weaponType || '').toUpperCase();
+    if (t === 'SMG') return BLOOM_PER_SHOT_SMG;
+    if (t === 'BR') return BLOOM_PER_SHOT_BR;
+    if (t === 'SR') return BLOOM_PER_SHOT_SR;
+    return BLOOM_PER_SHOT_AR;
+  }
   function weaponBloomRecoveryMultiplier(weaponType) {
     if (weaponType === 'SMG') return BLOOM_RECOVER_SMG;
     if (weaponType === 'AR') return BLOOM_RECOVER_AR;
@@ -6623,8 +6634,9 @@ const CORE = (function () {
   function bloomParams(baseSpread, adsSpread, ads, weaponType) {
     const base = ads ? adsSpread : baseSpread;
     const recMul = weaponBloomRecoveryMultiplier(weaponType);
+    const shotMul = weaponBloomPerShotMultiplier(weaponType);
     return {
-      perShot: base * BLOOM_PER_SHOT,
+      perShot: base * BLOOM_PER_SHOT * shotMul,
       cap: base * (ads ? BLOOM_CAP_ADS : BLOOM_CAP_HIP),
       recover: base * BLOOM_RECOVER * recMul
     };
@@ -6787,6 +6799,7 @@ const CORE = (function () {
   const MELEE_BACKSTAB_MUL = 2.4;
   const MELEE_SLIDE_MOMENTUM_MUL = 1.30;
   const MELEE_SPRINT_MOMENTUM_MUL = 1.15;
+  const MELEE_TAC_SPRINT_MOMENTUM_MUL = 1.28;
   const MELEE_BACKSTAB_COS_THRESHOLD = 0.50;
 
   function isMeleeBackstab(playerDirX, playerDirZ, enYaw, px, pz, enX, enZ, cosThreshold) {
@@ -6803,10 +6816,11 @@ const CORE = (function () {
     return facingDot > thresh;
   }
 
-  function playerMeleeDamage(baseDmg, isBackstab, isSliding, isSprinting) {
+  function playerMeleeDamage(baseDmg, isBackstab, isSliding, isSprinting, isTacSprint) {
     const base = (typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0) ? baseDmg : MELEE_DAMAGE;
     if (isBackstab) return base * MELEE_BACKSTAB_MUL;
     if (isSliding) return base * MELEE_SLIDE_MOMENTUM_MUL;
+    if (isTacSprint) return base * MELEE_TAC_SPRINT_MOMENTUM_MUL;
     if (isSprinting) return base * MELEE_SPRINT_MOMENTUM_MUL;
     return base;
   }
@@ -7297,6 +7311,14 @@ const CORE = (function () {
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerAds(isDead, isDowned, isSprinting) {
     return !isDead && !isDowned && !isSprinting;
+  }
+  // Evaluates player eligibility to insert an armor plate.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerUsePlate(isDead, isDowned, plates, currentArmor, maxArmor, isInserting) {
+    const cnt = typeof plates === 'number' && isFinite(plates) ? plates : 0;
+    const curA = typeof currentArmor === 'number' && isFinite(currentArmor) ? currentArmor : 0;
+    const maxA = typeof maxArmor === 'number' && isFinite(maxArmor) ? maxArmor : 50;
+    return !isDead && !isDowned && cnt > 0 && curA < maxA && !isInserting;
   }
   // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
@@ -12334,28 +12356,11 @@ const CORE = (function () {
     FLANK_WINDOW, enemyPreferredRange, ENEMY_KIND_UNLOCK, enemyKindsAtWave, newEnemyKindsAtWave,
     endlessHpMultiplier, endlessEnemyCount, SAVE_VERSION, ammoDropChance, MED_DROP_BASE,
     MED_DROP_CRITICAL, medDropChance,
-    pickupDropKind: pickupDropKind,
-    makeCheckpoint: makeCheckpoint,
-    validateCheckpoint: validateCheckpoint,
-    regionKey: regionKey,
-    planStaticBatches: planStaticBatches,
-    segmentHitsBox: segmentHitsBox,
-    segmentBlocked: segmentBlocked,
-    buildRayGrid: buildRayGrid,
-    rayGridClear: rayGridClear,
-    rayGridInsert: rayGridInsert,
-    rayGridQuery: rayGridQuery,
-    buildNavGrid: buildNavGrid,
-    computeFlowField: computeFlowField,
-    worldToCell: worldToCell,
-    cellCenter: cellCenter,
-    isWalkable: isWalkable,
-    nearestWalkable: nearestWalkable,
-    navDistanceAt: navDistanceAt,
-    flowDirAt: flowDirAt,
-    updateStuck: updateStuck,
-    updateProgress: updateProgress,
-    isClosingDistance: isClosingDistance,
+    pickupDropKind, makeCheckpoint, validateCheckpoint, regionKey, planStaticBatches,
+    segmentHitsBox, segmentBlocked, buildRayGrid, rayGridClear, rayGridInsert,
+    rayGridQuery, buildNavGrid, computeFlowField, worldToCell, cellCenter,
+    isWalkable, nearestWalkable, navDistanceAt, flowDirAt, updateStuck,
+    updateProgress, isClosingDistance,
     RECOIL_PATTERNS, RECOIL_JITTER, RECOIL_RESET, recoilPatternFor, recoilAt,
     recoilShotIndex, absorbRecoil, BLOOM_PER_SHOT, BLOOM_CAP_HIP, BLOOM_CAP_ADS,
     BLOOM_RECOVER, bloomParams, bloomAfterShot, bloomDecay, effectiveSpread,
@@ -12365,10 +12370,7 @@ const CORE = (function () {
     creditsForWave, POWERUPS, POWERUP_CHANCE, powerUpDropped, pickPowerUp,
     rayBoxEntry, sweepGrenade, penetrationWalk, penetrationMulAt, BUY_RADIUS,
     BUY_HOLD, nearestStation,
-    WALL_BUY_PRICE: WALL_BUY_PRICE,
-    wallBuyPrice: wallBuyPrice,
-    ammoRefillPrice: ammoRefillPrice,
-    wallBuyOffer: wallBuyOffer,
+    WALL_BUY_PRICE, wallBuyPrice, ammoRefillPrice, wallBuyOffer,
     ARMORY_WAVE, ARMORY_PRICE, armoryAvailable, armoryUpgrade,
     PERK_SLOTS, PERKS, perkByKey, perkBuyBlocker, hasPerk, perkMaxHealth,
     HEALTH_LOW_THRESHOLD, isHealthLow, ARMOR_LOW_RATIO, isArmorLow, isArmorEmpty,
@@ -12399,94 +12401,30 @@ const CORE = (function () {
     hasCrouchHeadroom, SPATIAL_EXPLOSION_MAX_DIST, spatialExplosionParams,
     tacticalDetonationSound, grenadeContactSound, JOYSTICK_MOVE_THRESHOLD,
     touchMovementKeys,
-    gyroLookDelta: gyroLookDelta,
-    gyroScreenLookDelta: gyroScreenLookDelta,
-    touchReloadState: touchReloadState,
-    ENEMY_HEALTH_SCALE: ENEMY_HEALTH_SCALE,
-    SHIELD_ARC_COS: SHIELD_ARC_COS,
-    SHIELD_ABSORB_RATIO: SHIELD_ABSORB_RATIO,
-    enemyBaseHealth: enemyBaseHealth,
-    enemyMaxHealth: enemyMaxHealth,
-    enemyAccuracy: enemyAccuracy,
-    playerBulletDamage: playerBulletDamage,
-    shieldMultiplier: shieldMultiplier,
-    HITMARK_COLOR: HITMARK_COLOR,
-    hitmarkerTier: hitmarkerTier,
-    hitmarkerParams: hitmarkerParams,
-    ENEMY_SEPARATION_RADIUS: ENEMY_SEPARATION_RADIUS,
-    enemySeparationRadius: enemySeparationRadius,
-    resolveSeparationPush: resolveSeparationPush,
-    MELEE_CAP_WINDOW: MELEE_CAP_WINDOW,
-    MELEE_CAP_MAX_HITS: MELEE_CAP_MAX_HITS,
-    pruneHitTimestamps: pruneHitTimestamps,
-    canRegisterHit: canRegisterHit,
-    snapToTexel: snapToTexel,
-    weaponFireSound: weaponFireSound,
-    armorDamageSound: armorDamageSound,
-    touchPlateState: touchPlateState,
-    touchEquipmentState: touchEquipmentState,
-    touchStreakState: touchStreakState,
-    touchSwapState: touchSwapState,
-    touchSwapLabel: touchSwapLabel,
-    buyPromptPrefix: buyPromptPrefix,
-    touchUseState: touchUseState,
-    touchSlideState: touchSlideState,
-    touchSlideLabel: touchSlideLabel,
-    touchPlateLabel: touchPlateLabel,
-    touchTacticalLabel: touchTacticalLabel,
-    touchLethalLabel: touchLethalLabel,
-    touchStreakLabel: touchStreakLabel,
-    touchMeleeState: touchMeleeState,
-    touchMeleeLabel: touchMeleeLabel,
-    GRENADE_DAMAGE_FLOOR: GRENADE_DAMAGE_FLOOR,
-    GRENADE_SELF_DAMAGE_MAX: GRENADE_SELF_DAMAGE_MAX,
-    GRENADE_SELF_RADIUS_RATIO: GRENADE_SELF_RADIUS_RATIO,
-    GRENADE_MIN_SPEED: GRENADE_MIN_SPEED,
-    GRENADE_MAX_SPEED: GRENADE_MAX_SPEED,
-    GRENADE_RAMP_DURATION: GRENADE_RAMP_DURATION,
-    GRENADE_TAP_THRESHOLD: GRENADE_TAP_THRESHOLD,
-    grenadeBlastDamage: grenadeBlastDamage,
-    grenadeSelfDamage: grenadeSelfDamage,
-    grenadeChargedSpeed: grenadeChargedSpeed,
-    grenadeThrowSpeed: grenadeThrowSpeed,
-    canEnemyMelee: canEnemyMelee,
-    enemyMeleeReach: enemyMeleeReach,
-    enemyAttackCooldown: enemyAttackCooldown,
-    VIGNETTE_MAX_ALPHA: VIGNETTE_MAX_ALPHA,
-    VIGNETTE_BASE_ALPHA: VIGNETTE_BASE_ALPHA,
-    VIGNETTE_SCALE_DIVISOR: VIGNETTE_SCALE_DIVISOR,
-    HIT_ARC_LIFE: HIT_ARC_LIFE,
-    HIT_ARC_FADE_START: HIT_ARC_FADE_START,
-    HIT_ARC_MAX_OPACITY: HIT_ARC_MAX_OPACITY,
-    damageVignetteAlpha: damageVignetteAlpha,
-    damageVignetteStyle: damageVignetteStyle,
-    worldBearing: worldBearing,
-    screenHitAngle: screenHitAngle,
-    hitArcOpacity: hitArcOpacity,
-    stepParticlePhysics: stepParticlePhysics,
-    ammoHudChanged: ammoHudChanged,
-    syncAmmoHudState: syncAmmoHudState,
-    healthHudChanged: healthHudChanged,
-    syncHealthHudState: syncHealthHudState,
-    killConfirmationSound: killConfirmationSound,
-    MK_WINDOW: MK_WINDOW,
-    MK_MAX_STREAK: MK_MAX_STREAK,
-    advanceKillStreak: advanceKillStreak,
-    multikillLabel: multikillLabel,
-    multikillSound: multikillSound,
-    SLIDE_DURATION: SLIDE_DURATION,
-    SLIDE_START_MUL: SLIDE_START_MUL,
-    SLIDE_END_MUL: SLIDE_END_MUL,
-    SLIDE_BOOST_MAX: SLIDE_BOOST_MAX,
-    SLIDE_BOOST_SCALE: SLIDE_BOOST_SCALE,
-    SLIDE_JUMP_Y_MUL: SLIDE_JUMP_Y_MUL,
-    slideSpeedAt: slideSpeedAt,
-    slideJumpBoost: slideJumpBoost,
-    STAMINA_RECOVER_RATE: STAMINA_RECOVER_RATE,
-    STAMINA_EXHAUST_RECOVER_RATIO: STAMINA_EXHAUST_RECOVER_RATIO,
-    stepPlayerStamina: stepPlayerStamina,
-    isPlayerExhausted: isPlayerExhausted,
-    canRegenHealth: canRegenHealth,
+    gyroLookDelta, gyroScreenLookDelta, touchReloadState, ENEMY_HEALTH_SCALE,
+    SHIELD_ARC_COS, SHIELD_ABSORB_RATIO, enemyBaseHealth, enemyMaxHealth,
+    enemyAccuracy, playerBulletDamage, shieldMultiplier, HITMARK_COLOR,
+    hitmarkerTier, hitmarkerParams, ENEMY_SEPARATION_RADIUS, enemySeparationRadius,
+    resolveSeparationPush, MELEE_CAP_WINDOW, MELEE_CAP_MAX_HITS, pruneHitTimestamps,
+    canRegisterHit, snapToTexel, weaponFireSound, armorDamageSound,
+    touchPlateState, touchEquipmentState, touchStreakState, touchSwapState,
+    touchSwapLabel, buyPromptPrefix, touchUseState, touchSlideState,
+    touchSlideLabel, touchPlateLabel, touchTacticalLabel, touchLethalLabel,
+    touchStreakLabel, touchMeleeState, touchMeleeLabel,
+    GRENADE_DAMAGE_FLOOR, GRENADE_SELF_DAMAGE_MAX, GRENADE_SELF_RADIUS_RATIO,
+    GRENADE_MIN_SPEED, GRENADE_MAX_SPEED, GRENADE_RAMP_DURATION, GRENADE_TAP_THRESHOLD,
+    grenadeBlastDamage, grenadeSelfDamage, grenadeChargedSpeed, grenadeThrowSpeed,
+    canEnemyMelee, enemyMeleeReach, enemyAttackCooldown,
+    VIGNETTE_MAX_ALPHA, VIGNETTE_BASE_ALPHA, VIGNETTE_SCALE_DIVISOR,
+    HIT_ARC_LIFE, HIT_ARC_FADE_START, HIT_ARC_MAX_OPACITY,
+    damageVignetteAlpha, damageVignetteStyle, worldBearing, screenHitAngle,
+    hitArcOpacity, stepParticlePhysics, ammoHudChanged, syncAmmoHudState,
+    healthHudChanged, syncHealthHudState, killConfirmationSound,
+    MK_WINDOW, MK_MAX_STREAK, advanceKillStreak, multikillLabel, multikillSound,
+    SLIDE_DURATION, SLIDE_START_MUL, SLIDE_END_MUL, SLIDE_BOOST_MAX,
+    SLIDE_BOOST_SCALE, SLIDE_JUMP_Y_MUL, slideSpeedAt, slideJumpBoost,
+    STAMINA_RECOVER_RATE, STAMINA_EXHAUST_RECOVER_RATIO, stepPlayerStamina,
+    isPlayerExhausted, canRegenHealth,
     stepHealthRegen: stepHealthRegen,
     AMMO_PICKUP_MAG_RATIO: AMMO_PICKUP_MAG_RATIO,
     MEDKIT_HEAL_BASE: MEDKIT_HEAL_BASE,
@@ -12834,7 +12772,9 @@ const CORE = (function () {
     LANDING_DUST_HEAVY_COUNT, LANDING_DUST_LIGHT_COUNT, LANDING_DUST_COLOR,
     shieldDeflectNormal, shieldDeflectVfxParams, landingDustParams,
     SHIELD_DEFLECT_SOUND, HELMET_HIT_SOUND, LAND_HEAVY_SOUND, LAND_SOUND,
-    shieldDeflectSound, helmetHitSound, enemyGrenadeThrowSound
+    shieldDeflectSound, helmetHitSound, enemyGrenadeThrowSound,
+    BLOOM_PER_SHOT_SMG, BLOOM_PER_SHOT_AR, BLOOM_PER_SHOT_BR, BLOOM_PER_SHOT_SR,
+    weaponBloomPerShotMultiplier, MELEE_TAC_SPRINT_MOMENTUM_MUL, canPlayerUsePlate
   };
 })();
 
@@ -15887,8 +15827,8 @@ function doMelee() {
   }
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
-  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting);
+  const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);
   damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
@@ -21130,10 +21070,21 @@ function updateStations(dt) {
 }
 
 function usePlate() {
-  if (player.dead || player.downed) return;
-  if (plateT > 0) return;
-  if (plates <= 0) { showCenterMsg('NO PLATES'); return; }
-  if (player.armor >= CFG.player.armor) return;   // never burn a plate for nothing
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  const curPlates = typeof plates !== 'undefined' ? plates : 0;
+  const curArmor = typeof player !== 'undefined' ? player.armor : 0;
+  const maxArmor = typeof CFG !== 'undefined' && CFG.player ? CFG.player.armor : 50;
+  const isIns = typeof plateT === 'number' && plateT > 0;
+  if (typeof CORE !== 'undefined' && typeof CORE.canPlayerUsePlate === 'function') {
+    if (!CORE.canPlayerUsePlate(isDead, isDowned, curPlates, curArmor, maxArmor, isIns)) {
+      if (!isDead && !isDowned && !isIns && curPlates <= 0) showCenterMsg('NO PLATES');
+      return;
+    }
+  } else {
+    if (isDead || isDowned || isIns || curArmor >= maxArmor) return;
+    if (curPlates <= 0) { showCenterMsg('NO PLATES'); return; }
+  }
   plateT = CORE.PLATE_TIME;
   playSound(CORE.plateInsertSound ? CORE.plateInsertSound() : 'plate_insert');
 }
@@ -21156,6 +21107,7 @@ function downPlayer() {
   }
   player.downed = true;
   downT = 0;
+  if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
   player.health = 1;
   player.crouching = true;
