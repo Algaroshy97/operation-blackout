@@ -4174,7 +4174,55 @@ def main() -> int:
         }""")
         checks.append(("tactical-weapon-bloom-sprint-melee-and-plate-balance-rules", balance_tuning_v139_check))
 
-        # 90) Clean console throughout gameplay.
+        # 90) Performance optimization rules: aim assist range culling & cosine cone gating, and hit arc HUD change-detection rules.
+        perf_optimization_v140_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Aim assist spatial distance-squared culling
+            const assistConstOk = CORE.AIM_ASSIST_MAX_DIST === 48.0;
+            const assistDistSq = CORE.AIM_ASSIST_MAX_DIST * CORE.AIM_ASSIST_MAX_DIST;
+            const assistRangeOk = CORE.isTargetInAimAssistRange(20, 20, assistDistSq) === true &&
+                                  CORE.isTargetInAimAssistRange(35, 35, assistDistSq) === false &&
+                                  CORE.isTargetInAimAssistRange(48, 0) === true &&
+                                  CORE.isTargetInAimAssistRange(49, 0) === false;
+
+            // 2. Fast aim assist cosine threshold and candidate selection
+            const minCosStandard = CORE.aimAssistMinCos(0.14, false, 1.6);
+            const minCosSteady = CORE.aimAssistMinCos(0.14, true, 1.6);
+            const assistCosOk = Math.abs(minCosStandard - Math.cos(0.14)) < 1e-6 &&
+                                Math.abs(minCosSteady - Math.cos(0.224)) < 1e-6 &&
+                                CORE.isAimAssistCandidateCloser(0.998, 0.995) === true &&
+                                CORE.isAimAssistCandidateCloser(0.990, 0.995) === false;
+
+            // 3. Aim assist nudge projection skip check
+            const baseDir = { x: 0, y: 0, z: -1 };
+            const nudgedDir = { x: 0.05, y: 0, z: -0.99 };
+            const assistNudgeOk = CORE.hasAimAssistNudge(nudgedDir, baseDir) === true &&
+                                  CORE.hasAimAssistNudge(baseDir, baseDir) === false &&
+                                  CORE.hasAimAssistNudge(null, baseDir) === false;
+
+            // 4. Hit arc active-state and opacity change detection
+            const arcActiveOk = CORE.hasActiveHitArcs(0) === false &&
+                                CORE.hasActiveHitArcs(2) === true &&
+                                CORE.hasActiveHitArcs(-1) === false;
+
+            const arcChangeOk = CORE.hitArcOpacityChanged(undefined, 0.9) === true &&
+                                CORE.hitArcOpacityChanged(0.9, 0.89, 0.015) === false &&
+                                CORE.hitArcOpacityChanged(0.9, 0.85, 0.015) === true &&
+                                CORE.hitArcOpacityChanged(0.05, 0.0, 0.015) === true &&
+                                CORE.hitArcOpacityChanged(0.0, 0.0, 0.015) === false;
+
+            const arcState = { lastOp: null };
+            CORE.syncHitArcOpacity(arcState, 0.85);
+            const arcSyncOk = arcState.lastOp === 0.85 &&
+                              CORE.hitArcOpacityChanged(arcState.lastOp, 0.85) === false;
+
+            return assistConstOk && assistRangeOk && assistCosOk && assistNudgeOk &&
+                   arcActiveOk && arcChangeOk && arcSyncOk;
+        }""")
+        checks.append(("aim-assist-range-culling-and-hit-arc-perf-rules", perf_optimization_v140_check))
+
+        # 91) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

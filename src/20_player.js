@@ -168,9 +168,11 @@ function updatePlayer(dt) {
     _assistDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     const nudged = applyAimAssist(_assistDir, _assistFrom);
     // convert nudge into small yaw/pitch deltas (applied as look rotation offset, not permanent)
-    CORE.aimAssistAngularDeltas(nudged.x, nudged.y, nudged.z, _assistDir.x, _assistDir.y, _assistDir.z, _assistDeltasOut);
-    assistYaw = _assistDeltasOut.yawDelta;
-    assistPitch = _assistDeltasOut.pitchDelta;
+    if (CORE.hasAimAssistNudge(nudged, _assistDir)) {
+      CORE.aimAssistAngularDeltas(nudged.x, nudged.y, nudged.z, _assistDir.x, _assistDir.y, _assistDir.z, _assistDeltasOut);
+      assistYaw = _assistDeltasOut.yawDelta;
+      assistPitch = _assistDeltasOut.pitchDelta;
+    }
   }
   // Counter-input spends the outstanding recoil BEFORE it moves the real aim.
   // Recoil is an additive camera offset that decays back to zero, so a player who

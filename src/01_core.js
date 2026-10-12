@@ -4108,6 +4108,23 @@ const CORE = (function () {
     return Math.max(0, maxOp * (1 - (age - fadeT) / dur));
   }
 
+  function hasActiveHitArcs(activeCount) {
+    return typeof activeCount === 'number' && isFinite(activeCount) && activeCount > 0;
+  }
+
+  function hitArcOpacityChanged(lastOpacity, curOpacity, epsilon) {
+    if (typeof lastOpacity !== 'number' || !isFinite(lastOpacity)) return true;
+    if (curOpacity <= 0 && lastOpacity > 0) return true;
+    const eps = (typeof epsilon === 'number' && isFinite(epsilon)) ? epsilon : 0.015;
+    return Math.abs(curOpacity - lastOpacity) >= eps;
+  }
+
+  function syncHitArcOpacity(arcState, curOpacity) {
+    if (arcState && typeof arcState === 'object') {
+      arcState.lastOp = (typeof curOpacity === 'number' && isFinite(curOpacity)) ? curOpacity : 0;
+    }
+  }
+
   // ---- Particle physics integration and change-driven HUD performance rules ----
   function stepParticlePhysics(x, y, z, vx, vy, vz, grav, dt, minY, out) {
     const target = out || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
@@ -4455,6 +4472,29 @@ const CORE = (function () {
 
   function isAngleWithinThreshold(dotProduct, maxAngleCos) {
     return dotProduct > maxAngleCos;
+  }
+
+  const AIM_ASSIST_MAX_DIST = 48.0;
+
+  function isTargetInAimAssistRange(toX, toZ, maxDistSq) {
+    if (typeof toX !== 'number' || !isFinite(toX) ||
+        typeof toZ !== 'number' || !isFinite(toZ)) return false;
+    const limitSq = (typeof maxDistSq === 'number' && isFinite(maxDistSq) && maxDistSq > 0)
+      ? maxDistSq : (AIM_ASSIST_MAX_DIST * AIM_ASSIST_MAX_DIST);
+    return (toX * toX + toZ * toZ) <= limitSq;
+  }
+
+  function aimAssistMinCos(baseAngle, isSteady, steadyBonusMul) {
+    return Math.cos(aimAssistAngle(baseAngle, isSteady, steadyBonusMul));
+  }
+
+  function isAimAssistCandidateCloser(candidateCos, currentBestCos) {
+    return (typeof candidateCos === 'number' && isFinite(candidateCos)) && candidateCos > currentBestCos;
+  }
+
+  function hasAimAssistNudge(nudgedDir, baseDir) {
+    if (!nudgedDir || !baseDir) return false;
+    return nudgedDir !== baseDir;
   }
 
   const CROSSHAIR_MIN_GAP_OFFSET = 0;
@@ -7727,26 +7767,10 @@ const CORE = (function () {
     touchFireChanged: touchFireChanged,
     syncTouchFireState: syncTouchFireState,
     touchReloadChanged: touchReloadChanged,
-    syncTouchReloadState: syncTouchReloadState,
-    touchPlateChanged: touchPlateChanged,
-    syncTouchPlateState: syncTouchPlateState,
-    touchEquipmentChanged: touchEquipmentChanged,
-    syncTouchEquipmentState: syncTouchEquipmentState,
-    touchStreakChanged: touchStreakChanged,
-    syncTouchStreakState: syncTouchStreakState,
-    touchSwapChanged: touchSwapChanged,
-    syncTouchSwapState: syncTouchSwapState,
-    touchSwapNextSlot: touchSwapNextSlot,
-    FOOTSTEP_BASE_CADENCE: FOOTSTEP_BASE_CADENCE,
-    FOOTSTEP_SPRINT_CADENCE: FOOTSTEP_SPRINT_CADENCE,
-    FOOTSTEP_TAC_SPRINT_CADENCE: FOOTSTEP_TAC_SPRINT_CADENCE,
-    FOOTSTEP_CROUCH_CADENCE: FOOTSTEP_CROUCH_CADENCE,
-    FOOTSTEP_MIN_SPEED: FOOTSTEP_MIN_SPEED,
-    mantleSound: mantleSound,
-    slideStartSound: slideStartSound,
-    footstepCadence: footstepCadence,
-    playerFootstepSound: playerFootstepSound,
-    shouldPlayFootstep: shouldPlayFootstep,
+    syncTouchReloadState, touchPlateChanged, syncTouchPlateState, touchEquipmentChanged, syncTouchEquipmentState,
+    touchStreakChanged, syncTouchStreakState, touchSwapChanged, syncTouchSwapState, touchSwapNextSlot,
+    FOOTSTEP_BASE_CADENCE, FOOTSTEP_SPRINT_CADENCE, FOOTSTEP_TAC_SPRINT_CADENCE, FOOTSTEP_CROUCH_CADENCE,
+    FOOTSTEP_MIN_SPEED, mantleSound, slideStartSound, footstepCadence, playerFootstepSound, shouldPlayFootstep,
     SNIPER_ADS_ZOOM, DEFAULT_ADS_ZOOM, SLIDE_FOV_BOOST, TAC_SPRINT_FOV_BOOST, CAMERA_MIN_FOV, CAMERA_MAX_FOV,
     CAMERA_BOB_X_SCALE, CAMERA_BOB_Y_SCALE, CAMERA_SLIDE_DIP, CAMERA_BOB_ROLL_SCALE, CAMERA_SLIDE_ROLL, CAMERA_STRAFE_ROLL_SCALE,
     weaponAdsZoom, mobilityFovBoost, targetCameraFov, strafeDirection, cameraRoll, cameraPositionOffsets,
@@ -7754,164 +7778,39 @@ const CORE = (function () {
     GROUND_DECEL_DEFAULT, VELOCITY_SNAP_THRESHOLD, BOB_SPEED_THRESHOLD, BOB_FREQ_SPRINT, BOB_FREQ_WALK, BOB_SPEED_SCALE,
     BOB_GROW_RATE, BOB_DECAY_RATE, LAND_STUN_BASE_TIME, LAND_STUN_SCALE, COYOTE_TIME, JUMP_BUFFER_TIME, ADS_BASE_SPEED,
     GUN_SWITCH_SPEED, SNIPER_UNSCOPE_FACTOR, SHOT_KICK_IMPULSE, SHOT_KICK_MAX, SHOT_KICK_DECAY_BASE,
-    playerMoveSpeed: playerMoveSpeed,
-    movementAccelRate: movementAccelRate,
-    stepHorizontalVelocity: stepHorizontalVelocity,
-    stepHeadBob: stepHeadBob,
-    landingStunDuration: landingStunDuration,
-    stepJumpTimers: stepJumpTimers,
-    canInitiateJump: canInitiateJump,
-    stepAdsTransition: stepAdsTransition,
-    stepGunSwitch: stepGunSwitch,
-    applyShotKick: applyShotKick,
-    decayShotKick: decayShotKick,
-    sniperUnscopeAds: sniperUnscopeAds,
-    SLIDE_VIGNETTE_RATE: SLIDE_VIGNETTE_RATE,
-    SLIDE_VIGNETTE_MAX_ALPHA: SLIDE_VIGNETTE_MAX_ALPHA,
-    stepSlideVignette: stepSlideVignette,
-    slideVignetteStyle: slideVignetteStyle,
-    objectiveLabel: objectiveLabel,
-    objectiveHudChanged: objectiveHudChanged,
-    syncObjectiveHudState: syncObjectiveHudState,
-    isScopeOverlayActive: isScopeOverlayActive,
-    scopeOverlayChanged: scopeOverlayChanged,
-    syncScopeOverlayState: syncScopeOverlayState,
-    isSteadyIndicatorVisible: isSteadyIndicatorVisible,
-    steadyIndicatorLabel: steadyIndicatorLabel,
-    steadyIndicatorChanged: steadyIndicatorChanged,
-    syncSteadyIndicatorState: syncSteadyIndicatorState,
-    MUSIC_RISE_RATE: MUSIC_RISE_RATE,
-    MUSIC_FALL_RATE: MUSIC_FALL_RATE,
-    MUSIC_BASE_BUS_GAIN: MUSIC_BASE_BUS_GAIN,
-    MUSIC_INTENSITY_BUS_SCALE: MUSIC_INTENSITY_BUS_SCALE,
-    MUSIC_TENSION_THRESHOLD: MUSIC_TENSION_THRESHOLD,
-    MUSIC_TENSION_MAX_GAIN: MUSIC_TENSION_MAX_GAIN,
-    MUSIC_BASE_CUTOFF: MUSIC_BASE_CUTOFF,
-    MUSIC_MAX_CUTOFF_SCALE: MUSIC_MAX_CUTOFF_SCALE,
-    MUSIC_BASE_BPM: MUSIC_BASE_BPM,
-    MUSIC_MAX_BPM_SCALE: MUSIC_MAX_BPM_SCALE,
-    MUSIC_PULSE_BASE_GAIN: MUSIC_PULSE_BASE_GAIN,
-    MUSIC_PULSE_MAX_GAIN_SCALE: MUSIC_PULSE_MAX_GAIN_SCALE,
-    MUSIC_PULSE_EXPONENT: MUSIC_PULSE_EXPONENT,
-    stepMusicIntensity: stepMusicIntensity,
-    musicBusGain: musicBusGain,
-    musicTensionGain: musicTensionGain,
-    musicFilterCutoff: musicFilterCutoff,
-    musicPulseBpm: musicPulseBpm,
-    stepMusicPulsePhase: stepMusicPulsePhase,
-    musicPulseEnvelope: musicPulseEnvelope,
-    musicPulseGain: musicPulseGain,
-    stationPurchaseSound: stationPurchaseSound,
-    playerDownSound: playerDownSound,
-    playerReviveSound: playerReviveSound,
-    touchUseLabel: touchUseLabel,
-    touchUseChanged: touchUseChanged,
-    syncTouchUseState: syncTouchUseState,
-    VIEWMODEL_HIP_X: VIEWMODEL_HIP_X,
-    VIEWMODEL_HIP_Y: VIEWMODEL_HIP_Y,
-    VIEWMODEL_HIP_Z: VIEWMODEL_HIP_Z,
-    VIEWMODEL_ADS_X: VIEWMODEL_ADS_X,
-    VIEWMODEL_ADS_Y: VIEWMODEL_ADS_Y,
-    VIEWMODEL_ADS_Z: VIEWMODEL_ADS_Z,
-    VIEWMODEL_BOB_SCALE: VIEWMODEL_BOB_SCALE,
-    VIEWMODEL_KICK_Z_SCALE: VIEWMODEL_KICK_Z_SCALE,
-    VIEWMODEL_KICK_Y_SCALE: VIEWMODEL_KICK_Y_SCALE,
-    VIEWMODEL_BOLT_REST_Z: VIEWMODEL_BOLT_REST_Z,
-    VIEWMODEL_BOLT_KICK_SCALE: VIEWMODEL_BOLT_KICK_SCALE,
-    VIEWMODEL_BOLT_KICK_MAX: VIEWMODEL_BOLT_KICK_MAX,
-    VIEWMODEL_MAG_REST_Y: VIEWMODEL_MAG_REST_Y,
-    VIEWMODEL_MAG_DROP_SCALE: VIEWMODEL_MAG_DROP_SCALE,
-    VIEWMODEL_MAG_INSERT_SCALE: VIEWMODEL_MAG_INSERT_SCALE,
-    VIEWMODEL_RELOAD_DIP: VIEWMODEL_RELOAD_DIP,
-    VIEWMODEL_RELOAD_ROT: VIEWMODEL_RELOAD_ROT,
-    VIEWMODEL_SWITCH_RAISE_DISTANCE: VIEWMODEL_SWITCH_RAISE_DISTANCE,
-    VIEWMODEL_MUZZLE_FLASH_DECAY: VIEWMODEL_MUZZLE_FLASH_DECAY,
-    VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY: VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY,
-    VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE: VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE,
-    IMPACT_VFX_LIFETIME: IMPACT_VFX_LIFETIME,
-    IMPACT_VFX_EXPANSION_RATE: IMPACT_VFX_EXPANSION_RATE,
-    VIEWMODEL_STANCE_OFFSETS: VIEWMODEL_STANCE_OFFSETS,
-    viewmodelStance: viewmodelStance,
-    viewmodelStanceOffsets: viewmodelStanceOffsets,
-    reloadAnimationOffsets: reloadAnimationOffsets,
-    viewmodelBoltOffset: viewmodelBoltOffset,
-    viewmodelPose: viewmodelPose,
-    stepMuzzleFlash: stepMuzzleFlash,
-    stepMuzzleLight: stepMuzzleLight,
-    impactVfxScale: impactVfxScale,
-    PFX_DEFAULT_MAX: PFX_DEFAULT_MAX,
-    SCOPE_PARALLAX_MAX: SCOPE_PARALLAX_MAX,
-    SCOPE_PARALLAX_SCALE: SCOPE_PARALLAX_SCALE,
-    SCOPE_RANGE_MAX: SCOPE_RANGE_MAX,
-    SCOPE_RANGE_INTERVAL: SCOPE_RANGE_INTERVAL,
-    POST_KICK_DECAY_RATE: POST_KICK_DECAY_RATE,
-    pfxNeedsUpload: pfxNeedsUpload,
-    scopeParallaxOffset: scopeParallaxOffset,
-    scopeParallaxChanged: scopeParallaxChanged,
-    rangefinderLabel: rangefinderLabel,
-    isHostileTarget: isHostileTarget,
-    stepRangefinderTimer: stepRangefinderTimer,
-    stepSpring: stepSpring,
-    vmSmooth: vmSmooth,
-    vmBump: vmBump,
-    wrapAngle: wrapAngle,
-    stepPostKick: stepPostKick,
-    postFringe: postFringe,
-    isPostfxWanted: isPostfxWanted,
-    CAN_RELOAD_MIN_DURATION: CAN_RELOAD_MIN_DURATION,
-    MUNITIONS_MAG_RATIO: MUNITIONS_MAG_RATIO,
-    SENTRY_RANGE: SENTRY_RANGE,
-    SENTRY_ROF: SENTRY_ROF,
-    SENTRY_DMG: SENTRY_DMG,
-    SENTRY_DEPLOY_OFFSET: SENTRY_DEPLOY_OFFSET,
-    MUNITIONS_DEPLOY_OFFSET: MUNITIONS_DEPLOY_OFFSET,
-    AIRSTRIKE_LEAD_DIST: AIRSTRIKE_LEAD_DIST,
-    AIRSTRIKE_BOMB_COUNT: AIRSTRIKE_BOMB_COUNT,
-    AIRSTRIKE_SPACING: AIRSTRIKE_SPACING,
-    AIRSTRIKE_BASE_DELAY: AIRSTRIKE_BASE_DELAY,
-    AIRSTRIKE_STEP_DELAY: AIRSTRIKE_STEP_DELAY,
-    AIRSTRIKE_JITTER: AIRSTRIKE_JITTER,
-    ENEMY_GRENADE_MIN_SPEED: ENEMY_GRENADE_MIN_SPEED,
-    ENEMY_GRENADE_MAX_SPEED: ENEMY_GRENADE_MAX_SPEED,
-    ENEMY_GRENADE_SPEED_DIST_SCALE: ENEMY_GRENADE_SPEED_DIST_SCALE,
-    ENEMY_GRENADE_ARC_Y: ENEMY_GRENADE_ARC_Y,
-    ENEMY_GRENADE_FUSE_BONUS: ENEMY_GRENADE_FUSE_BONUS,
-    ENEMY_GRENADE_JITTER: ENEMY_GRENADE_JITTER,
-    PICKUP_LIFE: PICKUP_LIFE,
-    PICKUP_BLINK_START: PICKUP_BLINK_START,
-    PICKUP_COLLECT_RADIUS: PICKUP_COLLECT_RADIUS,
-    PICKUP_POWER_ROT_SPEED: PICKUP_POWER_ROT_SPEED,
-    PICKUP_STANDARD_ROT_SPEED: PICKUP_STANDARD_ROT_SPEED,
-    FLASH_OVERLAY_MAX_ALPHA: FLASH_OVERLAY_MAX_ALPHA,
-    FLASH_OVERLAY_DURATION_SCALE: FLASH_OVERLAY_DURATION_SCALE,
-    canReload: canReload,
-    effectiveReloadDuration: effectiveReloadDuration,
-    isReloadComplete: isReloadComplete,
-    completeReload: completeReload,
-    munitionsAmmoRestore: munitionsAmmoRestore,
-    airstrikeDelay: airstrikeDelay,
-    airstrikeBombCoord: airstrikeBombCoord,
-    enemyGrenadeSpeed: enemyGrenadeSpeed,
-    enemyGrenadeFuse: enemyGrenadeFuse,
-    enemyGrenadeCooldown: enemyGrenadeCooldown,
-    enemyBurstInterval: enemyBurstInterval,
-    pickupBobHeight: pickupBobHeight,
-    isPickupVisible: isPickupVisible,
-    pickupBlinkOpacity: pickupBlinkOpacity,
-    canCollectPickup: canCollectPickup,
-    grenadeBlinkVisible: grenadeBlinkVisible,
-    flashOverlayOpacity: flashOverlayOpacity,
-    smokeCloudScale: smokeCloudScale,
-    smokeCloudOpacity: smokeCloudOpacity,
-    burnPatchOpacity: burnPatchOpacity,
-    powerupSound: powerupSound,
-    equipmentDeploySound: equipmentDeploySound,
-    steadyAimBreathEvent: steadyAimBreathEvent,
-    exhaustionSound: exhaustionSound,
-    slideCancelSound: slideCancelSound,
-    CASING_MAX: CASING_MAX,
-    CASING_LIFETIME: CASING_LIFETIME,
-    CASING_FADE_DURATION: CASING_FADE_DURATION,
+    playerMoveSpeed, movementAccelRate, stepHorizontalVelocity, stepHeadBob, landingStunDuration,
+    stepJumpTimers, canInitiateJump, stepAdsTransition, stepGunSwitch, applyShotKick, decayShotKick,
+    sniperUnscopeAds, SLIDE_VIGNETTE_RATE, SLIDE_VIGNETTE_MAX_ALPHA, stepSlideVignette, slideVignetteStyle,
+    objectiveLabel, objectiveHudChanged, syncObjectiveHudState, isScopeOverlayActive, scopeOverlayChanged,
+    syncScopeOverlayState, isSteadyIndicatorVisible, steadyIndicatorLabel, steadyIndicatorChanged,
+    syncSteadyIndicatorState, MUSIC_RISE_RATE, MUSIC_FALL_RATE, MUSIC_BASE_BUS_GAIN, MUSIC_INTENSITY_BUS_SCALE,
+    MUSIC_TENSION_THRESHOLD, MUSIC_TENSION_MAX_GAIN, MUSIC_BASE_CUTOFF, MUSIC_MAX_CUTOFF_SCALE,
+    MUSIC_BASE_BPM, MUSIC_MAX_BPM_SCALE, MUSIC_PULSE_BASE_GAIN, MUSIC_PULSE_MAX_GAIN_SCALE,
+    MUSIC_PULSE_EXPONENT, stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff,
+    musicPulseBpm, stepMusicPulsePhase, musicPulseEnvelope, musicPulseGain, stationPurchaseSound,
+    playerDownSound, playerReviveSound, touchUseLabel, touchUseChanged, syncTouchUseState,
+    VIEWMODEL_HIP_X, VIEWMODEL_HIP_Y, VIEWMODEL_HIP_Z, VIEWMODEL_ADS_X, VIEWMODEL_ADS_Y, VIEWMODEL_ADS_Z,
+    VIEWMODEL_BOB_SCALE, VIEWMODEL_KICK_Z_SCALE, VIEWMODEL_KICK_Y_SCALE, VIEWMODEL_BOLT_REST_Z,
+    VIEWMODEL_BOLT_KICK_SCALE, VIEWMODEL_BOLT_KICK_MAX, VIEWMODEL_MAG_REST_Y, VIEWMODEL_MAG_DROP_SCALE,
+    VIEWMODEL_MAG_INSERT_SCALE, VIEWMODEL_RELOAD_DIP, VIEWMODEL_RELOAD_ROT, VIEWMODEL_SWITCH_RAISE_DISTANCE,
+    VIEWMODEL_MUZZLE_FLASH_DECAY, VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY, VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE,
+    IMPACT_VFX_LIFETIME, IMPACT_VFX_EXPANSION_RATE, VIEWMODEL_STANCE_OFFSETS, viewmodelStance,
+    viewmodelStanceOffsets, reloadAnimationOffsets, viewmodelBoltOffset, viewmodelPose, stepMuzzleFlash,
+    stepMuzzleLight, impactVfxScale, PFX_DEFAULT_MAX, SCOPE_PARALLAX_MAX, SCOPE_PARALLAX_SCALE,
+    SCOPE_RANGE_MAX, SCOPE_RANGE_INTERVAL, POST_KICK_DECAY_RATE, pfxNeedsUpload, scopeParallaxOffset,
+    scopeParallaxChanged, rangefinderLabel, isHostileTarget, stepRangefinderTimer, stepSpring, vmSmooth,
+    vmBump, wrapAngle, stepPostKick, postFringe, isPostfxWanted, CAN_RELOAD_MIN_DURATION, MUNITIONS_MAG_RATIO,
+    SENTRY_RANGE, SENTRY_ROF, SENTRY_DMG, SENTRY_DEPLOY_OFFSET, MUNITIONS_DEPLOY_OFFSET, AIRSTRIKE_LEAD_DIST,
+    AIRSTRIKE_BOMB_COUNT, AIRSTRIKE_SPACING, AIRSTRIKE_BASE_DELAY, AIRSTRIKE_STEP_DELAY, AIRSTRIKE_JITTER,
+    ENEMY_GRENADE_MIN_SPEED, ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_SPEED_DIST_SCALE, ENEMY_GRENADE_ARC_Y,
+    ENEMY_GRENADE_FUSE_BONUS, ENEMY_GRENADE_JITTER, PICKUP_LIFE, PICKUP_BLINK_START, PICKUP_COLLECT_RADIUS,
+    PICKUP_POWER_ROT_SPEED, PICKUP_STANDARD_ROT_SPEED, FLASH_OVERLAY_MAX_ALPHA, FLASH_OVERLAY_DURATION_SCALE,
+    canReload, effectiveReloadDuration, isReloadComplete, completeReload, munitionsAmmoRestore, airstrikeDelay,
+    airstrikeBombCoord, enemyGrenadeSpeed, enemyGrenadeFuse, enemyGrenadeCooldown, enemyBurstInterval,
+    pickupBobHeight, isPickupVisible, pickupBlinkOpacity, canCollectPickup, grenadeBlinkVisible,
+    flashOverlayOpacity, smokeCloudScale, smokeCloudOpacity, burnPatchOpacity, powerupSound,
+    equipmentDeploySound, steadyAimBreathEvent, exhaustionSound, slideCancelSound, CASING_MAX,
+    CASING_LIFETIME, CASING_FADE_DURATION,
     CASING_FLOOR_Y, CASING_GRAVITY, CASING_BOUNCE, CASING_FRICTION, CASING_SPIN_DAMP,
     CASING_REST_SPEED, CASING_SND_GAP, VIEWMODEL_MANTLE_IN_RATE, VIEWMODEL_MANTLE_OUT_RATE,
     casingScale, casingEjectVelocity, stepCasingPhysics, casingRestRotation,
@@ -8035,7 +7934,9 @@ const CORE = (function () {
     SHIELD_DEFLECT_SOUND, HELMET_HIT_SOUND, LAND_HEAVY_SOUND, LAND_SOUND,
     shieldDeflectSound, helmetHitSound, enemyGrenadeThrowSound,
     BLOOM_PER_SHOT_SMG, BLOOM_PER_SHOT_AR, BLOOM_PER_SHOT_BR, BLOOM_PER_SHOT_SR,
-    weaponBloomPerShotMultiplier, MELEE_TAC_SPRINT_MOMENTUM_MUL, canPlayerUsePlate
+    weaponBloomPerShotMultiplier, MELEE_TAC_SPRINT_MOMENTUM_MUL, canPlayerUsePlate,
+    AIM_ASSIST_MAX_DIST, isTargetInAimAssistRange, aimAssistMinCos, isAimAssistCandidateCloser, hasAimAssistNudge,
+    hasActiveHitArcs, hitArcOpacityChanged, syncHitArcOpacity
   };
 })();
 

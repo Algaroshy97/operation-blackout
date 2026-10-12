@@ -338,3 +338,48 @@ test('v135 performance optimization: grenade charge HUD change-gating, tactical 
   assert.equal(CORE.isTargetInConeRange(0, 0, coneRangeSq), false); // degenerate distance < 1e-6
 });
 
+test('v140 performance optimization: aim assist range culling & cosine cone gating, and hit arc HUD change-detection rules', () => {
+  // 1. Aim assist spatial distance-squared culling
+  assert.equal(CORE.AIM_ASSIST_MAX_DIST, 48.0);
+  const assistDistSq = CORE.AIM_ASSIST_MAX_DIST * CORE.AIM_ASSIST_MAX_DIST; // 2304
+  assert.equal(CORE.isTargetInAimAssistRange(20, 20, assistDistSq), true);  // 400 + 400 = 800 <= 2304
+  assert.equal(CORE.isTargetInAimAssistRange(35, 35, assistDistSq), false); // 1225 + 1225 = 2450 > 2304
+  assert.equal(CORE.isTargetInAimAssistRange(48, 0), true);                 // default maxDistSq fallback
+  assert.equal(CORE.isTargetInAimAssistRange(49, 0), false);
+  assert.equal(CORE.isTargetInAimAssistRange(NaN, 0), false);
+
+  // 2. Fast aim assist cosine threshold and candidate selection
+  const minCosStandard = CORE.aimAssistMinCos(0.14, false, 1.6);
+  assert.ok(Math.abs(minCosStandard - Math.cos(0.14)) < 1e-6);
+  const minCosSteady = CORE.aimAssistMinCos(0.14, true, 1.6);
+  assert.ok(Math.abs(minCosSteady - Math.cos(0.224)) < 1e-6);
+  assert.equal(CORE.isAimAssistCandidateCloser(0.998, 0.995), true);
+  assert.equal(CORE.isAimAssistCandidateCloser(0.990, 0.995), false);
+  assert.equal(CORE.isAimAssistCandidateCloser(NaN, 0.995), false);
+
+  // 3. Aim assist nudge projection skip check
+  const baseDir = { x: 0, y: 0, z: -1 };
+  const nudgedDir = { x: 0.05, y: 0, z: -0.99 };
+  assert.equal(CORE.hasAimAssistNudge(nudgedDir, baseDir), true);
+  assert.equal(CORE.hasAimAssistNudge(baseDir, baseDir), false);
+  assert.equal(CORE.hasAimAssistNudge(null, baseDir), false);
+
+  // 4. Hit arc active-state and opacity change detection
+  assert.equal(CORE.hasActiveHitArcs(0), false);
+  assert.equal(CORE.hasActiveHitArcs(2), true);
+  assert.equal(CORE.hasActiveHitArcs(-1), false);
+
+  assert.equal(CORE.hitArcOpacityChanged(undefined, 0.9), true);
+  assert.equal(CORE.hitArcOpacityChanged(null, 0.9), true);
+  assert.equal(CORE.hitArcOpacityChanged(0.9, 0.89, 0.015), false); // small delta within epsilon
+  assert.equal(CORE.hitArcOpacityChanged(0.9, 0.85, 0.015), true);  // significant delta
+  assert.equal(CORE.hitArcOpacityChanged(0.05, 0.0, 0.015), true);  // expired arc cleanup write
+  assert.equal(CORE.hitArcOpacityChanged(0.0, 0.0, 0.015), false); // already expired
+
+  const arcState = { lastOp: null };
+  CORE.syncHitArcOpacity(arcState, 0.85);
+  assert.equal(arcState.lastOp, 0.85);
+  assert.equal(CORE.hitArcOpacityChanged(arcState.lastOp, 0.85), false);
+});
+
+

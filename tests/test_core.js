@@ -8811,6 +8811,54 @@ test('v139 tactical combat balance: weapon bloom per-shot accumulation, tactical
   assert.strictEqual(CORE.canPlayerUsePlate(false, false, 2, 20, 50, true), false);   // inserting
 });
 
+test('v140 performance optimization: aim assist range culling & cosine cone gating, and hit arc HUD change-detection rules', () => {
+  // 1. Aim assist spatial distance-squared culling
+  assert.strictEqual(CORE.AIM_ASSIST_MAX_DIST, 48.0);
+  const assistDistSq = CORE.AIM_ASSIST_MAX_DIST * CORE.AIM_ASSIST_MAX_DIST;
+  assert.strictEqual(CORE.isTargetInAimAssistRange(20, 20, assistDistSq), true);
+  assert.strictEqual(CORE.isTargetInAimAssistRange(35, 35, assistDistSq), false);
+  assert.strictEqual(CORE.isTargetInAimAssistRange(48, 0), true);
+  assert.strictEqual(CORE.isTargetInAimAssistRange(49, 0), false);
+  assert.strictEqual(CORE.isTargetInAimAssistRange(NaN, 0), false);
+  assert.strictEqual(CORE.isTargetInAimAssistRange(0, NaN), false);
+
+  // 2. Aim assist cosine threshold and candidate selection
+  const minCosStandard = CORE.aimAssistMinCos(0.14, false, 1.6);
+  assert.ok(Math.abs(minCosStandard - Math.cos(0.14)) < 1e-6);
+  const minCosSteady = CORE.aimAssistMinCos(0.14, true, 1.6);
+  assert.ok(Math.abs(minCosSteady - Math.cos(0.224)) < 1e-6);
+  assert.strictEqual(CORE.isAimAssistCandidateCloser(0.998, 0.995), true);
+  assert.strictEqual(CORE.isAimAssistCandidateCloser(0.990, 0.995), false);
+  assert.strictEqual(CORE.isAimAssistCandidateCloser(NaN, 0.995), false);
+
+  // 3. Aim assist nudge projection skip check
+  const baseDir = { x: 0, y: 0, z: -1 };
+  const nudgedDir = { x: 0.05, y: 0, z: -0.99 };
+  assert.strictEqual(CORE.hasAimAssistNudge(nudgedDir, baseDir), true);
+  assert.strictEqual(CORE.hasAimAssistNudge(baseDir, baseDir), false);
+  assert.strictEqual(CORE.hasAimAssistNudge(null, baseDir), false);
+  assert.strictEqual(CORE.hasAimAssistNudge(nudgedDir, null), false);
+
+  // 4. Hit arc active-state and opacity change detection
+  assert.strictEqual(CORE.hasActiveHitArcs(0), false);
+  assert.strictEqual(CORE.hasActiveHitArcs(3), true);
+  assert.strictEqual(CORE.hasActiveHitArcs(-1), false);
+  assert.strictEqual(CORE.hasActiveHitArcs(NaN), false);
+
+  assert.strictEqual(CORE.hitArcOpacityChanged(undefined, 0.9), true);
+  assert.strictEqual(CORE.hitArcOpacityChanged(null, 0.9), true);
+  assert.strictEqual(CORE.hitArcOpacityChanged(0.9, 0.89, 0.015), false);
+  assert.strictEqual(CORE.hitArcOpacityChanged(0.9, 0.85, 0.015), true);
+  assert.strictEqual(CORE.hitArcOpacityChanged(0.04, 0.0, 0.015), true);
+  assert.strictEqual(CORE.hitArcOpacityChanged(0.0, 0.0, 0.015), false);
+
+  const arcState = { lastOp: null };
+  CORE.syncHitArcOpacity(arcState, 0.85);
+  assert.strictEqual(arcState.lastOp, 0.85);
+  assert.strictEqual(CORE.hitArcOpacityChanged(arcState.lastOp, 0.85), false);
+});
+
+
 
 
 

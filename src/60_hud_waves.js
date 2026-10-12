@@ -292,26 +292,37 @@ const hitArcs = [];
   }
 })();
 let hitArcNext = 0;
+let _activeHitArcCount = 0;
 function showHitArc(screenDeg, isArmor) {
   const a = hitArcs[hitArcNext];
   hitArcNext = (hitArcNext + 1) % HIT_ARC_POOL;
+  if (a.t < 0) _activeHitArcCount++;
   a.el.style.transform = 'rotate(' + screenDeg + 'deg)';
   a.el.classList.toggle('armor', !!isArmor);
   a.el.style.opacity = '0.9';
+  a.lastOp = 0.9;
   a.t = gameT;
 }
 function updateHitArcs() {
+  if (typeof CORE !== 'undefined' && typeof CORE.hasActiveHitArcs === 'function') {
+    if (!CORE.hasActiveHitArcs(_activeHitArcCount)) return;
+  } else if (_activeHitArcCount <= 0) return;
   for (let i = 0; i < hitArcs.length; i++) {
     const a = hitArcs[i];
     if (a.t < 0) continue;
     const age = gameT - a.t;
     const op = CORE.hitArcOpacity(age, HIT_ARC_LIFE, 0.6, 0.9);
     if (op <= 0) {
-      a.el.style.opacity = '0';
+      if (a.el.style.opacity !== '0') a.el.style.opacity = '0';
       a.el.classList.remove('armor');
       a.t = -99;
+      a.lastOp = 0;
+      if (_activeHitArcCount > 0) _activeHitArcCount--;
     } else {
-      a.el.style.opacity = op.toFixed(3);
+      if (CORE.hitArcOpacityChanged(a.lastOp, op)) {
+        a.el.style.opacity = op.toFixed(3);
+        CORE.syncHitArcOpacity(a, op);
+      }
     }
   }
 }
