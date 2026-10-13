@@ -171,28 +171,31 @@ function updateHudAmmo(force) {
   hud.reloadHint.style.opacity = prompt ? 1 : 0;
   hud.reloadHint.classList.toggle('urgent', isEmpty && !s.reloading);
   if (isTouch) {
+    const isDead = typeof player !== 'undefined' && !!player.dead;
     const isAdsFire = (typeof getSetting === 'function' ? getSetting('fireMode') : (typeof SETTINGS !== 'undefined' ? SETTINGS.fireMode : 'fire')) === 'ads + fire';
     const tbtnFire = hud.tbtnFire || (hud.tbtnFire = $id('tbtn-fire'));
     if (tbtnFire) {
-      const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading);
-      const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire);
+      const fireState = CORE.touchFireState(s.ammo, s.reserve, s.reloading, isDead);
+      const fireLabel = CORE.touchFireLabel(s.ammo, s.reserve, s.reloading, isAdsFire, isDead);
       if (CORE.touchFireChanged(_touchFireCache, fireState, fireLabel)) {
         CORE.syncTouchFireState(_touchFireCache, fireState, fireLabel);
         tbtnFire.classList.toggle('empty', fireState === 'empty');
         tbtnFire.classList.toggle('dry', fireState === 'dry');
         tbtnFire.classList.toggle('reloading', fireState === 'reloading');
+        tbtnFire.classList.toggle('locked', fireState === 'locked');
         if (tbtnFire.textContent !== fireLabel) tbtnFire.textContent = fireLabel;
       }
     }
     const tbtnReload = hud.tbtnReload || (hud.tbtnReload = $id('tbtn-reload'));
     if (tbtnReload) {
-      const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading);
-      const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading);
+      const reloadState = CORE.touchReloadState(s.ammo, s.reserve, s.reloading, isDead);
+      const reloadLabel = CORE.touchReloadLabel(s.ammo, s.reserve, s.reloading, isDead);
       if (CORE.touchReloadChanged(_touchReloadCache, reloadState, reloadLabel)) {
         CORE.syncTouchReloadState(_touchReloadCache, reloadState, reloadLabel);
         tbtnReload.classList.toggle('urgent', reloadState === 'urgent');
         tbtnReload.classList.toggle('reloading', reloadState === 'reloading');
         tbtnReload.classList.toggle('empty', reloadState === 'empty');
+        tbtnReload.classList.toggle('locked', reloadState === 'locked');
         if (tbtnReload.textContent !== reloadLabel) tbtnReload.textContent = reloadLabel;
       }
     }

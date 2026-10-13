@@ -2330,7 +2330,8 @@ const CORE = (function () {
   // Mobile touch reload button feedback state. Returns 'urgent' when magazine is empty
   // with reserves available and not already reloading; 'reloading' when reloading; and
   // '' during normal combat or complete ammo exhaustion.
-  function touchReloadState(ammo, reserve, reloading) {
+  function touchReloadState(ammo, reserve, reloading, isDead) {
+    if (isDead) return 'locked';
     if (reloading) return 'reloading';
     if (typeof ammo !== 'number' || !isFinite(ammo) || ammo > 0) return '';
     const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
@@ -2467,15 +2468,16 @@ const CORE = (function () {
   // Mobile touch stance/slide button state: returns 'locked' while downed, 'sliding' during an active slide,
   // 'crouch' while crouching, 'sprint' when forward sprint momentum is ready to slide,
   // or '' during standard movement.
-  function touchSlideState(sliding, crouching, isSprint, isDowned) {
-    if (isDowned) return 'locked';
+  function touchSlideState(sliding, crouching, isSprint, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (sliding) return 'sliding';
     if (crouching) return 'crouch';
     if (isSprint) return 'sprint';
     return '';
   }
-  // Mobile touch stance/slide button label: returns 'CRAWL' when downed, 'STAND' when crouched, or 'SLIDE' otherwise.
-  function touchSlideLabel(sliding, crouching, isDowned) {
+  // Mobile touch stance/slide button label: returns 'LOCK' when dead, 'CRAWL' when downed, 'STAND' when crouched, or 'SLIDE' otherwise.
+  function touchSlideLabel(sliding, crouching, isDowned, isDead) {
+    if (isDead) return 'LOCK';
     if (isDowned) return 'CRAWL';
     if (sliding) return 'SLIDE';
     if (crouching) return 'STAND';
@@ -2581,19 +2583,34 @@ const CORE = (function () {
     const maxA = typeof maxArmor === 'number' && isFinite(maxArmor) ? maxArmor : 50;
     return !isDead && !isDowned && cnt > 0 && curA < maxA && !isInserting;
   }
-  // Mobile touch melee button state: returns 'locked' while downed, 'cooldown' while melee swing recovers,
+  // Evaluates player eligibility to fire a weapon round.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerFire(isDead, isReloading, isSwitching, ammo) {
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    return !isDead && !isReloading && !isSwitching && a > 0;
+  }
+  // Evaluates player eligibility to initiate a weapon reload.
+  // Pure: no side effects, no DOM, no THREE.
+  function canPlayerReload(isDead, isReloading, ammo, magSize, reserve) {
+    if (isDead || isReloading) return false;
+    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const m = typeof magSize === 'number' && isFinite(magSize) ? magSize : 0;
+    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    return m > 0 && r > 0 && a < m;
+  }
+  // Mobile touch melee button state: returns 'locked' while downed or dead, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
-  function touchMeleeState(hasTarget, cooldownRemaining, isDowned) {
-    if (isDowned) return 'locked';
+  function touchMeleeState(hasTarget, cooldownRemaining, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'cooldown';
     if (hasTarget) return 'ready';
     return '';
   }
-  // Mobile touch melee button label: returns 'LOCKED' while downed, 'WAIT' during swing recovery,
+  // Mobile touch melee button label: returns 'LOCKED' while downed or dead, 'WAIT' during swing recovery,
   // 'STRIKE' when an enemy is within blade strike range, or 'KNIFE' default.
-  function touchMeleeLabel(hasTarget, cooldownRemaining, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchMeleeLabel(hasTarget, cooldownRemaining, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'WAIT';
     if (hasTarget) return 'STRIKE';
@@ -2640,23 +2657,23 @@ const CORE = (function () {
     lastState.adsLabel = adsLabel;
     return lastState;
   }
-  // Mobile touch jump button state: returns 'locked' when downed or stunned,
+  // Mobile touch jump button state: returns 'locked' when downed, stunned, or dead,
   // 'mantle' during ledge mantle climbing, 'boost' during kinetic slide momentum,
   // 'airborne' when off the ground, or '' when grounded and jump-ready.
   // Backwards-compatible: single boolean onGround returns '' or 'airborne'.
   // Pure: no side effects, no DOM, no THREE.
-  function touchJumpState(onGround, isSliding, isMantling, isDowned, isStunned) {
-    if (isDowned || isStunned) return 'locked';
+  function touchJumpState(onGround, isSliding, isMantling, isDowned, isStunned, isDead) {
+    if (isDead || isDowned || isStunned) return 'locked';
     if (isMantling) return 'mantle';
     if (isSliding) return 'boost';
     return onGround ? '' : 'airborne';
   }
-  // Mobile touch jump button contextual label: displays 'LOCK' when disabled,
+  // Mobile touch jump button contextual label: displays 'LOCK' when disabled or dead,
   // 'CLIMB' when mantling, 'BOOST' during kinetic slide, 'AIR' when airborne,
   // 'STAND' when crouched, or 'JUMP' default.
   // Pure: no side effects, no DOM, no THREE.
-  function touchJumpLabel(jumpState, isCrouching) {
-    if (jumpState === 'locked') return 'LOCK';
+  function touchJumpLabel(jumpState, isCrouching, isDead) {
+    if (isDead || jumpState === 'locked') return 'LOCK';
     if (jumpState === 'mantle') return 'CLIMB';
     if (jumpState === 'boost') return 'BOOST';
     if (jumpState === 'airborne') return 'AIR';
@@ -2714,7 +2731,8 @@ const CORE = (function () {
   // 'dry' when magazine is empty but reserve is available (ammo <= 0 and reserve > 0),
   // or 'ready' when ammunition is chambered and weapon can fire.
   // Pure: no side effects, no DOM, no THREE.
-  function touchFireState(ammo, reserve, reloading) {
+  function touchFireState(ammo, reserve, reloading, isDead) {
+    if (isDead) return 'locked';
     if (reloading) return 'reloading';
     const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
     const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
@@ -2722,10 +2740,11 @@ const CORE = (function () {
     if (a <= 0 && r > 0) return 'dry';
     return 'ready';
   }
-  // Mobile touch fire button contextual label: returns 'RELOAD' when reloading or dry,
+  // Mobile touch fire button contextual label: returns 'LOCKED' when dead, 'RELOAD' when reloading or dry,
   // 'EMPTY' when all ammo is exhausted, or 'ADS+FIRE' / 'FIRE' when ready.
   // Pure: no side effects, no DOM, no THREE.
-  function touchFireLabel(ammo, reserve, reloading, isAdsFire) {
+  function touchFireLabel(ammo, reserve, reloading, isAdsFire, isDead) {
+    if (isDead) return 'LOCKED';
     if (reloading) return 'RELOAD';
     const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
     const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
@@ -2733,11 +2752,12 @@ const CORE = (function () {
     if (a <= 0 && r > 0) return 'RELOAD';
     return isAdsFire ? 'ADS+FIRE' : 'FIRE';
   }
-  // Mobile touch reload button contextual label: returns 'WAIT' during reload cycle,
+  // Mobile touch reload button contextual label: returns 'LOCKED' when dead, 'WAIT' during reload cycle,
   // 'RELOAD' when urgent reload is required (ammo <= 0 and reserve > 0),
   // 'EMPTY' when all ammo is exhausted, or 'RLD' standard default.
   // Pure: no side effects, no DOM, no THREE.
-  function touchReloadLabel(ammo, reserve, reloading) {
+  function touchReloadLabel(ammo, reserve, reloading, isDead) {
+    if (isDead) return 'LOCKED';
     if (reloading) return 'WAIT';
     const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
     const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
@@ -7936,7 +7956,7 @@ const CORE = (function () {
     BLOOM_PER_SHOT_SMG, BLOOM_PER_SHOT_AR, BLOOM_PER_SHOT_BR, BLOOM_PER_SHOT_SR,
     weaponBloomPerShotMultiplier, MELEE_TAC_SPRINT_MOMENTUM_MUL, canPlayerUsePlate,
     AIM_ASSIST_MAX_DIST, isTargetInAimAssistRange, aimAssistMinCos, isAimAssistCandidateCloser, hasAimAssistNudge,
-    hasActiveHitArcs, hitArcOpacityChanged, syncHitArcOpacity
+    hasActiveHitArcs, hitArcOpacityChanged, syncHitArcOpacity, canPlayerFire, canPlayerReload
   };
 })();
 

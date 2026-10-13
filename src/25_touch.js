@@ -463,8 +463,9 @@ function updateTouchSlideBtn() {
   if (!tbtnSlideEl || typeof player === 'undefined') return;
   const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   const isDowned = !!player.downed;
-  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint, isDowned);
-  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching, isDowned);
+  const isDead = !!player.dead;
+  const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint, isDowned, isDead);
+  const slideLabel = CORE.touchSlideLabel(!!player.sliding, !!player.crouching, isDowned, isDead);
   if (!CORE.touchSlideChanged(_touchSlideCache, slideState, slideLabel)) return;
   CORE.syncTouchSlideState(_touchSlideCache, slideState, slideLabel);
 
@@ -486,8 +487,9 @@ function updateTouchMeleeBtn() {
     : -1;
   const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
   const isDowned = !!player.downed;
-  const mState = CORE.touchMeleeState(targetIdx >= 0, cd, isDowned);
-  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd, isDowned);
+  const isDead = !!player.dead;
+  const mState = CORE.touchMeleeState(targetIdx >= 0, cd, isDowned, isDead);
+  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd, isDowned, isDead);
   if (!CORE.touchMeleeChanged(_touchMeleeCache, mState, mLabel)) return;
   CORE.syncTouchMeleeState(_touchMeleeCache, mState, mLabel);
 
@@ -556,8 +558,9 @@ function updateTouchJumpBtn() {
   const isDowned = !!player.downed;
   const isStunned = typeof player.landStunT === 'number' && player.landStunT > 0;
   const isCrouch = !!player.crouching;
-  const jState = CORE.touchJumpState(!!player.onGround, isSliding, isMantle, isDowned, isStunned);
-  const jLabel = CORE.touchJumpLabel(jState, isCrouch);
+  const isDead = !!player.dead;
+  const jState = CORE.touchJumpState(!!player.onGround, isSliding, isMantle, isDowned, isStunned, isDead);
+  const jLabel = CORE.touchJumpLabel(jState, isCrouch, isDead);
   if (!CORE.touchJumpChanged(_touchJumpCache, jState, jLabel)) return;
   CORE.syncTouchJumpState(_touchJumpCache, jState, jLabel);
 

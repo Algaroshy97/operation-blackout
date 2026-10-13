@@ -4222,7 +4222,51 @@ def main() -> int:
         }""")
         checks.append(("aim-assist-range-culling-and-hit-arc-perf-rules", perf_optimization_v140_check))
 
-        # 91) Clean console throughout gameplay.
+        # 91) Mobile dead-state lockout and action capability rules (v141 mobile UI polish).
+        mobile_dead_state_v141_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Pure player firing & reloading capability rules
+            const fireAlive = CORE.canPlayerFire(false, false, false, 30) === true;
+            const fireDead = CORE.canPlayerFire(true, false, false, 30) === false;
+            const fireRel = CORE.canPlayerFire(false, true, false, 30) === false;
+            const fireSwitch = CORE.canPlayerFire(false, false, true, 30) === false;
+            const fireEmpty = CORE.canPlayerFire(false, false, false, 0) === false;
+
+            const reloadReady = CORE.canPlayerReload(false, false, 15, 30, 90) === true;
+            const reloadDead = CORE.canPlayerReload(true, false, 15, 30, 90) === false;
+            const reloadBusy = CORE.canPlayerReload(false, true, 15, 30, 90) === false;
+            const reloadFull = CORE.canPlayerReload(false, false, 30, 30, 90) === false;
+            const reloadNoRes = CORE.canPlayerReload(false, false, 15, 30, 0) === false;
+
+            // 2. Mobile touch fire & reload dead-state lockout
+            const touchFireDead = CORE.touchFireState(30, 90, false, true) === 'locked';
+            const touchFireLive = CORE.touchFireState(30, 90, false, false) === 'ready';
+            const touchFireLblDead = CORE.touchFireLabel(30, 90, false, false, true) === 'LOCKED';
+            const touchFireLblLive = CORE.touchFireLabel(30, 90, false, false, false) === 'FIRE';
+
+            const touchRelDead = CORE.touchReloadState(15, 90, false, true) === 'locked';
+            const touchRelLive = CORE.touchReloadState(0, 90, false, false) === 'urgent';
+            const touchRelLblDead = CORE.touchReloadLabel(15, 90, false, true) === 'LOCKED';
+            const touchRelLblLive = CORE.touchReloadLabel(30, 90, false, false) === 'RLD';
+
+            // 3. Movement and melee button dead-state lockout
+            const jumpDead = CORE.touchJumpState(true, false, false, false, 0, true) === 'locked';
+            const jumpLblDead = CORE.touchJumpLabel('locked', false, true) === 'LOCK';
+            const slideDead = CORE.touchSlideState(false, false, false, false, true) === 'locked';
+            const slideLblDead = CORE.touchSlideLabel(false, false, false, true) === 'LOCK';
+            const meleeDead = CORE.touchMeleeState(true, 0, false, true) === 'locked';
+            const meleeLblDead = CORE.touchMeleeLabel(true, 0, false, true) === 'LOCKED';
+
+            return fireAlive && fireDead && fireRel && fireSwitch && fireEmpty &&
+                   reloadReady && reloadDead && reloadBusy && reloadFull && reloadNoRes &&
+                   touchFireDead && touchFireLive && touchFireLblDead && touchFireLblLive &&
+                   touchRelDead && touchRelLive && touchRelLblDead && touchRelLblLive &&
+                   jumpDead && jumpLblDead && slideDead && slideLblDead && meleeDead && meleeLblDead;
+        }""")
+        checks.append(("mobile-dead-state-lockout-and-action-rules", mobile_dead_state_v141_check))
+
+        # 92) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

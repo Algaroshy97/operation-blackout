@@ -8858,6 +8858,49 @@ test('v140 performance optimization: aim assist range culling & cosine cone gati
   assert.strictEqual(CORE.hitArcOpacityChanged(arcState.lastOp, 0.85), false);
 });
 
+test('v141 mobile UI polish: dead-state button lockout gating and action capability rules', () => {
+  // 1. Pure player firing eligibility
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, 30), true);
+  assert.strictEqual(CORE.canPlayerFire(true, false, false, 30), false);
+  assert.strictEqual(CORE.canPlayerFire(false, true, false, 30), false);
+  assert.strictEqual(CORE.canPlayerFire(false, false, true, 30), false);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, 0), false);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, -5), false);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, NaN), false);
+
+  // 2. Pure player reloading eligibility
+  assert.strictEqual(CORE.canPlayerReload(false, false, 15, 30, 90), true);
+  assert.strictEqual(CORE.canPlayerReload(true, false, 15, 30, 90), false);
+  assert.strictEqual(CORE.canPlayerReload(false, true, 15, 30, 90), false);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 30, 30, 90), false);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 15, 30, 0), false);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 15, 0, 90), false);
+
+  // 3. Mobile touch fire & reload dead-state lockout
+  assert.strictEqual(CORE.touchFireState(30, 90, false, true), 'locked');
+  assert.strictEqual(CORE.touchFireState(30, 90, false, false), 'ready');
+  assert.strictEqual(CORE.touchFireState(0, 0, false, false), 'empty');
+  assert.strictEqual(CORE.touchFireLabel(30, 90, false, false, true), 'LOCKED');
+  assert.strictEqual(CORE.touchFireLabel(30, 90, false, false, false), 'FIRE');
+  assert.strictEqual(CORE.touchFireLabel(30, 90, false, true, false), 'ADS+FIRE');
+
+  assert.strictEqual(CORE.touchReloadState(15, 90, false, true), 'locked');
+  assert.strictEqual(CORE.touchReloadState(0, 90, false, false), 'urgent');
+  assert.strictEqual(CORE.touchReloadState(30, 90, false, false), '');
+  assert.strictEqual(CORE.touchReloadLabel(15, 90, false, true), 'LOCKED');
+  assert.strictEqual(CORE.touchReloadLabel(30, 90, false, false), 'RLD');
+  assert.strictEqual(CORE.touchReloadLabel(0, 90, false, false), 'RELOAD');
+
+  // 4. Movement and melee dead-state lockout
+  assert.strictEqual(CORE.touchJumpState(true, false, false, false, 0, true), 'locked');
+  assert.strictEqual(CORE.touchJumpLabel('locked', false, true), 'LOCK');
+  assert.strictEqual(CORE.touchSlideState(false, false, false, false, true), 'locked');
+  assert.strictEqual(CORE.touchSlideLabel(false, false, false, true), 'LOCK');
+  assert.strictEqual(CORE.touchMeleeState(true, 0, false, true), 'locked');
+  assert.strictEqual(CORE.touchMeleeLabel(true, 0, false, true), 'LOCKED');
+});
+
+
 
 
 

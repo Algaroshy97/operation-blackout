@@ -404,4 +404,43 @@ test('v136 mobile UI polish: downed weapon swap, ADS lockout gating, and reload 
   assert.match(head, /body\.touch\s+#tbtn-ads\.locked/);
 });
 
+test('v141 mobile UI polish: dead-state button lockout gating, action capability rules, and locked styling', () => {
+  // 1. Pure player firing & reloading capability rules
+  assert.equal(CORE.canPlayerFire(false, false, false, 30), true);
+  assert.equal(CORE.canPlayerFire(true, false, false, 30), false);
+  assert.equal(CORE.canPlayerFire(false, true, false, 30), false);
+  assert.equal(CORE.canPlayerFire(false, false, true, 30), false);
+  assert.equal(CORE.canPlayerFire(false, false, false, 0), false);
+
+  assert.equal(CORE.canPlayerReload(false, false, 15, 30, 90), true);
+  assert.equal(CORE.canPlayerReload(true, false, 15, 30, 90), false);
+  assert.equal(CORE.canPlayerReload(false, true, 15, 30, 90), false);
+  assert.equal(CORE.canPlayerReload(false, false, 30, 30, 90), false);
+  assert.equal(CORE.canPlayerReload(false, false, 15, 30, 0), false);
+
+  // 2. Mobile touch fire & reload dead-state lockout
+  assert.equal(CORE.touchFireState(30, 90, false, true), 'locked');
+  assert.equal(CORE.touchFireState(30, 90, false, false), 'ready');
+  assert.equal(CORE.touchFireLabel(30, 90, false, false, true), 'LOCKED');
+  assert.equal(CORE.touchFireLabel(30, 90, false, false, false), 'FIRE');
+
+  assert.equal(CORE.touchReloadState(15, 90, false, true), 'locked');
+  assert.equal(CORE.touchReloadState(0, 90, false, false), 'urgent');
+  assert.equal(CORE.touchReloadLabel(15, 90, false, true), 'LOCKED');
+  assert.equal(CORE.touchReloadLabel(30, 90, false, false), 'RLD');
+
+  // 3. Movement and melee button dead-state lockout
+  assert.equal(CORE.touchJumpState(true, false, false, false, 0, true), 'locked');
+  assert.equal(CORE.touchJumpLabel('locked', false, true), 'LOCK');
+  assert.equal(CORE.touchSlideState(false, false, false, false, true), 'locked');
+  assert.equal(CORE.touchSlideLabel(false, false, false, true), 'LOCK');
+  assert.equal(CORE.touchMeleeState(true, 0, false, true), 'locked');
+  assert.equal(CORE.touchMeleeLabel(true, 0, false, true), 'LOCKED');
+
+  // 4. CSS locked state definitions in head.html
+  assert.match(head, /body\.touch\s+#tbtn-fire\.locked/);
+  assert.match(head, /body\.touch\s+#tbtn-reload\.locked/);
+});
+
+
 
