@@ -172,7 +172,7 @@ function spawnTracer(from, to, mat) {
 }
 
 const _tmpN = new THREE.Vector3();
-function spawnImpact(point, normal, obj) {
+function spawnImpact(point, normal, obj, soundOverride) {
   // flash sphere + spark lines + decal-ish quad
   const m = getImpactMesh();
   m.position.copy(point);
@@ -188,7 +188,7 @@ function spawnImpact(point, normal, obj) {
   } else _tmpN.set(0, 1, 0);
   const surface = fxSurfaceFor(obj);
   fxImpact(point, _tmpN, surface);
-  const impSnd = CORE.surfaceImpactSound(surface);
+  const impSnd = soundOverride || CORE.surfaceImpactSound(surface);
   if (point && player && player.pos) playSound3D(impSnd, point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
   else playSound(impSnd);
 }
@@ -497,7 +497,8 @@ const SND_MIN_GAP = {
   plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5,
   melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20,
   jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15,
-  shield_deflect: 0.05, helmet_hit: 0.04
+  shield_deflect: 0.05, helmet_hit: 0.04,
+  estep_heavy: 0.05, reload_heavy_out: 0.15, reload_heavy_in: 0.15, reload_smg_out: 0.15, reload_smg_in: 0.15, melee_hit_metal: 0.08
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -626,7 +627,13 @@ const SOUND_RECIPES = {
   enemy_hit:         [['noise', 0.08, 0.25, 750, 1.4], ['osc', 'sawtooth', 150, 50, 0.09, 0.20]],
   enemy_hit_heavy:   [['noise', 0.15, 0.35, 200, 0.7], ['osc', 'sine', 110, 30, 0.16, 0.32], ['osc', 'square', 75, 25, 0.09, 0.16]],
   shield_deflect:    [['noise', 0.05, 0.35, 2600, 2.5], ['osc', 'square', 520, 240, 0.07, 0.22], ['osc', 'sine', 960, 480, 0.10, 0.20]],
-  helmet_hit:        [['noise', 0.04, 0.28, 3600, 3.2], ['osc', 'sine', 2400, 1200, 0.08, 0.20], ['osc', 'square', 1200, 600, 0.04, 0.12]]
+  helmet_hit:        [['noise', 0.04, 0.28, 3600, 3.2], ['osc', 'sine', 2400, 1200, 0.08, 0.20], ['osc', 'square', 1200, 600, 0.04, 0.12]],
+  estep_heavy:       [['noise', 0.08, 0.12, 180, 0.7], ['osc', 'sine', 95, 30, 0.10, 0.22]],
+  reload_heavy_out:  [['noise', 0.08, 0.26, 950, 1.8], ['osc', 'square', 160, 90, 0.06, 0.12]],
+  reload_heavy_in:   [['noise', 0.08, 0.30, 1100, 2.0], ['osc', 'square', 200, 280, 0.05, 0.15], ['osc', 'sine', 110, 45, 0.08, 0.20]],
+  reload_smg_out:    [['noise', 0.04, 0.16, 2200, 3.2], ['osc', 'square', 380, 220, 0.035, 0.08]],
+  reload_smg_in:     [['noise', 0.045, 0.18, 2400, 3.0], ['osc', 'square', 420, 520, 0.04, 0.10]],
+  melee_hit_metal:   [['noise', 0.05, 0.28, 3600, 3.0], ['osc', 'square', 1400, 700, 0.06, 0.16], ['osc', 'sine', 2200, 1100, 0.08, 0.18]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -650,7 +657,8 @@ const SOUND_VARIED = {
   plate_insert: 1, plate_lock: 1, tinnitus: 1,
   melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1,
   jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1,
-  shield_deflect: 1, helmet_hit: 1
+  shield_deflect: 1, helmet_hit: 1,
+  estep_heavy: 1, reload_heavy_out: 1, reload_heavy_in: 1, reload_smg_out: 1, reload_smg_in: 1, melee_hit_metal: 1
 };
 
 function recipeDuration(recipe) {

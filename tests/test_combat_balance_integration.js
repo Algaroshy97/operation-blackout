@@ -680,5 +680,55 @@ test('v142 visual polish integration: tactical melee strike execution VFX, blade
   assert.equal(arVfx.smokeScale, 0.75);
 });
 
+test('v143 audio polish integration: enemy archetype footsteps, reload magazine acoustics, and melee surface strike rules', () => {
+  // 1. Enemy archetype & Elite footstep acoustics
+  assert.equal(CORE.ENEMY_STEP_SOUND, 'estep');
+  assert.equal(CORE.ENEMY_STEP_HEAVY_SOUND, 'estep_heavy');
+  assert.equal(CORE.enemyFootstepSound(0, false), 'estep');
+  assert.equal(CORE.enemyFootstepSound(1, false), 'estep');
+  assert.equal(CORE.enemyFootstepSound(2, false), 'estep_heavy');
+  assert.equal(CORE.enemyFootstepSound('tank', false), 'estep_heavy');
+  assert.equal(CORE.enemyFootstepSound(3, false), 'estep');
+  assert.equal(CORE.enemyFootstepSound(4, false), 'estep');
+  assert.equal(CORE.enemyFootstepSound(5, false), 'estep');
+  assert.equal(CORE.enemyFootstepSound(0, true), 'estep_heavy');
+  assert.equal(CORE.enemyFootstepSound(1, true), 'estep_heavy');
+  assert.equal(CORE.enemyFootstepSound(2, true), 'estep_heavy');
+
+  // 2. Weapon magazine reload acoustics
+  assert.equal(CORE.RELOAD_OUT_SOUND, 'reload_out');
+  assert.equal(CORE.RELOAD_IN_SOUND, 'reload_in');
+  assert.equal(CORE.RELOAD_HEAVY_OUT_SOUND, 'reload_heavy_out');
+  assert.equal(CORE.RELOAD_HEAVY_IN_SOUND, 'reload_heavy_in');
+  assert.equal(CORE.RELOAD_SMG_OUT_SOUND, 'reload_smg_out');
+  assert.equal(CORE.RELOAD_SMG_IN_SOUND, 'reload_smg_in');
+
+  assert.equal(CORE.reloadMagazineOutSound('SMG'), 'reload_smg_out');
+  assert.equal(CORE.reloadMagazineInSound('SMG'), 'reload_smg_in');
+  assert.equal(CORE.reloadMagazineOutSound('SR'), 'reload_heavy_out');
+  assert.equal(CORE.reloadMagazineInSound('SR'), 'reload_heavy_in');
+  assert.equal(CORE.reloadMagazineOutSound('BR'), 'reload_heavy_out');
+  assert.equal(CORE.reloadMagazineInSound('BR'), 'reload_heavy_in');
+  assert.equal(CORE.reloadMagazineOutSound('AR'), 'reload_out');
+  assert.equal(CORE.reloadMagazineInSound('AR'), 'reload_in');
+  assert.equal(CORE.reloadMagazineOutSound(''), 'reload_out');
+  assert.equal(CORE.reloadMagazineInSound(''), 'reload_in');
+
+  // 3. Melee surface strike knife clank acoustics
+  assert.equal(CORE.MELEE_SURFACE_METAL_SOUND, 'melee_hit_metal');
+  assert.equal(CORE.MELEE_SURFACE_WOOD_SOUND, 'impact_wood');
+  assert.equal(CORE.MELEE_SURFACE_GLASS_SOUND, 'impact_glass');
+  assert.equal(CORE.MELEE_SURFACE_GROUND_SOUND, 'impact_ground');
+  assert.equal(CORE.MELEE_SURFACE_DEFAULT_SOUND, 'impact');
+
+  assert.equal(CORE.meleeSurfaceSound('metal'), 'melee_hit_metal');
+  assert.equal(CORE.meleeSurfaceSound('wood'), 'impact_wood');
+  assert.equal(CORE.meleeSurfaceSound('glass'), 'impact_glass');
+  assert.equal(CORE.meleeSurfaceSound('ground'), 'impact_ground');
+  assert.equal(CORE.meleeSurfaceSound('concrete'), 'impact');
+  assert.equal(CORE.meleeSurfaceSound('brick'), 'impact');
+  assert.equal(CORE.meleeSurfaceSound(), 'impact');
+});
+
 
 

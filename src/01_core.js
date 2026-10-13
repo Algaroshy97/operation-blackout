@@ -103,11 +103,11 @@ const CORE = (function () {
   const JOYSTICK_RADIUS = 56;
   const JOYSTICK_DEADZONE = 0.12;
   function joystickInput(dx, dy, radius, deadzone) {
-    if (typeof dx !== 'number' || !isFinite(dx) || typeof dy !== 'number' || !isFinite(dy)) {
+    if (!_isNum(dx) || !_isNum(dy)) {
       return { clampedX: 0, clampedY: 0, moveX: 0, moveZ: 0 };
     }
-    const r = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : JOYSTICK_RADIUS;
-    const dz = typeof deadzone === 'number' && isFinite(deadzone) && deadzone >= 0 ? deadzone : JOYSTICK_DEADZONE;
+    const r = _isNum(radius) && radius > 0 ? radius : JOYSTICK_RADIUS;
+    const dz = _isNum(deadzone) && deadzone >= 0 ? deadzone : JOYSTICK_DEADZONE;
     const d = Math.hypot(dx, dy);
     let cx = dx, cy = dy;
     if (d > r && d > 0) {
@@ -128,9 +128,9 @@ const CORE = (function () {
   // an optional reusable output object.
   const JOYSTICK_MOVE_THRESHOLD = 0.15;
   function touchMovementKeys(moveX, moveZ, threshold, out) {
-    const th = typeof threshold === 'number' && isFinite(threshold) && threshold >= 0 ? threshold : JOYSTICK_MOVE_THRESHOLD;
-    const mx = typeof moveX === 'number' && isFinite(moveX) ? moveX : 0;
-    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0;
+    const th = _isNum(threshold) && threshold >= 0 ? threshold : JOYSTICK_MOVE_THRESHOLD;
+    const mx = _isNum(moveX) ? moveX : 0;
+    const mz = _isNum(moveZ) ? moveZ : 0;
     const res = out && typeof out === 'object' ? out : { w: false, s: false, a: false, d: false };
     res.w = mz > th;
     res.s = mz < -th;
@@ -140,9 +140,9 @@ const CORE = (function () {
   }
 
   function gyroLookDelta(betaDelta, gammaDelta, sensitivity, out) {
-    const b = typeof betaDelta === 'number' && isFinite(betaDelta) ? betaDelta : 0;
-    const g = typeof gammaDelta === 'number' && isFinite(gammaDelta) ? gammaDelta : 0;
-    const s = typeof sensitivity === 'number' && isFinite(sensitivity) ? sensitivity : 1;
+    const b = _isNum(betaDelta) ? betaDelta : 0;
+    const g = _isNum(gammaDelta) ? gammaDelta : 0;
+    const s = _isNum(sensitivity) ? sensitivity : 1;
     const wrap = value => ((value + 180) % 360 + 360) % 360 - 180;
     const result = out && typeof out === 'object' ? out : {};
     result.yaw = -wrap(g) * s;
@@ -246,9 +246,9 @@ const CORE = (function () {
   // early waves. Magic number extracted here so the test suite can pin it.
   const WAVE_SCORE_PER_WAVE = 50;
   function waveClearScore(baseScore, waveNum, perWave) {
-    const base = (typeof baseScore === 'number' && isFinite(baseScore) && baseScore >= 0) ? baseScore : 0;
-    const w = (typeof waveNum === 'number' && isFinite(waveNum) && waveNum >= 0) ? Math.floor(waveNum) : 0;
-    const p = (typeof perWave === 'number' && isFinite(perWave) && perWave >= 0) ? perWave : WAVE_SCORE_PER_WAVE;
+    const base = (_isNum(baseScore) && baseScore >= 0) ? baseScore : 0;
+    const w = (_isNum(waveNum) && waveNum >= 0) ? Math.floor(waveNum) : 0;
+    const p = (_isNum(perWave) && perWave >= 0) ? perWave : WAVE_SCORE_PER_WAVE;
     return base + w * p;
   }
 
@@ -258,10 +258,10 @@ const CORE = (function () {
   // tests and tuned in one place without touching the HUD module.
   const RESUPPLY_MAG_RATIO = 2.5;
   function waveResupplyAmmo(currentReserve, reserveMax, magSize, ratio) {
-    const cur = (typeof currentReserve === 'number' && isFinite(currentReserve) && currentReserve >= 0) ? currentReserve : 0;
-    const max = (typeof reserveMax === 'number' && isFinite(reserveMax) && reserveMax >= 0) ? reserveMax : 0;
-    const mag = (typeof magSize === 'number' && isFinite(magSize) && magSize > 0) ? magSize : 0;
-    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : RESUPPLY_MAG_RATIO;
+    const cur = (_isNum(currentReserve) && currentReserve >= 0) ? currentReserve : 0;
+    const max = (_isNum(reserveMax) && reserveMax >= 0) ? reserveMax : 0;
+    const mag = (_isNum(magSize) && magSize > 0) ? magSize : 0;
+    const r = (_isNum(ratio) && ratio > 0) ? ratio : RESUPPLY_MAG_RATIO;
     return Math.min(max, cur + Math.round(mag * r));
   }
 
@@ -275,7 +275,7 @@ const CORE = (function () {
   // otherwise returns a new { axis, val } descriptor, or null if no overlap.
   function resolveAabbXZ(x, z, r, c, out) {
     if (!c || !c.min || !c.max) return null;
-    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    const rad = (_isNum(r) && r > 0) ? r : 0;
     if (x <= c.min.x - rad || x >= c.max.x + rad || z <= c.min.z - rad || z >= c.max.z + rad) return null;
     const cx = (c.min.x + c.max.x) * 0.5;
     const cz = (c.min.z + c.max.z) * 0.5;
@@ -295,13 +295,13 @@ const CORE = (function () {
   // When out is provided, mutates and returns out without heap allocation;
   // otherwise returns a new { floorY, ceilY } object.
   function resolveVerticalBounds(x, z, r, colliders, feet, stepH, groundY, out) {
-    let floorY = (typeof groundY === 'number' && isFinite(groundY)) ? groundY : 0;
+    let floorY = (_isNum(groundY)) ? groundY : 0;
     let ceilY = Infinity;
     if (!colliders || !colliders.length) {
       if (out && typeof out === 'object') { out.floorY = floorY; out.ceilY = ceilY; return out; }
       return { floorY: floorY, ceilY: ceilY };
     }
-    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    const rad = (_isNum(r) && r > 0) ? r : 0;
     const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
@@ -319,9 +319,9 @@ const CORE = (function () {
   }
   // Fast floor-only resolver for grounding agents without tracking ceiling clearance.
   function findFloorY(x, z, r, colliders, feet, stepH, groundY) {
-    let floorY = (typeof groundY === 'number' && isFinite(groundY)) ? groundY : 0;
+    let floorY = (_isNum(groundY)) ? groundY : 0;
     if (!colliders || !colliders.length) return floorY;
-    const rad = (typeof r === 'number' && isFinite(r) && r > 0) ? r : 0;
+    const rad = (_isNum(r) && r > 0) ? r : 0;
     const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
@@ -595,8 +595,8 @@ const CORE = (function () {
   // Breaks up robotic bit-identical repetition across repeated triggers.
   const SOUND_VARIED_RANGE = 0.06;
   function soundPlaybackRate(baseRate, rand) {
-    const base = (typeof baseRate === 'number' && isFinite(baseRate)) ? baseRate : 1.0;
-    const r = (typeof rand === 'number' && isFinite(rand)) ? rand : Math.random();
+    const base = _isNum(baseRate) ? baseRate : 1.0;
+    const r = _isNum(rand) ? rand : Math.random();
     return base + (r - 0.5) * SOUND_VARIED_RANGE;
   }
 
@@ -608,19 +608,19 @@ const CORE = (function () {
   const SPATIAL_AUDIO_MIN_VOL = 0.15;
 
   function spatialAudioPan(dx, dz, playerYaw, dist, panBoost) {
-    const yaw = (typeof playerYaw === 'number' && isFinite(playerYaw)) ? playerYaw : 0;
-    const d = (typeof dist === 'number' && isFinite(dist) && dist > 0) ? dist : Math.hypot(dx, dz);
+    const yaw = _isNum(playerYaw) ? playerYaw : 0;
+    const d = (_isNum(dist) && dist > 0) ? dist : Math.hypot(dx, dz);
     if (d < 1e-6) return 0;
-    const boost = (typeof panBoost === 'number' && isFinite(panBoost)) ? panBoost : SPATIAL_AUDIO_PAN_BOOST;
+    const boost = _isNum(panBoost) ? panBoost : SPATIAL_AUDIO_PAN_BOOST;
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const raw = ((dx * rx + dz * rz) / d) * boost;
     return Math.max(-1, Math.min(1, raw));
   }
 
   function spatialAudioVolume(dist, maxDist, minVol) {
-    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
-    const minV = (typeof minVol === 'number' && isFinite(minVol)) ? minVol : SPATIAL_AUDIO_MIN_VOL;
-    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    const maxD = (_isNum(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const minV = _isNum(minVol) ? minVol : SPATIAL_AUDIO_MIN_VOL;
+    const d = (_isNum(dist) && dist >= 0) ? dist : 0;
     if (d >= maxD) return 0;
     const norm = 1 - (d / maxD);
     return minV + (1 - minV) * norm * norm;
@@ -631,21 +631,21 @@ const CORE = (function () {
   const AIR_ABSORPTION_Q = 0.5;
 
   function spatialAudioCutoff(dist, maxDist, maxFreq, minFreq) {
-    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
-    const hi = (typeof maxFreq === 'number' && isFinite(maxFreq) && maxFreq > 0) ? maxFreq : AIR_ABSORPTION_MAX_FREQ;
-    const lo = (typeof minFreq === 'number' && isFinite(minFreq) && minFreq >= 0) ? minFreq : AIR_ABSORPTION_MIN_FREQ;
-    const d = (typeof dist === 'number' && isFinite(dist) && dist >= 0) ? dist : 0;
+    const maxD = (_isNum(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const hi = (_isNum(maxFreq) && maxFreq > 0) ? maxFreq : AIR_ABSORPTION_MAX_FREQ;
+    const lo = (_isNum(minFreq) && minFreq >= 0) ? minFreq : AIR_ABSORPTION_MIN_FREQ;
+    const d = (_isNum(dist) && dist >= 0) ? dist : 0;
     const ratio = Math.max(0, Math.min(1, d / maxD));
     return hi - (hi - lo) * ratio;
   }
 
   function isSpatialAudioInRange(dx, dz, maxDist) {
-    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const maxD = (_isNum(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
     return (dx * dx + dz * dz) <= (maxD * maxD);
   }
 
   function spatialAudioParams(dx, dz, playerYaw, maxDist, out) {
-    const maxD = (typeof maxDist === 'number' && isFinite(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
+    const maxD = (_isNum(maxDist) && maxDist > 0) ? maxDist : SPATIAL_AUDIO_MAX_DIST;
     const dSq = dx * dx + dz * dz;
     const maxDSq = maxD * maxD;
     if (dSq > maxDSq) {
@@ -716,16 +716,16 @@ const CORE = (function () {
   }
 
   function shouldTriggerTinnitus(flashT, prevFlashT, minThreshold) {
-    const cur = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
-    const prev = (typeof prevFlashT === 'number' && isFinite(prevFlashT)) ? prevFlashT : 0;
-    const thresh = (typeof minThreshold === 'number' && isFinite(minThreshold)) ? minThreshold : TINNITUS_MIN_THRESHOLD;
+    const cur = _isNum(flashT) ? flashT : 0;
+    const prev = _isNum(prevFlashT) ? prevFlashT : 0;
+    const thresh = (_isNum(minThreshold)) ? minThreshold : TINNITUS_MIN_THRESHOLD;
     return prev <= 0 && cur >= thresh;
   }
 
   function tinnitusVolume(flashT, maxDur, baseGain) {
-    const t = (typeof flashT === 'number' && isFinite(flashT)) ? flashT : 0;
-    const maxD = (typeof maxDur === 'number' && isFinite(maxDur) && maxDur > 0) ? maxDur : TINNITUS_MAX_DURATION;
-    const bg = (typeof baseGain === 'number' && isFinite(baseGain)) ? baseGain : TINNITUS_BASE_GAIN;
+    const t = _isNum(flashT) ? flashT : 0;
+    const maxD = (_isNum(maxDur) && maxDur > 0) ? maxDur : TINNITUS_MAX_DURATION;
+    const bg = _isNum(baseGain) ? baseGain : TINNITUS_BASE_GAIN;
     if (t <= 0) return 0;
     const ratio = Math.max(0, Math.min(1, t / maxD));
     return bg * ratio;
@@ -733,7 +733,7 @@ const CORE = (function () {
 
   function shouldPlayFleshHurt(healthDamage) {
     if (healthDamage === undefined || healthDamage === null) return true;
-    const hd = (typeof healthDamage === 'number' && isFinite(healthDamage)) ? healthDamage : 0;
+    const hd = _isNum(healthDamage) ? healthDamage : 0;
     return hd > 0;
   }
 
@@ -746,8 +746,8 @@ const CORE = (function () {
   }
 
   function armorDamageSound(initialArmor, remainingArmor) {
-    const init = (typeof initialArmor === 'number' && isFinite(initialArmor)) ? initialArmor : 0;
-    const rem = (typeof remainingArmor === 'number' && isFinite(remainingArmor)) ? remainingArmor : 0;
+    const init = _isNum(initialArmor) ? initialArmor : 0;
+    const rem = _isNum(remainingArmor) ? remainingArmor : 0;
     if (init <= 0) return null;
     if (rem <= 0) return 'armor_break';
     return 'block';
@@ -764,10 +764,10 @@ const CORE = (function () {
   const MK_MAX_STREAK = 5;
 
   function advanceKillStreak(streak, lastKillTime, now, windowSec) {
-    const w = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MK_WINDOW;
-    const cur = (typeof streak === 'number' && isFinite(streak) && streak >= 0) ? Math.floor(streak) : 0;
-    const last = (typeof lastKillTime === 'number' && isFinite(lastKillTime)) ? lastKillTime : -99;
-    const t = (typeof now === 'number' && isFinite(now)) ? now : 0;
+    const w = (_isNum(windowSec) && windowSec > 0) ? windowSec : MK_WINDOW;
+    const cur = (_isNum(streak) && streak >= 0) ? Math.floor(streak) : 0;
+    const last = _isNum(lastKillTime) ? lastKillTime : -99;
+    const t = _isNum(now) ? now : 0;
     let next = (t - last <= w) ? cur + 1 : 1;
     if (next > MK_MAX_STREAK) next = 0;
     return next;
@@ -837,10 +837,8 @@ const CORE = (function () {
   }
 
   function shouldPlayFootstep(onGround, horizontalSpeed, minSpeed) {
-    const minSpd = (typeof minSpeed === 'number' && isFinite(minSpeed) && minSpeed >= 0)
-      ? minSpeed : FOOTSTEP_MIN_SPEED;
-    const spd = (typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed))
-      ? horizontalSpeed : 0;
+    const minSpd = (_isNum(minSpeed) && minSpeed >= 0) ? minSpeed : FOOTSTEP_MIN_SPEED;
+    const spd = _isNum(horizontalSpeed) ? horizontalSpeed : 0;
     return Boolean(onGround && spd > minSpd);
   }
 
@@ -1151,9 +1149,9 @@ const CORE = (function () {
   const MED_DROP_BASE = 0.15;
   const MED_DROP_CRITICAL = 0.50;
   function medDropChance(health, maxHealth, perkMul) {
-    const mul = (typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0) ? perkMul : 1;
-    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
-    const hp = (typeof health === 'number' && isFinite(health)) ? health : max;
+    const mul = (_isNum(perkMul) && perkMul > 0) ? perkMul : 1;
+    const max = (_isNum(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    const hp = _isNum(health) ? health : max;
     const frac = Math.max(0, Math.min(1, hp / max));
     const base = MED_DROP_BASE * mul;
     const peak = Math.min(1, MED_DROP_CRITICAL * mul);
@@ -1166,9 +1164,9 @@ const CORE = (function () {
   // Resolves whether an ammo box, medkit, or nothing drops from a defeated enemy.
   // Prioritizes ammunition when critically dry, followed by medical supplies when injured.
   function pickupDropKind(roll, ammoChance, medChance) {
-    if (typeof roll !== 'number' || !isFinite(roll) || roll < 0) return null;
-    const a = (typeof ammoChance === 'number' && isFinite(ammoChance)) ? Math.max(0, ammoChance) : 0;
-    const m = (typeof medChance === 'number' && isFinite(medChance)) ? Math.max(0, medChance) : 0;
+    if (!_isNum(roll) || roll < 0) return null;
+    const a = _isNum(ammoChance) ? Math.max(0, ammoChance) : 0;
+    const m = _isNum(medChance) ? Math.max(0, medChance) : 0;
     if (roll < a) return 'ammo';
     if (roll < a + m) return 'med';
     return null;
@@ -1193,12 +1191,12 @@ const CORE = (function () {
   }
 
   function resolveArmorDamage(amount, currentArmor, absorbRatio, damageType) {
-    const amt = typeof amount === 'number' && isFinite(amount) ? Math.max(0, amount) : 0;
-    const armor = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
+    const amt = _isNum(amount) ? Math.max(0, amount) : 0;
+    const armor = _isNum(currentArmor) ? Math.max(0, currentArmor) : 0;
     if (amt <= 0 || armor <= 0) {
       return { absorbed: 0, absorbedDamage: 0, healthDamage: amt, remainingArmor: armor };
     }
-    const ratio = typeof absorbRatio === 'number' && isFinite(absorbRatio) && absorbRatio >= 0 && absorbRatio <= 1
+    const ratio = _isNum(absorbRatio) && absorbRatio >= 0 && absorbRatio <= 1
       ? absorbRatio
       : armorAbsorbRatioForType(damageType);
     const absorbed = Math.min(armor, amt * ratio);
@@ -1649,16 +1647,16 @@ const CORE = (function () {
     queue[tail++] = goal;
     while (head < tail) {
       const cur = queue[head++];
-      const cx = cur % dim, cz = (cur / dim) | 0;
+      const cx = cur % dim, czDim = cur - cx, cz = (cur / dim) | 0;
       const nd = dist[cur] + 1;
       for (let k = 0; k < 8; k++) {
         const nx = cx + NEIGHBOUR_DX[k], nz = cz + NEIGHBOUR_DZ[k];
         if (nx < 0 || nz < 0 || nx >= dim || nz >= dim) continue;
-        const ni = nz * dim + nx;
+        const nzDim = nz * dim, ni = nzDim + nx;
         if (blocked[ni] || dist[ni] !== UNREACHABLE) continue;
         // No corner cutting: a diagonal step needs both orthogonal neighbours open,
         // otherwise agents shave through the corner of a wall they cannot fit past.
-        if (k >= 4 && (blocked[cz * dim + nx] || blocked[nz * dim + cx])) continue;
+        if (k >= 4 && (blocked[czDim + nx] || blocked[nzDim + cx])) continue;
         dist[ni] = nd;
         queue[tail++] = ni;
       }
@@ -2244,7 +2242,7 @@ const CORE = (function () {
   const HEALTH_LOW_THRESHOLD = 0.30;
   function isHealthLow(health, maxHealth) {
     const max = (maxHealth && maxHealth > 0) ? maxHealth : 100;
-    return typeof health === 'number' && isFinite(health) && health <= max * HEALTH_LOW_THRESHOLD;
+    return _isNum(health) && health <= max * HEALTH_LOW_THRESHOLD;
   }
   const HEALTH_CRITICAL_RATIO = 0.25;
   const CRITICAL_VIGNETTE_BASE_BLUR = 90;
@@ -2254,18 +2252,18 @@ const CORE = (function () {
 
   // Evaluates whether current health is in the critical danger zone (positive health <= 25% max).
   function isHealthCritical(health, maxHealth, ratio) {
-    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return false;
-    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
-    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    if (!_isNum(health) || health <= 0) return false;
+    const r = (_isNum(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
+    const max = (_isNum(maxHealth) && maxHealth > 0) ? maxHealth : 100;
     return health <= max * r;
   }
 
   // Calculates normalized danger intensity [0.0, 1.0] as health drops from the critical threshold down to 0.
   // Returns 0 if health is outside the critical window or dead.
   function criticalHealthIntensity(health, maxHealth, ratio) {
-    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return 0;
-    const r = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
-    const max = (typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0) ? maxHealth : 100;
+    if (!_isNum(health) || health <= 0) return 0;
+    const r = (_isNum(ratio) && ratio > 0) ? ratio : HEALTH_CRITICAL_RATIO;
+    const max = (_isNum(maxHealth) && maxHealth > 0) ? maxHealth : 100;
     const thresh = max * r;
     if (health > thresh) return 0;
     return Math.max(0, Math.min(1, (thresh - health) / thresh));
@@ -2273,7 +2271,7 @@ const CORE = (function () {
 
   // Returns tactical health status: 'dead', 'critical', 'low', or 'nominal'.
   function healthDangerState(health, maxHealth, critRatio, lowRatio) {
-    if (typeof health !== 'number' || !isFinite(health) || health <= 0) return 'dead';
+    if (!_isNum(health) || health <= 0) return 'dead';
     if (isHealthCritical(health, maxHealth, critRatio)) return 'critical';
     if (isHealthLow(health, maxHealth)) return 'low';
     return 'nominal';
@@ -2281,7 +2279,7 @@ const CORE = (function () {
 
   // Computes CSS box-shadow styling for the critical near-death perimeter vignette.
   function criticalVignetteStyle(intensity, isReducedMotion) {
-    const clamped = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const clamped = _isNum(intensity) ? Math.max(0, Math.min(1, intensity)) : 0;
     if (clamped <= 0) return 'inset 0 0 90px 30px rgba(180,15,15,0)';
     const blur = Math.round(CRITICAL_VIGNETTE_BASE_BLUR + clamped * (CRITICAL_VIGNETTE_MAX_BLUR - CRITICAL_VIGNETTE_BASE_BLUR));
     const spread = Math.round(CRITICAL_VIGNETTE_BASE_SPREAD + clamped * (CRITICAL_VIGNETTE_MAX_SPREAD - CRITICAL_VIGNETTE_BASE_SPREAD));
@@ -2293,10 +2291,10 @@ const CORE = (function () {
 
   // Evaluates smooth sine heartbeat pulse alpha (1.35 Hz) for near-death danger alert.
   function criticalPulseAlpha(intensity, timeSec, isReducedMotion) {
-    const clamped = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const clamped = _isNum(intensity) ? Math.max(0, Math.min(1, intensity)) : 0;
     if (clamped <= 0) return 0;
     if (isReducedMotion) return 0.5 * clamped;
-    const t = (typeof timeSec === 'number' && isFinite(timeSec)) ? timeSec : 0;
+    const t = _isNum(timeSec) ? timeSec : 0;
     const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 1.35);
     return Math.min(1, (0.35 + 0.50 * pulse) * clamped);
   }
@@ -7692,6 +7690,37 @@ const CORE = (function () {
     return { smokeCount: 3, sparkCount: 4, smokeScale: 0.75 };
   }
 
+  // ---- Tactical Locomotion Acoustics, Weapon Reload Audio & Melee Blade Surface Polish (v143 Audio Polish) ----
+  const ENEMY_STEP_SOUND = 'estep', ENEMY_STEP_HEAVY_SOUND = 'estep_heavy';
+  function enemyFootstepSound(kind, isElite) {
+    if (Boolean(isElite)) return ENEMY_STEP_HEAVY_SOUND;
+    if (kind === 2 || kind === 'tank') return ENEMY_STEP_HEAVY_SOUND;
+    return ENEMY_STEP_SOUND;
+  }
+  const RELOAD_OUT_SOUND = 'reload_out', RELOAD_IN_SOUND = 'reload_in';
+  const RELOAD_HEAVY_OUT_SOUND = 'reload_heavy_out', RELOAD_HEAVY_IN_SOUND = 'reload_heavy_in';
+  const RELOAD_SMG_OUT_SOUND = 'reload_smg_out', RELOAD_SMG_IN_SOUND = 'reload_smg_in';
+  function reloadMagazineOutSound(weaponType) {
+    if (weaponType === 'SMG') return RELOAD_SMG_OUT_SOUND;
+    if (weaponType === 'SR' || weaponType === 'BR') return RELOAD_HEAVY_OUT_SOUND;
+    return RELOAD_OUT_SOUND;
+  }
+  function reloadMagazineInSound(weaponType) {
+    if (weaponType === 'SMG') return RELOAD_SMG_IN_SOUND;
+    if (weaponType === 'SR' || weaponType === 'BR') return RELOAD_HEAVY_IN_SOUND;
+    return RELOAD_IN_SOUND;
+  }
+  const MELEE_SURFACE_METAL_SOUND = 'melee_hit_metal', MELEE_SURFACE_WOOD_SOUND = 'impact_wood';
+  const MELEE_SURFACE_GLASS_SOUND = 'impact_glass', MELEE_SURFACE_GROUND_SOUND = 'impact_ground';
+  const MELEE_SURFACE_DEFAULT_SOUND = 'impact';
+  function meleeSurfaceSound(surface) {
+    if (surface === 'metal') return MELEE_SURFACE_METAL_SOUND;
+    if (surface === 'wood') return MELEE_SURFACE_WOOD_SOUND;
+    if (surface === 'glass') return MELEE_SURFACE_GLASS_SOUND;
+    if (surface === 'ground') return MELEE_SURFACE_GROUND_SOUND;
+    return MELEE_SURFACE_DEFAULT_SOUND;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7969,7 +7998,12 @@ const CORE = (function () {
     MELEE_SLASH_LIGHT_COLOR, MELEE_SLASH_LIGHT_INTENSITY, MELEE_SLASH_LIGHT_DIST, MELEE_SLASH_LIGHT_DUR,
     meleeSlashVfxParams, meleeSlashNormal,
     MUZZLE_LIGHT_COLOR_STANDARD, MUZZLE_LIGHT_COLOR_SUPPRESSED, MUZZLE_LIGHT_DIST_STANDARD, MUZZLE_LIGHT_DIST_SUPPRESSED,
-    MUZZLE_LIGHT_DIST_HEAVY, MUZZLE_LIGHT_DIST_SMG, muzzleFlashLightParams, muzzleVfxParams
+    MUZZLE_LIGHT_DIST_HEAVY, MUZZLE_LIGHT_DIST_SMG, muzzleFlashLightParams, muzzleVfxParams,
+    ENEMY_STEP_SOUND, ENEMY_STEP_HEAVY_SOUND, enemyFootstepSound,
+    RELOAD_OUT_SOUND, RELOAD_IN_SOUND, RELOAD_HEAVY_OUT_SOUND, RELOAD_HEAVY_IN_SOUND,
+    RELOAD_SMG_OUT_SOUND, RELOAD_SMG_IN_SOUND, reloadMagazineOutSound, reloadMagazineInSound,
+    MELEE_SURFACE_METAL_SOUND, MELEE_SURFACE_WOOD_SOUND, MELEE_SURFACE_GLASS_SOUND,
+    MELEE_SURFACE_GROUND_SOUND, MELEE_SURFACE_DEFAULT_SOUND, meleeSurfaceSound
   };
 })();
 

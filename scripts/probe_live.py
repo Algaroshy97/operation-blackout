@@ -4322,7 +4322,44 @@ def main() -> int:
         }""")
         checks.append(("tactical-melee-slash-and-muzzle-vfx-rules", melee_and_muzzle_v142_check))
 
-        # 93) Clean console throughout gameplay.
+        # 93) Enemy archetype footsteps, weapon reload magazine audio, and melee surface strike rules (v143 audio polish).
+        audio_v143_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Enemy archetype footsteps
+            const stepRunner = CORE.enemyFootstepSound(0, false) === CORE.ENEMY_STEP_SOUND;
+            const stepRifle = CORE.enemyFootstepSound(1, false) === CORE.ENEMY_STEP_SOUND;
+            const stepTank = CORE.enemyFootstepSound(2, false) === CORE.ENEMY_STEP_HEAVY_SOUND;
+            const stepTankStr = CORE.enemyFootstepSound('tank', false) === CORE.ENEMY_STEP_HEAVY_SOUND;
+            const stepElite = CORE.enemyFootstepSound(0, true) === CORE.ENEMY_STEP_HEAVY_SOUND;
+            const stepEliteTank = CORE.enemyFootstepSound(2, true) === CORE.ENEMY_STEP_HEAVY_SOUND;
+            const stepOk = stepRunner && stepRifle && stepTank && stepTankStr && stepElite && stepEliteTank;
+
+            // 2. Weapon magazine reload audio
+            const relSmgOut = CORE.reloadMagazineOutSound('SMG') === CORE.RELOAD_SMG_OUT_SOUND;
+            const relSmgIn = CORE.reloadMagazineInSound('SMG') === CORE.RELOAD_SMG_IN_SOUND;
+            const relSrOut = CORE.reloadMagazineOutSound('SR') === CORE.RELOAD_HEAVY_OUT_SOUND;
+            const relSrIn = CORE.reloadMagazineInSound('SR') === CORE.RELOAD_HEAVY_IN_SOUND;
+            const relBrOut = CORE.reloadMagazineOutSound('BR') === CORE.RELOAD_HEAVY_OUT_SOUND;
+            const relBrIn = CORE.reloadMagazineInSound('BR') === CORE.RELOAD_HEAVY_IN_SOUND;
+            const relArOut = CORE.reloadMagazineOutSound('AR') === CORE.RELOAD_OUT_SOUND;
+            const relArIn = CORE.reloadMagazineInSound('AR') === CORE.RELOAD_IN_SOUND;
+            const relOk = relSmgOut && relSmgIn && relSrOut && relSrIn && relBrOut && relBrIn && relArOut && relArIn;
+
+            // 3. Melee surface strike knife clank acoustics
+            const msMetal = CORE.meleeSurfaceSound('metal') === CORE.MELEE_SURFACE_METAL_SOUND;
+            const msWood = CORE.meleeSurfaceSound('wood') === CORE.MELEE_SURFACE_WOOD_SOUND;
+            const msGlass = CORE.meleeSurfaceSound('glass') === CORE.MELEE_SURFACE_GLASS_SOUND;
+            const msGround = CORE.meleeSurfaceSound('ground') === CORE.MELEE_SURFACE_GROUND_SOUND;
+            const msConcrete = CORE.meleeSurfaceSound('concrete') === CORE.MELEE_SURFACE_DEFAULT_SOUND;
+            const msDefault = CORE.meleeSurfaceSound() === CORE.MELEE_SURFACE_DEFAULT_SOUND;
+            const msOk = msMetal && msWood && msGlass && msGround && msConcrete && msDefault;
+
+            return stepOk && relOk && msOk;
+        }""")
+        checks.append(("tactical-enemy-footsteps-reload-and-melee-surface-audio-rules", audio_v143_check))
+
+        # 94) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

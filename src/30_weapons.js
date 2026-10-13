@@ -119,7 +119,7 @@ function switchWeapon(slot) {
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
     next.reloading = true;           // resume where it left off
-    playSound('reload_out');
+    playSound(CORE.reloadMagazineOutSound(curWpn ? curWpn.type : ''));
   }
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
@@ -131,7 +131,7 @@ function switchWeapon(slot) {
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
 
 function tryReload() {
-  const s = curS(); if (!s || !CORE.canReload(s.ammo, curW().mag, s.reserve, s.reloading)) return;
+  const s = curS(), w = curW(); if (!s || !w || !CORE.canReload(s.ammo, w.mag, s.reserve, s.reloading)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
   if (!s.reloadPaused) {
@@ -140,7 +140,7 @@ function tryReload() {
   }
   s.reloadPaused = false;
   updateHudAmmo();
-  playSound('reload_out');
+  playSound(CORE.reloadMagazineOutSound(w.type));
 }
 
 function updateWeapons(dt) {
@@ -155,7 +155,7 @@ function updateWeapons(dt) {
       s.ammo = _reloadOut.ammo;
       s.reserve = _reloadOut.reserve;
       s.reloading = false; s.reloadPaused = false;
-      playSound('reload_in');
+      playSound(CORE.reloadMagazineInSound(w ? w.type : ''));
       if (s.emptyReload) {
         playSound(CORE.reloadBoltSound(w ? w.type : ''));
         s.emptyReload = false;
@@ -454,7 +454,8 @@ function doMelee() {
     _worldHitsOut.length = 0;
     const wh = raycaster.intersectObjects(worldRayTargets(camera.position, _meleeDir, CORE.MELEE_REACH), true, _worldHitsOut);
     if (wh.length && CORE.canMeleeStrikeWorld(idx, wh[0].distance, CORE.MELEE_REACH)) {
-      spawnImpact(wh[0].point, wh[0].face ? wh[0].face.normal : null, wh[0].object);
+      const srf = fxSurfaceFor(wh[0].object);
+      spawnImpact(wh[0].point, wh[0].face ? wh[0].face.normal : null, wh[0].object, CORE.meleeSurfaceSound(srf));
     }
     return;
   }
