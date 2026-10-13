@@ -221,14 +221,15 @@ function updateFlashLights(dt) {
 
 // ---- Effect library ----
 function pfxRnd(a, b) { return a + Math.random() * (b - a); }
-function fxMuzzle(p, d, big) {
-  const n = big ? 5 : 2;
-  for (let i = 0; i < n; i++) {
+function fxMuzzle(p, d, bigOrType, isSuppressed) {
+  const type = typeof bigOrType === 'string' ? bigOrType : (bigOrType ? 'SR' : 'AR');
+  const cfg = CORE.muzzleVfxParams(type, !!isSuppressed);
+  for (let i = 0; i < cfg.smokeCount; i++) {
     const s = pfxRnd(0.4, 1.2);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, d.x * s + pfxRnd(-0.2, 0.2), d.y * s + pfxRnd(0.1, 0.4), d.z * s + pfxRnd(-0.2, 0.2),
-      pfxRnd(0.5, 1.0), 0.08, big ? 0.9 : 0.5, 0x9a948c, 0x6a6660, 0.22, 2.2, -0.5, 0);
+      pfxRnd(0.5, 1.0), 0.08, cfg.smokeScale, 0x9a948c, 0x6a6660, 0.22, 2.2, -0.5, 0);
   }
-  for (let i = 0; i < (big ? 6 : 3); i++) {
+  for (let i = 0; i < cfg.sparkCount; i++) {
     const s = pfxRnd(6, 14);
     pfxEmit(PFX_ADD, p.x, p.y, p.z, d.x * s + pfxRnd(-1, 1), d.y * s + pfxRnd(-1, 1), d.z * s + pfxRnd(-1, 1),
       pfxRnd(0.04, 0.1), 0.03, 0.01, 0xffd890, 0xff7020, 2.5, 4, 0, 0);
@@ -304,6 +305,23 @@ function fxShieldDeflect(p, normal) {
       pfxRnd(0.12, 0.35), 0.035, 0.015, cfg.sparkColor0, cfg.sparkColor1, 3, 1.5, 12, PF_BOUNCE);
   }
   flashLight(p, cfg.lightColor, cfg.lightIntensity, cfg.lightDist, cfg.lightDur);
+}
+function fxMeleeSlash(p, normal, isBackstab) {
+  const cfg = CORE.meleeSlashVfxParams(isBackstab);
+  const nx = normal ? normal.x : 0, nz = normal ? normal.z : 0;
+  for (let i = 0; i < cfg.mist; i++) {
+    const s = pfxRnd(1.2, 3.2);
+    pfxEmit(PFX_SMOKE, p.x, p.y, p.z, nx * s + pfxRnd(-0.8, 0.8), pfxRnd(-0.2, 1.2), nz * s + pfxRnd(-0.8, 0.8),
+      pfxRnd(0.3, 0.7), 0.08, isBackstab ? 0.9 : 0.5, 0x6a0404, 0x2a0202, 0.8, 2, 8, 0);
+  }
+  for (let i = 0; i < cfg.sparks; i++) {
+    const s = pfxRnd(2.5, 6.5);
+    pfxEmit(PFX_ADD, p.x, p.y, p.z, nx * s + pfxRnd(-1.5, 1.5), pfxRnd(0.5, 2.5), nz * s + pfxRnd(-1.5, 1.5),
+      pfxRnd(0.1, 0.25), 0.03, 0.012, 0xfff0b0, 0xff5010, 3, 1.2, 12, PF_BOUNCE);
+  }
+  if (cfg.lightIntensity > 0 && typeof flashLight === 'function') {
+    flashLight(p, cfg.lightColor, cfg.lightIntensity, cfg.lightDist, cfg.lightDur);
+  }
 }
 function fxDust(p, n, spread, color) {
   for (let i = 0; i < n; i++) {

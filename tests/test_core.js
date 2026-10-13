@@ -8900,6 +8900,93 @@ test('v141 mobile UI polish: dead-state button lockout gating and action capabil
   assert.strictEqual(CORE.touchMeleeLabel(true, 0, false, true), 'LOCKED');
 });
 
+test('v142 visual polish: tactical melee strike execution VFX, blade slash kinematics, and weapon muzzle light suppressor visual attenuation rules', () => {
+  // 1. Tactical melee strike execution VFX & kinematics
+  assert.strictEqual(CORE.MELEE_SLASH_SPARK_COUNT, 4);
+  assert.strictEqual(CORE.MELEE_SLASH_BACKSTAB_SPARKS, 10);
+  assert.strictEqual(CORE.MELEE_SLASH_MIST_COUNT, 6);
+  assert.strictEqual(CORE.MELEE_SLASH_BACKSTAB_MIST, 14);
+  assert.strictEqual(CORE.MELEE_SLASH_LIGHT_COLOR, 0xff2010);
+  assert.strictEqual(CORE.MELEE_SLASH_LIGHT_INTENSITY, 2.4);
+  assert.strictEqual(CORE.MELEE_SLASH_LIGHT_DIST, 4.2);
+  assert.strictEqual(CORE.MELEE_SLASH_LIGHT_DUR, 0.05);
+
+  const backstabParams = CORE.meleeSlashVfxParams(true);
+  assert.strictEqual(backstabParams.sparks, 10);
+  assert.strictEqual(backstabParams.mist, 14);
+  assert.strictEqual(backstabParams.lightColor, 0xff2010);
+  assert.strictEqual(backstabParams.lightIntensity, 2.4);
+  assert.strictEqual(backstabParams.lightDist, 4.2);
+  assert.strictEqual(backstabParams.lightDur, 0.05);
+
+  const standardParams = CORE.meleeSlashVfxParams(false);
+  assert.strictEqual(standardParams.sparks, 4);
+  assert.strictEqual(standardParams.mist, 6);
+  assert.strictEqual(standardParams.lightColor, 0);
+  assert.strictEqual(standardParams.lightIntensity, 0);
+
+  const outSlash = { x: 0, y: 0, z: 0 };
+  CORE.meleeSlashNormal(0, outSlash);
+  assert.ok(Math.abs(outSlash.x - 1) < 1e-6);
+  assert.strictEqual(outSlash.y, 0);
+  assert.ok(Math.abs(outSlash.z - 0) < 1e-6);
+
+  CORE.meleeSlashNormal(Math.PI / 2, outSlash);
+  assert.ok(Math.abs(outSlash.x - 0) < 1e-6);
+  assert.strictEqual(outSlash.y, 0);
+  assert.ok(Math.abs(outSlash.z - (-1)) < 1e-6);
+
+  // 2. Weapon muzzle light & suppressor visual attenuation
+  assert.strictEqual(CORE.MUZZLE_LIGHT_COLOR_STANDARD, 0xffcc88);
+  assert.strictEqual(CORE.MUZZLE_LIGHT_COLOR_SUPPRESSED, 0xffaa55);
+  assert.strictEqual(CORE.MUZZLE_LIGHT_DIST_STANDARD, 9.0);
+  assert.strictEqual(CORE.MUZZLE_LIGHT_DIST_SUPPRESSED, 4.0);
+  assert.strictEqual(CORE.MUZZLE_LIGHT_DIST_HEAVY, 12.0);
+  assert.strictEqual(CORE.MUZZLE_LIGHT_DIST_SMG, 7.5);
+
+  const pSupp = CORE.muzzleFlashLightParams('AR', true);
+  assert.strictEqual(pSupp.color, 0xffaa55);
+  assert.strictEqual(pSupp.distance, 4.0);
+  assert.ok(Math.abs(pSupp.intensityMul - 0.3) < 1e-6);
+
+  const pSr = CORE.muzzleFlashLightParams('SR', false);
+  assert.strictEqual(pSr.color, 0xffcc88);
+  assert.strictEqual(pSr.distance, 12.0);
+  assert.ok(Math.abs(pSr.intensityMul - 1.45) < 1e-6);
+
+  const pBr = CORE.muzzleFlashLightParams('BR', false);
+  assert.strictEqual(pBr.color, 0xffcc88);
+  assert.strictEqual(pBr.distance, 10.5);
+  assert.ok(Math.abs(pBr.intensityMul - 1.25) < 1e-6);
+
+  const pSmg = CORE.muzzleFlashLightParams('SMG', false);
+  assert.strictEqual(pSmg.color, 0xffcc88);
+  assert.strictEqual(pSmg.distance, 7.5);
+  assert.ok(Math.abs(pSmg.intensityMul - 0.8) < 1e-6);
+
+  const pAr = CORE.muzzleFlashLightParams('AR', false);
+  assert.strictEqual(pAr.color, 0xffcc88);
+  assert.strictEqual(pAr.distance, 9.0);
+  assert.ok(Math.abs(pAr.intensityMul - 1.0) < 1e-6);
+
+  // 3. Muzzle smoke/spark particle parameters
+  const vSupp = CORE.muzzleVfxParams('AR', true);
+  assert.strictEqual(vSupp.smokeCount, 1);
+  assert.strictEqual(vSupp.sparkCount, 0);
+  assert.strictEqual(vSupp.smokeScale, 0.4);
+
+  const vSr = CORE.muzzleVfxParams('SR', false);
+  assert.strictEqual(vSr.smokeCount, 5);
+  assert.strictEqual(vSr.sparkCount, 7);
+  assert.strictEqual(vSr.smokeScale, 1.0);
+
+  const vAr = CORE.muzzleVfxParams('AR', false);
+  assert.strictEqual(vAr.smokeCount, 3);
+  assert.strictEqual(vAr.sparkCount, 4);
+  assert.strictEqual(vAr.smokeScale, 0.75);
+});
+
+
 
 
 

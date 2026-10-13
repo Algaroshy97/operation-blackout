@@ -428,9 +428,9 @@ function fireShot(preserveSchedule) {
   const emptySnd = CORE.chamberEmptySound(s.ammo);
   if (emptySnd) playSound(emptySnd);
   triggerMuzzleFlash(w ? w.type : 'AR', isSuppressed);
-  flashMuzzleLight();
+  flashMuzzleLight(w ? w.type : 'AR', isSuppressed);
   kickViewmodel(w, vmTune);
-  if (muzzleFlash) fxMuzzle(muzzleWorldPos(_muzzleW), _shootDir, w.type === 'SR' || w.type === 'BR');
+  if (muzzleFlash) fxMuzzle(muzzleWorldPos(_muzzleW), _shootDir, w ? w.type : 'AR', isSuppressed);
   // a heavy round leaves a hanging vapour trail you can read back to the shooter
   if (w.type === 'SR') sniperTrail(_from, hit ? hit.point : _tracerMissEnd);
   updateHudAmmo();
@@ -460,11 +460,14 @@ function doMelee() {
   }
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
+  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
   const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);
   damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
+  CORE.meleeSlashNormal(player.yaw, _meleeNormOut);
+  if (typeof fxMeleeSlash === 'function') fxMeleeSlash(_meleePoint, _meleeNormOut, isBackstab);
 }
 
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
@@ -490,6 +493,7 @@ let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
 const _meleeDir = new THREE.Vector3();
+const _meleeNormOut = { x: 0, y: 0, z: 0 };
 
 // ---- Viewmodel ----
 // The models, materials, springs and animation live in 32_viewmodels.js. The gun

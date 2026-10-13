@@ -384,15 +384,18 @@ function spawnSlideDust(pos) { fxDust(pos, 6, 1); }
 
 // ---- Muzzle light (point light flash at gun) ----
 let muzzleLight = null;
-function flashMuzzleLight() {
+function flashMuzzleLight(weaponType, isSuppressed) {
   if (!muzzleLight) {
     // Punctual lights are in candela since r155; decay 2 is now the default.
-    muzzleLight = new THREE.PointLight(0xffcc88, 0, 9, 2);
+    muzzleLight = new THREE.PointLight(CORE.MUZZLE_LIGHT_COLOR_STANDARD, 0, CORE.MUZZLE_LIGHT_DIST_STANDARD, 2);
     muzzleLight.userData.vfx = true;
     scene.add(muzzleLight);
   }
+  const params = CORE.muzzleFlashLightParams(weaponType, isSuppressed);
+  muzzleLight.color.setHex(params.color);
+  muzzleLight.distance = params.distance;
   muzzleLight.position.copy(camera.position);
-  muzzleLight.intensity = CORE.VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY * LIGHT_COMPAT * 4;
+  muzzleLight.intensity = CORE.VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY * LIGHT_COMPAT * 4 * params.intensityMul;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {

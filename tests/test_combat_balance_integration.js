@@ -592,4 +592,93 @@ test('v139 tactical combat balance integration: weapon bloom per-shot accumulati
   assert.equal(CORE.canPlayerUsePlate(false, false, 2, 20, 50, true), false);
 });
 
+test('v142 visual polish integration: tactical melee strike execution VFX, blade slash kinematics, and weapon muzzle light suppressor visual attenuation', () => {
+  // 1. Tactical melee strike visual kinematics & arterial execution VFX
+  assert.equal(CORE.MELEE_SLASH_SPARK_COUNT, 4);
+  assert.equal(CORE.MELEE_SLASH_BACKSTAB_SPARKS, 10);
+  assert.equal(CORE.MELEE_SLASH_MIST_COUNT, 6);
+  assert.equal(CORE.MELEE_SLASH_BACKSTAB_MIST, 14);
+  assert.equal(CORE.MELEE_SLASH_LIGHT_COLOR, 0xff2010);
+  assert.equal(CORE.MELEE_SLASH_LIGHT_INTENSITY, 2.4);
+  assert.equal(CORE.MELEE_SLASH_LIGHT_DIST, 4.2);
+  assert.equal(CORE.MELEE_SLASH_LIGHT_DUR, 0.05);
+
+  const backstabVfx = CORE.meleeSlashVfxParams(true);
+  assert.equal(backstabVfx.sparks, 10);
+  assert.equal(backstabVfx.mist, 14);
+  assert.equal(backstabVfx.lightColor, 0xff2010);
+  assert.equal(backstabVfx.lightIntensity, 2.4);
+  assert.equal(backstabVfx.lightDist, 4.2);
+  assert.equal(backstabVfx.lightDur, 0.05);
+
+  const standardVfx = CORE.meleeSlashVfxParams(false);
+  assert.equal(standardVfx.sparks, 4);
+  assert.equal(standardVfx.mist, 6);
+  assert.equal(standardVfx.lightColor, 0);
+  assert.equal(standardVfx.lightIntensity, 0);
+  assert.equal(standardVfx.lightDist, 0);
+  assert.equal(standardVfx.lightDur, 0);
+
+  const normOut = { x: 0, y: 0, z: 0 };
+  CORE.meleeSlashNormal(0, normOut);
+  assert.ok(Math.abs(normOut.x - 1) < 1e-6);
+  assert.equal(normOut.y, 0);
+  assert.ok(Math.abs(normOut.z - 0) < 1e-6);
+
+  CORE.meleeSlashNormal(Math.PI / 2, normOut);
+  assert.ok(Math.abs(normOut.x - 0) < 1e-6);
+  assert.equal(normOut.y, 0);
+  assert.ok(Math.abs(normOut.z - (-1)) < 1e-6);
+
+  // 2. Weapon muzzle light & suppressor visual attenuation
+  assert.equal(CORE.MUZZLE_LIGHT_COLOR_STANDARD, 0xffcc88);
+  assert.equal(CORE.MUZZLE_LIGHT_COLOR_SUPPRESSED, 0xffaa55);
+  assert.equal(CORE.MUZZLE_LIGHT_DIST_STANDARD, 9.0);
+  assert.equal(CORE.MUZZLE_LIGHT_DIST_SUPPRESSED, 4.0);
+  assert.equal(CORE.MUZZLE_LIGHT_DIST_HEAVY, 12.0);
+  assert.equal(CORE.MUZZLE_LIGHT_DIST_SMG, 7.5);
+
+  const suppLight = CORE.muzzleFlashLightParams('AR', true);
+  assert.equal(suppLight.color, 0xffaa55);
+  assert.equal(suppLight.distance, 4.0);
+  assert.ok(Math.abs(suppLight.intensityMul - 0.3) < 1e-6);
+
+  const srLight = CORE.muzzleFlashLightParams('SR', false);
+  assert.equal(srLight.color, 0xffcc88);
+  assert.equal(srLight.distance, 12.0);
+  assert.ok(Math.abs(srLight.intensityMul - 1.45) < 1e-6);
+
+  const brLight = CORE.muzzleFlashLightParams('BR', false);
+  assert.equal(brLight.color, 0xffcc88);
+  assert.equal(brLight.distance, 10.5);
+  assert.ok(Math.abs(brLight.intensityMul - 1.25) < 1e-6);
+
+  const smgLight = CORE.muzzleFlashLightParams('SMG', false);
+  assert.equal(smgLight.color, 0xffcc88);
+  assert.equal(smgLight.distance, 7.5);
+  assert.ok(Math.abs(smgLight.intensityMul - 0.8) < 1e-6);
+
+  const arLight = CORE.muzzleFlashLightParams('AR', false);
+  assert.equal(arLight.color, 0xffcc88);
+  assert.equal(arLight.distance, 9.0);
+  assert.ok(Math.abs(arLight.intensityMul - 1.0) < 1e-6);
+
+  // 3. Muzzle smoke/spark particle parameters
+  const suppVfx = CORE.muzzleVfxParams('AR', true);
+  assert.equal(suppVfx.smokeCount, 1);
+  assert.equal(suppVfx.sparkCount, 0);
+  assert.equal(suppVfx.smokeScale, 0.4);
+
+  const srVfx = CORE.muzzleVfxParams('SR', false);
+  assert.equal(srVfx.smokeCount, 5);
+  assert.equal(srVfx.sparkCount, 7);
+  assert.equal(srVfx.smokeScale, 1.0);
+
+  const arVfx = CORE.muzzleVfxParams('AR', false);
+  assert.equal(arVfx.smokeCount, 3);
+  assert.equal(arVfx.sparkCount, 4);
+  assert.equal(arVfx.smokeScale, 0.75);
+});
+
+
 

@@ -4266,7 +4266,63 @@ def main() -> int:
         }""")
         checks.append(("mobile-dead-state-lockout-and-action-rules", mobile_dead_state_v141_check))
 
-        # 92) Clean console throughout gameplay.
+        # 92) Tactical melee slash execution & weapon muzzle light visual polish (v142 visual polish).
+        melee_and_muzzle_v142_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Tactical melee strike VFX & kinematic rules
+            const normOut = { x: 0, y: 0, z: 0 };
+            const nRes = CORE.meleeSlashNormal(0, normOut);
+            const normOk = nRes === normOut && Math.abs(normOut.x - 1.0) < 1e-4 && Math.abs(normOut.z - 0) < 1e-4;
+
+            const stdMelee = CORE.meleeSlashVfxParams(false);
+            const stdMeleeOk = stdMelee.sparks === CORE.MELEE_SLASH_SPARK_COUNT &&
+                               stdMelee.mist === CORE.MELEE_SLASH_MIST_COUNT &&
+                               stdMelee.lightIntensity === 0;
+
+            const bsMelee = CORE.meleeSlashVfxParams(true);
+            const bsMeleeOk = bsMelee.sparks === CORE.MELEE_SLASH_BACKSTAB_SPARKS &&
+                              bsMelee.mist === CORE.MELEE_SLASH_BACKSTAB_MIST &&
+                              bsMelee.lightColor === CORE.MELEE_SLASH_LIGHT_COLOR &&
+                              bsMelee.lightIntensity === CORE.MELEE_SLASH_LIGHT_INTENSITY &&
+                              bsMelee.lightDist === CORE.MELEE_SLASH_LIGHT_DIST &&
+                              bsMelee.lightDur === CORE.MELEE_SLASH_LIGHT_DUR;
+
+            // 2. Muzzle flash light & VFX rules
+            const stdMuzzleLight = CORE.muzzleFlashLightParams('AR', false);
+            const stdMuzzleLightOk = stdMuzzleLight.color === CORE.MUZZLE_LIGHT_COLOR_STANDARD &&
+                                     stdMuzzleLight.distance === CORE.MUZZLE_LIGHT_DIST_STANDARD &&
+                                     stdMuzzleLight.intensityMul === 1.0;
+
+            const supMuzzleLight = CORE.muzzleFlashLightParams('AR', true);
+            const supMuzzleLightOk = supMuzzleLight.color === CORE.MUZZLE_LIGHT_COLOR_SUPPRESSED &&
+                                     supMuzzleLight.distance === CORE.MUZZLE_LIGHT_DIST_SUPPRESSED &&
+                                     supMuzzleLight.intensityMul === 0.3;
+
+            const srMuzzleLight = CORE.muzzleFlashLightParams('SR', false);
+            const srMuzzleLightOk = srMuzzleLight.distance === CORE.MUZZLE_LIGHT_DIST_HEAVY &&
+                                    srMuzzleLight.intensityMul === 1.45;
+
+            const smgMuzzleLight = CORE.muzzleFlashLightParams('SMG', false);
+            const smgMuzzleLightOk = smgMuzzleLight.distance === CORE.MUZZLE_LIGHT_DIST_SMG &&
+                                     smgMuzzleLight.intensityMul === 0.8;
+
+            const stdMuzzleVfx = CORE.muzzleVfxParams('AR', false);
+            const stdMuzzleVfxOk = stdMuzzleVfx.smokeCount === 3 && stdMuzzleVfx.sparkCount === 4;
+
+            const supMuzzleVfx = CORE.muzzleVfxParams('AR', true);
+            const supMuzzleVfxOk = supMuzzleVfx.smokeCount === 1 && supMuzzleVfx.sparkCount === 0;
+
+            const srMuzzleVfx = CORE.muzzleVfxParams('SR', false);
+            const srMuzzleVfxOk = srMuzzleVfx.smokeCount === 5 && srMuzzleVfx.sparkCount === 7;
+
+            return normOk && stdMeleeOk && bsMeleeOk &&
+                   stdMuzzleLightOk && supMuzzleLightOk && srMuzzleLightOk && smgMuzzleLightOk &&
+                   stdMuzzleVfxOk && supMuzzleVfxOk && srMuzzleVfxOk;
+        }""")
+        checks.append(("tactical-melee-slash-and-muzzle-vfx-rules", melee_and_muzzle_v142_check))
+
+        # 93) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
