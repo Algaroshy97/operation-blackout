@@ -730,5 +730,44 @@ test('v143 audio polish integration: enemy archetype footsteps, reload magazine 
   assert.equal(CORE.meleeSurfaceSound(), 'impact');
 });
 
+test('v144 combat balance integration: weapon archetype recoil decay, empty swap agility, and tactical slide momentum', () => {
+  // 1. Recoil decay rates and stance stabilization
+  assert.equal(CORE.RECOIL_DECAY_SMG, 0.006);
+  assert.equal(CORE.RECOIL_DECAY_AR, 0.02);
+  assert.equal(CORE.RECOIL_DECAY_BR, 0.05);
+  assert.equal(CORE.RECOIL_DECAY_SR, 0.10);
+  assert.equal(CORE.RECOIL_DECAY_CROUCH_MUL, 0.65);
+  assert.equal(CORE.RECOIL_DECAY_SLIDE_MUL, 0.85);
+
+  const smgRate = CORE.weaponRecoilDecayRate('SMG', false, false);
+  const srRate = CORE.weaponRecoilDecayRate('SR', false, false);
+  assert.equal(smgRate, 0.006);
+  assert.equal(srRate, 0.10);
+
+  // Over 0.1s dt, SMG recoil decays to ~0.598, whereas SR recoil decays to ~0.794 (SMG recenters much faster)
+  const smgDecay = CORE.recoilDecay(0.1, 0.1, smgRate);
+  const srDecay = CORE.recoilDecay(0.1, 0.1, srRate);
+  assert.ok(smgDecay < srDecay, 'SMG recoil should decay faster than SR');
+
+  // Crouching braces the recoil: faster recentering
+  const crouchRate = CORE.weaponRecoilDecayRate('AR', true, false);
+  assert.ok(Math.abs(crouchRate - (0.02 * 0.65)) < 1e-6);
+  assert.ok(CORE.recoilDecay(0.1, 0.1, crouchRate) < CORE.recoilDecay(0.1, 0.1, 0.02), 'crouching should speed up recoil recovery');
+
+  // 2. Empty swap agility
+  assert.equal(CORE.EMPTY_SWAP_SPEED_MUL, 1.25);
+  const arNormalSwitch = CORE.weaponSwitchSpeed('AR', false, false);
+  const arEmptySwitch = CORE.weaponSwitchSpeed('AR', false, true);
+  assert.ok(Math.abs(arEmptySwitch - (arNormalSwitch * 1.25)) < 1e-6);
+
+  // 3. Tactical sprint slide kinetic momentum
+  const baseSprint = CORE.slideBaseSprintSpeed(5.4, 1.65, false);
+  const tacSprint = CORE.slideBaseSprintSpeed(5.4, 1.65, true);
+  assert.ok(Math.abs(baseSprint - 8.91) < 1e-6);
+  assert.ok(Math.abs(tacSprint - (8.91 * CORE.TAC_SPRINT_SPEED_MUL)) < 1e-6);
+  assert.ok(tacSprint > baseSprint);
+});
+
+
 
 

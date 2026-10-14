@@ -4359,7 +4359,33 @@ def main() -> int:
         }""")
         checks.append(("tactical-enemy-footsteps-reload-and-melee-surface-audio-rules", audio_v143_check))
 
-        # 94) Clean console throughout gameplay.
+        # 94) v144 tactical combat balance rules
+        combat_v144_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            // 1. Weapon archetype recoil decay rates and stance stabilization
+            const rdSmg = CORE.weaponRecoilDecayRate('SMG', false, false) === CORE.RECOIL_DECAY_SMG && CORE.RECOIL_DECAY_SMG === 0.006;
+            const rdAr = CORE.weaponRecoilDecayRate('AR', false, false) === CORE.RECOIL_DECAY_AR && CORE.RECOIL_DECAY_AR === 0.02;
+            const rdBr = CORE.weaponRecoilDecayRate('BR', false, false) === CORE.RECOIL_DECAY_BR && CORE.RECOIL_DECAY_BR === 0.05;
+            const rdSr = CORE.weaponRecoilDecayRate('SR', false, false) === CORE.RECOIL_DECAY_SR && CORE.RECOIL_DECAY_SR === 0.10;
+            const rdCrouch = Math.abs(CORE.weaponRecoilDecayRate('AR', true, false) - (0.02 * CORE.RECOIL_DECAY_CROUCH_MUL)) < 1e-6;
+            const rdSlide = Math.abs(CORE.weaponRecoilDecayRate('BR', false, true) - (0.05 * CORE.RECOIL_DECAY_SLIDE_MUL)) < 1e-6;
+            const rdOk = rdSmg && rdAr && rdBr && rdSr && rdCrouch && rdSlide;
+
+            // 2. Empty weapon emergency swap boost
+            const baseAr = CORE.weaponSwitchSpeed('AR', false, false);
+            const emptyAr = CORE.weaponSwitchSpeed('AR', false, true);
+            const swapOk = CORE.EMPTY_SWAP_SPEED_MUL === 1.25 && Math.abs(emptyAr - (baseAr * 1.25)) < 1e-6;
+
+            // 3. Tactical sprint slide kinetic momentum
+            const baseSprint = CORE.slideBaseSprintSpeed(5.4, 1.65, false);
+            const tacSprint = CORE.slideBaseSprintSpeed(5.4, 1.65, true);
+            const slideOk = Math.abs(baseSprint - 8.91) < 1e-6 && Math.abs(tacSprint - (8.91 * CORE.TAC_SPRINT_SPEED_MUL)) < 1e-6 && tacSprint > baseSprint;
+
+            return rdOk && swapOk && slideOk;
+        }""")
+        checks.append(("tactical-weapon-recoil-decay-empty-swap-and-slide-momentum-rules", combat_v144_check))
+
+        # 95) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

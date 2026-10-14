@@ -115,6 +115,7 @@ function switchWeapon(slot) {
   if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
   const next = curS();
+  const curWpn = curW();
   if (next) next.nextShot = CORE.shotScheduleAfterInactive();
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
@@ -124,7 +125,6 @@ function switchWeapon(slot) {
   gunSwitchT = 0;   // raise animation timer
   buildViewmodel();
   updateHudAmmo();
-  const curWpn = curW();
   playSound(CORE.weaponDrawSound(curWpn ? curWpn.type : ''));
 }
 
@@ -526,9 +526,9 @@ function updateViewmodel(dt) {
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
   const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
   adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), CORE.weaponAdsSpeed(w ? w.type : '', w ? w.adsSpeed : undefined));
-  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt, CORE.weaponSwitchSpeed(w ? w.type : '', hasFastHands));
-
   const s = curS();
+  const isEmptySwap = !!(s && s.ammo === 0);
+  gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt, CORE.weaponSwitchSpeed(w ? w.type : '', hasFastHands, isEmptySwap));
   const isSniper = w.type === 'SR';
   const scoped = isSniper && adsAmount > 0.82;
   const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;

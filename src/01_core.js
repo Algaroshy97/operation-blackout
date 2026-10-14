@@ -4263,48 +4263,54 @@ const CORE = (function () {
     return Math.min(mb, 1 + (spd / sprint) * sc);
   }
 
+  function slideBaseSprintSpeed(baseSpeed, sprintMul, isTacSprint) {
+    const base = _isNum(baseSpeed) && baseSpeed > 0 ? baseSpeed : 5.4;
+    const sMul = _isNum(sprintMul) && sprintMul > 0 ? sprintMul : 1.65;
+    return base * sMul * (Boolean(isTacSprint) ? TAC_SPRINT_SPEED_MUL : 1.0);
+  }
+
   const STAMINA_RECOVER_RATE = 0.7;
   const STAMINA_EXHAUST_RECOVER_RATIO = 0.35;
 
   function stepPlayerStamina(stamina, maxStamina, isSprinting, isTacSprint, dt, drainRate, tacDrainMul, recoverRate) {
-    const s = typeof stamina === 'number' && isFinite(stamina) ? stamina : 0;
-    const max = typeof maxStamina === 'number' && isFinite(maxStamina) && maxStamina > 0 ? maxStamina : 5;
-    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const s = _isNum(stamina) ? stamina : 0;
+    const max = _isNum(maxStamina) && maxStamina > 0 ? maxStamina : 5;
+    const d = _isNum(dt) && dt > 0 ? dt : 0;
     if (isSprinting) {
-      const drain = typeof drainRate === 'number' && isFinite(drainRate) && drainRate > 0 ? drainRate : 1;
-      const tacMul = typeof tacDrainMul === 'number' && isFinite(tacDrainMul) && tacDrainMul > 0 ? tacDrainMul : 2.2;
+      const drain = _isNum(drainRate) && drainRate > 0 ? drainRate : 1;
+      const tacMul = _isNum(tacDrainMul) && tacDrainMul > 0 ? tacDrainMul : 2.2;
       const burn = d * (isTacSprint ? tacMul : drain);
       return Math.max(0, s - burn);
     }
-    const rec = typeof recoverRate === 'number' && isFinite(recoverRate) && recoverRate > 0 ? recoverRate : STAMINA_RECOVER_RATE;
+    const rec = _isNum(recoverRate) && recoverRate > 0 ? recoverRate : STAMINA_RECOVER_RATE;
     return Math.min(max, s + d * rec);
   }
 
   function isPlayerExhausted(stamina, wasExhausted, maxStamina, recoverRatio) {
-    const s = typeof stamina === 'number' && isFinite(stamina) ? stamina : 0;
+    const s = _isNum(stamina) ? stamina : 0;
     if (s <= 0) return true;
     if (!wasExhausted) return false;
-    const max = typeof maxStamina === 'number' && isFinite(maxStamina) && maxStamina > 0 ? maxStamina : 5;
-    const ratio = typeof recoverRatio === 'number' && isFinite(recoverRatio) && recoverRatio >= 0 ? recoverRatio : STAMINA_EXHAUST_RECOVER_RATIO;
+    const max = _isNum(maxStamina) && maxStamina > 0 ? maxStamina : 5;
+    const ratio = _isNum(recoverRatio) && recoverRatio >= 0 ? recoverRatio : STAMINA_EXHAUST_RECOVER_RATIO;
     return s <= max * ratio;
   }
 
   function canRegenHealth(downed, timeSinceDamage, regenDelay, health, maxHealth) {
     if (downed) return false;
-    const since = typeof timeSinceDamage === 'number' && isFinite(timeSinceDamage) ? timeSinceDamage : -1;
-    const delay = typeof regenDelay === 'number' && isFinite(regenDelay) ? regenDelay : 4.0;
+    const since = _isNum(timeSinceDamage) ? timeSinceDamage : -1;
+    const delay = _isNum(regenDelay) ? regenDelay : 4.0;
     if (since <= delay) return false;
-    const hp = typeof health === 'number' && isFinite(health) ? health : 0;
-    const max = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    const hp = _isNum(health) ? health : 0;
+    const max = _isNum(maxHealth) && maxHealth > 0 ? maxHealth : 100;
     return hp < max && hp > 0;
   }
 
   function stepHealthRegen(currentHealth, maxHealth, regenRate, diffRegenMul, dt) {
-    const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? currentHealth : 0;
-    const max = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
-    const rate = typeof regenRate === 'number' && isFinite(regenRate) && regenRate > 0 ? regenRate : 20;
-    const diffMul = typeof diffRegenMul === 'number' && isFinite(diffRegenMul) && diffRegenMul > 0 ? diffRegenMul : 1;
-    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const hp = _isNum(currentHealth) ? currentHealth : 0;
+    const max = _isNum(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    const rate = _isNum(regenRate) && regenRate > 0 ? regenRate : 20;
+    const diffMul = _isNum(diffRegenMul) && diffRegenMul > 0 ? diffRegenMul : 1;
+    const d = _isNum(dt) && dt > 0 ? dt : 0;
     return Math.min(max, hp + rate * diffMul * d);
   }
 
@@ -4313,21 +4319,21 @@ const CORE = (function () {
   const MEDKIT_ARMOR_BASE = 15;
 
   function ammoPickupRestore(currentReserve, reserveMax, magSize, perkMul) {
-    const res = typeof currentReserve === 'number' && isFinite(currentReserve) ? Math.max(0, currentReserve) : 0;
-    const max = typeof reserveMax === 'number' && isFinite(reserveMax) && reserveMax > 0 ? reserveMax : 120;
-    const mag = typeof magSize === 'number' && isFinite(magSize) && magSize > 0 ? magSize : 30;
-    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
+    const res = _isNum(currentReserve) ? Math.max(0, currentReserve) : 0;
+    const max = _isNum(reserveMax) && reserveMax > 0 ? reserveMax : 120;
+    const mag = _isNum(magSize) && magSize > 0 ? magSize : 30;
+    const mul = _isNum(perkMul) && perkMul > 0 ? perkMul : 1;
     const gained = Math.round(mag * AMMO_PICKUP_MAG_RATIO * mul);
     return Math.min(max, res + gained);
   }
 
   function medkitPickupRestore(currentHealth, maxHealth, currentArmor, maxArmor, perkMul, out) {
     const o = out || { health: 0, armor: 0 };
-    const hp = typeof currentHealth === 'number' && isFinite(currentHealth) ? Math.max(0, currentHealth) : 0;
-    const maxHp = typeof maxHealth === 'number' && isFinite(maxHealth) && maxHealth > 0 ? maxHealth : 100;
-    const arm = typeof currentArmor === 'number' && isFinite(currentArmor) ? Math.max(0, currentArmor) : 0;
-    const maxArm = typeof maxArmor === 'number' && isFinite(maxArmor) && maxArmor > 0 ? maxArmor : 50;
-    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul > 0 ? perkMul : 1;
+    const hp = _isNum(currentHealth) ? Math.max(0, currentHealth) : 0;
+    const maxHp = _isNum(maxHealth) && maxHealth > 0 ? maxHealth : 100;
+    const arm = _isNum(currentArmor) ? Math.max(0, currentArmor) : 0;
+    const maxArm = _isNum(maxArmor) && maxArmor > 0 ? maxArmor : 50;
+    const mul = _isNum(perkMul) && perkMul > 0 ? perkMul : 1;
     const heal = Math.round(MEDKIT_HEAL_BASE * mul);
     const armorHeal = Math.round(MEDKIT_ARMOR_BASE * mul);
     o.health = Math.min(maxHp, hp + heal);
@@ -4656,7 +4662,7 @@ const CORE = (function () {
   const WEAPON_SWITCH_SPEED_AR = 3.6;
   const WEAPON_SWITCH_SPEED_BR = 3.0;
   const WEAPON_SWITCH_SPEED_SR = 2.4;
-  const FAST_HANDS_SWITCH_MUL = 1.35;
+  const FAST_HANDS_SWITCH_MUL = 1.35, EMPTY_SWAP_SPEED_MUL = 1.25;
   const WEAPON_ADS_SPEED_SMG = 1.25;
   const WEAPON_ADS_SPEED_AR = 1.00;
   const WEAPON_ADS_SPEED_BR = 0.88;
@@ -4671,12 +4677,12 @@ const CORE = (function () {
   const SHOT_KICK_DECAY_BASE = 0.001;
 
   function playerMoveSpeed(baseSpeed, analogMag, isSprinting, isTacSprint, isDowned, isLandStun, isCrouching, isAds, sprintMul, crouchMul, weaponMoveMul) {
-    const base = typeof baseSpeed === 'number' && isFinite(baseSpeed) ? Math.max(0, baseSpeed) : 5.4;
-    const mag = typeof analogMag === 'number' && isFinite(analogMag) ? Math.max(0, Math.min(1, analogMag)) : 1;
+    const base = _isNum(baseSpeed) ? Math.max(0, baseSpeed) : 5.4;
+    const mag = _isNum(analogMag) ? Math.max(0, Math.min(1, analogMag)) : 1;
     let spd = base * mag;
-    const sMul = typeof sprintMul === 'number' && isFinite(sprintMul) ? sprintMul : 1.65;
-    const cMul = typeof crouchMul === 'number' && isFinite(crouchMul) ? crouchMul : 0.55;
-    const wMul = typeof weaponMoveMul === 'number' && isFinite(weaponMoveMul) ? Math.max(0.1, weaponMoveMul) : 1;
+    const sMul = _isNum(sprintMul) ? sprintMul : 1.65;
+    const cMul = _isNum(crouchMul) ? crouchMul : 0.55;
+    const wMul = _isNum(weaponMoveMul) ? Math.max(0.1, weaponMoveMul) : 1;
 
     if (isSprinting) spd *= sMul * (isTacSprint ? TAC_SPRINT_SPEED_MUL : 1);
     if (isDowned) spd *= DOWN_SPEED_MUL;
@@ -4688,19 +4694,19 @@ const CORE = (function () {
 
   function movementAccelRate(onGround, isSliding, hasInput, groundAccel, groundDecel) {
     if (!onGround) return isSliding ? AIR_SLIDE_ACCEL_RATE : AIR_MOVE_ACCEL_RATE;
-    const accel = typeof groundAccel === 'number' && isFinite(groundAccel) ? groundAccel : 16;
-    const decel = typeof groundDecel === 'number' && isFinite(groundDecel) ? groundDecel : GROUND_DECEL_DEFAULT;
+    const accel = _isNum(groundAccel) ? groundAccel : 16;
+    const decel = _isNum(groundDecel) ? groundDecel : GROUND_DECEL_DEFAULT;
     return hasInput ? accel : decel;
   }
 
   function stepHorizontalVelocity(currentVx, currentVz, targetVx, targetVz, rate, dt, onGround, hasInput, out) {
     const o = out || { x: 0, z: 0 };
-    const cvx = typeof currentVx === 'number' && isFinite(currentVx) ? currentVx : 0;
-    const cvz = typeof currentVz === 'number' && isFinite(currentVz) ? currentVz : 0;
-    const tvx = typeof targetVx === 'number' && isFinite(targetVx) ? targetVx : 0;
-    const tvz = typeof targetVz === 'number' && isFinite(targetVz) ? targetVz : 0;
-    const r = typeof rate === 'number' && isFinite(rate) ? Math.max(0, rate) : 16;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const cvx = _isNum(currentVx) ? currentVx : 0;
+    const cvz = _isNum(currentVz) ? currentVz : 0;
+    const tvx = _isNum(targetVx) ? targetVx : 0;
+    const tvz = _isNum(targetVz) ? targetVz : 0;
+    const r = _isNum(rate) ? Math.max(0, rate) : 16;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
     const blend = Math.min(1, r * delta);
 
     let vx = cvx + (tvx - cvx) * blend;
@@ -4716,10 +4722,10 @@ const CORE = (function () {
 
   function stepHeadBob(bobPhase, bobAmp, onGround, horizontalSpeed, isSprinting, dt, out) {
     const o = out || { phase: 0, amp: 0 };
-    const p = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
-    const a = typeof bobAmp === 'number' && isFinite(bobAmp) ? Math.max(0, Math.min(1, bobAmp)) : 0;
-    const spd = typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const p = _isNum(bobPhase) ? bobPhase : 0;
+    const a = _isNum(bobAmp) ? Math.max(0, Math.min(1, bobAmp)) : 0;
+    const spd = _isNum(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
 
     if (onGround && spd > BOB_SPEED_THRESHOLD) {
       const freq = isSprinting ? BOB_FREQ_SPRINT : BOB_FREQ_WALK;
@@ -4734,16 +4740,15 @@ const CORE = (function () {
   }
 
   function landingStunDuration(landingSpeedMul) {
-    const mul = typeof landingSpeedMul === 'number' && isFinite(landingSpeedMul)
-      ? Math.max(0, Math.min(1, landingSpeedMul)) : 1;
+    const mul = _isNum(landingSpeedMul) ? Math.max(0, Math.min(1, landingSpeedMul)) : 1;
     return LAND_STUN_BASE_TIME + (1 - mul) * LAND_STUN_SCALE;
   }
 
   function stepJumpTimers(coyoteT, jumpBufT, onGround, jumpPressed, dt, out) {
     const o = out || { coyoteT: 0, jumpBufT: 0 };
-    const cT = typeof coyoteT === 'number' && isFinite(coyoteT) ? Math.max(0, coyoteT) : 0;
-    const jT = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? Math.max(0, jumpBufT) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const cT = _isNum(coyoteT) ? Math.max(0, coyoteT) : 0;
+    const jT = _isNum(jumpBufT) ? Math.max(0, jumpBufT) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
 
     o.coyoteT = onGround ? COYOTE_TIME : Math.max(0, cT - delta);
     o.jumpBufT = jumpPressed ? JUMP_BUFFER_TIME : Math.max(0, jT - delta);
@@ -4751,40 +4756,42 @@ const CORE = (function () {
   }
 
   function canInitiateJump(jumpBufT, coyoteT, isCrouching, isSliding, isDowned, landStunT) {
-    const jb = typeof jumpBufT === 'number' && isFinite(jumpBufT) ? jumpBufT : 0;
-    const ct = typeof coyoteT === 'number' && isFinite(coyoteT) ? coyoteT : 0;
-    const ls = typeof landStunT === 'number' && isFinite(landStunT) ? landStunT : 0;
+    const jb = _isNum(jumpBufT) ? jumpBufT : 0;
+    const ct = _isNum(coyoteT) ? coyoteT : 0;
+    const ls = _isNum(landStunT) ? landStunT : 0;
     return jb > 0 && ct > 0 && !isCrouching && !isSliding && !isDowned && ls <= 0;
   }
 
   function stepAdsTransition(currentAds, wantAds, dt, perkMul, weaponAdsSpeed) {
-    const cur = typeof currentAds === 'number' && isFinite(currentAds) ? Math.max(0, Math.min(1, currentAds)) : 0;
+    const cur = _isNum(currentAds) ? Math.max(0, Math.min(1, currentAds)) : 0;
     const target = wantAds ? 1 : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const pMul = typeof perkMul === 'number' && isFinite(perkMul) ? Math.max(0.1, perkMul) : 1;
-    const wSpeed = typeof weaponAdsSpeed === 'number' && isFinite(weaponAdsSpeed) ? Math.max(0.1, weaponAdsSpeed) : 1;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const pMul = _isNum(perkMul) ? Math.max(0.1, perkMul) : 1;
+    const wSpeed = _isNum(weaponAdsSpeed) ? Math.max(0.1, weaponAdsSpeed) : 1;
     const rate = ADS_BASE_SPEED * pMul * wSpeed;
     return cur + (target - cur) * Math.min(1, rate * delta);
   }
 
   function stepGunSwitch(currentSwitchT, dt, speed) {
-    const cur = typeof currentSwitchT === 'number' && isFinite(currentSwitchT) ? Math.max(0, Math.min(1, currentSwitchT)) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const spd = typeof speed === 'number' && isFinite(speed) ? Math.max(0.1, speed) : GUN_SWITCH_SPEED;
+    const cur = _isNum(currentSwitchT) ? Math.max(0, Math.min(1, currentSwitchT)) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const spd = _isNum(speed) ? Math.max(0.1, speed) : GUN_SWITCH_SPEED;
     return Math.min(1, cur + delta * spd);
   }
 
-  function weaponSwitchSpeed(weaponType, hasFastHands) {
+  function weaponSwitchSpeed(weaponType, hasFastHands, isEmpty) {
     let base = GUN_SWITCH_SPEED;
     if (weaponType === 'SMG') base = WEAPON_SWITCH_SPEED_SMG;
     else if (weaponType === 'AR') base = WEAPON_SWITCH_SPEED_AR;
     else if (weaponType === 'BR') base = WEAPON_SWITCH_SPEED_BR;
     else if (weaponType === 'SR') base = WEAPON_SWITCH_SPEED_SR;
-    return hasFastHands ? base * FAST_HANDS_SWITCH_MUL : base;
+    let spd = hasFastHands ? base * FAST_HANDS_SWITCH_MUL : base;
+    if (isEmpty) spd *= EMPTY_SWAP_SPEED_MUL;
+    return spd;
   }
 
   function weaponAdsSpeed(weaponType, customSpeed) {
-    if (typeof customSpeed === 'number' && isFinite(customSpeed) && customSpeed > 0) return customSpeed;
+    if (_isNum(customSpeed) && customSpeed > 0) return customSpeed;
     if (weaponType === 'SMG') return WEAPON_ADS_SPEED_SMG;
     if (weaponType === 'AR') return WEAPON_ADS_SPEED_AR;
     if (weaponType === 'BR') return WEAPON_ADS_SPEED_BR;
@@ -4793,7 +4800,7 @@ const CORE = (function () {
   }
 
   function weaponAdsMoveMultiplier(weaponType, customMultiplier) {
-    if (typeof customMultiplier === 'number' && isFinite(customMultiplier) && customMultiplier > 0) return customMultiplier;
+    if (_isNum(customMultiplier) && customMultiplier > 0) return customMultiplier;
     if (weaponType === 'SMG') return WEAPON_ADS_MOVE_SMG;
     if (weaponType === 'AR') return WEAPON_ADS_MOVE_AR;
     if (weaponType === 'BR') return WEAPON_ADS_MOVE_BR;
@@ -4802,16 +4809,16 @@ const CORE = (function () {
   }
 
   function applyShotKick(currentKick, impulse, maxKick) {
-    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
-    const imp = typeof impulse === 'number' && isFinite(impulse) ? impulse : SHOT_KICK_IMPULSE;
-    const mx = typeof maxKick === 'number' && isFinite(maxKick) ? maxKick : SHOT_KICK_MAX;
+    const cur = _isNum(currentKick) ? Math.max(0, currentKick) : 0;
+    const imp = _isNum(impulse) ? impulse : SHOT_KICK_IMPULSE;
+    const mx = _isNum(maxKick) ? maxKick : SHOT_KICK_MAX;
     return Math.min(cur + imp, mx);
   }
 
   function decayShotKick(currentKick, dt, decayBase) {
-    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const base = typeof decayBase === 'number' && isFinite(decayBase) && decayBase > 0 ? decayBase : SHOT_KICK_DECAY_BASE;
+    const cur = _isNum(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const base = _isNum(decayBase) && decayBase > 0 ? decayBase : SHOT_KICK_DECAY_BASE;
     return cur * Math.pow(base, delta);
   }
 
@@ -7721,6 +7728,21 @@ const CORE = (function () {
     return MELEE_SURFACE_DEFAULT_SOUND;
   }
 
+  // ---- Tactical Weapon Recoil Decay Agility & Stance Stabilization (v144 Balance Tuning) ----
+  const RECOIL_DECAY_SMG = 0.006, RECOIL_DECAY_AR = 0.02, RECOIL_DECAY_BR = 0.05, RECOIL_DECAY_SR = 0.10;
+  const RECOIL_DECAY_CROUCH_MUL = 0.65, RECOIL_DECAY_SLIDE_MUL = 0.85;
+  function weaponRecoilDecayRate(weaponType, isCrouching, isSliding) {
+    const t = String(weaponType || '').toUpperCase();
+    let base = RECOIL_DECAY_AR;
+    if (t === 'SMG') base = RECOIL_DECAY_SMG;
+    else if (t === 'BR') base = RECOIL_DECAY_BR;
+    else if (t === 'SR') base = RECOIL_DECAY_SR;
+    let mul = 1.0;
+    if (isSliding) mul = RECOIL_DECAY_SLIDE_MUL;
+    else if (isCrouching) mul = RECOIL_DECAY_CROUCH_MUL;
+    return base * mul;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -8003,7 +8025,10 @@ const CORE = (function () {
     RELOAD_OUT_SOUND, RELOAD_IN_SOUND, RELOAD_HEAVY_OUT_SOUND, RELOAD_HEAVY_IN_SOUND,
     RELOAD_SMG_OUT_SOUND, RELOAD_SMG_IN_SOUND, reloadMagazineOutSound, reloadMagazineInSound,
     MELEE_SURFACE_METAL_SOUND, MELEE_SURFACE_WOOD_SOUND, MELEE_SURFACE_GLASS_SOUND,
-    MELEE_SURFACE_GROUND_SOUND, MELEE_SURFACE_DEFAULT_SOUND, meleeSurfaceSound
+    MELEE_SURFACE_GROUND_SOUND, MELEE_SURFACE_DEFAULT_SOUND, meleeSurfaceSound,
+    EMPTY_SWAP_SPEED_MUL, slideBaseSprintSpeed,
+    RECOIL_DECAY_SMG, RECOIL_DECAY_AR, RECOIL_DECAY_BR, RECOIL_DECAY_SR,
+    RECOIL_DECAY_CROUCH_MUL, RECOIL_DECAY_SLIDE_MUL, weaponRecoilDecayRate
   };
 })();
 

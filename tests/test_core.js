@@ -9037,6 +9037,44 @@ test('v143 audio polish: enemy archetype footsteps, reload magazine acoustics, a
   assert.strictEqual(CORE.meleeSurfaceSound(), 'impact');
 });
 
+test('v144 tactical combat balance: weapon recoil decay agility, empty weapon swap boost, and tactical sprint slide momentum', () => {
+  // 1. Weapon archetype recoil decay rates and stance stabilization
+  assert.strictEqual(CORE.RECOIL_DECAY_SMG, 0.006);
+  assert.strictEqual(CORE.RECOIL_DECAY_AR, 0.02);
+  assert.strictEqual(CORE.RECOIL_DECAY_BR, 0.05);
+  assert.strictEqual(CORE.RECOIL_DECAY_SR, 0.10);
+  assert.strictEqual(CORE.RECOIL_DECAY_CROUCH_MUL, 0.65);
+  assert.strictEqual(CORE.RECOIL_DECAY_SLIDE_MUL, 0.85);
+
+  assert.strictEqual(CORE.weaponRecoilDecayRate('SMG', false, false), 0.006);
+  assert.strictEqual(CORE.weaponRecoilDecayRate('AR', false, false), 0.02);
+  assert.strictEqual(CORE.weaponRecoilDecayRate('BR', false, false), 0.05);
+  assert.strictEqual(CORE.weaponRecoilDecayRate('SR', false, false), 0.10);
+  assert.strictEqual(CORE.weaponRecoilDecayRate('', false, false), 0.02);
+
+  // Stance stabilization: crouching and sliding reduce rate base (faster exponential decay)
+  assert.ok(Math.abs(CORE.weaponRecoilDecayRate('AR', true, false) - (0.02 * 0.65)) < 1e-6);
+  assert.ok(Math.abs(CORE.weaponRecoilDecayRate('SMG', true, false) - (0.006 * 0.65)) < 1e-6);
+  assert.ok(Math.abs(CORE.weaponRecoilDecayRate('BR', false, true) - (0.05 * 0.85)) < 1e-6);
+
+  // 2. Empty magazine emergency weapon swap boost
+  assert.strictEqual(CORE.EMPTY_SWAP_SPEED_MUL, 1.25);
+  const baseSmgSwitch = CORE.weaponSwitchSpeed('SMG', false, false);
+  const emptySmgSwitch = CORE.weaponSwitchSpeed('SMG', false, true);
+  assert.ok(Math.abs(emptySmgSwitch - baseSmgSwitch * 1.25) < 1e-6);
+
+  const fastEmptyArSwitch = CORE.weaponSwitchSpeed('AR', true, true);
+  const fastArSwitch = CORE.weaponSwitchSpeed('AR', true, false);
+  assert.ok(Math.abs(fastEmptyArSwitch - fastArSwitch * 1.25) < 1e-6);
+
+  // 3. Tactical sprint slide kinetic momentum
+  const normalSprintBase = CORE.slideBaseSprintSpeed(5.4, 1.65, false);
+  assert.ok(Math.abs(normalSprintBase - (5.4 * 1.65)) < 1e-6);
+  const tacSprintBase = CORE.slideBaseSprintSpeed(5.4, 1.65, true);
+  assert.ok(Math.abs(tacSprintBase - (5.4 * 1.65 * CORE.TAC_SPRINT_SPEED_MUL)) < 1e-6);
+});
+
+
 
 
 

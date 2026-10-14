@@ -191,8 +191,12 @@ function updatePlayer(dt) {
   player.pitch = _assistLookOut.pitch;
   mouseX = 0; mouseY = 0;
   // recoil decay — now only what the player did NOT compensate for
-  player.recoilP = CORE.recoilDecay(player.recoilP, dt, CORE.RECOIL_DECAY_RATE);
-  player.recoilY = CORE.recoilDecay(player.recoilY, dt, CORE.RECOIL_DECAY_RATE);
+  const curGun = typeof curW === 'function' ? curW() : null;
+  const decayRate = typeof CORE !== 'undefined' && typeof CORE.weaponRecoilDecayRate === 'function'
+    ? CORE.weaponRecoilDecayRate(curGun ? curGun.type : '', !!player.crouching, !!player.sliding)
+    : CORE.RECOIL_DECAY_RATE;
+  player.recoilP = CORE.recoilDecay(player.recoilP, dt, decayRate);
+  player.recoilY = CORE.recoilDecay(player.recoilY, dt, decayRate);
 
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
@@ -221,7 +225,10 @@ function updatePlayer(dt) {
       CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, ix, player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
     }
     // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
-    const sprintBase = CFG.player.speed * CFG.player.sprintMul;
+    const isTacSlide = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+    const sprintBase = typeof CORE !== 'undefined' && typeof CORE.slideBaseSprintSpeed === 'function'
+      ? CORE.slideBaseSprintSpeed(CFG.player.speed, CFG.player.sprintMul, isTacSlide)
+      : CFG.player.speed * CFG.player.sprintMul;
     const crouchBase = CFG.player.speed * CORE.SLIDE_END_MUL;
     const slideSpeed = CORE.slideSpeedAt(player.slideT, sprintBase, crouchBase, CORE.SLIDE_DURATION, CORE.SLIDE_START_MUL, CORE.SLIDE_END_MUL);
     player.vel.x = player.slideDir.x * slideSpeed;
