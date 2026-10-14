@@ -386,22 +386,22 @@ function purchase(st) {
 let _lastTouchUseState = null;
 let _tbtnUseEl = null;
 
-function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, action, isDowned) {
+function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead) {
   if (typeof IS_TOUCH === 'undefined' || !IS_TOUCH) return;
   if (!_tbtnUseEl) _tbtnUseEl = $id('tbtn-use');
   if (!_tbtnUseEl) return;
-  if (!_lastTouchUseState) _lastTouchUseState = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null };
-  if (!CORE.touchUseChanged(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned)) return;
-  CORE.syncTouchUseState(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned);
+  if (!_lastTouchUseState) _lastTouchUseState = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null, isDead: null };
+  if (!CORE.touchUseChanged(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead)) return;
+  CORE.syncTouchUseState(_lastTouchUseState, nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead);
 
-  const uState = CORE.touchUseState(nearStation, canAfford, isHolding, isDowned);
+  const uState = CORE.touchUseState(nearStation, canAfford, isHolding, isDowned, isDead);
   _tbtnUseEl.classList.toggle('empty', uState === 'empty');
   _tbtnUseEl.classList.toggle('ready', uState === 'ready');
   _tbtnUseEl.classList.toggle('holding', uState === 'holding');
   _tbtnUseEl.classList.toggle('blocked', uState === 'blocked');
   _tbtnUseEl.classList.toggle('locked', uState === 'locked');
 
-  const lbl = CORE.touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned);
+  const lbl = CORE.touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead);
   if (_tbtnUseEl.textContent !== lbl) _tbtnUseEl.textContent = lbl;
 }
 
@@ -409,9 +409,10 @@ function updateTouchUseBtn(nearStation, canAfford, isHolding, stationKind, actio
 function updateStations(dt) {
   const isTouch = typeof IS_TOUCH !== 'undefined' && !!IS_TOUCH;
   const isDowned = typeof player !== 'undefined' && !!player.downed;
-  if (!started || paused || player.dead || isDowned) {
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  if (!started || paused || isDead || isDowned) {
     setBuyPrompt(null, 0);
-    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned);
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned, isDead);
     return;
   }
   // Plating runs to completion once started; it is a commitment, like a reload.
@@ -425,7 +426,7 @@ function updateStations(dt) {
       }
     }
     setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
-    if (isTouch) updateTouchUseBtn(false, false, false, '', '');
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned, isDead);
     return;
   }
   if (pressed['KeyX'] || pressed['__plate']) usePlate();
@@ -434,7 +435,7 @@ function updateStations(dt) {
   if (idx !== activeStation) { activeStation = idx; stationHoldT = 0; }
   if (idx < 0) {
     setBuyPrompt(null, 0);
-    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned);
+    if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned, isDead);
     return;
   }
   const st = stations[idx];
@@ -442,12 +443,12 @@ function updateStations(dt) {
   const canAfford = offer.ok && credits >= offer.price;
   const holding = !!(keys['KeyF'] || keys['__use']) && offer.ok;
   stationHoldT = CORE.stepStationHold(stationHoldT, holding, dt, CORE.STATION_HOLD_DECAY_RATE, CORE.BUY_HOLD);
-  if (holding && stationHoldT >= CORE.BUY_HOLD && CORE.canPlayerInteractStation(player.dead, isDowned, st)) {
+  if (holding && stationHoldT >= CORE.BUY_HOLD && CORE.canPlayerInteractStation(isDead, isDowned, st)) {
     stationHoldT = 0;
     purchase(st);
   }
   if (isTouch) {
-    updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action, isDowned);
+    updateTouchUseBtn(true, canAfford, holding, st.kind, offer.action, isDowned, isDead);
   }
   const promptPrefix = CORE.buyPromptPrefix(isTouch, offer.ok);
   const promptText = CORE.buyPromptLabel(offer.label, offer.price, promptPrefix);

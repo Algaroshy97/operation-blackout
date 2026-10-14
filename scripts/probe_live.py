@@ -4417,7 +4417,64 @@ def main() -> int:
         }""")
         checks.append(("bullet-magnetism-munitions-and-objective-perf-rules", perf_v145_check))
 
-        # 96) Clean console throughout gameplay.
+        # 96) Universal dead-state tactical, equipment, streak, and station button lockout rules (v146 mobile UI polish).
+        mobile_dead_state_v146_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Armor plate dead-state lockout
+            const pltDead = CORE.touchPlateState(3, 0, 50, false, false, true) === 'locked' &&
+                            CORE.touchPlateState(3, 40, 50, false, false, true) === 'locked' &&
+                            CORE.touchPlateState(3, 0, 50, false, false, false) === 'urgent' &&
+                            CORE.touchPlateLabel(3, false, false, true) === 'LOCKED' &&
+                            CORE.touchPlateLabel(3, false, false, false) === 'PLT 3';
+
+            // 2. Lethal & tactical equipment dead-state lockout
+            const eqDead = CORE.touchEquipmentState(2, false, false, true) === 'locked' &&
+                           CORE.touchEquipmentState(0, false, false, true) === 'locked' &&
+                           CORE.touchEquipmentState(2, false, false, false) === 'ready' &&
+                           CORE.touchLethalLabel('frag', 2, false, false, true) === 'LOCKED' &&
+                           CORE.touchLethalLabel('frag', 2, false, false, false) === 'FRAG' &&
+                           CORE.touchTacticalLabel('flash', 2, false, true) === 'LOCKED' &&
+                           CORE.touchTacticalLabel('flash', 2, false, false) === 'FLASH';
+
+            // 3. Scorestreak & field upgrade dead-state lockout
+            const strkDead = CORE.touchStreakState(true, false, false, true) === 'locked' &&
+                             CORE.touchStreakState(false, true, false, true) === 'locked' &&
+                             CORE.touchStreakState(true, false, false, false) === 'streak' &&
+                             CORE.touchStreakLabel('uav', false, 0, false, true) === 'LOCKED' &&
+                             CORE.touchStreakLabel('uav', false, 0, false, false) === 'UAV' &&
+                             CORE.touchStreakLabel(null, true, 0, false, true) === 'LOCKED' &&
+                             CORE.touchStreakLabel(null, true, 0, false, false) === 'BOX';
+
+            // 4. Weapon swap & ADS dead-state lockout
+            const wList = [{ type: 'AR' }, { type: 'SMG' }];
+            const swapDead = CORE.touchSwapState(0, [0, 1], false, false, true) === 'locked' &&
+                             CORE.touchSwapState(0, [0, 1], false, false, false) === 'ready' &&
+                             CORE.touchSwapLabel(0, [0, 1], wList, false, false, true) === 'LOCKED' &&
+                             CORE.touchSwapLabel(0, [0, 1], wList, false, false, false) === 'SMG';
+
+            const adsDead = CORE.touchAdsState(1.0, 'AR', 0.82, false, false, true) === 'locked' &&
+                            CORE.touchAdsState(1.0, 'AR', 0.82, false, false, false) === 'active' &&
+                            CORE.touchAdsLabel('active', 'AR', 0, false, true) === 'LOCKED' &&
+                            CORE.touchAdsLabel('active', 'AR', 0, false, false) === 'AIM';
+
+            // 5. Station USE dead-state lockout and change detection
+            const useDead = CORE.touchUseState(true, true, false, false, true) === 'locked' &&
+                            CORE.touchUseState(true, true, false, false, false) === 'ready' &&
+                            CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false, true) === 'LOCKED' &&
+                            CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false, false) === 'UPGRADE';
+
+            const useInit = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null, isDead: null };
+            const chg1 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, true) === true;
+            CORE.syncTouchUseState(useInit, true, true, false, 'wall', 'buy', false, true);
+            const chg2 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, true) === false;
+            const chg3 = CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, false) === true;
+
+            return pltDead && eqDead && strkDead && swapDead && adsDead && useDead && chg1 && chg2 && chg3;
+        }""")
+        checks.append(("mobile-universal-dead-state-lockout-rules", mobile_dead_state_v146_check))
+
+        # 97) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

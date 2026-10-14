@@ -2343,28 +2343,28 @@ const CORE = (function () {
   // 'empty' when out of plates, 'urgent' when armor is broken (0)
   // or critically low (<= 25% max), 'ready' when armor is damaged and can accept a plate,
   // or '' when armor is already at full capacity.
-  function touchPlateState(plates, armor, armorMax, inserting, isDowned) {
-    if (isDowned) return 'locked';
+  function touchPlateState(plates, armor, armorMax, inserting, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (inserting) return 'inserting';
-    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'empty';
-    const curA = typeof armor === 'number' && isFinite(armor) ? armor : 0;
-    const maxA = typeof armorMax === 'number' && isFinite(armorMax) ? armorMax : 50;
+    if (!_isNum(plates) || plates <= 0) return 'empty';
+    const curA = _isNum(armor) ? armor : 0;
+    const maxA = (_isNum(armorMax) && armorMax > 0) ? armorMax : 50;
     if (curA <= 0 || isArmorLow(curA, maxA)) return 'urgent';
     if (curA < maxA) return 'ready';
     return '';
   }
   // Mobile touch equipment button state (frag grenades, tactical equipment): returns 'locked'
-  // while downed, 'charging' while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
-  function touchEquipmentState(count, isCharging, isDowned) {
-    if (isDowned) return 'locked';
+  // while downed or dead, 'charging' while holding throw, 'empty' when stock is exhausted, or 'ready' when items remain.
+  function touchEquipmentState(count, isCharging, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (isCharging) return 'charging';
-    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'empty';
+    if (!_isNum(count) || count <= 0) return 'empty';
     return 'ready';
   }
-  // Mobile touch scorestreak/field upgrade button state: returns 'locked' while downed,
+  // Mobile touch scorestreak/field upgrade button state: returns 'locked' while downed or dead,
   // 'streak' when a banked streak is ready, 'field' when field upgrade is ready, or 'empty' when neither is charged.
-  function touchStreakState(hasStreak, fieldReady, isDowned) {
-    if (isDowned) return 'locked';
+  function touchStreakState(hasStreak, fieldReady, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (hasStreak) return 'streak';
     if (fieldReady) return 'field';
     return 'empty';
@@ -2375,32 +2375,28 @@ const CORE = (function () {
   function touchSwapNextSlot(curSlot, weaponsOwned) {
     if (!Array.isArray(weaponsOwned) || weaponsOwned.length < 2) return -1;
     const n = weaponsOwned.length;
-    const slot = typeof curSlot === 'number' && isFinite(curSlot) ? ((curSlot % n) + n) % n : 0;
+    const slot = _isNum(curSlot) ? ((curSlot % n) + n) % n : 0;
     for (let k = 1; k < n; k++) {
       const ns = (slot + k) % n;
       const wid = weaponsOwned[ns];
-      if (typeof wid === 'number' && isFinite(wid) && wid >= 0) return ns;
+      if (_isNum(wid) && wid >= 0) return ns;
     }
     return -1;
   }
-  // Mobile touch weapon swap button state: returns 'locked' while downed, 'switching' while weapon is raising,
+  // Mobile touch weapon swap button state: returns 'locked' while downed or dead, 'switching' while weapon is raising,
   // 'empty' when no secondary weapon is available, or 'ready' when a reserve weapon is owned
   // and can be switched to.
-  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted or falsy.
-  // Pure: no side effects, no DOM, no THREE.
-  function touchSwapState(curSlot, weaponsOwned, isSwitching, isDowned) {
-    if (isDowned) return 'locked';
+  function touchSwapState(curSlot, weaponsOwned, isSwitching, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (touchSwapNextSlot(curSlot, weaponsOwned) < 0) return 'empty';
     if (isSwitching) return 'switching';
     return 'ready';
   }
-  // Mobile touch weapon swap button label: returns 'LOCKED' while downed, 'DRAW' while weapon is raising, the weapon type
+  // Mobile touch weapon swap button label: returns 'LOCKED' while downed or dead, 'DRAW' while weapon is raising, the weapon type
   // of the reserve weapon (e.g. 'AR', 'SMG', 'BR', 'SR') when secondary is owned,
   // or 'SWAP' when empty/unowned.
-  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted or falsy.
-  // Pure: no side effects, no DOM, no THREE.
-  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchSwapLabel(curSlot, weaponsOwned, weaponsList, isSwitching, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     const nextSlot = touchSwapNextSlot(curSlot, weaponsOwned);
     if (nextSlot < 0) return 'SWAP';
     if (isSwitching) return 'DRAW';
@@ -2416,21 +2412,21 @@ const CORE = (function () {
     if (!ok) return '';
     return isTouch ? 'HOLD USE — ' : 'HOLD F — ';
   }
-  // Mobile touch station USE button state: returns 'locked' while downed, 'holding' when actively holding interaction,
+  // Mobile touch station USE button state: returns 'locked' while downed or dead, 'holding' when actively holding interaction,
   // 'ready' when in range of an affordable station, 'blocked' when near an unaffordable station,
   // or 'empty' when out of range of any interactive station.
-  function touchUseState(nearStation, canAfford, isHolding, isDowned) {
-    if (isDowned) return 'locked';
+  function touchUseState(nearStation, canAfford, isHolding, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
     if (!nearStation) return 'empty';
     if (isHolding) return 'holding';
     if (canAfford) return 'ready';
     return 'blocked';
   }
-  // Mobile touch station USE button contextual label: displays 'LOCKED' while downed, 'HOLD' while purchasing,
+  // Mobile touch station USE button contextual label: displays 'LOCKED' while downed or dead, 'HOLD' while purchasing,
   // 'LOCK' when blocked, 'UPGRADE' / 'OPEN' / 'AMMO' / 'BUY' / 'PLATE' / 'PERK' / 'CYCLE'
   // when available, or 'USE' when idle/empty.
-  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchUseLabel(nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     if (!nearStation) return 'USE';
     if (isHolding) return 'HOLD';
     if (!canAfford) return 'LOCK';
@@ -2443,18 +2439,21 @@ const CORE = (function () {
     return 'BUY';
   }
   // Change-detection for mobile touch station USE button to prevent redundant DOM updates.
-  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
+  function touchUseChanged(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead) {
     if (!lastState || typeof lastState !== 'object') return true;
     const downedVal = !!isDowned;
     const lastDowned = !!lastState.isDowned;
+    const deadVal = !!isDead;
+    const lastDead = !!lastState.isDead;
     return lastState.nearStation !== nearStation ||
            lastState.canAfford !== canAfford ||
            lastState.isHolding !== isHolding ||
            lastState.stationKind !== stationKind ||
            lastState.action !== action ||
-           (isDowned !== undefined ? lastDowned !== downedVal : false);
+           (isDowned !== undefined ? lastDowned !== downedVal : false) ||
+           (isDead !== undefined ? lastDead !== deadVal : false);
   }
-  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned) {
+  function syncTouchUseState(lastState, nearStation, canAfford, isHolding, stationKind, action, isDowned, isDead) {
     const target = lastState && typeof lastState === 'object' ? lastState : {};
     target.nearStation = nearStation;
     target.canAfford = canAfford;
@@ -2462,6 +2461,7 @@ const CORE = (function () {
     target.stationKind = stationKind;
     target.action = action;
     target.isDowned = !!isDowned;
+    target.isDead = !!isDead;
     return target;
   }
   // Mobile touch stance/slide button state: returns 'locked' while downed, 'sliding' during an active slide,
@@ -2482,42 +2482,42 @@ const CORE = (function () {
     if (crouching) return 'STAND';
     return 'SLIDE';
   }
-  // Mobile touch plate button label: returns 'LOCKED' when downed, 'ARMOR' while inserting, 'PLT ' + count
+  // Mobile touch plate button label: returns 'LOCKED' when downed or dead, 'ARMOR' while inserting, 'PLT ' + count
   // when plates are available, or 'EMPTY' when inventory is 0.
-  function touchPlateLabel(plates, inserting, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchPlateLabel(plates, inserting, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     if (inserting) return 'ARMOR';
-    if (typeof plates !== 'number' || !isFinite(plates) || plates <= 0) return 'EMPTY';
+    if (!_isNum(plates) || plates <= 0) return 'EMPTY';
     return 'PLT ' + plates;
   }
-  // Mobile touch tactical equipment button label: displays 'LOCKED' while downed, 'FLASH', 'STUN', 'SMOKE'
+  // Mobile touch tactical equipment button label: displays 'LOCKED' while downed or dead, 'FLASH', 'STUN', 'SMOKE'
   // based on active ordnance key, 'EMPTY' when depleted, or 'TAC' fallback.
-  function touchTacticalLabel(equippedKey, count, isDowned) {
-    if (isDowned) return 'LOCKED';
-    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+  function touchTacticalLabel(equippedKey, count, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
+    if (!_isNum(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'flash') return 'FLASH';
     if (equippedKey === 'stun') return 'STUN';
     if (equippedKey === 'smoke') return 'SMOKE';
     return 'TAC';
   }
-  // Mobile touch lethal equipment button label: displays 'LOCKED' while downed, 'HOLD' while charging, 'FRAG',
+  // Mobile touch lethal equipment button label: displays 'LOCKED' while downed or dead, 'HOLD' while charging, 'FRAG',
   // 'SMTX', 'CLAY' based on active explosive key, 'EMPTY' when depleted, or 'NADE' fallback.
-  function touchLethalLabel(equippedKey, count, isCharging, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchLethalLabel(equippedKey, count, isCharging, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     if (isCharging) return 'HOLD';
-    if (typeof count !== 'number' || !isFinite(count) || count <= 0) return 'EMPTY';
+    if (!_isNum(count) || count <= 0) return 'EMPTY';
     if (equippedKey === 'semtex') return 'SMTX';
     if (equippedKey === 'claymore') return 'CLAY';
     if (equippedKey === 'frag') return 'FRAG';
     return 'NADE';
   }
-  // Mobile touch scorestreak / field upgrade button label: displays 'LOCKED' while downed, 'UAV', 'AIR', 'TUR'
+  // Mobile touch scorestreak / field upgrade button label: displays 'LOCKED' while downed or dead, 'UAV', 'AIR', 'TUR'
   // for active banked streaks, 'BOX' when munitions field upgrade is ready, a charge
   // percentage (e.g. '73%') when field is charging and no streak is banked, or 'STRK'
   // fallback. Optional third argument fieldChargePct (0–100) enables the progress label;
   // omitting it preserves the previous two-argument behaviour exactly.
-  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct, isDowned) {
-    if (isDowned) return 'LOCKED';
+  function touchStreakLabel(topStreakKey, fieldReady, fieldChargePct, isDowned, isDead) {
+    if (isDead || isDowned) return 'LOCKED';
     if (topStreakKey) {
       if (topStreakKey === 'uav') return 'UAV';
       if (topStreakKey === 'airstrike') return 'AIR';
@@ -2529,7 +2529,7 @@ const CORE = (function () {
     if (fieldReady) return 'BOX';
     // Show charge progress when the field upgrade is actively charging (>5%) so
     // mobile players can see how close they are without looking at the streak HUD.
-    if (typeof fieldChargePct === 'number' && isFinite(fieldChargePct) && fieldChargePct >= 5) {
+    if (_isNum(fieldChargePct) && fieldChargePct >= 5) {
       return Math.min(99, Math.floor(fieldChargePct)) + '%';
     }
     return 'STRK';
@@ -2542,21 +2542,21 @@ const CORE = (function () {
   // Evaluates player eligibility to throw lethal or tactical ordnance.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerThrowEquipment(isDead, isDowned, count, cooldownRemaining) {
-    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
-    const cnt = typeof count === 'number' && isFinite(count) ? count : 0;
+    const cd = _isNum(cooldownRemaining) ? cooldownRemaining : 0;
+    const cnt = _isNum(count) ? count : 0;
     return !isDead && !isDowned && cnt > 0 && cd <= 0;
   }
   // Evaluates player eligibility to call in an earned scorestreak.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerUseStreak(isDead, isDowned, streakCount) {
-    const cnt = typeof streakCount === 'number' && isFinite(streakCount) ? streakCount : 0;
+    const cnt = _isNum(streakCount) ? streakCount : 0;
     return !isDead && !isDowned && cnt > 0;
   }
   // Evaluates player eligibility to deploy a munitions field upgrade.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerUseFieldUpgrade(isDead, isDowned, currentCharge, requiredCharge) {
-    const cur = typeof currentCharge === 'number' && isFinite(currentCharge) ? currentCharge : 0;
-    const req = typeof requiredCharge === 'number' && isFinite(requiredCharge) ? requiredCharge : 100;
+    const cur = _isNum(currentCharge) ? currentCharge : 0;
+    const req = _isNum(requiredCharge) ? requiredCharge : 100;
     return !isDead && !isDowned && cur >= req;
   }
   // Evaluates player eligibility to interact with stations, doors, and wall buys.
@@ -2577,31 +2577,31 @@ const CORE = (function () {
   // Evaluates player eligibility to insert an armor plate.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerUsePlate(isDead, isDowned, plates, currentArmor, maxArmor, isInserting) {
-    const cnt = typeof plates === 'number' && isFinite(plates) ? plates : 0;
-    const curA = typeof currentArmor === 'number' && isFinite(currentArmor) ? currentArmor : 0;
-    const maxA = typeof maxArmor === 'number' && isFinite(maxArmor) ? maxArmor : 50;
+    const cnt = _isNum(plates) ? plates : 0;
+    const curA = _isNum(currentArmor) ? currentArmor : 0;
+    const maxA = (_isNum(maxArmor) && maxArmor > 0) ? maxArmor : 50;
     return !isDead && !isDowned && cnt > 0 && curA < maxA && !isInserting;
   }
   // Evaluates player eligibility to fire a weapon round.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerFire(isDead, isReloading, isSwitching, ammo) {
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
+    const a = _isNum(ammo) ? ammo : 0;
     return !isDead && !isReloading && !isSwitching && a > 0;
   }
   // Evaluates player eligibility to initiate a weapon reload.
   // Pure: no side effects, no DOM, no THREE.
   function canPlayerReload(isDead, isReloading, ammo, magSize, reserve) {
     if (isDead || isReloading) return false;
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
-    const m = typeof magSize === 'number' && isFinite(magSize) ? magSize : 0;
-    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const a = _isNum(ammo) ? ammo : 0;
+    const m = _isNum(magSize) ? magSize : 0;
+    const r = _isNum(reserve) ? reserve : 0;
     return m > 0 && r > 0 && a < m;
   }
   // Mobile touch melee button state: returns 'locked' while downed or dead, 'cooldown' while melee swing recovers,
   // 'ready' when an enemy is within blade strike reach and cone, or '' when neutral.
   function touchMeleeState(hasTarget, cooldownRemaining, isDowned, isDead) {
     if (isDead || isDowned) return 'locked';
-    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    const cd = _isNum(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'cooldown';
     if (hasTarget) return 'ready';
     return '';
@@ -2610,35 +2610,32 @@ const CORE = (function () {
   // 'STRIKE' when an enemy is within blade strike range, or 'KNIFE' default.
   function touchMeleeLabel(hasTarget, cooldownRemaining, isDowned, isDead) {
     if (isDead || isDowned) return 'LOCKED';
-    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    const cd = _isNum(cooldownRemaining) ? cooldownRemaining : 0;
     if (cd > 0) return 'WAIT';
     if (hasTarget) return 'STRIKE';
     return 'KNIFE';
   }
-  // Mobile touch ADS button state: returns 'locked' while downed, 'steady' when sniper breath hold is engaged,
+  // Mobile touch ADS button state: returns 'locked' while downed or dead, 'steady' when sniper breath hold is engaged,
   // 'scoped' when optical scope is locked in (SR/BR >= threshold),
   // 'active' when aiming down sights, or '' at hip fire.
-  // Backwards-compatible: behaves identically to previous versions when isDowned is omitted/falsy.
-  // Pure: no side effects, no DOM, no THREE.
-  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive, isDowned) {
-    if (isDowned) return 'locked';
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
-    const thr = typeof scopeLockedThreshold === 'number' && isFinite(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
+  function touchAdsState(adsAmount, weaponType, scopeLockedThreshold, isSteadyActive, isDowned, isDead) {
+    if (isDead || isDowned) return 'locked';
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
+    const thr = _isNum(scopeLockedThreshold) ? scopeLockedThreshold : 0.82;
     if (ads <= 0) return '';
     if ((weaponType === 'SR' || weaponType === 'BR') && ads >= thr) {
       return isSteadyActive ? 'steady' : 'scoped';
     }
     return 'active';
   }
-  // Mobile touch ADS button contextual label: displays 'LOCKED' while downed, 'STEADY' while holding breath,
+  // Mobile touch ADS button contextual label: displays 'LOCKED' while downed or dead, 'STEADY' while holding breath,
   // 'WAIT' when sniper breath is exhausted, 'SCOPE' when optical scope is engaged,
   // 'AIM' when aiming standard sights, or 'ADS' default.
-  // Pure: no side effects, no DOM, no THREE.
-  function touchAdsLabel(adsState, weaponType, steadyT, isDowned) {
-    if (isDowned || adsState === 'locked') return 'LOCKED';
+  function touchAdsLabel(adsState, weaponType, steadyT, isDowned, isDead) {
+    if (isDead || isDowned || adsState === 'locked') return 'LOCKED';
     if (adsState === 'steady') return 'STEADY';
     if (adsState === 'scoped') {
-      if (typeof steadyT === 'number' && isFinite(steadyT) && steadyT <= 0) return 'WAIT';
+      if (_isNum(steadyT) && steadyT <= 0) return 'WAIT';
       return 'SCOPE';
     }
     if (adsState === 'active') return 'AIM';

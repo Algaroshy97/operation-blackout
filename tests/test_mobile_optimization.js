@@ -442,5 +442,56 @@ test('v141 mobile UI polish: dead-state button lockout gating, action capability
   assert.match(head, /body\.touch\s+#tbtn-reload\.locked/);
 });
 
+test('v146 mobile UI polish: universal dead-state tactical, equipment, streak, and station button lockout gating', () => {
+  // 1. Armor plate dead-state lockout
+  assert.equal(CORE.touchPlateState(3, 0, 50, false, false, true), 'locked');
+  assert.equal(CORE.touchPlateState(3, 0, 50, false, false, false), 'urgent');
+  assert.equal(CORE.touchPlateLabel(3, false, false, true), 'LOCKED');
+  assert.equal(CORE.touchPlateLabel(3, false, false, false), 'PLT 3');
+
+  // 2. Lethal & tactical equipment dead-state lockout
+  assert.equal(CORE.touchEquipmentState(2, false, false, true), 'locked');
+  assert.equal(CORE.touchEquipmentState(2, false, false, false), 'ready');
+  assert.equal(CORE.touchLethalLabel('frag', 2, false, false, true), 'LOCKED');
+  assert.equal(CORE.touchLethalLabel('frag', 2, false, false, false), 'FRAG');
+  assert.equal(CORE.touchTacticalLabel('flash', 2, false, true), 'LOCKED');
+  assert.equal(CORE.touchTacticalLabel('flash', 2, false, false), 'FLASH');
+
+  // 3. Scorestreak & field upgrade dead-state lockout
+  assert.equal(CORE.touchStreakState(true, false, false, true), 'locked');
+  assert.equal(CORE.touchStreakState(false, true, false, true), 'locked');
+  assert.equal(CORE.touchStreakState(true, false, false, false), 'streak');
+  assert.equal(CORE.touchStreakState(false, true, false, false), 'field');
+  assert.equal(CORE.touchStreakLabel('uav', false, 0, false, true), 'LOCKED');
+  assert.equal(CORE.touchStreakLabel('uav', false, 0, false, false), 'UAV');
+  assert.equal(CORE.touchStreakLabel(null, true, 0, false, true), 'LOCKED');
+  assert.equal(CORE.touchStreakLabel(null, true, 0, false, false), 'BOX');
+
+  // 4. Weapon swap & ADS dead-state lockout
+  const wList = [{ type: 'AR' }, { type: 'SMG' }];
+  assert.equal(CORE.touchSwapState(0, [0, 1], false, false, true), 'locked');
+  assert.equal(CORE.touchSwapState(0, [0, 1], false, false, false), 'ready');
+  assert.equal(CORE.touchSwapLabel(0, [0, 1], wList, false, false, true), 'LOCKED');
+  assert.equal(CORE.touchSwapLabel(0, [0, 1], wList, false, false, false), 'SMG');
+
+  assert.equal(CORE.touchAdsState(1.0, 'AR', 0.82, false, false, true), 'locked');
+  assert.equal(CORE.touchAdsState(1.0, 'AR', 0.82, false, false, false), 'active');
+  assert.equal(CORE.touchAdsLabel('active', 'AR', 0, false, true), 'LOCKED');
+  assert.equal(CORE.touchAdsLabel('active', 'AR', 0, false, false), 'AIM');
+
+  // 5. Station USE dead-state lockout and change detection
+  assert.equal(CORE.touchUseState(true, true, false, false, true), 'locked');
+  assert.equal(CORE.touchUseState(true, true, false, false, false), 'ready');
+  assert.equal(CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false, true), 'LOCKED');
+  assert.equal(CORE.touchUseLabel(true, true, false, 'armory', 'upgrade', false, false), 'UPGRADE');
+
+  const useInit = { nearStation: null, canAfford: null, isHolding: null, stationKind: null, action: null, isDowned: null, isDead: null };
+  assert.equal(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, true), true);
+  CORE.syncTouchUseState(useInit, true, true, false, 'wall', 'buy', false, true);
+  assert.equal(useInit.isDead, true);
+  assert.equal(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, true), false);
+  assert.equal(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, false), true);
+});
+
 
 

@@ -88,8 +88,9 @@ function updateHudHealth(force) {
     const tbtnPlate = hud.tbtnPlate || (hud.tbtnPlate = $id('tbtn-plate'));
     if (tbtnPlate) {
       const isDowned = typeof player !== 'undefined' && !!player.downed;
-      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns, isDowned);
-      const plateLabel = CORE.touchPlateLabel(curPlates, isIns, isDowned);
+      const isDead = typeof player !== 'undefined' && !!player.dead;
+      const plateState = CORE.touchPlateState(curPlates, player.armor, maxArmor, isIns, isDowned, isDead);
+      const plateLabel = CORE.touchPlateLabel(curPlates, isIns, isDowned, isDead);
       if (CORE.touchPlateChanged(_touchPlateCache, plateState, plateLabel)) {
         CORE.syncTouchPlateState(_touchPlateCache, plateState, plateLabel);
         tbtnPlate.classList.toggle('empty', plateState === 'empty');
@@ -202,8 +203,8 @@ function updateHudAmmo(force) {
     const isDowned = typeof player !== 'undefined' && !!player.downed;
     const tbtnNade = hud.tbtnNade || (hud.tbtnNade = $id('tbtn-nade'));
     if (tbtnNade) {
-      const nadeState = CORE.touchEquipmentState(nadeCount, isChg, isDowned);
-      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg, isDowned);
+      const nadeState = CORE.touchEquipmentState(nadeCount, isChg, isDowned, isDead);
+      const nadeLabel = CORE.touchLethalLabel(equippedLethal, nadeCount, isChg, isDowned, isDead);
       if (CORE.touchEquipmentChanged(_touchNadeCache, nadeState, nadeLabel)) {
         CORE.syncTouchEquipmentState(_touchNadeCache, nadeState, nadeLabel);
         tbtnNade.classList.toggle('empty', nadeState === 'empty');
@@ -215,8 +216,8 @@ function updateHudAmmo(force) {
     }
     const tbtnTac = hud.tbtnTac || (hud.tbtnTac = $id('tbtn-tactical'));
     if (tbtnTac) {
-      const tacState = CORE.touchEquipmentState(tacCount, false, isDowned);
-      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount, isDowned);
+      const tacState = CORE.touchEquipmentState(tacCount, false, isDowned, isDead);
+      const tacLabel = CORE.touchTacticalLabel(equippedTactical, tacCount, isDowned, isDead);
       if (CORE.touchEquipmentChanged(_touchTacCache, tacState, tacLabel)) {
         CORE.syncTouchEquipmentState(_touchTacCache, tacState, tacLabel);
         tbtnTac.classList.toggle('empty', tacState === 'empty');
@@ -228,8 +229,8 @@ function updateHudAmmo(force) {
     const tbtnSwap = hud.tbtnSwap || (hud.tbtnSwap = $id('tbtn-swap'));
     if (tbtnSwap && typeof weaponsOwned !== 'undefined') {
       const isSwitching = typeof gunSwitchT === 'number' && gunSwitchT < 1;
-      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching, isDowned);
-      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching, isDowned);
+      const swapState = CORE.touchSwapState(curWeapon, weaponsOwned, isSwitching, isDowned, isDead);
+      const swapLabel = CORE.touchSwapLabel(curWeapon, weaponsOwned, typeof CFG !== 'undefined' ? CFG.weapons : null, isSwitching, isDowned, isDead);
       if (CORE.touchSwapChanged(_touchSwapCache, swapState, swapLabel)) {
         CORE.syncTouchSwapState(_touchSwapCache, swapState, swapLabel);
         tbtnSwap.classList.toggle('empty', swapState === 'empty');

@@ -535,8 +535,9 @@ function updateTouchAdsBtn() {
   const isSteady = typeof steadyActive === 'boolean' ? steadyActive : false;
   const sT = typeof steadyT === 'number' ? steadyT : 0;
   const isDowned = !!player.downed;
-  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady, isDowned);
-  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT, isDowned);
+  const isDead = !!player.dead;
+  const adsState = CORE.touchAdsState(adsAmount, wType, CORE.SCOPE_LOCKED_THRESHOLD, isSteady, isDowned, isDead);
+  const adsLabel = CORE.touchAdsLabel(adsState, wType, sT, isDowned, isDead);
   if (!CORE.touchAdsChanged(_touchAdsCache, adsState, adsLabel)) return;
   CORE.syncTouchAdsState(_touchAdsCache, adsState, adsLabel);
 
