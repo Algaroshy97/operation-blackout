@@ -9200,11 +9200,79 @@ test('v146 mobile UI polish: universal dead-state tactical, equipment, streak, a
   assert.strictEqual(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, false), true);
 });
 
+test('v147 visual polish: ordnance explosion VFX, marksman sniper vapor trail, and enemy muzzle flash rules', () => {
+  // 1. Ordnance explosion VFX particle counts & dynamic point light scaling
+  assert.strictEqual(CORE.EXPLOSION_FIREBALL_BASE_COUNT, 18);
+  assert.strictEqual(CORE.EXPLOSION_SPARK_BASE_COUNT, 40);
+  assert.strictEqual(CORE.EXPLOSION_SMOKE_BASE_COUNT, 22);
+  assert.strictEqual(CORE.EXPLOSION_DUST_BASE_COUNT, 16);
+  assert.strictEqual(CORE.EXPLOSION_DEBRIS_BASE_COUNT, 14);
+  assert.strictEqual(CORE.EXPLOSION_LIGHT_COLOR, 0xff9040);
+  assert.strictEqual(CORE.EXPLOSION_LIGHT_BASE_INTENSITY, 14.0);
+  assert.strictEqual(CORE.EXPLOSION_LIGHT_BASE_DIST, 22.0);
+  assert.strictEqual(CORE.EXPLOSION_LIGHT_DUR, 0.45);
 
+  const exp1 = CORE.explosionVfxParams(1.0);
+  assert.strictEqual(exp1.fireballCount, 18);
+  assert.strictEqual(exp1.sparkCount, 40);
+  assert.strictEqual(exp1.smokeCount, 22);
+  assert.strictEqual(exp1.dustCount, 16);
+  assert.strictEqual(exp1.debrisCount, 14);
+  assert.strictEqual(exp1.fireballColor0, 0xfff0c0);
+  assert.strictEqual(exp1.fireballColor1, 0xff3808);
+  assert.strictEqual(exp1.sparkColor0, 0xffe0a0);
+  assert.strictEqual(exp1.sparkColor1, 0xff4010);
+  assert.strictEqual(exp1.smokeColor0, 0x3a3230);
+  assert.strictEqual(exp1.smokeColor1, 0x1c1a1a);
+  assert.strictEqual(exp1.dustColor0, 0x7a6e62);
+  assert.strictEqual(exp1.dustColor1, 0x4a443e);
+  assert.strictEqual(exp1.debrisColor0, 0x2a2624);
+  assert.strictEqual(exp1.debrisColor1, 0x1a1816);
 
+  const expScaled = CORE.explosionVfxParams(1.4);
+  assert.strictEqual(expScaled.fireballCount, 25);
+  assert.strictEqual(expScaled.sparkCount, 56);
+  assert.strictEqual(expScaled.smokeCount, 31);
+  assert.strictEqual(expScaled.dustCount, 22);
+  assert.strictEqual(expScaled.debrisCount, 20);
 
+  const light1 = CORE.explosionLightParams(1.0);
+  assert.strictEqual(light1.color, 0xff9040);
+  assert.strictEqual(light1.intensity, 14.0);
+  assert.strictEqual(light1.distance, 22.0);
+  assert.strictEqual(light1.duration, 0.45);
 
+  const lightScaled = CORE.explosionLightParams(1.4);
+  assert.ok(Math.abs(lightScaled.intensity - (14.0 * 1.4)) < 1e-4);
+  assert.ok(Math.abs(lightScaled.distance - (22.0 * 1.4)) < 1e-4);
 
+  // 2. Marksman sniper vapor trail kinematics & aesthetics
+  assert.strictEqual(CORE.SNIPER_TRAIL_STEP, 1.4);
+  assert.strictEqual(CORE.SNIPER_TRAIL_MAX_PUFFS, 45);
+  assert.strictEqual(CORE.SNIPER_TRAIL_COLOR0, 0xc8ccd0);
+  assert.strictEqual(CORE.SNIPER_TRAIL_COLOR1, 0x8a8e94);
+  assert.strictEqual(CORE.SNIPER_TRAIL_BASE_SIZE, 0.05);
+  assert.strictEqual(CORE.SNIPER_TRAIL_END_SIZE, 0.35);
+  assert.strictEqual(CORE.SNIPER_TRAIL_ALPHA, 0.16);
 
+  assert.strictEqual(CORE.sniperTrailPuffCount(28.0), 20);
+  assert.strictEqual(CORE.sniperTrailPuffCount(0), 0);
+  assert.strictEqual(CORE.sniperTrailPuffCount(100.0), 45);
 
+  const trailParams = CORE.sniperTrailParams(28.0);
+  assert.strictEqual(trailParams.count, 20);
+  assert.strictEqual(trailParams.color0, 0xc8ccd0);
+  assert.strictEqual(trailParams.color1, 0x8a8e94);
+  assert.strictEqual(trailParams.baseSize, 0.05);
+  assert.strictEqual(trailParams.endSize, 0.35);
+  assert.strictEqual(trailParams.alpha, 0.16);
 
+  // 3. Enemy archetype weapon muzzle flash & tracer dispatch
+  assert.strictEqual(CORE.enemyWeaponType(1, false), 'AR');
+  assert.strictEqual(CORE.enemyWeaponType(2, false), 'BR');
+  assert.strictEqual(CORE.enemyWeaponType(3, false), 'SMG');
+  assert.strictEqual(CORE.enemyWeaponType(5, false), 'AR');
+  assert.strictEqual(CORE.enemyWeaponType(1, true), 'BR');
+  assert.strictEqual(CORE.tracerColor(true), 0xff8844);
+  assert.strictEqual(CORE.tracerColor(false), 0xffe9a0);
+});

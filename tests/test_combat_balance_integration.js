@@ -768,6 +768,79 @@ test('v144 combat balance integration: weapon archetype recoil decay, empty swap
   assert.ok(tacSprint > baseSprint);
 });
 
+test('v147 visual polish integration: ordnance explosion VFX, marksman sniper vapor trail, and enemy muzzle flash rules', () => {
+  // 1. Ordnance explosion VFX particle counts & dynamic point light scaling
+  assert.equal(CORE.EXPLOSION_FIREBALL_BASE_COUNT, 18);
+  assert.equal(CORE.EXPLOSION_SPARK_BASE_COUNT, 40);
+  assert.equal(CORE.EXPLOSION_SMOKE_BASE_COUNT, 22);
+  assert.equal(CORE.EXPLOSION_DUST_BASE_COUNT, 16);
+  assert.equal(CORE.EXPLOSION_DEBRIS_BASE_COUNT, 14);
+  assert.equal(CORE.EXPLOSION_LIGHT_COLOR, 0xff9040);
+  assert.equal(CORE.EXPLOSION_LIGHT_BASE_INTENSITY, 14.0);
+  assert.equal(CORE.EXPLOSION_LIGHT_BASE_DIST, 22.0);
+  assert.equal(CORE.EXPLOSION_LIGHT_DUR, 0.45);
 
+  const exp1 = CORE.explosionVfxParams(1.0);
+  assert.equal(exp1.fireballCount, 18);
+  assert.equal(exp1.sparkCount, 40);
+  assert.equal(exp1.smokeCount, 22);
+  assert.equal(exp1.dustCount, 16);
+  assert.equal(exp1.debrisCount, 14);
+  assert.equal(exp1.fireballColor0, 0xfff0c0);
+  assert.equal(exp1.fireballColor1, 0xff3808);
+  assert.equal(exp1.sparkColor0, 0xffe0a0);
+  assert.equal(exp1.sparkColor1, 0xff4010);
+  assert.equal(exp1.smokeColor0, 0x3a3230);
+  assert.equal(exp1.smokeColor1, 0x1c1a1a);
+  assert.equal(exp1.dustColor0, 0x7a6e62);
+  assert.equal(exp1.dustColor1, 0x4a443e);
+  assert.equal(exp1.debrisColor0, 0x2a2624);
+  assert.equal(exp1.debrisColor1, 0x1a1816);
 
+  const expScaled = CORE.explosionVfxParams(1.4);
+  assert.equal(expScaled.fireballCount, 25);
+  assert.equal(expScaled.sparkCount, 56);
+  assert.equal(expScaled.smokeCount, 31);
+  assert.equal(expScaled.dustCount, 22);
+  assert.equal(expScaled.debrisCount, 20);
 
+  const light1 = CORE.explosionLightParams(1.0);
+  assert.equal(light1.color, 0xff9040);
+  assert.equal(light1.intensity, 14.0);
+  assert.equal(light1.distance, 22.0);
+  assert.equal(light1.duration, 0.45);
+
+  const lightScaled = CORE.explosionLightParams(1.4);
+  assert.ok(Math.abs(lightScaled.intensity - (14.0 * 1.4)) < 1e-4);
+  assert.ok(Math.abs(lightScaled.distance - (22.0 * 1.4)) < 1e-4);
+
+  // 2. Marksman sniper vapor trail kinematics & aesthetics
+  assert.equal(CORE.SNIPER_TRAIL_STEP, 1.4);
+  assert.equal(CORE.SNIPER_TRAIL_MAX_PUFFS, 45);
+  assert.equal(CORE.SNIPER_TRAIL_COLOR0, 0xc8ccd0);
+  assert.equal(CORE.SNIPER_TRAIL_COLOR1, 0x8a8e94);
+  assert.equal(CORE.SNIPER_TRAIL_BASE_SIZE, 0.05);
+  assert.equal(CORE.SNIPER_TRAIL_END_SIZE, 0.35);
+  assert.equal(CORE.SNIPER_TRAIL_ALPHA, 0.16);
+
+  assert.equal(CORE.sniperTrailPuffCount(28.0), 20);
+  assert.equal(CORE.sniperTrailPuffCount(0), 0);
+  assert.equal(CORE.sniperTrailPuffCount(100.0), 45); // clamped to max puffs
+
+  const trailParams = CORE.sniperTrailParams(28.0);
+  assert.equal(trailParams.count, 20);
+  assert.equal(trailParams.color0, 0xc8ccd0);
+  assert.equal(trailParams.color1, 0x8a8e94);
+  assert.equal(trailParams.baseSize, 0.05);
+  assert.equal(trailParams.endSize, 0.35);
+  assert.equal(trailParams.alpha, 0.16);
+
+  // 3. Enemy archetype weapon muzzle flash & tracer dispatch
+  assert.equal(CORE.enemyWeaponType(1, false), 'AR'); // Rifleman
+  assert.equal(CORE.enemyWeaponType(2, false), 'BR'); // Tank (heavy)
+  assert.equal(CORE.enemyWeaponType(3, false), 'SMG'); // Shielded advancer (carbine)
+  assert.equal(CORE.enemyWeaponType(5, false), 'AR'); // Grenadier
+  assert.equal(CORE.enemyWeaponType(1, true), 'BR'); // Elite Rifleman
+  assert.equal(CORE.tracerColor(true), 0xff8844);
+  assert.equal(CORE.tracerColor(false), 0xffe9a0);
+});

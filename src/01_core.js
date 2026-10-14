@@ -2300,29 +2300,29 @@ const CORE = (function () {
   }
   const ARMOR_LOW_RATIO = 0.25;
   function isArmorLow(armor, maxArmor) {
-    if (typeof armor !== 'number' || !isFinite(armor)) return false;
-    const max = (typeof maxArmor === 'number' && isFinite(maxArmor) && maxArmor > 0) ? maxArmor : 50;
+    if (!_isNum(armor)) return false;
+    const max = (_isNum(maxArmor) && maxArmor > 0) ? maxArmor : 50;
     return armor > 0 && armor <= max * ARMOR_LOW_RATIO;
   }
   function isArmorEmpty(armor) {
-    if (typeof armor !== 'number' || !isFinite(armor)) return true;
+    if (!_isNum(armor)) return true;
     return armor <= 0;
   }
   const AMMO_LOW_RATIO = 0.25;
   function isAmmoLow(ammo, mag) {
-    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
-    if (typeof mag !== 'number' || !isFinite(mag) || mag <= 0) return false;
+    if (!_isNum(ammo)) return false;
+    if (!_isNum(mag) || mag <= 0) return false;
     return ammo <= mag * AMMO_LOW_RATIO;
   }
   function isAmmoEmpty(ammo) {
-    if (typeof ammo !== 'number' || !isFinite(ammo)) return false;
+    if (!_isNum(ammo)) return false;
     return ammo <= 0;
   }
   function reloadPrompt(reloading, ammo, reserve, isTouch) {
     if (reloading) return 'RELOADING';
-    if (typeof ammo !== 'number' || !isFinite(ammo)) return '';
+    if (!_isNum(ammo)) return '';
     if (ammo > 0) return '';
-    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const res = _isNum(reserve) ? reserve : 0;
     if (res <= 0) return 'OUT OF AMMO — FIND PICKUPS';
     return isTouch ? 'RELOAD' : 'RELOAD [R]';
   }
@@ -2332,8 +2332,8 @@ const CORE = (function () {
   function touchReloadState(ammo, reserve, reloading, isDead) {
     if (isDead) return 'locked';
     if (reloading) return 'reloading';
-    if (typeof ammo !== 'number' || !isFinite(ammo) || ammo > 0) return '';
-    const res = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    if (!_isNum(ammo) || ammo > 0) return '';
+    const res = _isNum(reserve) ? reserve : 0;
     if (res <= 0) return '';
     return 'urgent';
   }
@@ -2716,10 +2716,10 @@ const CORE = (function () {
   // Pure: no side effects, no DOM, no THREE.
   function isMobileSteadyAim(isAdsTouch, adsAmount, weaponType, moveX, moveZ) {
     if (!isAdsTouch || weaponType !== 'SR') return false;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     if (ads < ADS_SCOPE_THRESHOLD) return false;
-    const mx = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
-    const mz = typeof moveZ === 'number' && isFinite(moveZ) ? Math.abs(moveZ) : 0;
+    const mx = _isNum(moveX) ? Math.abs(moveX) : 0;
+    const mz = _isNum(moveZ) ? Math.abs(moveZ) : 0;
     return mx < 0.05 && mz < 0.05;
   }
   // Mobile touch fire button feedback state: returns 'reloading' during reload cycle,
@@ -2730,8 +2730,8 @@ const CORE = (function () {
   function touchFireState(ammo, reserve, reloading, isDead) {
     if (isDead) return 'locked';
     if (reloading) return 'reloading';
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
-    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const a = _isNum(ammo) ? ammo : 0;
+    const r = _isNum(reserve) ? reserve : 0;
     if (a <= 0 && r <= 0) return 'empty';
     if (a <= 0 && r > 0) return 'dry';
     return 'ready';
@@ -2742,8 +2742,8 @@ const CORE = (function () {
   function touchFireLabel(ammo, reserve, reloading, isAdsFire, isDead) {
     if (isDead) return 'LOCKED';
     if (reloading) return 'RELOAD';
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
-    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const a = _isNum(ammo) ? ammo : 0;
+    const r = _isNum(reserve) ? reserve : 0;
     if (a <= 0 && r <= 0) return 'EMPTY';
     if (a <= 0 && r > 0) return 'RELOAD';
     return isAdsFire ? 'ADS+FIRE' : 'FIRE';
@@ -2755,8 +2755,8 @@ const CORE = (function () {
   function touchReloadLabel(ammo, reserve, reloading, isDead) {
     if (isDead) return 'LOCKED';
     if (reloading) return 'WAIT';
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
-    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const a = _isNum(ammo) ? ammo : 0;
+    const r = _isNum(reserve) ? reserve : 0;
     if (a <= 0 && r <= 0) return 'EMPTY';
     if (a <= 0 && r > 0) return 'RELOAD';
     return 'RLD';
@@ -2797,7 +2797,7 @@ const CORE = (function () {
   function touchEditorControlLabel(elementId, size) {
     if (!elementId || typeof elementId !== 'string') return 'Select a button';
     const name = touchControlName(elementId);
-    if (typeof size === 'number' && isFinite(size) && size > 0) {
+    if (_isNum(size) && size > 0) {
       return name + ' (' + Math.round(size) + 'px)';
     }
     return name;
@@ -2806,9 +2806,9 @@ const CORE = (function () {
   // Clamps mobile touch layout editor positioning coordinates to viewport boundaries [0, maxPct].
   // Pure: no side effects, no DOM, no THREE.
   function touchLayoutClampPercent(clientCoord, elementDim, viewportSpan) {
-    const span = typeof viewportSpan === 'number' && viewportSpan > 0 ? viewportSpan : 1;
-    const dim = typeof elementDim === 'number' && isFinite(elementDim) ? elementDim : 0;
-    const coord = typeof clientCoord === 'number' && isFinite(clientCoord) ? clientCoord : 0;
+    const span = (_isNum(viewportSpan) && viewportSpan > 0) ? viewportSpan : 1;
+    const dim = _isNum(elementDim) ? elementDim : 0;
+    const coord = _isNum(clientCoord) ? clientCoord : 0;
     const maxPct = Math.max(0, 100 - (dim / span * 100));
     const targetPct = (coord - dim / 2) / span * 100;
     return Math.max(0, Math.min(maxPct, targetPct));
@@ -2823,17 +2823,17 @@ const CORE = (function () {
   // Clamps mobile touch control size dimension [minSize, maxSize] in pixels.
   // Pure: no side effects, no DOM, no THREE.
   function clampTouchControlSize(size, minSize, maxSize) {
-    const min = typeof minSize === 'number' && isFinite(minSize) && minSize > 0 ? minSize : TOUCH_MIN_CONTROL_SIZE;
-    const max = typeof maxSize === 'number' && isFinite(maxSize) && maxSize >= min ? maxSize : TOUCH_MAX_CONTROL_SIZE;
-    if (typeof size !== 'number' || !isFinite(size)) return TOUCH_DEFAULT_CONTROL_SIZE;
+    const min = (_isNum(minSize) && minSize > 0) ? minSize : TOUCH_MIN_CONTROL_SIZE;
+    const max = (_isNum(maxSize) && maxSize >= min) ? maxSize : TOUCH_MAX_CONTROL_SIZE;
+    if (!_isNum(size)) return TOUCH_DEFAULT_CONTROL_SIZE;
     return Math.max(min, Math.min(max, Math.round(size)));
   }
 
   // Clamps mobile touch layout percentage coordinate [0, maxPct].
   // Pure: no side effects, no DOM, no THREE.
   function clampTouchLayoutCoord(coordPct, maxPct) {
-    if (typeof coordPct !== 'number' || !isFinite(coordPct)) return 0;
-    const max = typeof maxPct === 'number' && isFinite(maxPct) && maxPct >= 0 ? maxPct : 100;
+    if (!_isNum(coordPct)) return 0;
+    const max = (_isNum(maxPct) && maxPct >= 0) ? maxPct : 100;
     return Math.max(0, Math.min(max, Number(coordPct.toFixed(2))));
   }
 
@@ -2842,13 +2842,13 @@ const CORE = (function () {
   function sanitizeTouchLayoutPosition(entry, minSize, maxSize) {
     if (!entry || typeof entry !== 'object') return null;
     const out = {};
-    if (typeof entry.left === 'number' && isFinite(entry.left)) {
+    if (_isNum(entry.left)) {
       out.left = clampTouchLayoutCoord(entry.left, 100);
     }
-    if (typeof entry.top === 'number' && isFinite(entry.top)) {
+    if (_isNum(entry.top)) {
       out.top = clampTouchLayoutCoord(entry.top, 100);
     }
-    if (typeof entry.size === 'number' && isFinite(entry.size)) {
+    if (_isNum(entry.size)) {
       out.size = clampTouchControlSize(entry.size, minSize, maxSize);
     }
     return Object.keys(out).length > 0 ? out : null;
@@ -2882,11 +2882,10 @@ const CORE = (function () {
   // Computes clamped mobile look delta with sensitivity scaling and boundary clamping.
   // Prevents runaway camera acceleration from device edge-swipes or touch jumps.
   function touchLookDelta(clientCoord, lastCoord, sensitivity, maxDelta) {
-    if (typeof clientCoord !== 'number' || !isFinite(clientCoord) ||
-        typeof lastCoord !== 'number' || !isFinite(lastCoord)) return 0;
-    const factor = typeof sensitivity === 'number' && isFinite(sensitivity) && sensitivity > 0 ? sensitivity : 1;
+    if (!_isNum(clientCoord) || !_isNum(lastCoord)) return 0;
+    const factor = (_isNum(sensitivity) && sensitivity > 0) ? sensitivity : 1;
     const rawDelta = (clientCoord - lastCoord) * factor;
-    const max = typeof maxDelta === 'number' && isFinite(maxDelta) && maxDelta > 0 ? maxDelta : TOUCH_MAX_LOOK_DELTA;
+    const max = (_isNum(maxDelta) && maxDelta > 0) ? maxDelta : TOUCH_MAX_LOOK_DELTA;
     return Math.max(-max, Math.min(max, rawDelta));
   }
 
@@ -3299,7 +3298,7 @@ const CORE = (function () {
   const ENEMY_MELEE_SHIELD_BONUS = 5;
   const ENEMY_MELEE_SCOUT_PENALTY = -4;
   function enemyMeleeDamage(baseDmg, isTankOrKind, wave, diffMul, isElite) {
-    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 18;
+    const base = (_isNum(baseDmg) && baseDmg > 0) ? baseDmg : 18;
     let bonus = 0;
     if (typeof isTankOrKind === 'boolean') {
       bonus = isTankOrKind ? ENEMY_MELEE_TANK_BONUS : 0;
@@ -3308,16 +3307,16 @@ const CORE = (function () {
       else if (isTankOrKind === 3) bonus = ENEMY_MELEE_SHIELD_BONUS;
       else if (isTankOrKind === 4) bonus = ENEMY_MELEE_SCOUT_PENALTY;
     }
-    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
-    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const w = (_isNum(wave) && wave > 0) ? wave : 1;
+    const diff = (_isNum(diffMul) && diffMul > 0) ? diffMul : 1;
     const elite = isElite ? ELITE.dmgMul : 1;
     return (base + bonus + w * 0.4) * diff * elite;
   }
 
   function enemyRangedDamage(baseDmg, wave, diffMul, isElite) {
-    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 8;
-    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
-    const diff = typeof diffMul === 'number' && isFinite(diffMul) && diffMul > 0 ? diffMul : 1;
+    const base = (_isNum(baseDmg) && baseDmg > 0) ? baseDmg : 8;
+    const w = (_isNum(wave) && wave > 0) ? wave : 1;
+    const diff = (_isNum(diffMul) && diffMul > 0) ? diffMul : 1;
     const elite = isElite ? ELITE.dmgMul : 1;
     return (base + w * 0.35) * diff * elite;
   }
@@ -3337,39 +3336,39 @@ const CORE = (function () {
   const SHIELD_ABSORB_RATIO = 0.85;    // 85% absorbed head-on (0.15 damage multiplier)
 
   function enemyBaseHealth(kind, baseMaxHealth) {
-    const base = typeof baseMaxHealth === 'number' && isFinite(baseMaxHealth) && baseMaxHealth > 0 ? baseMaxHealth : 100;
+    const base = (_isNum(baseMaxHealth) && baseMaxHealth > 0) ? baseMaxHealth : 100;
     const mul = ENEMY_HEALTH_SCALE[kind] !== undefined ? ENEMY_HEALTH_SCALE[kind] : 1.0;
     return Math.round(base * mul);
   }
 
   function enemyMaxHealth(kind, baseMaxHealth, wave, victoryWave, diffHp, specialHp, isElite) {
     const baseHp = enemyBaseHealth(kind, baseMaxHealth);
-    const curWave = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
-    const vWave = typeof victoryWave === 'number' && isFinite(victoryWave) ? victoryWave : 15;
+    const curWave = (_isNum(wave) && wave > 0) ? wave : 1;
+    const vWave = _isNum(victoryWave) ? victoryWave : 15;
     const waveMul = endlessHpMultiplier(curWave, vWave);
-    const dHp = typeof diffHp === 'number' && isFinite(diffHp) && diffHp > 0 ? diffHp : 1.0;
-    const sHp = typeof specialHp === 'number' && isFinite(specialHp) && specialHp > 0 ? specialHp : 1.0;
+    const dHp = (_isNum(diffHp) && diffHp > 0) ? diffHp : 1.0;
+    const sHp = (_isNum(specialHp) && specialHp > 0) ? specialHp : 1.0;
     const eliteMul = isElite ? ELITE.hpMul : 1.0;
     return Math.max(1, Math.round(baseHp * waveMul * dHp * sHp * eliteMul));
   }
 
   function enemyAccuracy(baseAcc, accPerWave, wave, maxAcc, accBonus) {
-    const base = typeof baseAcc === 'number' && isFinite(baseAcc) ? baseAcc : 0.5;
-    const perWave = typeof accPerWave === 'number' && isFinite(accPerWave) ? accPerWave : 0.035;
-    const w = typeof wave === 'number' && isFinite(wave) && wave > 0 ? wave : 1;
-    const cap = typeof maxAcc === 'number' && isFinite(maxAcc) ? maxAcc : 0.75;
-    const bonus = typeof accBonus === 'number' && isFinite(accBonus) ? accBonus : 0;
+    const base = _isNum(baseAcc) ? baseAcc : 0.5;
+    const perWave = _isNum(accPerWave) ? accPerWave : 0.035;
+    const w = (_isNum(wave) && wave > 0) ? wave : 1;
+    const cap = _isNum(maxAcc) ? maxAcc : 0.75;
+    const bonus = _isNum(accBonus) ? accBonus : 0;
     const raw = base + w * perWave + bonus;
     return Math.max(0, Math.min(cap + bonus, raw));
   }
 
   function playerBulletDamage(baseDmg, isHead, headshotMul, dist, range, penMul, weaponType) {
-    const base = typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0 ? baseDmg : 20;
-    const hs = isHead ? (typeof headshotMul === 'number' && isFinite(headshotMul) && headshotMul > 0 ? headshotMul : 1.8) : 1.0;
-    const d = typeof dist === 'number' && isFinite(dist) && dist >= 0 ? dist : 0;
-    const r = typeof range === 'number' && isFinite(range) && range > 0 ? range : 100;
+    const base = (_isNum(baseDmg) && baseDmg > 0) ? baseDmg : 20;
+    const hs = isHead ? ((_isNum(headshotMul) && headshotMul > 0) ? headshotMul : 1.8) : 1.0;
+    const d = (_isNum(dist) && dist >= 0) ? dist : 0;
+    const r = (_isNum(range) && range > 0) ? range : 100;
     const falloff = weaponType ? weaponDistanceFalloff(weaponType, d, r) : distanceFalloff(d, r);
-    const pen = typeof penMul === 'number' && isFinite(penMul) && penMul >= 0 ? penMul : 1.0;
+    const pen = (_isNum(penMul) && penMul >= 0) ? penMul : 1.0;
     return base * hs * falloff * pen;
   }
 
@@ -4018,38 +4017,38 @@ const CORE = (function () {
   const GRENADE_TAP_THRESHOLD = 0.22;
 
   function grenadeBlastDamage(dist, radius, baseDmg, scale) {
-    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
-    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    if (!_isNum(dist) || dist < 0) return 0;
+    if (!_isNum(radius) || radius <= 0) return 0;
     if (dist >= radius) return 0;
-    const base = typeof baseDmg === 'number' && isFinite(baseDmg) ? baseDmg : 120;
-    const sc = typeof scale === 'number' && isFinite(scale) ? scale : 1;
+    const base = _isNum(baseDmg) ? baseDmg : 120;
+    const sc = _isNum(scale) ? scale : 1;
     const falloff = 1 - dist / radius;
     return base * (GRENADE_DAMAGE_FLOOR + (1 - GRENADE_DAMAGE_FLOOR) * falloff) * sc;
   }
 
   function grenadeSelfDamage(dist, radius, maxDmg) {
-    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
-    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    if (!_isNum(dist) || dist < 0) return 0;
+    if (!_isNum(radius) || radius <= 0) return 0;
     const dangerRadius = radius * GRENADE_SELF_RADIUS_RATIO;
     if (dist >= dangerRadius) return 0;
-    const maxVal = typeof maxDmg === 'number' && isFinite(maxDmg) ? maxDmg : GRENADE_SELF_DAMAGE_MAX;
+    const maxVal = _isNum(maxDmg) ? maxDmg : GRENADE_SELF_DAMAGE_MAX;
     const falloff = 1 - dist / dangerRadius;
     return Math.round(maxVal * falloff);
   }
 
   function grenadeChargedSpeed(chargeT, minSpeed, maxSpeed, rampDuration) {
-    const t = typeof chargeT === 'number' && isFinite(chargeT) ? Math.max(0, chargeT) : 0;
-    const minS = typeof minSpeed === 'number' && isFinite(minSpeed) ? minSpeed : GRENADE_MIN_SPEED;
-    const maxS = typeof maxSpeed === 'number' && isFinite(maxSpeed) ? maxSpeed : GRENADE_MAX_SPEED;
-    const ramp = typeof rampDuration === 'number' && isFinite(rampDuration) && rampDuration > 0 ? rampDuration : GRENADE_RAMP_DURATION;
+    const t = _isNum(chargeT) ? Math.max(0, chargeT) : 0;
+    const minS = _isNum(minSpeed) ? minSpeed : GRENADE_MIN_SPEED;
+    const maxS = _isNum(maxSpeed) ? maxSpeed : GRENADE_MAX_SPEED;
+    const ramp = (_isNum(rampDuration) && rampDuration > 0) ? rampDuration : GRENADE_RAMP_DURATION;
     const ratio = Math.min(1, t / ramp);
     return minS + ratio * (maxS - minS);
   }
 
   function grenadeThrowSpeed(chargeT, tapDefaultSpeed, minSpeed, maxSpeed, rampDuration, tapThreshold) {
-    const t = typeof chargeT === 'number' && isFinite(chargeT) ? Math.max(0, chargeT) : 0;
-    const th = typeof tapThreshold === 'number' && isFinite(tapThreshold) ? tapThreshold : GRENADE_TAP_THRESHOLD;
-    const tapSpd = typeof tapDefaultSpeed === 'number' && isFinite(tapDefaultSpeed) ? tapDefaultSpeed : 9.5;
+    const t = _isNum(chargeT) ? Math.max(0, chargeT) : 0;
+    const th = _isNum(tapThreshold) ? tapThreshold : GRENADE_TAP_THRESHOLD;
+    const tapSpd = _isNum(tapDefaultSpeed) ? tapDefaultSpeed : 9.5;
     if (t <= th) return tapSpd;
     return grenadeChargedSpeed(t, minSpeed, maxSpeed, rampDuration);
   }
@@ -4060,7 +4059,7 @@ const CORE = (function () {
   }
 
   function enemyMeleeReach(kind, baseAttackRange) {
-    const base = typeof baseAttackRange === 'number' && isFinite(baseAttackRange) ? baseAttackRange : 2.1;
+    const base = _isNum(baseAttackRange) ? baseAttackRange : 2.1;
     return base + (kind === 2 ? 0.9 : 0.4);
   }
 
@@ -4077,15 +4076,15 @@ const CORE = (function () {
   const HIT_ARC_MAX_OPACITY = 0.9;
 
   function damageVignetteAlpha(amount, baseAlpha, maxAlpha, divisor) {
-    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) return 0;
-    const b = typeof baseAlpha === 'number' && isFinite(baseAlpha) ? baseAlpha : VIGNETTE_BASE_ALPHA;
-    const m = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : VIGNETTE_MAX_ALPHA;
-    const d = typeof divisor === 'number' && isFinite(divisor) && divisor > 0 ? divisor : VIGNETTE_SCALE_DIVISOR;
+    if (!_isNum(amount) || amount <= 0) return 0;
+    const b = _isNum(baseAlpha) ? baseAlpha : VIGNETTE_BASE_ALPHA;
+    const m = _isNum(maxAlpha) ? maxAlpha : VIGNETTE_MAX_ALPHA;
+    const d = (_isNum(divisor) && divisor > 0) ? divisor : VIGNETTE_SCALE_DIVISOR;
     return Math.min(m, b + amount / d);
   }
 
   function damageVignetteStyle(alpha, isArmorOnly) {
-    if (typeof alpha !== 'number' || !isFinite(alpha) || alpha <= 0) {
+    if (!_isNum(alpha) || alpha <= 0) {
       return 'inset 0 0 120px 40px rgba(180,0,0,0)';
     }
     const color = isArmorOnly ? 'rgba(79,163,216,' : 'rgba(180,0,0,';
@@ -4093,10 +4092,7 @@ const CORE = (function () {
   }
 
   function worldBearing(fromX, fromZ, toX, toZ) {
-    if (typeof fromX !== 'number' || !isFinite(fromX) ||
-        typeof fromZ !== 'number' || !isFinite(fromZ) ||
-        typeof toX !== 'number' || !isFinite(toX) ||
-        typeof toZ !== 'number' || !isFinite(toZ)) return 0;
+    if (!_isNum(fromX) || !_isNum(fromZ) || !_isNum(toX) || !_isNum(toZ)) return 0;
     const dx = toX - fromX;
     const dz = toZ - fromZ;
     if (dx === 0 && dz === 0) return 0;
@@ -4104,8 +4100,7 @@ const CORE = (function () {
   }
 
   function screenHitAngle(worldBearingDeg, playerYawRad) {
-    if (typeof worldBearingDeg !== 'number' || !isFinite(worldBearingDeg) ||
-        typeof playerYawRad !== 'number' || !isFinite(playerYawRad)) return 0;
+    if (!_isNum(worldBearingDeg) || !_isNum(playerYawRad)) return 0;
     // Bearing where 0 = +z. Player forward = yaw.
     // Screen angle: 0 = attacker straight ahead, 90 = right, 180 = behind, 270 = left.
     const rel = ((worldBearingDeg - (playerYawRad * 180 / Math.PI)) % 360 + 360) % 360;
@@ -4113,10 +4108,10 @@ const CORE = (function () {
   }
 
   function hitArcOpacity(age, life, fadeStartRatio, maxOpacity) {
-    const l = typeof life === 'number' && isFinite(life) && life > 0 ? life : HIT_ARC_LIFE;
-    const f = typeof fadeStartRatio === 'number' && isFinite(fadeStartRatio) ? fadeStartRatio : HIT_ARC_FADE_START;
-    const maxOp = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : HIT_ARC_MAX_OPACITY;
-    if (typeof age !== 'number' || !isFinite(age) || age < 0 || age >= l) return 0;
+    const l = (_isNum(life) && life > 0) ? life : HIT_ARC_LIFE;
+    const f = _isNum(fadeStartRatio) ? fadeStartRatio : HIT_ARC_FADE_START;
+    const maxOp = _isNum(maxOpacity) ? maxOpacity : HIT_ARC_MAX_OPACITY;
+    if (!_isNum(age) || age < 0 || age >= l) return 0;
     const fadeT = l * f;
     if (age <= fadeT) return maxOp;
     const dur = l - fadeT;
@@ -4125,34 +4120,34 @@ const CORE = (function () {
   }
 
   function hasActiveHitArcs(activeCount) {
-    return typeof activeCount === 'number' && isFinite(activeCount) && activeCount > 0;
+    return _isNum(activeCount) && activeCount > 0;
   }
 
   function hitArcOpacityChanged(lastOpacity, curOpacity, epsilon) {
-    if (typeof lastOpacity !== 'number' || !isFinite(lastOpacity)) return true;
+    if (!_isNum(lastOpacity)) return true;
     if (curOpacity <= 0 && lastOpacity > 0) return true;
-    const eps = (typeof epsilon === 'number' && isFinite(epsilon)) ? epsilon : 0.015;
+    const eps = _isNum(epsilon) ? epsilon : 0.015;
     return Math.abs(curOpacity - lastOpacity) >= eps;
   }
 
   function syncHitArcOpacity(arcState, curOpacity) {
     if (arcState && typeof arcState === 'object') {
-      arcState.lastOp = (typeof curOpacity === 'number' && isFinite(curOpacity)) ? curOpacity : 0;
+      arcState.lastOp = _isNum(curOpacity) ? curOpacity : 0;
     }
   }
 
   // ---- Particle physics integration and change-driven HUD performance rules ----
   function stepParticlePhysics(x, y, z, vx, vy, vz, grav, dt, minY, out) {
     const target = out || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, grounded: false };
-    const stepDt = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
-    const g = typeof grav === 'number' && isFinite(grav) ? grav : 9.8;
-    const floor = typeof minY === 'number' && isFinite(minY) ? minY : 0.02;
-    const curVx = typeof vx === 'number' && isFinite(vx) ? vx : 0;
-    const curVy = typeof vy === 'number' && isFinite(vy) ? vy : 0;
-    const curVz = typeof vz === 'number' && isFinite(vz) ? vz : 0;
-    const curX = typeof x === 'number' && isFinite(x) ? x : 0;
-    const curY = typeof y === 'number' && isFinite(y) ? y : 0;
-    const curZ = typeof z === 'number' && isFinite(z) ? z : 0;
+    const stepDt = (_isNum(dt) && dt > 0) ? dt : 0;
+    const g = _isNum(grav) ? grav : 9.8;
+    const floor = _isNum(minY) ? minY : 0.02;
+    const curVx = _isNum(vx) ? vx : 0;
+    const curVy = _isNum(vy) ? vy : 0;
+    const curVz = _isNum(vz) ? vz : 0;
+    const curX = _isNum(x) ? x : 0;
+    const curY = _isNum(y) ? y : 0;
+    const curZ = _isNum(z) ? z : 0;
 
     let nvy = curVy - g * stepDt;
     let ny = curY + nvy * stepDt;
@@ -6130,9 +6125,9 @@ const CORE = (function () {
     const cal = decalCaliberScale(weaponType);
     const surf = decalSurfaceMultiplier(surface);
     const base = cal * surf;
-    const maxL = (typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0) ? maxLife : DECAL_LIFETIME;
-    const curL = (typeof life === 'number' && isFinite(life)) ? Math.max(0, Math.min(maxL, life)) : 0;
-    const fade = (typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0) ? fadeDuration : DECAL_FADE_DURATION;
+    const maxL = (_isNum(maxLife) && maxLife > 0) ? maxLife : DECAL_LIFETIME;
+    const curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
+    const fade = (_isNum(fadeDuration) && fadeDuration > 0) ? fadeDuration : DECAL_FADE_DURATION;
     if (curL <= 0) return 0.001;
     if (curL < fade) {
       const t = curL / fade;
@@ -6143,28 +6138,28 @@ const CORE = (function () {
   }
 
   function decalRotationAngle(randomVal) {
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? randomVal : 0;
+    const r = _isNum(randomVal) ? randomVal : 0;
     return (r % 1) * Math.PI * 2;
   }
 
   function stepDecalLife(life, dt) {
-    const cur = (typeof life === 'number' && isFinite(life)) ? life : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const cur = _isNum(life) ? life : 0;
+    const delta = _isNum(dt) ? dt : 0;
     return Math.max(0, cur - delta);
   }
 
   function isDecalExpired(life) {
-    return !(typeof life === 'number' && isFinite(life) && life > 0);
+    return !(_isNum(life) && life > 0);
   }
 
   function muzzleFlashRotation(randomVal) {
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? randomVal : 0;
+    const r = _isNum(randomVal) ? randomVal : 0;
     return (r % 1) * Math.PI;
   }
 
   function muzzleFlashBaseScale(weaponType, isSuppressed, randK, randZ, out) {
-    const rk = (typeof randK === 'number' && isFinite(randK)) ? randK : 0.5;
-    const rz = (typeof randZ === 'number' && isFinite(randZ)) ? randZ : 0.5;
+    const rk = _isNum(randK) ? randK : 0.5;
+    const rz = _isNum(randZ) ? randZ : 0.5;
     const res = out || { k: 1, z: 1 };
     if (isSuppressed) {
       res.k = MUZZLE_FLASH_SUPPRESSED_SCALE * (0.8 + rk * 0.4);
@@ -6189,11 +6184,11 @@ const CORE = (function () {
 
   function stepMuzzleFlashScale(baseK, baseZ, flashT, out) {
     const res = out || { x: 1, y: 1, z: 1 };
-    const ft = (typeof flashT === 'number' && isFinite(flashT)) ? Math.max(0, Math.min(1, flashT)) : 0;
+    const ft = _isNum(flashT) ? Math.max(0, Math.min(1, flashT)) : 0;
     const kMul = Math.min(1, ft * 1.25);
     const zMul = Math.min(1, ft * 1.1);
-    const bk = (typeof baseK === 'number' && isFinite(baseK)) ? baseK : 1;
-    const bz = (typeof baseZ === 'number' && isFinite(baseZ)) ? baseZ : 1;
+    const bk = _isNum(baseK) ? baseK : 1;
+    const bz = _isNum(baseZ) ? baseZ : 1;
     res.x = bk * kMul;
     res.y = bk * kMul;
     res.z = bz * zMul;
@@ -6201,8 +6196,8 @@ const CORE = (function () {
   }
 
   function tracerThicknessScale(life, maxLife) {
-    const maxL = (typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0) ? maxLife : TRACER_LIFETIME;
-    const curL = (typeof life === 'number' && isFinite(life)) ? Math.max(0, Math.min(maxL, life)) : 0;
+    const maxL = (_isNum(maxLife) && maxLife > 0) ? maxLife : TRACER_LIFETIME;
+    const curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
     const t = curL / maxL;
     return Math.max(0.1, t);
   }
@@ -7780,6 +7775,60 @@ const CORE = (function () {
     return inside ? OBJECTIVE_RING_OPACITY_INSIDE : OBJECTIVE_RING_OPACITY_OUTSIDE;
   }
 
+  // ---- Ordnance Explosion VFX, Sniper Vapor Trail & Enemy Muzzle Flash Rules (v147 Visual Polish) ----
+  const EXPLOSION_FIREBALL_BASE_COUNT = 18, EXPLOSION_SPARK_BASE_COUNT = 40, EXPLOSION_SMOKE_BASE_COUNT = 22, EXPLOSION_DUST_BASE_COUNT = 16, EXPLOSION_DEBRIS_BASE_COUNT = 14;
+  const EXPLOSION_LIGHT_COLOR = 0xff9040, EXPLOSION_LIGHT_BASE_INTENSITY = 14.0, EXPLOSION_LIGHT_BASE_DIST = 22.0, EXPLOSION_LIGHT_DUR = 0.45;
+  function explosionVfxParams(scale) {
+    const s = (_isNum(scale) && scale > 0) ? Math.max(0.4, Math.min(2.5, scale)) : 1.0;
+    return {
+      fireballCount: Math.round(EXPLOSION_FIREBALL_BASE_COUNT * s),
+      sparkCount: Math.round(EXPLOSION_SPARK_BASE_COUNT * s),
+      smokeCount: Math.round(EXPLOSION_SMOKE_BASE_COUNT * s),
+      dustCount: Math.round(EXPLOSION_DUST_BASE_COUNT * s),
+      debrisCount: Math.round(EXPLOSION_DEBRIS_BASE_COUNT * s),
+      fireballColor0: 0xfff0c0, fireballColor1: 0xff3808,
+      sparkColor0: 0xffe0a0, sparkColor1: 0xff4010,
+      smokeColor0: 0x3a3230, smokeColor1: 0x1c1a1a,
+      dustColor0: 0x7a6e62, dustColor1: 0x4a443e,
+      debrisColor0: 0x2a2624, debrisColor1: 0x1a1816
+    };
+  }
+  function explosionLightParams(scale) {
+    const s = (_isNum(scale) && scale > 0) ? Math.max(0.4, Math.min(2.5, scale)) : 1.0;
+    return {
+      color: EXPLOSION_LIGHT_COLOR,
+      intensity: EXPLOSION_LIGHT_BASE_INTENSITY * s,
+      distance: EXPLOSION_LIGHT_BASE_DIST * s,
+      duration: EXPLOSION_LIGHT_DUR
+    };
+  }
+  const SNIPER_TRAIL_STEP = 1.4, SNIPER_TRAIL_MAX_PUFFS = 45;
+  const SNIPER_TRAIL_COLOR0 = 0xc8ccd0, SNIPER_TRAIL_COLOR1 = 0x8a8e94;
+  const SNIPER_TRAIL_BASE_SIZE = 0.05, SNIPER_TRAIL_END_SIZE = 0.35, SNIPER_TRAIL_ALPHA = 0.16;
+  function sniperTrailPuffCount(dist, step, maxPuffs) {
+    const d = _isNum(dist) ? Math.max(0, dist) : 0;
+    const st = (_isNum(step) && step > 0) ? step : SNIPER_TRAIL_STEP;
+    const mp = (_isNum(maxPuffs) && maxPuffs > 0) ? maxPuffs : SNIPER_TRAIL_MAX_PUFFS;
+    return Math.min(mp, Math.floor(d / st));
+  }
+  function sniperTrailParams(dist) {
+    const count = sniperTrailPuffCount(dist, SNIPER_TRAIL_STEP, SNIPER_TRAIL_MAX_PUFFS);
+    return {
+      count: count,
+      color0: SNIPER_TRAIL_COLOR0,
+      color1: SNIPER_TRAIL_COLOR1,
+      baseSize: SNIPER_TRAIL_BASE_SIZE,
+      endSize: SNIPER_TRAIL_END_SIZE,
+      alpha: SNIPER_TRAIL_ALPHA
+    };
+  }
+  function enemyWeaponType(kind, isElite) {
+    if (kind === 2 || kind === 'tank') return 'BR';
+    if (kind === 3 || kind === 'shielded') return 'SMG';
+    if (Boolean(isElite)) return 'BR';
+    return 'AR';
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -8068,7 +8117,15 @@ const CORE = (function () {
     RECOIL_DECAY_CROUCH_MUL, RECOIL_DECAY_SLIDE_MUL, weaponRecoilDecayRate,
     BULLET_MAGNET_MAX_DIST, OBJECTIVE_RING_OPACITY_INSIDE, OBJECTIVE_RING_OPACITY_OUTSIDE,
     isTargetInMagnetRange, isTargetInMunitionsRadius, stepMunitionsTimers,
-    isPlayerInObjectiveZone, objectiveRingOpacityChanged, objectiveRingOpacity
+    isPlayerInObjectiveZone, objectiveRingOpacityChanged, objectiveRingOpacity,
+    EXPLOSION_FIREBALL_BASE_COUNT, EXPLOSION_SPARK_BASE_COUNT, EXPLOSION_SMOKE_BASE_COUNT,
+    EXPLOSION_DUST_BASE_COUNT, EXPLOSION_DEBRIS_BASE_COUNT,
+    EXPLOSION_LIGHT_COLOR, EXPLOSION_LIGHT_BASE_INTENSITY, EXPLOSION_LIGHT_BASE_DIST, EXPLOSION_LIGHT_DUR,
+    explosionVfxParams, explosionLightParams,
+    SNIPER_TRAIL_STEP, SNIPER_TRAIL_MAX_PUFFS,
+    SNIPER_TRAIL_COLOR0, SNIPER_TRAIL_COLOR1,
+    SNIPER_TRAIL_BASE_SIZE, SNIPER_TRAIL_END_SIZE, SNIPER_TRAIL_ALPHA,
+    sniperTrailPuffCount, sniperTrailParams, enemyWeaponType
   };
 })();
 

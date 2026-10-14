@@ -717,7 +717,7 @@ function enemyShoot(en, dist) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
     _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
   }
-  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, false);
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, CORE.enemyWeaponType(en.kind, en.elite));
   if (typeof flashLight === 'function') {
     const elp = CORE.enemyMuzzleLightParams(en.elite);
     flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
@@ -749,7 +749,7 @@ function enemyShoot(en, dist) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
-  spawnTracer(from, to, 0xff8844);
+  spawnTracer(from, to, CORE.tracerColor(true));
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;

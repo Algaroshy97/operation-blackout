@@ -4474,7 +4474,53 @@ def main() -> int:
         }""")
         checks.append(("mobile-universal-dead-state-lockout-rules", mobile_dead_state_v146_check))
 
-        # 97) Clean console throughout gameplay.
+        # 97) Ordnance explosion VFX, sniper vapor trail, and enemy muzzle flash rules (v147 visual polish).
+        visual_polish_v147_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            // 1. Ordnance explosion VFX & dynamic light scaling
+            const cExp = CORE.EXPLOSION_FIREBALL_BASE_COUNT === 18 &&
+                         CORE.EXPLOSION_SPARK_BASE_COUNT === 40 &&
+                         CORE.EXPLOSION_SMOKE_BASE_COUNT === 22 &&
+                         CORE.EXPLOSION_DUST_BASE_COUNT === 16 &&
+                         CORE.EXPLOSION_DEBRIS_BASE_COUNT === 14 &&
+                         CORE.EXPLOSION_LIGHT_COLOR === 0xff9040;
+
+            const vfx1 = CORE.explosionVfxParams(1.0);
+            const vfxScaled = CORE.explosionVfxParams(1.4);
+            const vfxOk = vfx1.fireballCount === 18 &&
+                          vfx1.sparkCount === 40 &&
+                          vfxScaled.fireballCount === 25 &&
+                          vfxScaled.sparkCount === 56;
+
+            const l1 = CORE.explosionLightParams(1.0);
+            const lScaled = CORE.explosionLightParams(1.4);
+            const lOk = l1.intensity === 14.0 &&
+                        l1.distance === 22.0 &&
+                        Math.abs(lScaled.intensity - 19.6) < 1e-4 &&
+                        Math.abs(lScaled.distance - 30.8) < 1e-4;
+
+            // 2. Marksman sniper vapor trail
+            const tr1 = CORE.sniperTrailParams(28.0);
+            const trOk = CORE.SNIPER_TRAIL_STEP === 1.4 &&
+                         CORE.SNIPER_TRAIL_MAX_PUFFS === 45 &&
+                         tr1.count === 20 &&
+                         tr1.color0 === 0xc8ccd0 &&
+                         tr1.color1 === 0x8a8e94;
+
+            // 3. Enemy archetype weapon muzzle flash & tracer
+            const wOk = CORE.enemyWeaponType(1, false) === 'AR' &&
+                        CORE.enemyWeaponType(2, false) === 'BR' &&
+                        CORE.enemyWeaponType(3, false) === 'SMG' &&
+                        CORE.enemyWeaponType(1, true) === 'BR' &&
+                        CORE.tracerColor(true) === 0xff8844 &&
+                        CORE.tracerColor(false) === 0xffe9a0;
+
+            return cExp && vfxOk && lOk && trOk && wOk;
+        }""")
+        checks.append(("ordnance-explosion-sniper-trail-and-enemy-muzzle-vfx-rules", visual_polish_v147_check))
+
+        # 98) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

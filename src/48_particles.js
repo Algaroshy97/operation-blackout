@@ -331,39 +331,41 @@ function fxDust(p, n, spread, color) {
   }
 }
 function fxExplosion(p, scale) {
-  scale = scale || 1;
+  const s = scale || 1;
+  const vfxCfg = CORE.explosionVfxParams(s);
+  const lightCfg = CORE.explosionLightParams(s);
   // fireball core
-  for (let i = 0; i < 18 * scale; i++) {
-    const a = Math.random() * 6.283, b = Math.random() * 3.1416, s = pfxRnd(2, 7) * scale;
-    pfxEmit(PFX_ADD, p.x, p.y + 0.3, p.z, Math.cos(a) * Math.sin(b) * s, Math.abs(Math.cos(b)) * s * 0.9 + 1, Math.sin(a) * Math.sin(b) * s,
-      pfxRnd(0.25, 0.55), pfxRnd(0.8, 1.4) * scale, pfxRnd(2.2, 3.4) * scale, 0xfff0c0, 0xff3808, 2.6, 5, -2, 0);
+  for (let i = 0; i < vfxCfg.fireballCount; i++) {
+    const a = Math.random() * 6.283, b = Math.random() * 3.1416, spd = pfxRnd(2, 7) * s;
+    pfxEmit(PFX_ADD, p.x, p.y + 0.3, p.z, Math.cos(a) * Math.sin(b) * spd, Math.abs(Math.cos(b)) * spd * 0.9 + 1, Math.sin(a) * Math.sin(b) * spd,
+      pfxRnd(0.25, 0.55), pfxRnd(0.8, 1.4) * s, pfxRnd(2.2, 3.4) * s, vfxCfg.fireballColor0, vfxCfg.fireballColor1, 2.6, 5, -2, 0);
   }
   // sparks / embers
-  for (let i = 0; i < 40 * scale; i++) {
-    const a = Math.random() * 6.283, s = pfxRnd(5, 16);
-    pfxEmit(PFX_ADD, p.x, p.y + 0.3, p.z, Math.cos(a) * s, pfxRnd(3, 12), Math.sin(a) * s,
-      pfxRnd(0.6, 1.6), 0.07, 0.03, 0xffe0a0, 0xff4010, 3, 1.2, 14, PF_BOUNCE);
+  for (let i = 0; i < vfxCfg.sparkCount; i++) {
+    const a = Math.random() * 6.283, spd = pfxRnd(5, 16);
+    pfxEmit(PFX_ADD, p.x, p.y + 0.3, p.z, Math.cos(a) * spd, pfxRnd(3, 12), Math.sin(a) * spd,
+      pfxRnd(0.6, 1.6), 0.07, 0.03, vfxCfg.sparkColor0, vfxCfg.sparkColor1, 3, 1.2, 14, PF_BOUNCE);
   }
   // rolling black smoke column
-  for (let i = 0; i < 22 * scale; i++) {
-    const a = Math.random() * 6.283, r = pfxRnd(0, 1.5) * scale;
+  for (let i = 0; i < vfxCfg.smokeCount; i++) {
+    const a = Math.random() * 6.283, r = pfxRnd(0, 1.5) * s;
     pfxEmit(PFX_SMOKE, p.x + Math.cos(a) * r, p.y + pfxRnd(0.3, 1.6), p.z + Math.sin(a) * r,
       Math.cos(a) * pfxRnd(0.5, 2.5), pfxRnd(1.2, 3.5), Math.sin(a) * pfxRnd(0.5, 2.5),
-      pfxRnd(2.5, 4.5), pfxRnd(1.0, 1.8) * scale, pfxRnd(4, 6.5) * scale, 0x3a3230, 0x1c1a1a, 0.75, 0.9, -0.35, 0);
+      pfxRnd(2.5, 4.5), pfxRnd(1.0, 1.8) * s, pfxRnd(4, 6.5) * s, vfxCfg.smokeColor0, vfxCfg.smokeColor1, 0.75, 0.9, -0.35, 0);
   }
   // ground dust ring
-  for (let i = 0; i < 16 * scale; i++) {
-    const a = i / (16 * scale) * 6.283, s = pfxRnd(6, 10);
-    pfxEmit(PFX_SMOKE, p.x, 0.25, p.z, Math.cos(a) * s, pfxRnd(0.2, 0.8), Math.sin(a) * s,
-      pfxRnd(1.2, 2.0), 0.5, pfxRnd(2, 3), 0x7a6e62, 0x4a443e, 0.5, 2.2, 0, 0);
+  for (let i = 0; i < vfxCfg.dustCount; i++) {
+    const a = i / Math.max(1, vfxCfg.dustCount) * 6.283, spd = pfxRnd(6, 10);
+    pfxEmit(PFX_SMOKE, p.x, 0.25, p.z, Math.cos(a) * spd, pfxRnd(0.2, 0.8), Math.sin(a) * spd,
+      pfxRnd(1.2, 2.0), 0.5, pfxRnd(2, 3), vfxCfg.dustColor0, vfxCfg.dustColor1, 0.5, 2.2, 0, 0);
   }
   // debris chunks
-  for (let i = 0; i < 14 * scale; i++) {
-    const a = Math.random() * 6.283, s = pfxRnd(4, 10);
-    pfxEmit(PFX_SMOKE, p.x, p.y + 0.3, p.z, Math.cos(a) * s, pfxRnd(4, 11), Math.sin(a) * s,
-      pfxRnd(1.2, 2.2), 0.09, 0.07, 0x2a2624, 0x1a1816, 1.0, 0.2, 15, PF_BOUNCE);
+  for (let i = 0; i < vfxCfg.debrisCount; i++) {
+    const a = Math.random() * 6.283, spd = pfxRnd(4, 10);
+    pfxEmit(PFX_SMOKE, p.x, p.y + 0.3, p.z, Math.cos(a) * spd, pfxRnd(4, 11), Math.sin(a) * spd,
+      pfxRnd(1.2, 2.2), 0.09, 0.07, vfxCfg.debrisColor0, vfxCfg.debrisColor1, 1.0, 0.2, 15, PF_BOUNCE);
   }
-  flashLight(p, 0xff9040, 14 * scale, 22 * scale, 0.45);
+  flashLight(p, lightCfg.color, lightCfg.intensity, lightCfg.distance, lightCfg.duration);
 }
 function fxTactical(p, effect) {
   const cfg = CORE.tacticalParticleParams(effect);
@@ -385,11 +387,12 @@ function fxTactical(p, effect) {
 function sniperTrail(from, to) {
   const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
   const len = Math.hypot(dx, dy, dz);
-  const n = Math.min(45, Math.floor(len / 1.4));
+  const cfg = CORE.sniperTrailParams(len);
+  const n = cfg.count;
   for (let i = 1; i <= n; i++) {
     const t = i / (n + 1);
     pfxEmit(PFX_SMOKE, from.x + dx * t, from.y + dy * t, from.z + dz * t, pfxRnd(-0.08, 0.08), pfxRnd(0.05, 0.2), pfxRnd(-0.08, 0.08),
-      pfxRnd(1.2, 2.2), 0.05, 0.35 + t * 0.2, 0xc8ccd0, 0x8a8e94, 0.16, 1.2, -0.05, 0);
+      pfxRnd(1.2, 2.2), cfg.baseSize, cfg.endSize + t * 0.2, cfg.color0, cfg.color1, cfg.alpha, 1.2, -0.05, 0);
   }
 }
 // Continuous fire (called per frame by burning props / barrels)
