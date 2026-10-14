@@ -4385,7 +4385,39 @@ def main() -> int:
         }""")
         checks.append(("tactical-weapon-recoil-decay-empty-swap-and-slide-momentum-rules", combat_v144_check))
 
-        # 95) Clean console throughout gameplay.
+        # 95) v145 bullet magnetism, munitions box, and tactical zone objective performance rules
+        perf_v145_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+            // 1. Bullet magnetism range culling
+            const magDistSq = CORE.BULLET_MAGNET_MAX_DIST * CORE.BULLET_MAGNET_MAX_DIST;
+            const magOk = CORE.BULLET_MAGNET_MAX_DIST === 45.0 &&
+                          CORE.isTargetInMagnetRange(20, 20, magDistSq) === true &&
+                          CORE.isTargetInMagnetRange(35, 35, magDistSq) === false;
+
+            // 2. Munitions box resupply timers & spatial distance-squared culling
+            const munRadSq = 16;
+            const munRadOk = CORE.isTargetInMunitionsRadius(10, 10, 12, 12, munRadSq) === true &&
+                             CORE.isTargetInMunitionsRadius(10, 10, 14, 14, munRadSq) === false;
+            const mTimerOut = { t: 0, tick: 0, expired: false, readyToResupply: false };
+            CORE.stepMunitionsTimers(20.0, 0.05, 0.1, mTimerOut);
+            const mTimerOk = mTimerOut.readyToResupply === true && mTimerOut.tick === 1.0;
+
+            // 3. Tactical Zone Objective spatial culling and ring opacity gating
+            const objRadSq = 36;
+            const objRadOk = CORE.isPlayerInObjectiveZone(0, 0, 4, 4, objRadSq) === true &&
+                             CORE.isPlayerInObjectiveZone(0, 0, 5, 5, objRadSq) === false;
+            const objOpOk = CORE.OBJECTIVE_RING_OPACITY_INSIDE === 0.85 &&
+                            CORE.OBJECTIVE_RING_OPACITY_OUTSIDE === 0.40 &&
+                            CORE.objectiveRingOpacity(true) === 0.85 &&
+                            CORE.objectiveRingOpacity(false) === 0.40 &&
+                            CORE.objectiveRingOpacityChanged(false, true) === true &&
+                            CORE.objectiveRingOpacityChanged(true, true) === false;
+
+            return magOk && munRadOk && mTimerOk && objRadOk && objOpOk;
+        }""")
+        checks.append(("bullet-magnetism-munitions-and-objective-perf-rules", perf_v145_check))
+
+        # 96) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -296,11 +296,13 @@ const _magTo = new THREE.Vector3();
 const _magBest = new THREE.Vector3();
 function magnetizeBullet(dir, from) {
   const minCos = CORE.bulletMagnetMinCos(CFG.assist.bulletAngle);
+  const maxDistSq = CORE.BULLET_MAGNET_MAX_DIST * CORE.BULLET_MAGNET_MAX_DIST;
   let bestCos = minCos, found = false;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
+    if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
     _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
     _magTo.subVectors(_aimTgt, from).normalize();

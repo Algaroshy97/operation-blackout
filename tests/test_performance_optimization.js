@@ -382,4 +382,58 @@ test('v140 performance optimization: aim assist range culling & cosine cone gati
   assert.equal(CORE.hitArcOpacityChanged(arcState.lastOp, 0.85), false);
 });
 
+test('v145 performance optimization: bullet magnetism distance-squared culling, munitions box timers & spatial culling, and tactical objective zone culling & ring opacity gating', () => {
+  // 1. Bullet magnetism spatial range culling
+  assert.equal(CORE.BULLET_MAGNET_MAX_DIST, 45.0);
+  const magnetDistSq = CORE.BULLET_MAGNET_MAX_DIST * CORE.BULLET_MAGNET_MAX_DIST; // 2025
+  assert.equal(CORE.isTargetInMagnetRange(20, 20, magnetDistSq), true);  // 400 + 400 = 800 <= 2025
+  assert.equal(CORE.isTargetInMagnetRange(35, 35, magnetDistSq), false); // 1225 + 1225 = 2450 > 2025
+  assert.equal(CORE.isTargetInMagnetRange(45, 0), true);                 // default fallback
+  assert.equal(CORE.isTargetInMagnetRange(46, 0), false);
+  assert.equal(CORE.isTargetInMagnetRange(NaN, 0), false);
+
+  // 2. Munitions box resupply timers & spatial distance-squared culling
+  const munRadSq = 4 * 4; // 16
+  assert.equal(CORE.isTargetInMunitionsRadius(10, 10, 12, 12, munRadSq), true);  // 4 + 4 = 8 < 16
+  assert.equal(CORE.isTargetInMunitionsRadius(10, 10, 14, 14, munRadSq), false); // 16 + 16 = 32 >= 16
+  assert.equal(CORE.isTargetInMunitionsRadius(NaN, 10, 10, 10), false);
+
+  const mTimerOut = { t: 0, tick: 0, expired: false, readyToResupply: false };
+  CORE.stepMunitionsTimers(25.0, 0.8, 0.1, mTimerOut);
+  assert.ok(Math.abs(mTimerOut.t - 24.9) < 1e-6);
+  assert.ok(Math.abs(mTimerOut.tick - 0.7) < 1e-6);
+  assert.equal(mTimerOut.expired, false);
+  assert.equal(mTimerOut.readyToResupply, false);
+
+  // Ready to resupply on cooldown expiration (resets tick to 1.0)
+  CORE.stepMunitionsTimers(20.0, 0.05, 0.1, mTimerOut);
+  assert.ok(Math.abs(mTimerOut.t - 19.9) < 1e-6);
+  assert.equal(mTimerOut.tick, 1.0);
+  assert.equal(mTimerOut.readyToResupply, true);
+  assert.equal(mTimerOut.expired, false);
+
+  // Box expiration
+  CORE.stepMunitionsTimers(0.05, 0.5, 0.1, mTimerOut);
+  assert.equal(mTimerOut.t, 0);
+  assert.equal(mTimerOut.expired, true);
+
+  // 3. Tactical Zone Objective spatial culling and ring opacity gating
+  const objRadSq = 6 * 6; // 36
+  assert.equal(CORE.isPlayerInObjectiveZone(0, 0, 4, 4, objRadSq), true);  // 16 + 16 = 32 < 36
+  assert.equal(CORE.isPlayerInObjectiveZone(0, 0, 5, 5, objRadSq), false); // 25 + 25 = 50 >= 36
+  assert.equal(CORE.isPlayerInObjectiveZone(NaN, 0, 0, 0), false);
+
+  assert.equal(CORE.OBJECTIVE_RING_OPACITY_INSIDE, 0.85);
+  assert.equal(CORE.OBJECTIVE_RING_OPACITY_OUTSIDE, 0.40);
+  assert.equal(CORE.objectiveRingOpacity(true), 0.85);
+  assert.equal(CORE.objectiveRingOpacity(false), 0.40);
+
+  assert.equal(CORE.objectiveRingOpacityChanged(null, true), true);
+  assert.equal(CORE.objectiveRingOpacityChanged(false, true), true);
+  assert.equal(CORE.objectiveRingOpacityChanged(true, true), false);
+  assert.equal(CORE.objectiveRingOpacityChanged(true, false), true);
+  assert.equal(CORE.objectiveRingOpacityChanged(false, false), false);
+});
+
+
 

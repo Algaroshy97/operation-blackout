@@ -552,7 +552,7 @@ function startObjective(n) {
   setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
 }
 
-const _objHudState = { visible: false, inside: false, pct: -1 };
+const _objHudState = { visible: false, inside: false, pct: -1, ringInside: null };
 let _objEl = null, _objBarEl = null, _objTxtEl = null;
 function getObjEls() {
   if (!_objEl) {
@@ -566,6 +566,7 @@ function resetObjectiveHudCache() {
   _objHudState.visible = false;
   _objHudState.inside = false;
   _objHudState.pct = -1;
+  _objHudState.ringInside = null;
   if (getObjEls()) _objEl.style.opacity = '0';
 }
 
@@ -577,6 +578,7 @@ function clearObjective() {
     _objHudState.visible = false;
     _objHudState.inside = false;
     _objHudState.pct = -1;
+    _objHudState.ringInside = null;
     if (getObjEls()) _objEl.style.opacity = '0';
   }
 }
@@ -587,11 +589,13 @@ function updateObjective(dt) {
       _objHudState.visible = false;
       _objHudState.inside = false;
       _objHudState.pct = -1;
+      _objHudState.ringInside = null;
       if (getObjEls()) _objEl.style.opacity = '0';
     }
     return;
   }
-  const inside = CORE.horizDist(player.pos.x, player.pos.z, objective.x, objective.z) < CORE.OBJECTIVE_RADIUS;
+  const radSq = CORE.OBJECTIVE_RADIUS * CORE.OBJECTIVE_RADIUS;
+  const inside = CORE.isPlayerInObjectiveZone(player.pos.x, player.pos.z, objective.x, objective.z, radSq);
   objective.t = CORE.objectiveProgress(objective.t, dt, inside);
   const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
   if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
@@ -602,7 +606,10 @@ function updateObjective(dt) {
       if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct);
     }
   }
-  if (objRing) objRing.material.opacity = inside ? 0.85 : 0.4;
+  if (objRing && CORE.objectiveRingOpacityChanged(_objHudState.ringInside, inside)) {
+    _objHudState.ringInside = inside;
+    objRing.material.opacity = CORE.objectiveRingOpacity(inside);
+  }
   if (CORE.objectiveComplete(objective.t)) {
     objective.done = true;
     addCredits(CORE.OBJECTIVE_CREDITS);

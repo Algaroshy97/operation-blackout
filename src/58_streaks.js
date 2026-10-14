@@ -210,14 +210,16 @@ function deployMunitions() {
   playSound(CORE.fieldUpgradeSound(true));
 }
 
+const _munitionsTimerOut = { t: 0, tick: 0, expired: false, readyToResupply: false };
 function updateMunitions(dt) {
+  const radSq = CORE.FIELD_UPGRADE.radius * CORE.FIELD_UPGRADE.radius;
   for (let i = munitions.length - 1; i >= 0; i--) {
     const b = munitions[i];
-    b.t -= dt;
-    b.tick -= dt;
-    if (b.tick <= 0 &&
-        CORE.horizDist(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z) < CORE.FIELD_UPGRADE.radius) {
-      b.tick = 1.0;
+    CORE.stepMunitionsTimers(b.t, b.tick, dt, _munitionsTimerOut);
+    b.t = _munitionsTimerOut.t;
+    b.tick = _munitionsTimerOut.tick;
+    if (_munitionsTimerOut.readyToResupply &&
+        CORE.isTargetInMunitionsRadius(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z, radSq)) {
       const s = curS();
       const w = curW();
       const ammoNeed = s ? (s.reserve < (s.up ? s.up.reserveMax : w.reserveMax)) : false;
@@ -234,7 +236,7 @@ function updateMunitions(dt) {
         playSound(CORE.fieldUpgradeSound(false));
       }
     }
-    if (b.t <= 0) { scene.remove(b.m); munitions.splice(i, 1); }
+    if (_munitionsTimerOut.expired) { scene.remove(b.m); munitions.splice(i, 1); }
   }
 }
 
