@@ -667,8 +667,8 @@ function updateWaves(dt) {
   let left = waveQueue + living;
   // Between waves the queue is empty; show what is coming, not "0 HOSTILES".
   if (!waveActive && left === 0) left = CORE.waveEnemyCount(waveNum + 1, CFG.wave.baseCount, CFG.wave.growth);
-  if (left !== _hudEnemiesLeft) {
-    _hudEnemiesLeft = left;
+  if (CORE.enemiesRemainingChanged(_hudEnemiesLeft, left)) {
+    _hudEnemiesLeft = CORE.syncEnemiesRemaining(left);
     hud.enemiesLeft.textContent = CORE.hostilesRemainingLabel(left);
   }
 }

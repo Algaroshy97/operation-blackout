@@ -4587,9 +4587,33 @@ def main() -> int:
 
             return stfOk && spreadOk && plateOk;
         }""")
-        checks.append(("weapon-sprint-to-fire-spread-and-plate-balance-rules", combat_balance_v149_check))
+        # 100) Flow field coordinate packing, diagonal walkability, and enemy footstep/hostiles culling rules (v150 performance optimization).
+        perf_optimization_v150_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
 
-        # 100) Clean console throughout gameplay.
+            const packOk = CORE.FLOW_FIELD_QUEUE_MASK === 0xffff &&
+                           CORE.FLOW_FIELD_QUEUE_SHIFT === 16 &&
+                           CORE.packNavCell(15, 27) === ((27 << 16) | 15) &&
+                           CORE.unpackNavCell((27 << 16) | 15).cx === 15 &&
+                           CORE.unpackNavCell((27 << 16) | 15).cz === 27;
+
+            const blockedArr = [0, 1, 0, 0];
+            const diagOk = CORE.isNavDiagonalWalkable(blockedArr, 0, 2) === true &&
+                           CORE.isNavDiagonalWalkable(blockedArr, 0, 1) === false;
+
+            const stepOk = CORE.ENEMY_FOOTSTEP_MAX_DIST === 30.0 &&
+                           CORE.isTargetInFootstepRange(15.0, 30.0) === true &&
+                           CORE.isTargetInFootstepRange(30.0, 30.0) === false;
+
+            const enemyOk = CORE.enemiesRemainingChanged(10, 9) === true &&
+                            CORE.enemiesRemainingChanged(5, 5) === false &&
+                            CORE.syncEnemiesRemaining(8) === 8;
+
+            return packOk && diagOk && stepOk && enemyOk;
+        }""")
+        checks.append(("flow-field-and-spatial-culling-perf-rules", perf_optimization_v150_check))
+
+        # 101) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

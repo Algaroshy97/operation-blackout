@@ -539,8 +539,9 @@ function updateEnemies(dt) {
       en.progress = null;
     }
     // positional enemy footsteps: cadence scales with enemy speed, throttled globally
-    if (en.state !== 'spawn' && dist < 30 && en.stepT === undefined) en.stepT = Math.random() * 0.5;
-    if (en.state !== 'spawn' && dist < 30 && !en.dead) {
+    const inStepRange = CORE.isTargetInFootstepRange(dist, CORE.ENEMY_FOOTSTEP_MAX_DIST);
+    if (en.state !== 'spawn' && inStepRange && en.stepT === undefined) en.stepT = Math.random() * 0.5;
+    if (en.state !== 'spawn' && inStepRange && !en.dead) {
       en.stepT -= dt * CORE.enemyFootstepRate(en.kind);
       if (en.stepT <= 0) {
         if (gameT > nextEstepT) { playSound3D(CORE.enemyFootstepSound(en.kind, en.elite), en.pos.x, en.pos.y, en.pos.z); nextEstepT = gameT + 0.08; }

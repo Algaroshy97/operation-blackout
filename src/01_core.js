@@ -1634,6 +1634,18 @@ const CORE = (function () {
   // 8-connected BFS flood from the goal. Uniform cost: at 1 m resolution the
   // resulting Chebyshev field produces perfectly serviceable flow directions once
   // the agent steers toward the cell centre.
+  const FLOW_FIELD_QUEUE_MASK = 0xffff;
+  const FLOW_FIELD_QUEUE_SHIFT = 16;
+  function packNavCell(cx, cz) {
+    return (((cz | 0) & 0xffff) << 16) | ((cx | 0) & 0xffff);
+  }
+  function unpackNavCell(packed) {
+    return { cx: (packed & 0xffff), cz: (packed >> 16) };
+  }
+  function isNavDiagonalWalkable(blocked, hIndex, vIndex) {
+    return !blocked[hIndex] && !blocked[vIndex];
+  }
+
   const NEIGHBOUR_DX = [1, -1, 0, 0, 1, 1, -1, -1];
   const NEIGHBOUR_DZ = [0, 0, 1, -1, 1, -1, 1, -1];
   function computeFlowField(nav, goalX, goalZ) {
@@ -1644,21 +1656,62 @@ const CORE = (function () {
     const dist = nav.dist, blocked = nav.blocked, queue = nav.queue, dim = nav.dim;
     let head = 0, tail = 0;
     dist[goal] = 0;
-    queue[tail++] = goal;
+    const gx = goal % dim, gz = (goal / dim) | 0;
+    queue[tail++] = (gz << 16) | gx;
+
+    const maxCoord = dim - 1;
     while (head < tail) {
-      const cur = queue[head++];
-      const cx = cur % dim, czDim = cur - cx, cz = (cur / dim) | 0;
+      const packed = queue[head++];
+      const cz = packed >> 16, cx = packed & 0xffff;
+      const cur = cz * dim + cx;
       const nd = dist[cur] + 1;
-      for (let k = 0; k < 8; k++) {
-        const nx = cx + NEIGHBOUR_DX[k], nz = cz + NEIGHBOUR_DZ[k];
-        if (nx < 0 || nz < 0 || nx >= dim || nz >= dim) continue;
-        const nzDim = nz * dim, ni = nzDim + nx;
-        if (blocked[ni] || dist[ni] !== UNREACHABLE) continue;
-        // No corner cutting: a diagonal step needs both orthogonal neighbours open,
-        // otherwise agents shave through the corner of a wall they cannot fit past.
-        if (k >= 4 && (blocked[czDim + nx] || blocked[nzDim + cx])) continue;
-        dist[ni] = nd;
-        queue[tail++] = ni;
+
+      const canRight = cx < maxCoord;
+      const canLeft = cx > 0;
+      const canDown = cz < maxCoord;
+      const canUp = cz > 0;
+
+      const r = cur + 1;
+      const l = cur - 1;
+      const d = cur + dim;
+      const u = cur - dim;
+
+      if (canRight && !blocked[r] && dist[r] === UNREACHABLE) {
+        dist[r] = nd; queue[tail++] = (cz << 16) | (cx + 1);
+      }
+      if (canLeft && !blocked[l] && dist[l] === UNREACHABLE) {
+        dist[l] = nd; queue[tail++] = (cz << 16) | (cx - 1);
+      }
+      if (canDown && !blocked[d] && dist[d] === UNREACHABLE) {
+        dist[d] = nd; queue[tail++] = ((cz + 1) << 16) | cx;
+      }
+      if (canUp && !blocked[u] && dist[u] === UNREACHABLE) {
+        dist[u] = nd; queue[tail++] = ((cz - 1) << 16) | cx;
+      }
+
+      if (canRight && canDown) {
+        const rd = d + 1;
+        if (!blocked[rd] && dist[rd] === UNREACHABLE && isNavDiagonalWalkable(blocked, r, d)) {
+          dist[rd] = nd; queue[tail++] = ((cz + 1) << 16) | (cx + 1);
+        }
+      }
+      if (canRight && canUp) {
+        const ru = u + 1;
+        if (!blocked[ru] && dist[ru] === UNREACHABLE && isNavDiagonalWalkable(blocked, r, u)) {
+          dist[ru] = nd; queue[tail++] = ((cz - 1) << 16) | (cx + 1);
+        }
+      }
+      if (canLeft && canDown) {
+        const ld = d - 1;
+        if (!blocked[ld] && dist[ld] === UNREACHABLE && isNavDiagonalWalkable(blocked, l, d)) {
+          dist[ld] = nd; queue[tail++] = ((cz + 1) << 16) | (cx - 1);
+        }
+      }
+      if (canLeft && canUp) {
+        const lu = u - 1;
+        if (!blocked[lu] && dist[lu] === UNREACHABLE && isNavDiagonalWalkable(blocked, l, u)) {
+          dist[lu] = nd; queue[tail++] = ((cz - 1) << 16) | (cx - 1);
+        }
       }
     }
     return nav;
@@ -1689,16 +1742,36 @@ const CORE = (function () {
     if (nav.dist[i] === 0) return null;   // already at the goal cell
     const dim = nav.dim, cx = i % dim, cz = (i / dim) | 0;
     let best = nav.dist[i], bestIdx = -1;
-    for (let k = 0; k < 8; k++) {
-      const nx = cx + NEIGHBOUR_DX[k], nz = cz + NEIGHBOUR_DZ[k];
-      if (nx < 0 || nz < 0 || nx >= dim || nz >= dim) continue;
-      const ni = nz * dim + nx;
-      if (nav.blocked[ni]) continue;
-      const d = nav.dist[ni];
-      if (d === UNREACHABLE) continue;
-      if (k >= 4 && (nav.blocked[cz * dim + nx] || nav.blocked[nz * dim + cx])) continue;
-      if (d < best) { best = d; bestIdx = ni; }
+
+    const canRight = cx < dim - 1;
+    const canLeft = cx > 0;
+    const canDown = cz < dim - 1;
+    const canUp = cz > 0;
+
+    const r = i + 1, l = i - 1, d = i + dim, u = i - dim;
+
+    if (canRight && !nav.blocked[r] && nav.dist[r] < best) { best = nav.dist[r]; bestIdx = r; }
+    if (canLeft && !nav.blocked[l] && nav.dist[l] < best) { best = nav.dist[l]; bestIdx = l; }
+    if (canDown && !nav.blocked[d] && nav.dist[d] < best) { best = nav.dist[d]; bestIdx = d; }
+    if (canUp && !nav.blocked[u] && nav.dist[u] < best) { best = nav.dist[u]; bestIdx = u; }
+
+    if (canRight && canDown) {
+      const rd = d + 1;
+      if (!nav.blocked[rd] && isNavDiagonalWalkable(nav.blocked, r, d) && nav.dist[rd] < best) { best = nav.dist[rd]; bestIdx = rd; }
     }
+    if (canRight && canUp) {
+      const ru = u + 1;
+      if (!nav.blocked[ru] && isNavDiagonalWalkable(nav.blocked, r, u) && nav.dist[ru] < best) { best = nav.dist[ru]; bestIdx = ru; }
+    }
+    if (canLeft && canDown) {
+      const ld = d - 1;
+      if (!nav.blocked[ld] && isNavDiagonalWalkable(nav.blocked, l, d) && nav.dist[ld] < best) { best = nav.dist[ld]; bestIdx = ld; }
+    }
+    if (canLeft && canUp) {
+      const lu = u - 1;
+      if (!nav.blocked[lu] && isNavDiagonalWalkable(nav.blocked, l, u) && nav.dist[lu] < best) { best = nav.dist[lu]; bestIdx = lu; }
+    }
+
     if (bestIdx < 0) return null;
     // `out` is already caller-owned; use it for the intermediate centre too.
     // Routed enemies previously allocated another {x,z} on every movement tick.
@@ -5364,31 +5437,29 @@ const CORE = (function () {
 
   function canReload(ammo, magSize, reserve, isReloading) {
     if (isReloading) return false;
-    const a = typeof ammo === 'number' && isFinite(ammo) ? ammo : 0;
-    const m = typeof magSize === 'number' && isFinite(magSize) ? magSize : 0;
-    const r = typeof reserve === 'number' && isFinite(reserve) ? reserve : 0;
+    const a = _isNum(ammo) ? ammo : 0;
+    const m = _isNum(magSize) ? magSize : 0;
+    const r = _isNum(reserve) ? reserve : 0;
     if (m <= 0 || r <= 0) return false;
     return a < m;
   }
 
   const EMPTY_RELOAD_TIME_MUL = 1.15;
   function effectiveReloadDuration(baseReload, perkMul, isEmpty) {
-    const base = typeof baseReload === 'number' && isFinite(baseReload) && baseReload >= 0 ? baseReload : 2.0;
-    const mul = typeof perkMul === 'number' && isFinite(perkMul) && perkMul >= 0 ? perkMul : 1.0;
+    const base = _isNum(baseReload) && baseReload >= 0 ? baseReload : 2.0;
+    const mul = _isNum(perkMul) && perkMul >= 0 ? perkMul : 1.0;
     const emptyMul = isEmpty ? EMPTY_RELOAD_TIME_MUL : 1.0;
     return Math.max(CAN_RELOAD_MIN_DURATION, base * mul * emptyMul);
   }
 
   function isReloadComplete(reloadT, duration) {
-    return typeof reloadT === 'number' && isFinite(reloadT) &&
-           typeof duration === 'number' && isFinite(duration) &&
-           reloadT >= duration;
+    return _isNum(reloadT) && _isNum(duration) && reloadT >= duration;
   }
 
   function completeReload(ammo, magSize, reserve, out) {
-    const curAmmo = typeof ammo === 'number' && isFinite(ammo) ? Math.max(0, ammo) : 0;
-    const curMag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
-    const curReserve = typeof reserve === 'number' && isFinite(reserve) ? Math.max(0, reserve) : 0;
+    const curAmmo = _isNum(ammo) ? Math.max(0, ammo) : 0;
+    const curMag = _isNum(magSize) ? Math.max(0, magSize) : 0;
+    const curReserve = _isNum(reserve) ? Math.max(0, reserve) : 0;
     const need = Math.max(0, curMag - curAmmo);
     const take = Math.min(need, curReserve);
     const res = out || { ammo: 0, reserve: 0, take: 0 };
@@ -5399,30 +5470,30 @@ const CORE = (function () {
   }
 
   function munitionsAmmoRestore(currentReserve, reserveMax, magSize, ratio) {
-    const r = typeof ratio === 'number' && isFinite(ratio) && ratio >= 0 ? ratio : MUNITIONS_MAG_RATIO;
-    const curRes = typeof currentReserve === 'number' && isFinite(currentReserve) ? Math.max(0, currentReserve) : 0;
-    const maxRes = typeof reserveMax === 'number' && isFinite(reserveMax) ? Math.max(0, reserveMax) : curRes;
-    const mag = typeof magSize === 'number' && isFinite(magSize) ? Math.max(0, magSize) : 0;
+    const r = _isNum(ratio) && ratio >= 0 ? ratio : MUNITIONS_MAG_RATIO;
+    const curRes = _isNum(currentReserve) ? Math.max(0, currentReserve) : 0;
+    const maxRes = _isNum(reserveMax) ? Math.max(0, reserveMax) : curRes;
+    const mag = _isNum(magSize) ? Math.max(0, magSize) : 0;
     return Math.min(maxRes, curRes + Math.round(mag * r));
   }
 
   function airstrikeDelay(index, baseDelay, stepDelay) {
-    const b = typeof baseDelay === 'number' && isFinite(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY;
-    const s = typeof stepDelay === 'number' && isFinite(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY;
-    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
+    const b = _isNum(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY;
+    const s = _isNum(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY;
+    const i = _isNum(index) ? Math.max(0, index) : 0;
     return b + i * s;
   }
 
   function airstrikeBombCoord(playerX, playerZ, dirX, dirZ, index, leadDist, spacing, jitterX, jitterZ, out) {
-    const px = typeof playerX === 'number' && isFinite(playerX) ? playerX : 0;
-    const pz = typeof playerZ === 'number' && isFinite(playerZ) ? playerZ : 0;
-    const dx = typeof dirX === 'number' && isFinite(dirX) ? dirX : 0;
-    const dz = typeof dirZ === 'number' && isFinite(dirZ) ? dirZ : 0;
-    const lead = typeof leadDist === 'number' && isFinite(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST;
-    const sp = typeof spacing === 'number' && isFinite(spacing) ? spacing : AIRSTRIKE_SPACING;
-    const i = typeof index === 'number' && isFinite(index) ? Math.max(0, index) : 0;
-    const jx = typeof jitterX === 'number' && isFinite(jitterX) ? jitterX : 0;
-    const jz = typeof jitterZ === 'number' && isFinite(jitterZ) ? jitterZ : 0;
+    const px = _isNum(playerX) ? playerX : 0;
+    const pz = _isNum(playerZ) ? playerZ : 0;
+    const dx = _isNum(dirX) ? dirX : 0;
+    const dz = _isNum(dirZ) ? dirZ : 0;
+    const lead = _isNum(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST;
+    const sp = _isNum(spacing) ? spacing : AIRSTRIKE_SPACING;
+    const i = _isNum(index) ? Math.max(0, index) : 0;
+    const jx = _isNum(jitterX) ? jitterX : 0;
+    const jz = _isNum(jitterZ) ? jitterZ : 0;
     const ox = px + dx * lead;
     const oz = pz + dz * lead;
     const res = out || { x: 0, z: 0 };
@@ -5497,50 +5568,47 @@ const CORE = (function () {
   }
 
   function canCollectPickup(pickupX, pickupZ, playerX, playerZ, radius) {
-    if (typeof pickupX !== 'number' || !isFinite(pickupX) ||
-        typeof pickupZ !== 'number' || !isFinite(pickupZ) ||
-        typeof playerX !== 'number' || !isFinite(playerX) ||
-        typeof playerZ !== 'number' || !isFinite(playerZ)) return false;
-    const rad = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : PICKUP_COLLECT_RADIUS;
+    if (!_isNum(pickupX) || !_isNum(pickupZ) || !_isNum(playerX) || !_isNum(playerZ)) return false;
+    const rad = _isNum(radius) && radius > 0 ? radius : PICKUP_COLLECT_RADIUS;
     const dx = pickupX - playerX, dz = pickupZ - playerZ;
     return (dx * dx + dz * dz) < rad * rad;
   }
 
   function grenadeBlinkVisible(fuse, armT, requiredArm) {
-    if (typeof fuse === 'number' && isFinite(fuse)) {
+    if (_isNum(fuse)) {
       return Math.sin(fuse * (20 - fuse * 4) * 2) > 0;
     }
-    const t = typeof armT === 'number' && isFinite(armT) ? armT : 0;
-    const req = typeof requiredArm === 'number' && isFinite(requiredArm) ? requiredArm : 0;
+    const t = _isNum(armT) ? armT : 0;
+    const req = _isNum(requiredArm) ? requiredArm : 0;
     return t >= req;
   }
 
   function flashOverlayOpacity(flashT, durScale, maxAlpha) {
-    if (typeof flashT !== 'number' || !isFinite(flashT) || flashT <= 0) return 0;
-    const scale = typeof durScale === 'number' && isFinite(durScale) && durScale > 0 ? durScale : FLASH_OVERLAY_DURATION_SCALE;
-    const alpha = typeof maxAlpha === 'number' && isFinite(maxAlpha) ? maxAlpha : FLASH_OVERLAY_MAX_ALPHA;
+    if (!_isNum(flashT) || flashT <= 0) return 0;
+    const scale = _isNum(durScale) && durScale > 0 ? durScale : FLASH_OVERLAY_DURATION_SCALE;
+    const alpha = _isNum(maxAlpha) ? maxAlpha : FLASH_OVERLAY_MAX_ALPHA;
     return Math.min(alpha, flashT / scale);
   }
 
   function smokeCloudScale(elapsedT, radius, growDuration) {
-    const elapsed = typeof elapsedT === 'number' && isFinite(elapsedT) ? Math.max(0, elapsedT) : 0;
-    const dur = typeof growDuration === 'number' && isFinite(growDuration) && growDuration > 0 ? growDuration : 1.0;
+    const elapsed = _isNum(elapsedT) ? Math.max(0, elapsedT) : 0;
+    const dur = _isNum(growDuration) && growDuration > 0 ? growDuration : 1.0;
     const grow = Math.min(1, elapsed / dur);
-    const r = typeof radius === 'number' && isFinite(radius) ? radius : 1.0;
+    const r = _isNum(radius) ? radius : 1.0;
     return r * (0.25 + 0.75 * grow);
   }
 
   function smokeCloudOpacity(remainingT, fadeDuration, maxOpacity) {
     if (!isFinite(remainingT) || remainingT <= 0) return 0;
-    const fade = typeof fadeDuration === 'number' && isFinite(fadeDuration) && fadeDuration > 0 ? fadeDuration : 1.5;
-    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.62;
+    const fade = _isNum(fadeDuration) && fadeDuration > 0 ? fadeDuration : 1.5;
+    const maxO = _isNum(maxOpacity) ? maxOpacity : 0.62;
     return maxO * Math.min(1, Math.max(0, remainingT / fade));
   }
 
   function burnPatchOpacity(remainingT, totalLife, maxOpacity) {
     if (!isFinite(remainingT) || remainingT <= 0) return 0;
-    const life = typeof totalLife === 'number' && isFinite(totalLife) && totalLife > 0 ? totalLife : 1.0;
-    const maxO = typeof maxOpacity === 'number' && isFinite(maxOpacity) ? maxOpacity : 0.5;
+    const life = _isNum(totalLife) && totalLife > 0 ? totalLife : 1.0;
+    const maxO = _isNum(maxOpacity) ? maxOpacity : 0.5;
     return maxO * Math.max(0, Math.min(1, remainingT / life));
   }
 
@@ -5559,8 +5627,8 @@ const CORE = (function () {
   const VIEWMODEL_MANTLE_OUT_RATE = 5;
 
   function casingScale(life, maxLife, fadeDur) {
-    const dur = typeof fadeDur === 'number' && isFinite(fadeDur) && fadeDur > 0 ? fadeDur : CASING_FADE_DURATION;
-    if (typeof life !== 'number' || !isFinite(life) || life <= 0) return 0.001;
+    const dur = _isNum(fadeDur) && fadeDur > 0 ? fadeDur : CASING_FADE_DURATION;
+    if (!_isNum(life) || life <= 0) return 0.001;
     if (life >= dur) return 1.0;
     const t = Math.max(0, Math.min(1, life / dur));
     return Math.max(0.001, t * t * (3 - 2 * t));
@@ -5568,12 +5636,12 @@ const CORE = (function () {
 
   function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, out) {
     const o = out || { x: 0, y: 0, z: 0 };
-    const rMul = typeof randMul === 'number' && isFinite(randMul) ? randMul : 0;
-    const rY = typeof randY === 'number' && isFinite(randY) ? randY : 0;
+    const rMul = _isNum(randMul) ? randMul : 0;
+    const rY = _isNum(randY) ? randY : 0;
     const speed = 1.6 + rMul;
-    const rx = typeof rightX === 'number' && isFinite(rightX) ? rightX : 0;
-    const ry = typeof rightY === 'number' && isFinite(rightY) ? rightY : 0;
-    const rz = typeof rightZ === 'number' && isFinite(rightZ) ? rightZ : 0;
+    const rx = _isNum(rightX) ? rightX : 0;
+    const ry = _isNum(rightY) ? rightY : 0;
+    const rz = _isNum(rightZ) ? rightZ : 0;
     o.x = rx * speed;
     o.y = ry * speed + 1.4 + rY;
     o.z = rz * speed;
@@ -5582,23 +5650,23 @@ const CORE = (function () {
 
   function stepCasingPhysics(posX, posY, posZ, vx, vy, vz, spinX, spinY, spinZ, dt, grav, bounce, fric, spinDamp, floorY, restSpd, out) {
     const o = out || { x: posX, y: posY, z: posZ, vx: vx, vy: vy, vz: vz, spinX: spinX, spinY: spinY, spinZ: spinZ, rest: false, bounced: false };
-    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
-    const g = typeof grav === 'number' && isFinite(grav) ? grav : CASING_GRAVITY;
-    const b = typeof bounce === 'number' && isFinite(bounce) ? bounce : CASING_BOUNCE;
-    const f = typeof fric === 'number' && isFinite(fric) ? fric : CASING_FRICTION;
-    const sd = typeof spinDamp === 'number' && isFinite(spinDamp) ? spinDamp : CASING_SPIN_DAMP;
-    const flY = typeof floorY === 'number' && isFinite(floorY) ? floorY : CASING_FLOOR_Y;
-    const rSpd = typeof restSpd === 'number' && isFinite(restSpd) ? restSpd : CASING_REST_SPEED;
+    const delta = _isNum(dt) && dt > 0 ? dt : 0;
+    const g = _isNum(grav) ? grav : CASING_GRAVITY;
+    const b = _isNum(bounce) ? bounce : CASING_BOUNCE;
+    const f = _isNum(fric) ? fric : CASING_FRICTION;
+    const sd = _isNum(spinDamp) ? spinDamp : CASING_SPIN_DAMP;
+    const flY = _isNum(floorY) ? floorY : CASING_FLOOR_Y;
+    const rSpd = _isNum(restSpd) ? restSpd : CASING_REST_SPEED;
 
-    let x = typeof posX === 'number' && isFinite(posX) ? posX : 0;
-    let y = typeof posY === 'number' && isFinite(posY) ? posY : 0;
-    let z = typeof posZ === 'number' && isFinite(posZ) ? posZ : 0;
-    let velX = typeof vx === 'number' && isFinite(vx) ? vx : 0;
-    let velY = typeof vy === 'number' && isFinite(vy) ? vy : 0;
-    let velZ = typeof vz === 'number' && isFinite(vz) ? vz : 0;
-    let spX = typeof spinX === 'number' && isFinite(spinX) ? spinX : 0;
-    let spY = typeof spinY === 'number' && isFinite(spinY) ? spinY : 0;
-    let spZ = typeof spinZ === 'number' && isFinite(spinZ) ? spinZ : 0;
+    let x = _isNum(posX) ? posX : 0;
+    let y = _isNum(posY) ? posY : 0;
+    let z = _isNum(posZ) ? posZ : 0;
+    let velX = _isNum(vx) ? vx : 0;
+    let velY = _isNum(vy) ? vy : 0;
+    let velZ = _isNum(vz) ? vz : 0;
+    let spX = _isNum(spinX) ? spinX : 0;
+    let spY = _isNum(spinY) ? spinY : 0;
+    let spZ = _isNum(spinZ) ? spinZ : 0;
 
     velY -= g * delta;
     x += velX * delta;
@@ -5663,7 +5731,7 @@ const CORE = (function () {
 
   function meleeGunDodgeOffsets(progress, out) {
     const o = out || { posY: 0, rotX: 0, rotZ: 0 };
-    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const p = _isNum(progress) ? Math.max(0, Math.min(1, progress)) : 0;
     const gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
     o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0;
     o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0;
@@ -5672,17 +5740,17 @@ const CORE = (function () {
   }
 
   function stepViewmodelMantle(currentMantle, isMantling, dt, inRate, outRate) {
-    const cur = typeof currentMantle === 'number' && isFinite(currentMantle) ? currentMantle : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
-    const inR = typeof inRate === 'number' && isFinite(inRate) && inRate > 0 ? inRate : VIEWMODEL_MANTLE_IN_RATE;
-    const outR = typeof outRate === 'number' && isFinite(outRate) && outRate > 0 ? outRate : VIEWMODEL_MANTLE_OUT_RATE;
+    const cur = _isNum(currentMantle) ? currentMantle : 0;
+    const delta = _isNum(dt) && dt > 0 ? dt : 0;
+    const inR = _isNum(inRate) && inRate > 0 ? inRate : VIEWMODEL_MANTLE_IN_RATE;
+    const outR = _isNum(outRate) && outRate > 0 ? outRate : VIEWMODEL_MANTLE_OUT_RATE;
     if (isMantling) return Math.min(1, cur + delta * inR);
     return Math.max(0, cur - delta * outR);
   }
 
   function viewmodelMantleOffsets(mantleAmount, out) {
     const o = out || { posY: 0, rotX: 0, rotZ: 0 };
-    const m = typeof mantleAmount === 'number' && isFinite(mantleAmount) ? Math.max(0, Math.min(1, mantleAmount)) : 0;
+    const m = _isNum(mantleAmount) ? Math.max(0, Math.min(1, mantleAmount)) : 0;
     o.posY = m !== 0 ? -m * 0.18 : 0;
     o.rotX = m !== 0 ? -m * 0.3 : 0;
     o.rotZ = m !== 0 ? m * 0.5 : 0;
@@ -5691,12 +5759,12 @@ const CORE = (function () {
 
   function reloadHandOffsets(progress, targetX, targetY, targetZ, restX, restY, restZ, out) {
     const o = out || { posX: 0, posY: 0, posZ: 0 };
-    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const p = _isNum(progress) ? Math.max(0, Math.min(1, progress)) : 0;
     const hk = vmBump(0.08, 0.72, p);
-    const tx = typeof targetX === 'number' && isFinite(targetX) ? targetX : 0;
-    const tz = typeof targetZ === 'number' && isFinite(targetZ) ? targetZ : 0;
-    const rx = typeof restX === 'number' && isFinite(restX) ? restX : 0;
-    const rz = typeof restZ === 'number' && isFinite(restZ) ? restZ : 0;
+    const tx = _isNum(targetX) ? targetX : 0;
+    const tz = _isNum(targetZ) ? targetZ : 0;
+    const rx = _isNum(restX) ? restX : 0;
+    const rz = _isNum(restZ) ? restZ : 0;
     o.posX = hk !== 0 ? (tx - rx - 0.01) * hk * 0.9 : 0;
     o.posY = hk !== 0 ? -0.12 * hk : 0;
     o.posZ = hk !== 0 ? (tz - rz + 0.15) * hk * 0.9 : 0;
@@ -5704,28 +5772,28 @@ const CORE = (function () {
   }
 
   function viewmodelLateralSpeed(velX, velZ, yaw) {
-    const vx = typeof velX === 'number' && isFinite(velX) ? velX : 0;
-    const vz = typeof velZ === 'number' && isFinite(velZ) ? velZ : 0;
-    const y = typeof yaw === 'number' && isFinite(yaw) ? yaw : 0;
+    const vx = _isNum(velX) ? velX : 0;
+    const vz = _isNum(velZ) ? velZ : 0;
+    const y = _isNum(yaw) ? yaw : 0;
     return vx * Math.cos(y) - vz * Math.sin(y);
   }
 
   function stepViewmodelTilt(currentTilt, lateralVel, adsAmount, motionScale, dt) {
-    const cur = typeof currentTilt === 'number' && isFinite(currentTilt) ? currentTilt : 0;
-    const latV = typeof lateralVel === 'number' && isFinite(lateralVel) ? lateralVel : 0;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
-    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
-    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const cur = _isNum(currentTilt) ? currentTilt : 0;
+    const latV = _isNum(lateralVel) ? lateralVel : 0;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = _isNum(motionScale) ? motionScale : 1;
+    const delta = _isNum(dt) && dt > 0 ? dt : 0;
     const target = -latV * 0.012 * (1 - ads * 0.7) * motion;
     const blend = Math.min(1, 8 * delta);
     return cur + (target - cur) * blend;
   }
 
   function viewmodelLookInertiaTarget(lookDelta, isPitch, adsAmount, motionScale) {
-    const d = typeof lookDelta === 'number' && isFinite(lookDelta) ? lookDelta : 0;
+    const d = _isNum(lookDelta) ? lookDelta : 0;
     const sign = isPitch ? -1 : 1;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
-    const motion = typeof motionScale === 'number' && isFinite(motionScale) ? motionScale : 1;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const motion = _isNum(motionScale) ? motionScale : 1;
     const clamped = Math.max(-0.05, Math.min(0.05, sign * d * 1.6));
     return clamped * (1 - ads * 0.75) * motion;
   }
@@ -5736,14 +5804,14 @@ const CORE = (function () {
 
   function buyPromptLabel(label, price, prefix) {
     const lbl = (typeof label === 'string') ? label : '';
-    const prc = (typeof price === 'number' && isFinite(price) && price > 0) ? ('  ·  ' + price + ' CR') : '';
+    const prc = (_isNum(price) && price > 0) ? ('  ·  ' + price + ' CR') : '';
     const pfx = (typeof prefix === 'string') ? prefix : '';
     return pfx + lbl + prc;
   }
 
   function buyPromptFillPct(holdT, maxHold) {
-    const t = (typeof holdT === 'number' && isFinite(holdT)) ? holdT : 0;
-    const maxT = (typeof maxHold === 'number' && isFinite(maxHold) && maxHold > 0) ? maxHold : 1;
+    const t = _isNum(holdT) ? holdT : 0;
+    const maxT = (_isNum(maxHold) && maxHold > 0) ? maxHold : 1;
     return Math.round(Math.min(1, Math.max(0, t / maxT)) * 100);
   }
 
@@ -5772,39 +5840,39 @@ const CORE = (function () {
   const COMPASS_YAW_THRESHOLD = 0.002; // ~0.11 degrees
 
   function compassNeedsRedraw(lastYaw, currentYaw, threshold) {
-    if (typeof lastYaw !== 'number' || !isFinite(lastYaw)) return true;
-    if (typeof currentYaw !== 'number' || !isFinite(currentYaw)) return false;
-    const limit = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : COMPASS_YAW_THRESHOLD;
+    if (!_isNum(lastYaw)) return true;
+    if (!_isNum(currentYaw)) return false;
+    const limit = _isNum(threshold) ? threshold : COMPASS_YAW_THRESHOLD;
     return Math.abs(currentYaw - lastYaw) >= limit;
   }
 
   function minimapScale(canvasRadius, worldSize, margin) {
-    const r = (typeof canvasRadius === 'number' && isFinite(canvasRadius)) ? canvasRadius : 75;
-    const ws = (typeof worldSize === 'number' && isFinite(worldSize)) ? worldSize : 90;
-    const m = (typeof margin === 'number' && isFinite(margin)) ? margin : 8;
+    const r = _isNum(canvasRadius) ? canvasRadius : 75;
+    const ws = _isNum(worldSize) ? worldSize : 90;
+    const m = _isNum(margin) ? margin : 8;
     return r / (ws / 2 + m);
   }
 
   function minimapDetectRadiusSq(uavActive, canvasRadius, baseDetect, scale) {
-    const r = (typeof canvasRadius === 'number' && isFinite(canvasRadius)) ? canvasRadius : 75;
+    const r = _isNum(canvasRadius) ? canvasRadius : 75;
     if (uavActive) return r * r;
-    const bd = (typeof baseDetect === 'number' && isFinite(baseDetect)) ? baseDetect : 26;
-    const s = (typeof scale === 'number' && isFinite(scale)) ? scale : 1;
+    const bd = _isNum(baseDetect) ? baseDetect : 26;
+    const s = _isNum(scale) ? scale : 1;
     const dist = bd * s;
     return dist * dist;
   }
 
   function minimapBlipOffset(worldX, worldZ, playerX, playerZ, scale, out) {
     const o = out || { x: 0, z: 0 };
-    const s = (typeof scale === 'number' && isFinite(scale)) ? scale : 1;
-    o.x = ((typeof worldX === 'number' && isFinite(worldX) ? worldX : 0) - (typeof playerX === 'number' && isFinite(playerX) ? playerX : 0)) * s;
-    o.z = ((typeof worldZ === 'number' && isFinite(worldZ) ? worldZ : 0) - (typeof playerZ === 'number' && isFinite(playerZ) ? playerZ : 0)) * s;
+    const s = _isNum(scale) ? scale : 1;
+    o.x = ((_isNum(worldX) ? worldX : 0) - (_isNum(playerX) ? playerX : 0)) * s;
+    o.z = ((_isNum(worldZ) ? worldZ : 0) - (_isNum(playerZ) ? playerZ : 0)) * s;
     return o;
   }
 
   function isMinimapBlipVisible(offsetX, offsetZ, maxRadiusSq) {
     if (!isFinite(offsetX) || !isFinite(offsetZ)) return false;
-    const limit = (typeof maxRadiusSq === 'number' && isFinite(maxRadiusSq)) ? maxRadiusSq : Infinity;
+    const limit = _isNum(maxRadiusSq) ? maxRadiusSq : Infinity;
     return (offsetX * offsetX + offsetZ * offsetZ) <= limit;
   }
 
@@ -5815,20 +5883,20 @@ const CORE = (function () {
   }
 
   function compassTickAngle(heading, offset) {
-    const h = (typeof heading === 'number' && isFinite(heading)) ? heading : 0;
-    const off = (typeof offset === 'number' && isFinite(offset)) ? offset : 0;
+    const h = _isNum(heading) ? heading : 0;
+    const off = _isNum(offset) ? offset : 0;
     return (h + off + 360) % 360;
   }
 
   function compassSnapAngle(deg, step) {
-    const d = (typeof deg === 'number' && isFinite(deg)) ? deg : 0;
-    const s = (typeof step === 'number' && isFinite(step) && step > 0) ? step : 5;
+    const d = _isNum(deg) ? deg : 0;
+    const s = (_isNum(step) && step > 0) ? step : 5;
     return Math.round(d / s) * s;
   }
 
   function compassTickVisible(offset, maxSpan) {
     if (!isFinite(offset)) return false;
-    const span = (typeof maxSpan === 'number' && isFinite(maxSpan)) ? maxSpan : 45;
+    const span = _isNum(maxSpan) ? maxSpan : 45;
     return Math.abs(offset) <= span;
   }
 
@@ -6272,6 +6340,14 @@ const CORE = (function () {
     return n + ' HOSTILE' + (n === 1 ? '' : 'S');
   }
 
+  function enemiesRemainingChanged(lastCount, curCount) {
+    return lastCount !== curCount;
+  }
+
+  function syncEnemiesRemaining(curCount) {
+    return _isNum(curCount) ? curCount : 0;
+  }
+
   // ---- Viewmodel optics FOV & responsive narrow-screen centering (perf win) ---
   function gunCameraFov(adsAmount, weaponType) {
     const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
@@ -6369,6 +6445,13 @@ const CORE = (function () {
   function enemyFootstepInterval(speedMul) {
     const mul = (_isNum(speedMul) && speedMul > 0.05) ? speedMul : 1.0;
     return 0.55 / mul;
+  }
+
+  const ENEMY_FOOTSTEP_MAX_DIST = 30.0;
+  function isTargetInFootstepRange(dist, maxDist) {
+    const d = _isNum(dist) ? dist : Infinity;
+    const max = (_isNum(maxDist) && maxDist > 0) ? maxDist : ENEMY_FOOTSTEP_MAX_DIST;
+    return d < max;
   }
 
   function relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad) {
@@ -8176,7 +8259,9 @@ const CORE = (function () {
     EXPLOSION_SOUND, EXPLOSION_HEAVY_SOUND, explosionSound,
     WEAPON_STF_SMG, WEAPON_STF_AR, WEAPON_STF_BR, WEAPON_STF_SR,
     TAC_SPRINT_STF_MUL, FAST_HANDS_STF_MUL, weaponSprintToFireTime,
-    STANCE_SPREAD_SPRINT, STANCE_SPREAD_TAC_SPRINT, PLATE_MOVE_SPEED_MUL
+    STANCE_SPREAD_SPRINT, STANCE_SPREAD_TAC_SPRINT, PLATE_MOVE_SPEED_MUL,
+    FLOW_FIELD_QUEUE_MASK, FLOW_FIELD_QUEUE_SHIFT, packNavCell, unpackNavCell, isNavDiagonalWalkable,
+    ENEMY_FOOTSTEP_MAX_DIST, isTargetInFootstepRange, enemiesRemainingChanged, syncEnemiesRemaining
   };
 })();
 

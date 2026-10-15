@@ -435,5 +435,40 @@ test('v145 performance optimization: bullet magnetism distance-squared culling, 
   assert.equal(CORE.objectiveRingOpacityChanged(false, false), false);
 });
 
+test('v150 performance optimization: flow field coordinate packing, diagonal walkability, and enemy footstep/hostiles culling rules', () => {
+  // 1. Flow field coordinate packing & unpacking constants and rules
+  assert.equal(CORE.FLOW_FIELD_QUEUE_MASK, 0xffff);
+  assert.equal(CORE.FLOW_FIELD_QUEUE_SHIFT, 16);
+  assert.equal(CORE.packNavCell(15, 27), (27 << 16) | 15);
+  assert.deepEqual(CORE.unpackNavCell((27 << 16) | 15), { cx: 15, cz: 27 });
+  assert.equal(CORE.packNavCell(0, 0), 0);
+  assert.deepEqual(CORE.unpackNavCell(0), { cx: 0, cz: 0 });
+  assert.equal(CORE.packNavCell(91, 91), (91 << 16) | 91);
+  assert.deepEqual(CORE.unpackNavCell((91 << 16) | 91), { cx: 91, cz: 91 });
+
+  // 2. Navigation diagonal step corner-cutting rule
+  const blockedArr = [0, 1, 0, 0];
+  assert.equal(CORE.isNavDiagonalWalkable(blockedArr, 0, 2), true);
+  assert.equal(CORE.isNavDiagonalWalkable(blockedArr, 0, 1), false);
+  assert.equal(CORE.isNavDiagonalWalkable(blockedArr, 1, 2), false);
+
+  // 3. Enemy footstep spatial range culling
+  assert.equal(CORE.ENEMY_FOOTSTEP_MAX_DIST, 30.0);
+  assert.equal(CORE.isTargetInFootstepRange(15.0, 30.0), true);
+  assert.equal(CORE.isTargetInFootstepRange(30.0, 30.0), false);
+  assert.equal(CORE.isTargetInFootstepRange(35.0, 30.0), false);
+  assert.equal(CORE.isTargetInFootstepRange(10.0), true);
+  assert.equal(CORE.isTargetInFootstepRange(32.0), false);
+  assert.equal(CORE.isTargetInFootstepRange(NaN), false);
+
+  // 4. Hostiles remaining HUD change-gating
+  assert.equal(CORE.enemiesRemainingChanged(10, 9), true);
+  assert.equal(CORE.enemiesRemainingChanged(5, 5), false);
+  assert.equal(CORE.enemiesRemainingChanged(-1, 12), true);
+  assert.equal(CORE.syncEnemiesRemaining(8), 8);
+  assert.equal(CORE.syncEnemiesRemaining(NaN), 0);
+});
+
+
 
 

@@ -9366,4 +9366,36 @@ test('v149 combat balance: weapon sprint-to-fire agility, sprint stance spread, 
   assert.ok(Math.abs(platingMove - (5.4 * 0.78)) < 1e-4);
 });
 
+test('v150 performance optimization: flow field coordinate packing, diagonal walkability, and enemy footstep/hostiles culling rules', () => {
+  // 1. Flow field coordinate packing & unpacking constants and rules
+  assert.strictEqual(CORE.FLOW_FIELD_QUEUE_MASK, 0xffff);
+  assert.strictEqual(CORE.FLOW_FIELD_QUEUE_SHIFT, 16);
+  assert.strictEqual(CORE.packNavCell(15, 27), (27 << 16) | 15);
+  assert.deepStrictEqual(CORE.unpackNavCell((27 << 16) | 15), { cx: 15, cz: 27 });
+  assert.strictEqual(CORE.packNavCell(0, 0), 0);
+  assert.deepStrictEqual(CORE.unpackNavCell(0), { cx: 0, cz: 0 });
+  assert.strictEqual(CORE.packNavCell(91, 91), (91 << 16) | 91);
+  assert.deepStrictEqual(CORE.unpackNavCell((91 << 16) | 91), { cx: 91, cz: 91 });
 
+  // 2. Navigation diagonal step corner-cutting rule
+  const blockedArr = [0, 1, 0, 0];
+  assert.strictEqual(CORE.isNavDiagonalWalkable(blockedArr, 0, 2), true);
+  assert.strictEqual(CORE.isNavDiagonalWalkable(blockedArr, 0, 1), false);
+  assert.strictEqual(CORE.isNavDiagonalWalkable(blockedArr, 1, 2), false);
+
+  // 3. Enemy footstep spatial range culling
+  assert.strictEqual(CORE.ENEMY_FOOTSTEP_MAX_DIST, 30.0);
+  assert.strictEqual(CORE.isTargetInFootstepRange(15.0, 30.0), true);
+  assert.strictEqual(CORE.isTargetInFootstepRange(30.0, 30.0), false);
+  assert.strictEqual(CORE.isTargetInFootstepRange(35.0, 30.0), false);
+  assert.strictEqual(CORE.isTargetInFootstepRange(10.0), true);
+  assert.strictEqual(CORE.isTargetInFootstepRange(32.0), false);
+  assert.strictEqual(CORE.isTargetInFootstepRange(NaN), false);
+
+  // 4. Hostiles remaining HUD change-gating
+  assert.strictEqual(CORE.enemiesRemainingChanged(10, 9), true);
+  assert.strictEqual(CORE.enemiesRemainingChanged(5, 5), false);
+  assert.strictEqual(CORE.enemiesRemainingChanged(-1, 12), true);
+  assert.strictEqual(CORE.syncEnemiesRemaining(8), 8);
+  assert.strictEqual(CORE.syncEnemiesRemaining(NaN), 0);
+});
