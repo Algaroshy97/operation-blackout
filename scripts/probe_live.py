@@ -4520,7 +4520,43 @@ def main() -> int:
         }""")
         checks.append(("ordnance-explosion-sniper-trail-and-enemy-muzzle-vfx-rules", visual_polish_v147_check))
 
-        # 98) Clean console throughout gameplay.
+        # 98) Weapon dry fire, resource pickups, athletic melee swing, and ordnance explosion acoustics rules (v148 audio polish).
+        audio_polish_v148_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const dryOk = CORE.DRY_FIRE_SOUND === 'dry' &&
+                          CORE.DRY_FIRE_HEAVY_SOUND === 'dry_heavy' &&
+                          CORE.dryFireSound('SR') === 'dry_heavy' &&
+                          CORE.dryFireSound('BR') === 'dry_heavy' &&
+                          CORE.dryFireSound('AR') === 'dry' &&
+                          CORE.dryFireSound('SMG') === 'dry';
+
+            const pickOk = CORE.PICKUP_AMMO_SOUND === 'pickup_ammo' &&
+                           CORE.PICKUP_MED_SOUND === 'pickup_med' &&
+                           CORE.PICKUP_POWER_SOUND === 'powerup' &&
+                           CORE.pickupSound('ammo') === 'pickup_ammo' &&
+                           CORE.pickupSound('med') === 'pickup_med' &&
+                           CORE.pickupSound('power', 'nuke') === 'powerup_nuke' &&
+                           CORE.pickupSound('power', 'ammo') === 'powerup_ammo';
+
+            const swingOk = CORE.MELEE_SWING_SOUND === 'melee' &&
+                            CORE.MELEE_SWING_HEAVY_SOUND === 'melee_heavy' &&
+                            CORE.meleeSwingSound(true, false) === 'melee_heavy' &&
+                            CORE.meleeSwingSound(false, true) === 'melee_heavy' &&
+                            CORE.meleeSwingSound(false, false) === 'melee';
+
+            const expOk = CORE.EXPLOSION_SOUND === 'explosion' &&
+                          CORE.EXPLOSION_HEAVY_SOUND === 'explosion_heavy' &&
+                          CORE.explosionSound(1.0) === 'explosion' &&
+                          CORE.explosionSound(1.2) === 'explosion_heavy' &&
+                          CORE.explosionSound(1.5) === 'explosion_heavy' &&
+                          CORE.explosionSound(0.45) === 'explosion';
+
+            return dryOk && pickOk && swingOk && expOk;
+        }""")
+        checks.append(("weapon-dry-fire-pickups-melee-and-explosion-audio-rules", audio_polish_v148_check))
+
+        # 99) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

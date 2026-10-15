@@ -355,7 +355,7 @@ function updatePlayer(dt) {
   } else if (CORE.canInitiateJump(player.jumpBufT, player.coyoteT, player.crouching, player.sliding, player.downed, player.landStunT)) {
     player.vel.y = CFG.player.jumpVel;
     player.onGround = false; player.coyoteT = 0; player.jumpBufT = 0;
-    playSound('jump');
+    playSound(CORE.jumpSound(false));
   }
 
   // gravity + integrate, sub-stepped so a long frame cannot tunnel a thin wall

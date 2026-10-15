@@ -174,7 +174,7 @@ function updateWeapons(dt) {
       while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
       if (s.ammo === 0 && s.reserve > 0) tryReload();
     } else if (fireClockT >= s.nextShot && s.ammo === 0) {
-      if (!dryPlayed) { playSound('dry'); dryPlayed = true; }
+      if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
   } else {
@@ -445,7 +445,8 @@ function fireShot(preserveSchedule) {
 function doMelee() {
   meleeT = CORE.MELEE_COOLDOWN;
   meleeSwing = 1;
-  playSound('melee');
+  const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+  playSound(CORE.meleeSwingSound(isTac, !!(player && player.sliding)));
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
   const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
     dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
@@ -464,7 +465,6 @@ function doMelee() {
   const en = enemies[idx];
   _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
   const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
-  const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);

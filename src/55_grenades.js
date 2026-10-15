@@ -730,7 +730,7 @@ function refreshGrenadeTargets() {
 
 function explodeGrenade(pos, scale) {
   const dmgScale = scale === undefined ? 1 : scale;
-  playSound3D('explosion', pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
+  playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
   // material per explosion; anything that outlived a resetGame() leaked both.
@@ -888,7 +888,7 @@ function updatePickups(dt) {
         showCenterMsg('+ MEDKIT');
         updateHudHealth();
       }
-      playSound(p.kind === 'ammo' ? 'pickup_ammo' : 'pickup_med');
+      playSound(CORE.pickupSound(p.kind));
       scene.remove(p.m);
       pickups.splice(i, 1);
       continue;

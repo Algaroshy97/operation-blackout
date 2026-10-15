@@ -498,7 +498,8 @@ const SND_MIN_GAP = {
   melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20,
   jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15,
   shield_deflect: 0.05, helmet_hit: 0.04,
-  estep_heavy: 0.05, reload_heavy_out: 0.15, reload_heavy_in: 0.15, reload_smg_out: 0.15, reload_smg_in: 0.15, melee_hit_metal: 0.08
+  estep_heavy: 0.05, reload_heavy_out: 0.15, reload_heavy_in: 0.15, reload_smg_out: 0.15, reload_smg_in: 0.15, melee_hit_metal: 0.08,
+  dry_heavy: 0.06, melee_heavy: 0.08, explosion_heavy: 0.08
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -633,7 +634,10 @@ const SOUND_RECIPES = {
   reload_heavy_in:   [['noise', 0.08, 0.30, 1100, 2.0], ['osc', 'square', 200, 280, 0.05, 0.15], ['osc', 'sine', 110, 45, 0.08, 0.20]],
   reload_smg_out:    [['noise', 0.04, 0.16, 2200, 3.2], ['osc', 'square', 380, 220, 0.035, 0.08]],
   reload_smg_in:     [['noise', 0.045, 0.18, 2400, 3.0], ['osc', 'square', 420, 520, 0.04, 0.10]],
-  melee_hit_metal:   [['noise', 0.05, 0.28, 3600, 3.0], ['osc', 'square', 1400, 700, 0.06, 0.16], ['osc', 'sine', 2200, 1100, 0.08, 0.18]]
+  melee_hit_metal:   [['noise', 0.05, 0.28, 3600, 3.0], ['osc', 'square', 1400, 700, 0.06, 0.16], ['osc', 'sine', 2200, 1100, 0.08, 0.18]],
+  dry_heavy:         [['osc', 'square', 460, 240, 0.04, 0.15], ['noise', 0.03, 0.12, 1600, 2.5], ['osc', 'sine', 180, 80, 0.045, 0.12]],
+  melee_heavy:       [['noise', 0.16, 0.38, 480, 0.9], ['osc', 'sawtooth', 130, 45, 0.13, 0.26], ['osc', 'sine', 85, 30, 0.12, 0.20]],
+  explosion_heavy:   [['noise', 0.75, 0.65, 140, 0.4], ['osc', 'sine', 95, 20, 0.65, 0.5], ['osc', 'sawtooth', 60, 20, 0.35, 0.22], ['noise', 0.4, 0.32, 550, 0.7]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -658,7 +662,8 @@ const SOUND_VARIED = {
   melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1,
   jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1,
   shield_deflect: 1, helmet_hit: 1,
-  estep_heavy: 1, reload_heavy_out: 1, reload_heavy_in: 1, reload_smg_out: 1, reload_smg_in: 1, melee_hit_metal: 1
+  estep_heavy: 1, reload_heavy_out: 1, reload_heavy_in: 1, reload_smg_out: 1, reload_smg_in: 1, melee_hit_metal: 1,
+  dry_heavy: 1, melee_heavy: 1, explosion_heavy: 1
 };
 
 function recipeDuration(recipe) {

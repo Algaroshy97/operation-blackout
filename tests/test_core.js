@@ -9276,3 +9276,46 @@ test('v147 visual polish: ordnance explosion VFX, marksman sniper vapor trail, a
   assert.strictEqual(CORE.tracerColor(true), 0xff8844);
   assert.strictEqual(CORE.tracerColor(false), 0xffe9a0);
 });
+
+test('v148 audio polish: weapon dry fire, resource pickups, athletic melee swing, and ordnance explosion acoustics rules', () => {
+  // 1. Weapon dry fire empty chamber hammer strike acoustics
+  assert.strictEqual(CORE.DRY_FIRE_SOUND, 'dry');
+  assert.strictEqual(CORE.DRY_FIRE_HEAVY_SOUND, 'dry_heavy');
+  assert.strictEqual(CORE.dryFireSound('SR'), 'dry_heavy');
+  assert.strictEqual(CORE.dryFireSound('BR'), 'dry_heavy');
+  assert.strictEqual(CORE.dryFireSound('SMG'), 'dry');
+  assert.strictEqual(CORE.dryFireSound('AR'), 'dry');
+  assert.strictEqual(CORE.dryFireSound(''), 'dry');
+  assert.strictEqual(CORE.dryFireSound(), 'dry');
+
+  // 2. Resource pickup acoustic differentiation
+  assert.strictEqual(CORE.PICKUP_AMMO_SOUND, 'pickup_ammo');
+  assert.strictEqual(CORE.PICKUP_MED_SOUND, 'pickup_med');
+  assert.strictEqual(CORE.PICKUP_POWER_SOUND, 'powerup');
+  assert.strictEqual(CORE.pickupSound('ammo'), 'pickup_ammo');
+  assert.strictEqual(CORE.pickupSound('med'), 'pickup_med');
+  assert.strictEqual(CORE.pickupSound('health'), 'pickup_med');
+  assert.strictEqual(CORE.pickupSound('power', 'nuke'), 'powerup_nuke');
+  assert.strictEqual(CORE.pickupSound('power', 'ammo'), 'powerup_ammo');
+  assert.strictEqual(CORE.pickupSound('power', 'unknown'), 'powerup');
+  assert.strictEqual(CORE.pickupSound(), 'pickup_ammo');
+
+  // 3. Athletic melee swing kinetic whoosh acoustics
+  assert.strictEqual(CORE.MELEE_SWING_SOUND, 'melee');
+  assert.strictEqual(CORE.MELEE_SWING_HEAVY_SOUND, 'melee_heavy');
+  assert.strictEqual(CORE.meleeSwingSound(true, false), 'melee_heavy');
+  assert.strictEqual(CORE.meleeSwingSound(false, true), 'melee_heavy');
+  assert.strictEqual(CORE.meleeSwingSound(true, true), 'melee_heavy');
+  assert.strictEqual(CORE.meleeSwingSound(false, false), 'melee');
+  assert.strictEqual(CORE.meleeSwingSound(), 'melee');
+
+  // 4. Ordnance explosion acoustic scale differentiation
+  assert.strictEqual(CORE.EXPLOSION_SOUND, 'explosion');
+  assert.strictEqual(CORE.EXPLOSION_HEAVY_SOUND, 'explosion_heavy');
+  assert.strictEqual(CORE.explosionSound(1.0), 'explosion');
+  assert.strictEqual(CORE.explosionSound(1.2), 'explosion_heavy');
+  assert.strictEqual(CORE.explosionSound(1.5), 'explosion_heavy');
+  assert.strictEqual(CORE.explosionSound(0.45), 'explosion');
+  assert.strictEqual(CORE.explosionSound(), 'explosion');
+});
+
