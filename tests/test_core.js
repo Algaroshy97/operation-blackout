@@ -9319,3 +9319,51 @@ test('v148 audio polish: weapon dry fire, resource pickups, athletic melee swing
   assert.strictEqual(CORE.explosionSound(), 'explosion');
 });
 
+test('v149 combat balance: weapon sprint-to-fire agility, sprint stance spread, and armor plate action gating rules', () => {
+  // 1. Weapon sprint-to-fire agility constants and transition delay
+  assert.strictEqual(CORE.WEAPON_STF_SMG, 0.12);
+  assert.strictEqual(CORE.WEAPON_STF_AR, 0.18);
+  assert.strictEqual(CORE.WEAPON_STF_BR, 0.24);
+  assert.strictEqual(CORE.WEAPON_STF_SR, 0.32);
+  assert.strictEqual(CORE.TAC_SPRINT_STF_MUL, 1.45);
+  assert.strictEqual(CORE.FAST_HANDS_STF_MUL, 0.80);
+
+  assert.strictEqual(CORE.weaponSprintToFireTime('SMG', false, false), 0.12);
+  assert.ok(Math.abs(CORE.weaponSprintToFireTime('SMG', true, false) - (0.12 * 1.45)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponSprintToFireTime('SMG', false, true) - (0.12 * 0.80)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponSprintToFireTime('SMG', true, true) - (0.12 * 1.45 * 0.80)) < 1e-4);
+  assert.strictEqual(CORE.weaponSprintToFireTime('AR', false, false), 0.18);
+  assert.strictEqual(CORE.weaponSprintToFireTime('BR', false, false), 0.24);
+  assert.strictEqual(CORE.weaponSprintToFireTime('SR', false, false), 0.32);
+  assert.strictEqual(CORE.weaponSprintToFireTime('', false, false), 0.18);
+  assert.strictEqual(CORE.weaponSprintToFireTime(undefined, false, false), 0.18);
+
+  // 2. Stance spread multiplier sprint & tactical sprint penalties
+  assert.strictEqual(CORE.STANCE_SPREAD_SPRINT, 1.35);
+  assert.strictEqual(CORE.STANCE_SPREAD_TAC_SPRINT, 1.60);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, false, false, false), 1.0);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(true, false, false, false), 0.80);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, true, false, false), 1.25);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, false, true, false), 1.35);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, false, true, true), 1.60);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, false, false, true), 1.60);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(true, false, true, false), 1.35);
+  assert.strictEqual(CORE.stanceSpreadMultiplier(false, true, true, false), 1.25);
+
+  // 3. Armor plate insertion action gating and deliberate mobility
+  assert.strictEqual(CORE.PLATE_MOVE_SPEED_MUL, 0.78);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, 30, true), false);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, 30, false), true);
+  assert.strictEqual(CORE.canPlayerFire(false, false, false, 30), true);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 10, 30, 90, true), false);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 10, 30, 90, false), true);
+  assert.strictEqual(CORE.canPlayerReload(false, false, 10, 30, 90), true);
+
+  const baseSpeed = 5.4;
+  const normalMove = CORE.playerMoveSpeed(baseSpeed, 1, false, false, false, false, false, false, 1.65, 0.55, 1, false);
+  const platingMove = CORE.playerMoveSpeed(baseSpeed, 1, false, false, false, false, false, false, 1.65, 0.55, 1, true);
+  assert.strictEqual(normalMove, 5.4);
+  assert.ok(Math.abs(platingMove - (5.4 * 0.78)) < 1e-4);
+});
+
+

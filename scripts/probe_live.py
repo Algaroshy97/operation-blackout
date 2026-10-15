@@ -4556,7 +4556,40 @@ def main() -> int:
         }""")
         checks.append(("weapon-dry-fire-pickups-melee-and-explosion-audio-rules", audio_polish_v148_check))
 
-        # 99) Clean console throughout gameplay.
+        # 99) Weapon sprint-to-fire agility, sprint stance spread, and armor plate action gating rules (v149 combat balance).
+        combat_balance_v149_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const stfOk = CORE.WEAPON_STF_SMG === 0.12 &&
+                          CORE.WEAPON_STF_AR === 0.18 &&
+                          CORE.WEAPON_STF_BR === 0.24 &&
+                          CORE.WEAPON_STF_SR === 0.32 &&
+                          CORE.TAC_SPRINT_STF_MUL === 1.45 &&
+                          CORE.FAST_HANDS_STF_MUL === 0.80 &&
+                          CORE.weaponSprintToFireTime('SMG', false, false) === 0.12 &&
+                          Math.abs(CORE.weaponSprintToFireTime('SMG', true, false) - 0.174) < 1e-4 &&
+                          CORE.weaponSprintToFireTime('AR', false, false) === 0.18;
+
+            const spreadOk = CORE.STANCE_SPREAD_SPRINT === 1.35 &&
+                             CORE.STANCE_SPREAD_TAC_SPRINT === 1.60 &&
+                             CORE.stanceSpreadMultiplier(false, false, false, false) === 1.0 &&
+                             CORE.stanceSpreadMultiplier(true, false, false, false) === 0.80 &&
+                             CORE.stanceSpreadMultiplier(false, true, false, false) === 1.25 &&
+                             CORE.stanceSpreadMultiplier(false, false, true, false) === 1.35 &&
+                             CORE.stanceSpreadMultiplier(false, false, true, true) === 1.60;
+
+            const plateOk = CORE.PLATE_MOVE_SPEED_MUL === 0.78 &&
+                            CORE.canPlayerFire(false, false, false, 30, true) === false &&
+                            CORE.canPlayerFire(false, false, false, 30, false) === true &&
+                            CORE.canPlayerReload(false, false, 10, 30, 90, true) === false &&
+                            CORE.canPlayerReload(false, false, 10, 30, 90, false) === true &&
+                            Math.abs(CORE.playerMoveSpeed(5.4, 1, false, false, false, false, false, false, 1.65, 0.55, 1, true) - 4.212) < 1e-4;
+
+            return stfOk && spreadOk && plateOk;
+        }""")
+        checks.append(("weapon-sprint-to-fire-spread-and-plate-balance-rules", combat_balance_v149_check))
+
+        # 100) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

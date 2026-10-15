@@ -330,7 +330,8 @@ function updatePlayer(dt) {
     adsDown(),
     CFG.player.sprintMul,
     CFG.player.crouchMul,
-    cw ? CORE.weaponAdsMoveMultiplier(cw.type, cw.moveMul) : 1
+    cw ? CORE.weaponAdsMoveMultiplier(cw.type, cw.moveMul) : 1,
+    typeof plateT === 'number' && plateT > 0
   );
   CORE.movementTargetVelocity(ix, iz, player.yaw, speed, _targetVelOut);
   const targetVX = _targetVelOut.x, targetVZ = _targetVelOut.z;

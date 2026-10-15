@@ -6652,16 +6652,20 @@ const CORE = (function () {
   }
   const STANCE_SPREAD_CROUCH = 0.80;
   const STANCE_SPREAD_SLIDE = 1.25;
+  const STANCE_SPREAD_SPRINT = 1.35;
+  const STANCE_SPREAD_TAC_SPRINT = 1.60;
   const STANCE_SPREAD_AIRBORNE_PENALTY = 0.80;
 
-  function stanceSpreadMultiplier(isCrouching, isSliding) {
+  function stanceSpreadMultiplier(isCrouching, isSliding, isSprinting, isTacSprint) {
     if (isSliding) return STANCE_SPREAD_SLIDE;
+    if (isTacSprint) return STANCE_SPREAD_TAC_SPRINT;
+    if (isSprinting) return STANCE_SPREAD_SPRINT;
     if (isCrouching) return STANCE_SPREAD_CROUCH;
     return 1.0;
   }
 
   function effectiveSpread(base, bloom, speed, airborne, stanceMul) {
-    const stance = (typeof stanceMul === 'number' && isFinite(stanceMul) && stanceMul > 0) ? stanceMul : 1.0;
+    const stance = _isNum(stanceMul) && stanceMul > 0 ? stanceMul : 1.0;
     const moveMul = (1 + Math.min(1.2, speed * 0.25) + (airborne ? STANCE_SPREAD_AIRBORNE_PENALTY : 0)) * stance;
     return base * moveMul + (bloom > 0 ? bloom : 0);
   }
@@ -7325,14 +7329,15 @@ const CORE = (function () {
   }
   // Evaluates player eligibility to fire a weapon round.
   // Pure: no side effects, no DOM, no THREE.
-  function canPlayerFire(isDead, isReloading, isSwitching, ammo) {
+  function canPlayerFire(isDead, isReloading, isSwitching, ammo, isPlating) {
+    if (isPlating) return false;
     const a = _isNum(ammo) ? ammo : 0;
     return !isDead && !isReloading && !isSwitching && a > 0;
   }
   // Evaluates player eligibility to initiate a weapon reload.
   // Pure: no side effects, no DOM, no THREE.
-  function canPlayerReload(isDead, isReloading, ammo, magSize, reserve) {
-    if (isDead || isReloading) return false;
+  function canPlayerReload(isDead, isReloading, ammo, magSize, reserve, isPlating) {
+    if (isDead || isReloading || isPlating) return false;
     const a = _isNum(ammo) ? ammo : 0;
     const m = _isNum(magSize) ? magSize : 0;
     const r = _isNum(reserve) ? reserve : 0;
@@ -9396,6 +9401,9 @@ const CORE = (function () {
   const WEAPON_SWITCH_SPEED_BR = 3.0;
   const WEAPON_SWITCH_SPEED_SR = 2.4;
   const FAST_HANDS_SWITCH_MUL = 1.35, EMPTY_SWAP_SPEED_MUL = 1.25;
+  const WEAPON_STF_SMG = 0.12, WEAPON_STF_AR = 0.18, WEAPON_STF_BR = 0.24, WEAPON_STF_SR = 0.32;
+  const TAC_SPRINT_STF_MUL = 1.45, FAST_HANDS_STF_MUL = 0.80;
+  const PLATE_MOVE_SPEED_MUL = 0.78;
   const WEAPON_ADS_SPEED_SMG = 1.25;
   const WEAPON_ADS_SPEED_AR = 1.00;
   const WEAPON_ADS_SPEED_BR = 0.88;
@@ -9409,7 +9417,7 @@ const CORE = (function () {
   const SHOT_KICK_MAX = 1.4;
   const SHOT_KICK_DECAY_BASE = 0.001;
 
-  function playerMoveSpeed(baseSpeed, analogMag, isSprinting, isTacSprint, isDowned, isLandStun, isCrouching, isAds, sprintMul, crouchMul, weaponMoveMul) {
+  function playerMoveSpeed(baseSpeed, analogMag, isSprinting, isTacSprint, isDowned, isLandStun, isCrouching, isAds, sprintMul, crouchMul, weaponMoveMul, isPlating) {
     const base = _isNum(baseSpeed) ? Math.max(0, baseSpeed) : 5.4;
     const mag = _isNum(analogMag) ? Math.max(0, Math.min(1, analogMag)) : 1;
     let spd = base * mag;
@@ -9422,6 +9430,7 @@ const CORE = (function () {
     if (isLandStun) spd *= LAND_STUN_SPEED_MUL;
     if (isCrouching) spd *= cMul;
     if (isAds) spd *= ADS_MOVE_SPEED_MUL * wMul;
+    if (isPlating) spd *= PLATE_MOVE_SPEED_MUL;
     return Math.max(0, spd);
   }
 
@@ -9521,6 +9530,16 @@ const CORE = (function () {
     let spd = hasFastHands ? base * FAST_HANDS_SWITCH_MUL : base;
     if (isEmpty) spd *= EMPTY_SWAP_SPEED_MUL;
     return spd;
+  }
+
+  function weaponSprintToFireTime(weaponType, isTacSprint, hasFastHands) {
+    let base = WEAPON_STF_AR;
+    if (weaponType === 'SMG') base = WEAPON_STF_SMG;
+    else if (weaponType === 'BR') base = WEAPON_STF_BR;
+    else if (weaponType === 'SR') base = WEAPON_STF_SR;
+    let stf = isTacSprint ? base * TAC_SPRINT_STF_MUL : base;
+    if (hasFastHands) stf *= FAST_HANDS_STF_MUL;
+    return stf;
   }
 
   function weaponAdsSpeed(weaponType, customSpeed) {
@@ -10566,27 +10585,27 @@ const CORE = (function () {
 
   function isRagdollSinkReady(isSettled, age, delay) {
     if (!isSettled) return false;
-    const a = (typeof age === 'number' && isFinite(age)) ? age : 0;
-    const d = (typeof delay === 'number' && isFinite(delay)) ? delay : RAGDOLL_SINK_DELAY;
+    const a = _isNum(age) ? age : 0;
+    const d = _isNum(delay) ? delay : RAGDOLL_SINK_DELAY;
     return a > d;
   }
 
   function stepRagdollSink(currentSunk, dt, rate) {
-    const s = (typeof currentSunk === 'number' && isFinite(currentSunk)) ? currentSunk : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
-    const r = (typeof rate === 'number' && isFinite(rate)) ? rate : RAGDOLL_SINK_RATE;
+    const s = _isNum(currentSunk) ? currentSunk : 0;
+    const delta = _isNum(dt) ? dt : 0;
+    const r = _isNum(rate) ? rate : RAGDOLL_SINK_RATE;
     return s + delta * r;
   }
 
   function ragdollDropOffsetY(sunk, scale) {
-    const s = (typeof sunk === 'number' && isFinite(sunk)) ? sunk : 0;
-    const sc = (typeof scale === 'number' && isFinite(scale)) ? scale : RAGDOLL_DROP_SCALE;
+    const s = _isNum(sunk) ? sunk : 0;
+    const sc = _isNum(scale) ? scale : RAGDOLL_DROP_SCALE;
     return s * sc;
   }
 
   function isRagdollExpired(sunk, maxSunk) {
-    const s = (typeof sunk === 'number' && isFinite(sunk)) ? sunk : 0;
-    const m = (typeof maxSunk === 'number' && isFinite(maxSunk)) ? maxSunk : RAGDOLL_SINK_MAX;
+    const s = _isNum(sunk) ? sunk : 0;
+    const m = _isNum(maxSunk) ? maxSunk : RAGDOLL_SINK_MAX;
     return s > m;
   }
 
@@ -10595,17 +10614,17 @@ const CORE = (function () {
   const ENEMY_PROC_BASE_FREQ = 9;
 
   function enemyProcWalkSpeed(moveSpeed, kind, threshold) {
-    const spd = (typeof moveSpeed === 'number' && isFinite(moveSpeed)) ? moveSpeed : 0;
-    const th = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : ENEMY_PROC_WALK_THRESHOLD;
+    const spd = _isNum(moveSpeed) ? moveSpeed : 0;
+    const th = _isNum(threshold) ? threshold : ENEMY_PROC_WALK_THRESHOLD;
     if (spd <= th) return 0;
     const runnerMul = kind === 0 ? 1.5 : 1;
     return ENEMY_PROC_BASE_FREQ * (spd / 3.2) * runnerMul;
   }
 
   function stepEnemyProcWalkPhase(phase, speed, dt) {
-    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
-    const s = (typeof speed === 'number' && isFinite(speed)) ? speed : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
+    const p = _isNum(phase) ? phase : 0;
+    const s = _isNum(speed) ? speed : 0;
+    const delta = _isNum(dt) ? dt : 0;
     return p + s * delta;
   }
 
@@ -10661,104 +10680,104 @@ const CORE = (function () {
   const STATION_HOLD_DECAY_RATE = 3;
 
   function waveSpawnPressure(waveQueue, queueThreshold) {
-    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
-    const thresh = (typeof queueThreshold === 'number' && isFinite(queueThreshold)) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
+    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0;
+    const thresh = _isNum(queueThreshold) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
     return Math.min(1, q / thresh);
   }
 
   function waveSpawnBurstCount(waveQueue, canSpawn, pressure, randomVal) {
-    const q = (typeof waveQueue === 'number' && isFinite(waveQueue)) ? Math.max(0, waveQueue) : 0;
-    const maxCan = (typeof canSpawn === 'number' && isFinite(canSpawn)) ? Math.max(0, canSpawn) : 0;
-    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0;
+    const maxCan = _isNum(canSpawn) ? Math.max(0, canSpawn) : 0;
+    const press = _isNum(pressure) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     const randBase = Math.floor(Math.min(0.9999, r) * 2);
     const burstSize = randBase + 3 + Math.round(press * 3);
     return Math.min(burstSize, q, maxCan);
   }
 
   function waveSpawnDelay(pressure, randomVal) {
-    const press = (typeof pressure === 'number' && isFinite(pressure)) ? Math.max(0, Math.min(1, pressure)) : 0;
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const press = _isNum(pressure) ? Math.max(0, Math.min(1, pressure)) : 0;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     return (2.5 - press * 1.4) + r * 1.2;
   }
 
   function spawnCandidateScore(dist, sweetSpot, randomVal) {
-    const d = (typeof dist === 'number' && isFinite(dist)) ? dist : 0;
-    const target = (typeof sweetSpot === 'number' && isFinite(sweetSpot)) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT;
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const d = _isNum(dist) ? dist : 0;
+    const target = _isNum(sweetSpot) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     const res = -Math.abs(d - target) - r * WAVE_SPAWN_JITTER;
     return res === 0 ? 0 : res;
   }
 
   function stepAmmoReliefTimer(dryT, dt, hasAmmo) {
     if (hasAmmo) return 0;
-    const cur = (typeof dryT === 'number' && isFinite(dryT)) ? Math.max(0, dryT) : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? Math.max(0, dt) : 0;
+    const cur = _isNum(dryT) ? Math.max(0, dryT) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
     return cur + delta;
   }
 
   function isAmmoReliefNeeded(waveActive, isDead, dryT, gameT, nextCacheT, threshold) {
     if (!waveActive || isDead) return false;
-    const t = (typeof dryT === 'number' && isFinite(dryT)) ? dryT : 0;
-    const th = (typeof threshold === 'number' && isFinite(threshold)) ? threshold : AMMO_RELIEF_DRY_THRESHOLD;
-    const gT = (typeof gameT === 'number' && isFinite(gameT)) ? gameT : 0;
-    const nextT = (typeof nextCacheT === 'number' && isFinite(nextCacheT)) ? nextCacheT : 0;
+    const t = _isNum(dryT) ? dryT : 0;
+    const th = _isNum(threshold) ? threshold : AMMO_RELIEF_DRY_THRESHOLD;
+    const gT = _isNum(gameT) ? gameT : 0;
+    const nextT = _isNum(nextCacheT) ? nextCacheT : 0;
     return t > th && gT > nextT;
   }
 
   function enemyBulletTravelDelay(dist, factor, maxDelay) {
-    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0, dist) : 0;
-    const f = (typeof factor === 'number' && isFinite(factor)) ? factor : ENEMY_BULLET_DELAY_FACTOR;
-    const cap = (typeof maxDelay === 'number' && isFinite(maxDelay)) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS;
+    const d = _isNum(dist) ? Math.max(0, dist) : 0;
+    const f = _isNum(factor) ? factor : ENEMY_BULLET_DELAY_FACTOR;
+    const cap = _isNum(maxDelay) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS;
     return Math.min(cap, d * f);
   }
 
   function enemyRangedNextShot(currentT, rangedRof, randomVal) {
-    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
-    const rof = (typeof rangedRof === 'number' && isFinite(rangedRof)) ? rangedRof : 1.35;
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const t = _isNum(currentT) ? currentT : 0;
+    const rof = _isNum(rangedRof) ? rangedRof : 1.35;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     return t + rof * (0.75 + r * 0.5);
   }
 
   function enemyMeleeWindup(randomVal) {
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     return ENEMY_MELEE_WINDUP_BASE + r * ENEMY_MELEE_WINDUP_RANGE;
   }
 
   function enemyAttackReadyTime(currentT, baseCooldown, randomVal) {
-    const t = (typeof currentT === 'number' && isFinite(currentT)) ? currentT : 0;
-    const cd = (typeof baseCooldown === 'number' && isFinite(baseCooldown)) ? baseCooldown : 1.1;
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const t = _isNum(currentT) ? currentT : 0;
+    const cd = _isNum(baseCooldown) ? baseCooldown : 1.1;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     return t + cd + r * 0.5;
   }
 
   function enemyKillImpulse(lastHitForce, isHead, randomVal, out) {
     const o = out || { force: 0, y: 0 };
-    const forceVal = (typeof lastHitForce === 'number' && isFinite(lastHitForce)) ? Math.max(0, lastHitForce) : 20;
+    const forceVal = _isNum(lastHitForce) ? Math.max(0, lastHitForce) : 20;
     o.force = Math.min(0.085, 0.012 + forceVal * 0.00035);
-    const r = (typeof randomVal === 'number' && isFinite(randomVal)) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     o.y = (isHead ? 0.030 : 0.016) + r * 0.008;
     return o;
   }
 
   function enemyStunSpeedMultiplier(baseSpeedMul, isStunned) {
-    const base = (typeof baseSpeedMul === 'number' && isFinite(baseSpeedMul)) ? baseSpeedMul : 1;
+    const base = _isNum(baseSpeedMul) ? baseSpeedMul : 1;
     return isStunned ? base * ENEMY_STUN_SPEED_MUL : base;
   }
 
   function stepEnemyBlindYaw(yaw, dt, rate) {
-    const y = (typeof yaw === 'number' && isFinite(yaw)) ? yaw : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
-    const r = (typeof rate === 'number' && isFinite(rate)) ? rate : ENEMY_BLIND_YAW_RATE;
+    const y = _isNum(yaw) ? yaw : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const r = _isNum(rate) ? rate : ENEMY_BLIND_YAW_RATE;
     return y + delta * r;
   }
 
   function stepEnemyFallY(currentY, floorY, dt, fallSpeed, stepH) {
-    const cy = (typeof currentY === 'number' && isFinite(currentY)) ? currentY : 0;
-    const fy = (typeof floorY === 'number' && isFinite(floorY)) ? floorY : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
-    const spd = (typeof fallSpeed === 'number' && isFinite(fallSpeed)) ? fallSpeed : ENEMY_FALL_SPEED;
-    const step = (typeof stepH === 'number' && isFinite(stepH)) ? stepH : 0.60;
+    const cy = _isNum(currentY) ? currentY : 0;
+    const fy = _isNum(floorY) ? floorY : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const spd = _isNum(fallSpeed) ? fallSpeed : ENEMY_FALL_SPEED;
+    const step = _isNum(stepH) ? stepH : 0.60;
     if (fy < cy) {
       const needed = cy - fy;
       return cy - Math.min(needed, delta * spd);
@@ -10770,8 +10789,8 @@ const CORE = (function () {
   }
 
   function canSlideCancel(slideT, minDuration) {
-    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
-    const minT = (typeof minDuration === 'number' && isFinite(minDuration)) ? minDuration : SLIDE_CANCEL_MIN_T;
+    const t = _isNum(slideT) ? slideT : 0;
+    const minT = _isNum(minDuration) ? minDuration : SLIDE_CANCEL_MIN_T;
     return t > minT;
   }
 
@@ -11220,16 +11239,16 @@ const CORE = (function () {
   }
 
   function sentryTargetYaw(dx, dz) {
-    const x = (typeof dx === 'number' && isFinite(dx)) ? dx : 0;
-    const z = (typeof dz === 'number' && isFinite(dz)) ? dz : 0;
+    const x = _isNum(dx) ? dx : 0;
+    const z = _isNum(dz) ? dz : 0;
     return Math.atan2(x, z) + Math.PI;
   }
 
   function stepSentryTimers(t, cd, dt, out) {
     const res = out || { t: 0, cd: 0, expired: false, readyToFire: false };
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
-    const curT = (typeof t === 'number' && isFinite(t)) ? t - delta : 0;
-    const curCd = (typeof cd === 'number' && isFinite(cd)) ? cd - delta : 0;
+    const delta = _isNum(dt) ? dt : 0;
+    const curT = _isNum(t) ? t - delta : 0;
+    const curCd = _isNum(cd) ? cd - delta : 0;
     res.t = curT;
     res.cd = curCd;
     res.expired = curT <= 0;
@@ -12895,7 +12914,10 @@ const CORE = (function () {
     DRY_FIRE_SOUND, DRY_FIRE_HEAVY_SOUND, dryFireSound,
     PICKUP_AMMO_SOUND, PICKUP_MED_SOUND, PICKUP_POWER_SOUND, pickupSound,
     MELEE_SWING_SOUND, MELEE_SWING_HEAVY_SOUND, meleeSwingSound,
-    EXPLOSION_SOUND, EXPLOSION_HEAVY_SOUND, explosionSound
+    EXPLOSION_SOUND, EXPLOSION_HEAVY_SOUND, explosionSound,
+    WEAPON_STF_SMG, WEAPON_STF_AR, WEAPON_STF_BR, WEAPON_STF_SR,
+    TAC_SPRINT_STF_MUL, FAST_HANDS_STF_MUL, weaponSprintToFireTime,
+    STANCE_SPREAD_SPRINT, STANCE_SPREAD_TAC_SPRINT, PLATE_MOVE_SPEED_MUL
   };
 })();
 
@@ -14782,7 +14804,8 @@ function updatePlayer(dt) {
     adsDown(),
     CFG.player.sprintMul,
     CFG.player.crouchMul,
-    cw ? CORE.weaponAdsMoveMultiplier(cw.type, cw.moveMul) : 1
+    cw ? CORE.weaponAdsMoveMultiplier(cw.type, cw.moveMul) : 1,
+    typeof plateT === 'number' && plateT > 0
   );
   CORE.movementTargetVelocity(ix, iz, player.yaw, speed, _targetVelOut);
   const targetVX = _targetVelOut.x, targetVZ = _targetVelOut.z;
@@ -15641,7 +15664,10 @@ function switchWeapon(slot) {
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
 
 function tryReload() {
-  const s = curS(), w = curW(); if (!s || !w || !CORE.canReload(s.ammo, w.mag, s.reserve, s.reloading)) return;
+  const s = curS(), w = curW();
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isPlating = typeof plateT === 'number' && plateT > 0;
+  if (!s || !w || !CORE.canPlayerReload(isDead, s.reloading, s.ammo, w.mag, s.reserve, isPlating)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
   if (!s.reloadPaused) {
@@ -15676,14 +15702,25 @@ function updateWeapons(dt) {
   }
   // fire: consume every automatic-fire deadline that elapsed since the last
   // render. The first shot keeps the existing immediate-fire behaviour.
-  if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
+  const isPlating = typeof plateT === 'number' && plateT > 0;
+  if (mouse1Down && !wasReloading && started && !paused && CORE.canPlayerFire(player.dead, s.reloading, gunSwitchT < 1, s.ammo, isPlating)) {
+    if (player.sprinting) {
+      const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
+      const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
+      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands);
+      player.sprinting = false;
+      player.tacT = 0;
+      s.nextShot = Math.max(s.nextShot, fireClockT + stf);
+    }
     if (fireClockT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
         : CORE.advanceShotSchedule(fireClockT, s.nextShot, CORE.weaponFireInterval(w.rpm), MAX_FIRE_CATCHUP_SHOTS).shots;
       if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
       while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
       if (s.ammo === 0 && s.reserve > 0) tryReload();
-    } else if (fireClockT >= s.nextShot && s.ammo === 0) {
+    }
+  } else if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && s.ammo === 0 && !isPlating) {
+    if (fireClockT >= s.nextShot) {
       if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
@@ -15849,7 +15886,8 @@ function fireShot(preserveSchedule) {
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
   bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
   bp.cap *= CORE.perkBloomMul(perks);
-  const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
+  const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+  const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
     hSpeedForSpread, !player.onGround, stanceSpread);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
@@ -16077,7 +16115,8 @@ function updateViewmodel(dt) {
   if (_chEl) {
     const isScopedW = (w.type === 'BR' || w.type === 'SR');
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
-    const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
+    const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+    const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
     const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread);
     const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);

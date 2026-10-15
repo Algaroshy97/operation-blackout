@@ -131,7 +131,10 @@ function switchWeapon(slot) {
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
 
 function tryReload() {
-  const s = curS(), w = curW(); if (!s || !w || !CORE.canReload(s.ammo, w.mag, s.reserve, s.reloading)) return;
+  const s = curS(), w = curW();
+  const isDead = typeof player !== 'undefined' && !!player.dead;
+  const isPlating = typeof plateT === 'number' && plateT > 0;
+  if (!s || !w || !CORE.canPlayerReload(isDead, s.reloading, s.ammo, w.mag, s.reserve, isPlating)) return;
   s.reloading = true;
   // Resume a reload that a weapon swap interrupted rather than restarting it.
   if (!s.reloadPaused) {
@@ -166,14 +169,25 @@ function updateWeapons(dt) {
   }
   // fire: consume every automatic-fire deadline that elapsed since the last
   // render. The first shot keeps the existing immediate-fire behaviour.
-  if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1) {
+  const isPlating = typeof plateT === 'number' && plateT > 0;
+  if (mouse1Down && !wasReloading && started && !paused && CORE.canPlayerFire(player.dead, s.reloading, gunSwitchT < 1, s.ammo, isPlating)) {
+    if (player.sprinting) {
+      const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
+      const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
+      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands);
+      player.sprinting = false;
+      player.tacT = 0;
+      s.nextShot = Math.max(s.nextShot, fireClockT + stf);
+    }
     if (fireClockT >= s.nextShot && s.ammo > 0) {
       let due = s.nextShot === 0 ? 1
         : CORE.advanceShotSchedule(fireClockT, s.nextShot, CORE.weaponFireInterval(w.rpm), MAX_FIRE_CATCHUP_SHOTS).shots;
       if (!w.auto) { due = Math.min(1, due); mouse1Down = false; }
       while (due-- > 0 && s.ammo > 0) fireShot(w.auto);
       if (s.ammo === 0 && s.reserve > 0) tryReload();
-    } else if (fireClockT >= s.nextShot && s.ammo === 0) {
+    }
+  } else if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && s.ammo === 0 && !isPlating) {
+    if (fireClockT >= s.nextShot) {
       if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
@@ -339,7 +353,8 @@ function fireShot(preserveSchedule) {
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
   bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
   bp.cap *= CORE.perkBloomMul(perks);
-  const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
+  const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+  const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
     hSpeedForSpread, !player.onGround, stanceSpread);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
@@ -567,7 +582,8 @@ function updateViewmodel(dt) {
   if (_chEl) {
     const isScopedW = (w.type === 'BR' || w.type === 'SR');
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
-    const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding);
+    const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
+    const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
     const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread);
     const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
