@@ -9399,3 +9399,30 @@ test('v150 performance optimization: flow field coordinate packing, diagonal wal
   assert.strictEqual(CORE.syncEnemiesRemaining(8), 8);
   assert.strictEqual(CORE.syncEnemiesRemaining(NaN), 0);
 });
+
+test('v151 mobile UI polish: virtual joystick dead-state lockout, change-detection, and universal control lockout gating', () => {
+  // 1. Virtual joystick movement speed tier & class
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.8, 0, true, false, true), 'locked');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0.8, 0, true, false, false), 'sprint');
+  assert.strictEqual(CORE.joystickMoveSpeedTier(0, false, true), 'locked');
+  assert.strictEqual(CORE.joystickIndicatorClass('locked'), 'locked');
+  assert.strictEqual(CORE.joystickIndicatorClass('idle'), '');
+
+  // 2. Virtual joystick change detection
+  const state = { sprint: null, tier: null };
+  assert.strictEqual(CORE.touchJoystickChanged(state, true, 'sprint'), true);
+  CORE.syncTouchJoystickState(state, true, 'sprint');
+  assert.strictEqual(state.sprint, true);
+  assert.strictEqual(state.tier, 'sprint');
+  assert.strictEqual(CORE.touchJoystickChanged(state, true, 'sprint'), false);
+  assert.strictEqual(CORE.touchJoystickChanged(state, false, 'locked'), true);
+
+  // 3. Universal touch control lockout gating
+  assert.strictEqual(CORE.touchControlLocked('tbtn-fire', true, false), true);
+  assert.strictEqual(CORE.touchControlLocked('tbtn-fire', false, true), false);
+  assert.strictEqual(CORE.touchControlLocked('tbtn-jump', false, true), true);
+  assert.strictEqual(CORE.touchControlLocked('joy-base', true, false), true);
+  assert.strictEqual(CORE.touchControlLocked('joy-base', false, true), true);
+  assert.strictEqual(CORE.touchControlLocked('joy-base', false, false), false);
+});
+

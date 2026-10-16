@@ -242,10 +242,12 @@
      body.touch #joy-base.on{border-color:rgba(255,210,74,.8);}
      body.touch #joy-base.sprint{border-color:rgba(80,180,255,.9);}
      body.touch #joy-base.crawl{border-color:rgba(255,95,74,.85);}
+     body.touch #joy-base.locked{opacity:.35;border-color:rgba(255,255,255,.15);pointer-events:none;}
      body.touch #joy-stick{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:transparent;border:2px solid rgba(255,255,255,.5);pointer-events:none;}
      body.touch #joy-base.on #joy-stick{background:transparent;border-color:#ffd24a;}
      body.touch #joy-base.sprint #joy-stick{background:transparent;border-color:#50b4ff;}
      body.touch #joy-base.crawl #joy-stick{background:transparent;border-color:#ff5f4a;}
+     body.touch #joy-base.locked #joy-stick{opacity:.35;border-color:rgba(255,255,255,.2);}
   body.touch #look-zone{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}
   body.touch .tbtn{min-width:44px;min-height:44px;flex-direction:column;gap:2px;line-height:1.1;text-align:center;padding:2px;-webkit-touch-callout:none;position:absolute;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:transparent;border:2px solid rgba(255,255,255,.7);color:rgba(255,255,255,.85);font-size:11px;font-weight:800;letter-spacing:1px;user-select:none;-webkit-user-select:none}
   /* Generated transparent PNG atlas, embedded once for offline/self-contained builds.
@@ -344,6 +346,7 @@
   body.touch #tbtn-pause.paused{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-pause.editing{border-color:#ffd24a;color:#ffd24a;}
   body.touch #tbtn-pause.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35);}
+  body.touch #tbtn-pause.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
   body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
   body.touch-layout-left.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom left}

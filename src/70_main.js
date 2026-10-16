@@ -52,6 +52,10 @@ function killPlayer() {
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
   paused = false;
   $id('pause-menu').style.display = 'none';
+  updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof updateHudStreaks === 'function') updateHudStreaks();
+  if (typeof applyTouchInput === 'function') applyTouchInput();
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   clearCheckpoint();   // a lost run is not resumable

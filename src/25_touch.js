@@ -398,9 +398,27 @@ applyTouchLayoutPositions();
 // Called from updatePlayer BEFORE movement intent is read.
 const _touchMoveKeys = { w: false, s: false, a: false, d: false };
 const _touchAnalogMove = { x: 0, z: 0 };
+let _touchJoyCache = { sprint: false, tier: '' };
 function applyTouchInput() {
   if (!touchState.active) return;
-  if (!touchGameplayEnabled()) { resetTouchControls(); return; }
+  if (!touchGameplayEnabled()) {
+    resetTouchControls();
+    updateTouchSlideBtn();
+    updateTouchMeleeBtn();
+    updateTouchAdsBtn();
+    updateTouchJumpBtn();
+    updateTouchPauseBtn();
+    if (joyBaseEl && typeof CORE !== 'undefined' && typeof CORE.touchJoystickChanged === 'function') {
+      const isDead = typeof player !== 'undefined' && !!player.dead;
+      const joyTier = CORE.joystickMoveSpeedTier(0, 0, false, false, isDead);
+      if (CORE.touchJoystickChanged(_touchJoyCache, false, joyTier)) {
+        CORE.syncTouchJoystickState(_touchJoyCache, false, joyTier);
+        joyBaseEl.classList.remove('sprint', 'crawl');
+        joyBaseEl.classList.toggle('locked', joyTier === 'locked');
+      }
+    }
+    return;
+  }
   // movement: joystick axes emulate WASD as analog
   if (touchState.moveX || touchState.moveZ) {
     CORE.touchMovementKeys(touchState.moveX, touchState.moveZ, CORE.JOYSTICK_MOVE_THRESHOLD, _touchMoveKeys);
@@ -414,12 +432,17 @@ function applyTouchInput() {
     const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
     keys['ShiftLeft'] = isSprint;
     const isDowned = typeof player !== 'undefined' && !!player.downed;
+    const isDead = typeof player !== 'undefined' && !!player.dead;
     const joyTier = (typeof CORE !== 'undefined' && typeof CORE.joystickMoveSpeedTier === 'function')
-      ? CORE.joystickMoveSpeedTier(touchState.moveX, touchState.moveZ, isSprint, isDowned)
+      ? CORE.joystickMoveSpeedTier(touchState.moveX, touchState.moveZ, isSprint, isDowned, isDead)
       : (isSprint ? 'sprint' : 'walk');
-    if (joyBaseEl) {
-      joyBaseEl.classList.toggle('sprint', isSprint);
-      joyBaseEl.classList.toggle('crawl', joyTier === 'crawl');
+    if (joyBaseEl && typeof CORE !== 'undefined' && typeof CORE.touchJoystickChanged === 'function') {
+      if (CORE.touchJoystickChanged(_touchJoyCache, isSprint, joyTier)) {
+        CORE.syncTouchJoystickState(_touchJoyCache, isSprint, joyTier);
+        joyBaseEl.classList.toggle('sprint', isSprint);
+        joyBaseEl.classList.toggle('crawl', joyTier === 'crawl');
+        joyBaseEl.classList.toggle('locked', joyTier === 'locked');
+      }
     }
   } else {
     // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
@@ -429,9 +452,16 @@ function applyTouchInput() {
     const adsVal = typeof adsAmount === 'number' ? adsAmount : 0;
     const isSteady = CORE.isMobileSteadyAim(touchState.ads, adsVal, wType, touchState.moveX, touchState.moveZ);
     keys['ShiftLeft'] = isSteady;
-    if (joyBaseEl) {
-      joyBaseEl.classList.remove('sprint');
-      joyBaseEl.classList.remove('crawl');
+    if (joyBaseEl && typeof CORE !== 'undefined' && typeof CORE.touchJoystickChanged === 'function') {
+      const isDowned = typeof player !== 'undefined' && !!player.downed;
+      const isDead = typeof player !== 'undefined' && !!player.dead;
+      const joyTier = CORE.joystickMoveSpeedTier(0, 0, false, isDowned, isDead);
+      if (CORE.touchJoystickChanged(_touchJoyCache, false, joyTier)) {
+        CORE.syncTouchJoystickState(_touchJoyCache, false, joyTier);
+        joyBaseEl.classList.remove('sprint');
+        joyBaseEl.classList.toggle('crawl', joyTier === 'crawl');
+        joyBaseEl.classList.toggle('locked', joyTier === 'locked');
+      }
     }
     window.__analogMove = null;
   }
@@ -519,6 +549,7 @@ function updateTouchPauseBtn() {
   tbtnPauseEl.classList.toggle('paused', pState === 'paused');
   tbtnPauseEl.classList.toggle('editing', pState === 'editing');
   tbtnPauseEl.classList.toggle('empty', pState === 'empty' || pState === 'dead');
+  tbtnPauseEl.classList.toggle('locked', pState === 'dead');
   tbtnPauseEl.classList.toggle('ready', pState === 'ready');
   if (tbtnPauseEl.textContent !== pLabel) tbtnPauseEl.textContent = pLabel;
 }

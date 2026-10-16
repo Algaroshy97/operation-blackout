@@ -4587,6 +4587,8 @@ def main() -> int:
 
             return stfOk && spreadOk && plateOk;
         }""")
+        checks.append(("weapon-sprint-to-fire-spread-and-plate-balance-rules", combat_balance_v149_check))
+
         # 100) Flow field coordinate packing, diagonal walkability, and enemy footstep/hostiles culling rules (v150 performance optimization).
         perf_optimization_v150_check = page.evaluate("""() => {
             if (typeof CORE === 'undefined') return false;
@@ -4613,7 +4615,38 @@ def main() -> int:
         }""")
         checks.append(("flow-field-and-spatial-culling-perf-rules", perf_optimization_v150_check))
 
-        # 101) Clean console throughout gameplay.
+        # 101) Mobile touch joystick dead-state lockout, change-detection, and universal control lockout gating rules (v151 mobile UI polish).
+        mobile_polish_v151_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const joyLocked = CORE.joystickMoveSpeedTier(0.8, 0, true, false, true) === 'locked' &&
+                              CORE.joystickMoveSpeedTier(0, false, true) === 'locked';
+            const joyCrawl = CORE.joystickMoveSpeedTier(0.2, 0.2, false, true, false) === 'crawl' &&
+                             CORE.joystickMoveSpeedTier(0, true, false) === 'crawl';
+            const joySprint = CORE.joystickMoveSpeedTier(0.8, 0, true, false, false) === 'sprint';
+            const joyClassLocked = CORE.joystickIndicatorClass('locked') === 'locked';
+
+            const joyInit = { sprint: null, tier: null };
+            const joyChg1 = CORE.touchJoystickChanged(joyInit, true, 'sprint') === true;
+            CORE.syncTouchJoystickState(joyInit, true, 'sprint');
+            const joyChg2 = CORE.touchJoystickChanged(joyInit, true, 'sprint') === false;
+            const joyChg3 = CORE.touchJoystickChanged(joyInit, false, 'locked') === true;
+
+            const lFireDead = CORE.touchControlLocked('tbtn-fire', true, false) === true;
+            const lFireDown = CORE.touchControlLocked('tbtn-fire', false, true) === false;
+            const lRldDown = CORE.touchControlLocked('tbtn-reload', false, true) === false;
+            const lJumpDown = CORE.touchControlLocked('tbtn-jump', false, true) === true;
+            const lMeleeDown = CORE.touchControlLocked('tbtn-melee', false, true) === true;
+            const lJoyDown = CORE.touchControlLocked('joy-base', false, true) === true;
+            const lJoyDead = CORE.touchControlLocked('joy-base', true, false) === true;
+
+            return joyLocked && joyCrawl && joySprint && joyClassLocked &&
+                   joyChg1 && joyChg2 && joyChg3 &&
+                   lFireDead && lFireDown && lRldDown && lJumpDown && lMeleeDown && lJoyDown && lJoyDead;
+        }""")
+        checks.append(("mobile-touch-joystick-and-control-lockout-rules", mobile_polish_v151_check))
+
+        # 102) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

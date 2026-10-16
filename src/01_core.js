@@ -91,8 +91,7 @@ const CORE = (function () {
   const JOYSTICK_SPRINT_MAGNITUDE = 0.82;
   function isAutoSprint(moveX, moveZ, ads) {
     if (ads) return false;
-    if (typeof moveX !== 'number' || !isFinite(moveX)) return false;
-    if (typeof moveZ !== 'number' || !isFinite(moveZ)) return false;
+    if (!_isNum(moveX) || !_isNum(moveZ)) return false;
     return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
   }
 
@@ -367,10 +366,10 @@ const CORE = (function () {
   // Rejects colliders entirely above head height, low curbs below step-up height,
   // or slabs underneath feet.
   function isColliderRelevantXZ(cMinY, cMaxY, feetY, headY, stepH) {
-    if (typeof cMinY !== 'number' || typeof cMaxY !== 'number' || !isFinite(cMinY) || !isFinite(cMaxY)) return false;
-    const step = (typeof stepH === 'number' && isFinite(stepH) && stepH >= 0) ? stepH : 0.6;
-    const feet = (typeof feetY === 'number' && isFinite(feetY)) ? feetY : 0;
-    const head = (typeof headY === 'number' && isFinite(headY)) ? headY : feet + 1.8;
+    if (!_isNum(cMinY) || !_isNum(cMaxY)) return false;
+    const step = (_isNum(stepH) && stepH >= 0) ? stepH : 0.6;
+    const feet = _isNum(feetY) ? feetY : 0;
+    const head = _isNum(headY) ? headY : feet + 1.8;
     if (cMinY >= head + 0.2) return false;
     if (cMaxY <= feet + step) return false;
     if (feet >= cMaxY - 0.001) return false;
@@ -681,7 +680,7 @@ const CORE = (function () {
 
   function grenadeContactSound(sticky, velY) {
     if (sticky) return 'pin';
-    const vy = (typeof velY === 'number' && isFinite(velY)) ? Math.abs(velY) : 0;
+    const vy = (_isNum(velY)) ? Math.abs(velY) : 0;
     if (vy > 1) return 'bounce';
     return null;
   }
@@ -1291,7 +1290,7 @@ const CORE = (function () {
     const perks = (Array.isArray(raw.perks) ? raw.perks : [])
       .filter(function (k) { return !!perkByKey(k); }).slice(0, PERK_SLOTS);
     const maxHealth = perkMaxHealth(
-      typeof baseHealth === 'number' && isFinite(baseHealth) && baseHealth > 0 ? baseHealth : 100,
+      _isNum(baseHealth) && baseHealth > 0 ? baseHealth : 100,
       perks
     );
     return {
@@ -2142,7 +2141,7 @@ const CORE = (function () {
   function isMeleeBackstab(playerDirX, playerDirZ, enYaw, px, pz, enX, enZ, cosThreshold) {
     if (!isFinite(playerDirX) || !isFinite(playerDirZ) || !isFinite(enYaw) ||
         !isFinite(px) || !isFinite(pz) || !isFinite(enX) || !isFinite(enZ)) return false;
-    const thresh = (typeof cosThreshold === 'number' && isFinite(cosThreshold)) ? cosThreshold : MELEE_BACKSTAB_COS_THRESHOLD;
+    const thresh = (_isNum(cosThreshold)) ? cosThreshold : MELEE_BACKSTAB_COS_THRESHOLD;
     const enFwdX = Math.sin(enYaw), enFwdZ = Math.cos(enYaw);
     const toPlayerX = px - enX, toPlayerZ = pz - enZ;
     const behind = (toPlayerX * enFwdX + toPlayerZ * enFwdZ) < 0;
@@ -2154,7 +2153,7 @@ const CORE = (function () {
   }
 
   function playerMeleeDamage(baseDmg, isBackstab, isSliding, isSprinting, isTacSprint) {
-    const base = (typeof baseDmg === 'number' && isFinite(baseDmg) && baseDmg > 0) ? baseDmg : MELEE_DAMAGE;
+    const base = (_isNum(baseDmg) && baseDmg > 0) ? baseDmg : MELEE_DAMAGE;
     if (isBackstab) return base * MELEE_BACKSTAB_MUL;
     if (isSliding) return base * MELEE_SLIDE_MOMENTUM_MUL;
     if (isTacSprint) return base * MELEE_TAC_SPRINT_MOMENTUM_MUL;
@@ -2613,7 +2612,7 @@ const CORE = (function () {
   }
   // Evaluates player eligibility to initiate a blade melee attack.
   function canPlayerMelee(isDead, isDowned, cooldownRemaining) {
-    const cd = typeof cooldownRemaining === 'number' && isFinite(cooldownRemaining) ? cooldownRemaining : 0;
+    const cd = _isNum(cooldownRemaining) ? cooldownRemaining : 0;
     return !isDead && !isDowned && cd <= 0;
   }
   // Evaluates player eligibility to throw lethal or tactical ordnance.
@@ -3023,30 +3022,52 @@ const CORE = (function () {
   }
 
   // Resolves locomotion velocity tier for mobile virtual joystick visual indicator.
-  // Supports both full 4-argument signature (moveX, moveZ, isSprint, isDowned) and
-  // 2-argument signature (dist, isDowned) used by mobile HUD probes and callers.
-  function joystickMoveSpeedTier(moveX, moveZ, isSprint, isDowned) {
+  function joystickMoveSpeedTier(moveX, moveZ, isSprint, isDowned, isDead) {
     if (typeof moveZ === 'boolean') {
+      if (isSprint === true) return 'locked';
       if (moveZ) return 'crawl';
-      const d = typeof moveX === 'number' && isFinite(moveX) ? Math.abs(moveX) : 0;
+      const d = _isNum(moveX) ? Math.abs(moveX) : 0;
       if (d >= 0.75) return 'sprint';
       if (d > JOYSTICK_MOVE_THRESHOLD) return 'walk';
       return 'idle';
     }
+    if (isDead) return 'locked';
     if (isDowned) return 'crawl';
     if (isSprint) return 'sprint';
-    const mag = Math.hypot(typeof moveX === 'number' && isFinite(moveX) ? moveX : 0,
-                           typeof moveZ === 'number' && isFinite(moveZ) ? moveZ : 0);
+    const mag = Math.hypot(_isNum(moveX) ? moveX : 0, _isNum(moveZ) ? moveZ : 0);
     if (mag > JOYSTICK_MOVE_THRESHOLD) return 'walk';
     return 'idle';
   }
 
   // Maps locomotion velocity tier to CSS class modifier.
   function joystickIndicatorClass(tier) {
+    if (tier === 'locked') return 'locked';
     if (tier === 'crawl') return 'crawl';
     if (tier === 'sprint') return 'sprint';
     if (tier === 'walk') return 'walk';
     return '';
+  }
+
+  // Change-detection for mobile virtual joystick visual indicator to gate DOM updates.
+  function touchJoystickChanged(lastState, sprint, tier) {
+    if (!lastState) return true;
+    return lastState.sprint !== sprint || lastState.tier !== tier;
+  }
+
+  // Synchronizes mobile virtual joystick cache in-place without heap allocations.
+  function syncTouchJoystickState(lastState, sprint, tier) {
+    if (lastState) {
+      lastState.sprint = Boolean(sprint);
+      lastState.tier = String(tier || '');
+    }
+    return lastState;
+  }
+
+  // Evaluates universal mobile touch control locked state based on player lifecycle state.
+  function touchControlLocked(controlId, isDead, isDowned) {
+    if (isDead) return true;
+    if (!isDowned) return false;
+    return controlId !== 'tbtn-fire' && controlId !== 'tbtn-reload' && controlId !== 'tbtn-pause';
   }
 
   // Change-detection for mobile touch fire button to prevent redundant DOM updates.
@@ -3225,7 +3246,7 @@ const CORE = (function () {
   function coneHit(ox, oz, tx, tz, faceX, faceZ, range, cosArc) {
     const dx = tx - ox, dz = tz - oz;
     const dSq = dx * dx + dz * dz;
-    const r = (typeof range === 'number' && isFinite(range)) ? range : 0;
+    const r = (_isNum(range)) ? range : 0;
     if (dSq > r * r || dSq < 1e-12) return false;
     const d = Math.sqrt(dSq);
     const f = Math.sqrt(faceX * faceX + faceZ * faceZ);
@@ -3474,7 +3495,7 @@ const CORE = (function () {
 
   function hitmarkerTier(shieldMul, throughCover, isKill) {
     if (isKill) return 'kill';
-    if (typeof shieldMul === 'number' && isFinite(shieldMul) && shieldMul < 1.0) return 'block';
+    if (_isNum(shieldMul) && shieldMul < 1.0) return 'block';
     if (throughCover) return 'cover';
     return 'hit';
   }
@@ -3518,8 +3539,8 @@ const CORE = (function () {
   }
 
   function canEnemiesOverlap(ax, az, ar, bx, bz, br) {
-    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
-    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const radA = (_isNum(ar) && ar > 0) ? ar : 0.85;
+    const radB = (_isNum(br) && br > 0) ? br : 0.85;
     const rr = radA + radB;
     return Math.abs(bx - ax) < rr && Math.abs(bz - az) < rr;
   }
@@ -3528,8 +3549,8 @@ const CORE = (function () {
   // Performs fast early-axis boundary rejection before evaluating quadratic distance.
   // Writes push displacement vectors to reusable `out` without heap allocations.
   function resolveSeparationPush(ax, az, ar, bx, bz, br, out) {
-    const radA = (typeof ar === 'number' && isFinite(ar) && ar > 0) ? ar : 0.85;
-    const radB = (typeof br === 'number' && isFinite(br) && br > 0) ? br : 0.85;
+    const radA = (_isNum(ar) && ar > 0) ? ar : 0.85;
+    const radB = (_isNum(br) && br > 0) ? br : 0.85;
     const rr = radA + radB;
     const dx = bx - ax, dz = bz - az;
     if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) {
@@ -3559,7 +3580,7 @@ const CORE = (function () {
 
   function pruneHitTimestamps(hits, now, windowSec) {
     if (!Array.isArray(hits)) return 0;
-    const win = (typeof windowSec === 'number' && isFinite(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
+    const win = (_isNum(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
     let write = 0;
     for (let i = 0; i < hits.length; i++) {
       if (typeof hits[i] === 'number' && isFinite(hits[i]) && (now - hits[i]) < win) {
@@ -3573,7 +3594,7 @@ const CORE = (function () {
 
   function canRegisterHit(hits, now, windowSec, maxHits) {
     const active = pruneHitTimestamps(hits, now, windowSec);
-    const limit = (typeof maxHits === 'number' && isFinite(maxHits) && maxHits > 0) ? maxHits : MELEE_CAP_MAX_HITS;
+    const limit = (_isNum(maxHits) && maxHits > 0) ? maxHits : MELEE_CAP_MAX_HITS;
     return active < limit;
   }
 
@@ -4314,22 +4335,22 @@ const CORE = (function () {
   const SLIDE_JUMP_Y_MUL = 1.08;
 
   function slideSpeedAt(slideT, baseSprintSpeed, baseCrouchSpeed, duration, startMul, endMul) {
-    const dur = typeof duration === 'number' && isFinite(duration) && duration > 0 ? duration : SLIDE_DURATION;
-    const t = typeof slideT === 'number' && isFinite(slideT) ? Math.max(0, Math.min(1, slideT / dur)) : 0;
-    const sm = typeof startMul === 'number' && isFinite(startMul) ? startMul : SLIDE_START_MUL;
-    const em = typeof endMul === 'number' && isFinite(endMul) ? endMul : SLIDE_END_MUL;
-    const sprintSpd = typeof baseSprintSpeed === 'number' && isFinite(baseSprintSpeed) ? baseSprintSpeed : 8.1;
-    const crouchSpd = typeof baseCrouchSpeed === 'number' && isFinite(baseCrouchSpeed) ? baseCrouchSpeed : (sprintSpd * (em / sm));
+    const dur = _isNum(duration) && duration > 0 ? duration : SLIDE_DURATION;
+    const t = _isNum(slideT) ? Math.max(0, Math.min(1, slideT / dur)) : 0;
+    const sm = _isNum(startMul) ? startMul : SLIDE_START_MUL;
+    const em = _isNum(endMul) ? endMul : SLIDE_END_MUL;
+    const sprintSpd = _isNum(baseSprintSpeed) ? baseSprintSpeed : 8.1;
+    const crouchSpd = _isNum(baseCrouchSpeed) ? baseCrouchSpeed : (sprintSpd * (em / sm));
     const startSpd = sprintSpd * sm;
     const endSpd = crouchSpd;
     return startSpd + (endSpd - startSpd) * t;
   }
 
   function slideJumpBoost(horizontalSpeed, maxSprintSpeed, maxBoost, scale) {
-    const spd = typeof horizontalSpeed === 'number' && isFinite(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
-    const sprint = typeof maxSprintSpeed === 'number' && isFinite(maxSprintSpeed) && maxSprintSpeed > 0 ? maxSprintSpeed : 8.1;
-    const mb = typeof maxBoost === 'number' && isFinite(maxBoost) ? maxBoost : SLIDE_BOOST_MAX;
-    const sc = typeof scale === 'number' && isFinite(scale) ? scale : SLIDE_BOOST_SCALE;
+    const spd = _isNum(horizontalSpeed) ? Math.max(0, horizontalSpeed) : 0;
+    const sprint = _isNum(maxSprintSpeed) && maxSprintSpeed > 0 ? maxSprintSpeed : 8.1;
+    const mb = _isNum(maxBoost) ? maxBoost : SLIDE_BOOST_MAX;
+    const sc = _isNum(scale) ? scale : SLIDE_BOOST_SCALE;
     return Math.min(mb, 1 + (spd / sprint) * sc);
   }
 
@@ -4415,7 +4436,7 @@ const CORE = (function () {
   function filterMinimapColliders(colliders, minHeight) {
     const out = [];
     if (!colliders || !colliders.length) return out;
-    const hFloor = typeof minHeight === 'number' && isFinite(minHeight) ? minHeight : 0.6;
+    const hFloor = _isNum(minHeight) ? minHeight : 0.6;
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       if (!c || !c.min || !c.max) continue;
@@ -4436,7 +4457,7 @@ const CORE = (function () {
   function isMinimapBlockVisible(minX, minZ, w, d, px, pz, scale, maxDistSq) {
     if (!isFinite(minX) || !isFinite(minZ) || !isFinite(px) || !isFinite(pz) || !isFinite(scale)) return false;
     const x = (minX - px) * scale, z = (minZ - pz) * scale;
-    const limit = (typeof maxDistSq === 'number' && isFinite(maxDistSq)) ? maxDistSq : Infinity;
+    const limit = (_isNum(maxDistSq)) ? maxDistSq : Infinity;
     return (x * x + z * z) <= limit;
   }
 
@@ -4498,16 +4519,16 @@ const CORE = (function () {
 
   function isSteadyActive(weaponType, adsAmount, isHoldingShift, steadyT) {
     if (weaponType !== 'SR') return false;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
-    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
+    const t = _isNum(steadyT) ? steadyT : 0;
     return ads > ADS_SCOPE_THRESHOLD && Boolean(isHoldingShift) && t > 0;
   }
 
   function stepSteadyAim(steadyT, steadyActive, dt, maxTime, recoverRate) {
-    const t = typeof steadyT === 'number' && isFinite(steadyT) ? steadyT : 0;
-    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
-    const max = typeof maxTime === 'number' && isFinite(maxTime) && maxTime > 0 ? maxTime : STEADY_MAX;
-    const rec = typeof recoverRate === 'number' && isFinite(recoverRate) && recoverRate > 0 ? recoverRate : STEADY_RECOVER;
+    const t = _isNum(steadyT) ? steadyT : 0;
+    const d = _isNum(dt) && dt > 0 ? dt : 0;
+    const max = _isNum(maxTime) && maxTime > 0 ? maxTime : STEADY_MAX;
+    const rec = _isNum(recoverRate) && recoverRate > 0 ? recoverRate : STEADY_RECOVER;
     if (steadyActive) {
       return Math.max(0, t - d);
     }
@@ -4515,15 +4536,15 @@ const CORE = (function () {
   }
 
   function swayAmplitude(baseAmp, steadyActive, steadyMul, weaponSwayMul) {
-    const base = typeof baseAmp === 'number' && isFinite(baseAmp) ? baseAmp : 0.0042;
-    const sm = steadyActive ? (typeof steadyMul === 'number' && isFinite(steadyMul) ? steadyMul : 0.14) : 1.0;
-    const wSway = typeof weaponSwayMul === 'number' && isFinite(weaponSwayMul) && weaponSwayMul > 0 ? weaponSwayMul : 1.0;
+    const base = _isNum(baseAmp) ? baseAmp : 0.0042;
+    const sm = steadyActive ? (_isNum(steadyMul) ? steadyMul : 0.14) : 1.0;
+    const wSway = _isNum(weaponSwayMul) && weaponSwayMul > 0 ? weaponSwayMul : 1.0;
     return base * sm * wSway;
   }
 
   function swayOffsets(phase, amp, out) {
-    const p = typeof phase === 'number' && isFinite(phase) ? phase : 0;
-    const a = typeof amp === 'number' && isFinite(amp) ? amp : 0;
+    const p = _isNum(phase) ? phase : 0;
+    const a = _isNum(amp) ? amp : 0;
     const x = Math.sin(p * 1.7) * a + Math.sin(p * 0.9) * a * 0.6;
     const y = Math.sin(p * 1.3 + 1.2) * a * 0.8;
     if (out && typeof out === 'object') {
@@ -4535,33 +4556,33 @@ const CORE = (function () {
   }
 
   function isScoped(adsAmount, weaponType) {
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     return ads > SCOPE_LOCKED_THRESHOLD && weaponType === 'SR';
   }
 
   function recoilDecay(recoilVal, dt, baseDecayRate) {
-    const val = typeof recoilVal === 'number' && isFinite(recoilVal) ? recoilVal : 0;
-    const d = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
-    const rate = typeof baseDecayRate === 'number' && isFinite(baseDecayRate) && baseDecayRate > 0 ? baseDecayRate : RECOIL_DECAY_RATE;
+    const val = _isNum(recoilVal) ? recoilVal : 0;
+    const d = _isNum(dt) && dt > 0 ? dt : 0;
+    const rate = _isNum(baseDecayRate) && baseDecayRate > 0 ? baseDecayRate : RECOIL_DECAY_RATE;
     return val * Math.pow(rate, d);
   }
 
   function aimAssistAngle(baseAngle, isSteady, steadyBonusMul) {
-    const base = typeof baseAngle === 'number' && isFinite(baseAngle) ? baseAngle : 0.14;
-    const bonus = typeof steadyBonusMul === 'number' && isFinite(steadyBonusMul) ? steadyBonusMul : 1.6;
+    const base = _isNum(baseAngle) ? baseAngle : 0.14;
+    const bonus = _isNum(steadyBonusMul) ? steadyBonusMul : 1.6;
     return base * (isSteady ? bonus : 1.0);
   }
 
   function aimAssistPull(baseStrength, pullRatio) {
-    const base = typeof baseStrength === 'number' && isFinite(baseStrength) ? baseStrength : 2.2;
-    const ratio = typeof pullRatio === 'number' && isFinite(pullRatio) ? pullRatio : 0.25;
+    const base = _isNum(baseStrength) ? baseStrength : 2.2;
+    const ratio = _isNum(pullRatio) ? pullRatio : 0.25;
     return Math.min(1.0, base * ratio);
   }
 
   const AIM_ASSIST_FORWARD_MIN_DOT = 0.0;
 
   function isAimCandidateInForwardSector(dirX, dirZ, toX, toZ, minDot) {
-    const threshold = (typeof minDot === 'number' && isFinite(minDot)) ? minDot : AIM_ASSIST_FORWARD_MIN_DOT;
+    const threshold = (_isNum(minDot)) ? minDot : AIM_ASSIST_FORWARD_MIN_DOT;
     return (dirX * toX + dirZ * toZ) > threshold;
   }
 
@@ -4574,7 +4595,7 @@ const CORE = (function () {
   function isTargetInAimAssistRange(toX, toZ, maxDistSq) {
     if (typeof toX !== 'number' || !isFinite(toX) ||
         typeof toZ !== 'number' || !isFinite(toZ)) return false;
-    const limitSq = (typeof maxDistSq === 'number' && isFinite(maxDistSq) && maxDistSq > 0)
+    const limitSq = (_isNum(maxDistSq) && maxDistSq > 0)
       ? maxDistSq : (AIM_ASSIST_MAX_DIST * AIM_ASSIST_MAX_DIST);
     return (toX * toX + toZ * toZ) <= limitSq;
   }
@@ -4584,7 +4605,7 @@ const CORE = (function () {
   }
 
   function isAimAssistCandidateCloser(candidateCos, currentBestCos) {
-    return (typeof candidateCos === 'number' && isFinite(candidateCos)) && candidateCos > currentBestCos;
+    return (_isNum(candidateCos)) && candidateCos > currentBestCos;
   }
 
   function hasAimAssistNudge(nudgedDir, baseDir) {
@@ -4597,18 +4618,18 @@ const CORE = (function () {
 
   function crosshairGapOffset(spread, adsAmount, isReducedMotion) {
     if (isReducedMotion) return 0;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
     if (ads > 0) {
       return -Math.round(ads * 6);
     }
-    const s = typeof spread === 'number' && isFinite(spread) ? Math.max(0, spread) : 0;
+    const s = _isNum(spread) ? Math.max(0, spread) : 0;
     const offset = Math.round((s - 0.010) * 220);
     return Math.max(CROSSHAIR_MIN_GAP_OFFSET, Math.min(CROSSHAIR_MAX_GAP_OFFSET, offset));
   }
 
   function crosshairOpacity(adsAmount, isScopedWeapon, isDead) {
     if (isDead) return 0;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
     if (isScopedWeapon) {
       if (ads >= 0.75) return 0;
       if (ads <= 0.30) return 1;
@@ -4652,7 +4673,7 @@ const CORE = (function () {
 
   function mobilityFovBoost(isSliding, isTacSprint, adsAmount, isReducedMotion) {
     if (isReducedMotion) return 0;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     if (ads > 0.5) return 0;
     if (isSliding) return SLIDE_FOV_BOOST;
     if (isTacSprint) return TAC_SPRINT_FOV_BOOST;
@@ -4660,16 +4681,16 @@ const CORE = (function () {
   }
 
   function targetCameraFov(baseSettingFov, adsAmount, weaponZoom, mobilityBoost) {
-    const fov = typeof baseSettingFov === 'number' && isFinite(baseSettingFov) ? baseSettingFov : 75;
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
-    const zoom = typeof weaponZoom === 'number' && isFinite(weaponZoom) ? weaponZoom : DEFAULT_ADS_ZOOM;
-    const boost = typeof mobilityBoost === 'number' && isFinite(mobilityBoost) ? mobilityBoost : 0;
+    const fov = _isNum(baseSettingFov) ? baseSettingFov : 75;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const zoom = _isNum(weaponZoom) ? weaponZoom : DEFAULT_ADS_ZOOM;
+    const boost = _isNum(mobilityBoost) ? mobilityBoost : 0;
     const target = fov - ads * zoom + boost;
     return Math.max(CAMERA_MIN_FOV, Math.min(CAMERA_MAX_FOV, target));
   }
 
   function strafeDirection(keyA, keyD, analogX) {
-    if (typeof analogX === 'number' && isFinite(analogX) && Math.abs(analogX) > 0.15) {
+    if (_isNum(analogX) && Math.abs(analogX) > 0.15) {
       return analogX < 0 ? -1 : 1;
     }
     const a = !!keyA, d = !!keyD;
@@ -4680,15 +4701,15 @@ const CORE = (function () {
 
   function cameraRoll(bobPhase, bobAmp, slideBlend, strafeDir, isReducedMotion, swayX, isScoped) {
     const motionMul = isReducedMotion ? 0 : 1;
-    const phase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
-    const amp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
-    const slide = typeof slideBlend === 'number' && isFinite(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
-    const strafe = typeof strafeDir === 'number' && isFinite(strafeDir) ? Math.max(-1, Math.min(1, strafeDir)) : 0;
+    const phase = _isNum(bobPhase) ? bobPhase : 0;
+    const amp = _isNum(bobAmp) ? bobAmp : 0;
+    const slide = _isNum(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
+    const strafe = _isNum(strafeDir) ? Math.max(-1, Math.min(1, strafeDir)) : 0;
     const bobRoll = Math.sin(phase) * amp * CAMERA_BOB_ROLL_SCALE;
     const slideRoll = slide * CAMERA_SLIDE_ROLL;
     const strafeRoll = strafe * CAMERA_STRAFE_ROLL_SCALE;
     const motionRoll = (bobRoll + slideRoll + strafeRoll) * motionMul;
-    const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
+    const sx = _isNum(swayX) ? swayX : 0;
     const swayRoll = isScoped ? sx * 0.5 : 0;
     return motionRoll + swayRoll;
   }
@@ -4700,9 +4721,9 @@ const CORE = (function () {
       o.y = 0;
       return o;
     }
-    const phase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
-    const amp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
-    const slide = typeof slideBlend === 'number' && isFinite(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
+    const phase = _isNum(bobPhase) ? bobPhase : 0;
+    const amp = _isNum(bobAmp) ? bobAmp : 0;
+    const slide = _isNum(slideBlend) ? Math.max(0, Math.min(1, slideBlend)) : 0;
     o.x = Math.sin(phase) * amp * CAMERA_BOB_X_SCALE;
     o.y = Math.abs(Math.sin(phase)) * amp * CAMERA_BOB_Y_SCALE - slide * CAMERA_SLIDE_DIP;
     return o;
@@ -4907,8 +4928,8 @@ const CORE = (function () {
   }
 
   function sniperUnscopeAds(adsAmount, factor) {
-    const cur = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
-    const f = typeof factor === 'number' && isFinite(factor) ? factor : SNIPER_UNSCOPE_FACTOR;
+    const cur = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const f = _isNum(factor) ? factor : SNIPER_UNSCOPE_FACTOR;
     return cur * f;
   }
 
@@ -5023,11 +5044,11 @@ const CORE = (function () {
   const MUSIC_PULSE_EXPONENT = 6;
 
   function stepMusicIntensity(currentIntensity, targetIntensity, dt, riseRate, fallRate) {
-    const cur = (typeof currentIntensity === 'number' && isFinite(currentIntensity)) ? currentIntensity : 0;
-    const tgt = (typeof targetIntensity === 'number' && isFinite(targetIntensity)) ? Math.max(0, Math.min(1, targetIntensity)) : 0;
-    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
-    const rRise = (typeof riseRate === 'number' && isFinite(riseRate) && riseRate > 0) ? riseRate : MUSIC_RISE_RATE;
-    const rFall = (typeof fallRate === 'number' && isFinite(fallRate) && fallRate > 0) ? fallRate : MUSIC_FALL_RATE;
+    const cur = (_isNum(currentIntensity)) ? currentIntensity : 0;
+    const tgt = (_isNum(targetIntensity)) ? Math.max(0, Math.min(1, targetIntensity)) : 0;
+    const d = (_isNum(dt) && dt > 0) ? dt : 0;
+    const rRise = (_isNum(riseRate) && riseRate > 0) ? riseRate : MUSIC_RISE_RATE;
+    const rFall = (_isNum(fallRate) && fallRate > 0) ? fallRate : MUSIC_FALL_RATE;
     const rate = tgt > cur ? rRise : rFall;
     const blend = rate * d;
     if (blend >= 1) return tgt;
@@ -5036,44 +5057,44 @@ const CORE = (function () {
   }
 
   function musicBusGain(volumeSetting, intensity) {
-    const vol = (typeof volumeSetting === 'number' && isFinite(volumeSetting)) ? Math.max(0, Math.min(1, volumeSetting)) : 0;
-    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const vol = (_isNum(volumeSetting)) ? Math.max(0, Math.min(1, volumeSetting)) : 0;
+    const i = (_isNum(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
     return vol * (MUSIC_BASE_BUS_GAIN + i * MUSIC_INTENSITY_BUS_SCALE);
   }
 
   function musicTensionGain(intensity) {
-    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const i = (_isNum(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
     if (i <= MUSIC_TENSION_THRESHOLD) return 0;
     return Math.min(MUSIC_TENSION_MAX_GAIN, ((i - MUSIC_TENSION_THRESHOLD) / (1 - MUSIC_TENSION_THRESHOLD)) * MUSIC_TENSION_MAX_GAIN);
   }
 
   function musicFilterCutoff(intensity) {
-    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const i = (_isNum(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
     return MUSIC_BASE_CUTOFF + i * MUSIC_MAX_CUTOFF_SCALE;
   }
 
   function musicPulseBpm(intensity) {
-    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const i = (_isNum(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
     return MUSIC_BASE_BPM + i * MUSIC_MAX_BPM_SCALE;
   }
 
   function stepMusicPulsePhase(phase, dt, bpm) {
-    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
-    const d = (typeof dt === 'number' && isFinite(dt) && dt > 0) ? dt : 0;
-    const b = (typeof bpm === 'number' && isFinite(bpm) && bpm > 0) ? bpm : MUSIC_BASE_BPM;
+    const p = (_isNum(phase)) ? phase : 0;
+    const d = (_isNum(dt) && dt > 0) ? dt : 0;
+    const b = (_isNum(bpm) && bpm > 0) ? bpm : MUSIC_BASE_BPM;
     let next = p + d * (b / 60);
     next = next - Math.floor(next);
     return next;
   }
 
   function musicPulseEnvelope(phase) {
-    const p = (typeof phase === 'number' && isFinite(phase)) ? Math.max(0, Math.min(1, phase)) : 0;
+    const p = (_isNum(phase)) ? Math.max(0, Math.min(1, phase)) : 0;
     return Math.pow(1 - p, MUSIC_PULSE_EXPONENT);
   }
 
   function musicPulseGain(envelope, intensity) {
-    const env = (typeof envelope === 'number' && isFinite(envelope)) ? Math.max(0, Math.min(1, envelope)) : 0;
-    const i = (typeof intensity === 'number' && isFinite(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
+    const env = (_isNum(envelope)) ? Math.max(0, Math.min(1, envelope)) : 0;
+    const i = (_isNum(intensity)) ? Math.max(0, Math.min(1, intensity)) : 0;
     return env * (MUSIC_PULSE_BASE_GAIN + i * MUSIC_PULSE_MAX_GAIN_SCALE);
   }
 
@@ -5177,8 +5198,8 @@ const CORE = (function () {
 
   function reloadAnimationOffsets(reloadT, reloadDuration, out) {
     const o = out || { dip: 0, rot: 0, magY: VIEWMODEL_MAG_REST_Y };
-    const dur = typeof reloadDuration === 'number' && isFinite(reloadDuration) && reloadDuration > 0 ? reloadDuration : 1;
-    const t = typeof reloadT === 'number' && isFinite(reloadT) ? reloadT : -1;
+    const dur = _isNum(reloadDuration) && reloadDuration > 0 ? reloadDuration : 1;
+    const t = _isNum(reloadT) ? reloadT : -1;
     if (t < 0 || t >= dur) {
       o.dip = 0;
       o.rot = 0;
@@ -5195,13 +5216,13 @@ const CORE = (function () {
   }
 
   function viewmodelBoltOffset(shotKick) {
-    const kick = typeof shotKick === 'number' && isFinite(shotKick) ? Math.max(0, shotKick) : 0;
+    const kick = _isNum(shotKick) ? Math.max(0, shotKick) : 0;
     return VIEWMODEL_BOLT_REST_Z + Math.min(VIEWMODEL_BOLT_KICK_MAX, kick * VIEWMODEL_BOLT_KICK_SCALE);
   }
 
   function viewmodelPose(adsAmount, stance, shotKick, swayX, swayY, bobPhase, bobAmp, isSniper, gunSwitchT, reloadDip, reloadRot, pitch, aspect, isReducedMotion, out) {
     const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
-    const ads = typeof adsAmount === 'number' && isFinite(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
+    const ads = _isNum(adsAmount) ? Math.max(0, Math.min(1, adsAmount)) : 0;
     const hipFactor = 1 - ads;
 
     let px = VIEWMODEL_HIP_X + (VIEWMODEL_ADS_X - VIEWMODEL_HIP_X) * ads;
@@ -5213,40 +5234,40 @@ const CORE = (function () {
     py += st.posY * hipFactor;
     pz += st.posZ * hipFactor;
 
-    const kick = Math.max(0, typeof shotKick === 'number' && isFinite(shotKick) ? shotKick : 0) * VIEWMODEL_KICK_Z_SCALE;
+    const kick = Math.max(0, _isNum(shotKick) ? shotKick : 0) * VIEWMODEL_KICK_Z_SCALE;
     pz += kick;
     py += kick * VIEWMODEL_KICK_Y_SCALE;
 
     if (isSniper) {
-      const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
-      const sy = typeof swayY === 'number' && isFinite(swayY) ? swayY : 0;
+      const sx = _isNum(swayX) ? swayX : 0;
+      const sy = _isNum(swayY) ? swayY : 0;
       py += ads * 0.062;
       pz += ads * 0.16;
       px += sx * (1 - ads * 0.5);
       py += sy * (1 - ads * 0.5);
     }
 
-    const sw = typeof gunSwitchT === 'number' && isFinite(gunSwitchT) ? Math.max(0, Math.min(1, gunSwitchT)) : 1;
+    const sw = _isNum(gunSwitchT) ? Math.max(0, Math.min(1, gunSwitchT)) : 1;
     const raise = (1 - sw) * VIEWMODEL_SWITCH_RAISE_DISTANCE;
-    const dip = typeof reloadDip === 'number' && isFinite(reloadDip) ? reloadDip : 0;
+    const dip = _isNum(reloadDip) ? reloadDip : 0;
     py -= (dip + raise);
 
     const motion = isReducedMotion ? 0 : 1;
-    const bAmp = typeof bobAmp === 'number' && isFinite(bobAmp) ? bobAmp : 0;
-    const bPhase = typeof bobPhase === 'number' && isFinite(bobPhase) ? bobPhase : 0;
+    const bAmp = _isNum(bobAmp) ? bobAmp : 0;
+    const bPhase = _isNum(bobPhase) ? bobPhase : 0;
     const bob = bAmp * VIEWMODEL_BOB_SCALE * motion;
     const swayX2 = Math.sin(bPhase) * bob;
     const swayY2 = Math.abs(Math.cos(bPhase)) * bob;
     px += swayX2 * hipFactor;
     py -= swayY2 * hipFactor;
 
-    const asp = typeof aspect === 'number' && isFinite(aspect) && aspect > 0 ? aspect : 1;
+    const asp = _isNum(aspect) && aspect > 0 ? aspect : 1;
     const narrow = Math.max(0, Math.min(1, (1.2 - asp) / 0.7));
     px -= px * 0.75 * narrow;
     py += 0.05 * narrow;
 
-    const rot = typeof reloadRot === 'number' && isFinite(reloadRot) ? reloadRot : 0;
-    const pAngle = typeof pitch === 'number' && isFinite(pitch) ? pitch : 0;
+    const rot = _isNum(reloadRot) ? reloadRot : 0;
+    const pAngle = _isNum(pitch) ? pitch : 0;
     const rx = -rot * 0.6 - pAngle * 0.03 + st.rotX * hipFactor;
     const ry = (0.06 + st.rotY) * hipFactor;
     const rz = st.rotZ * hipFactor;
@@ -5257,23 +5278,23 @@ const CORE = (function () {
   }
 
   function stepMuzzleFlash(flashT, dt, decayRate) {
-    const cur = typeof flashT === 'number' && isFinite(flashT) ? Math.max(0, flashT) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const rate = typeof decayRate === 'number' && isFinite(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_FLASH_DECAY;
+    const cur = _isNum(flashT) ? Math.max(0, flashT) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const rate = _isNum(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_FLASH_DECAY;
     return Math.max(0, cur - delta * rate);
   }
 
   function stepMuzzleLight(intensity, dt, decayRate, lightCompat) {
-    const cur = typeof intensity === 'number' && isFinite(intensity) ? Math.max(0, intensity) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const rate = typeof decayRate === 'number' && isFinite(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE;
-    const compat = typeof lightCompat === 'number' && isFinite(lightCompat) ? Math.max(0, lightCompat) : 1;
+    const cur = _isNum(intensity) ? Math.max(0, intensity) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const rate = _isNum(decayRate) ? Math.max(0, decayRate) : VIEWMODEL_MUZZLE_LIGHT_DECAY_RATE;
+    const compat = _isNum(lightCompat) ? Math.max(0, lightCompat) : 1;
     return Math.max(0, cur - delta * rate * compat * 4);
   }
 
   function impactVfxScale(life, maxLife) {
-    const maxL = typeof maxLife === 'number' && isFinite(maxLife) && maxLife > 0 ? maxLife : IMPACT_VFX_LIFETIME;
-    const curL = typeof life === 'number' && isFinite(life) ? Math.max(0, Math.min(maxL, life)) : 0;
+    const maxL = _isNum(maxLife) && maxLife > 0 ? maxLife : IMPACT_VFX_LIFETIME;
+    const curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
     if (curL <= 0) return 0.001;
     const expansion = 1 + (maxL - curL) * IMPACT_VFX_EXPANSION_RATE;
     return Math.max(0.001, expansion * (curL / maxL));
@@ -5288,8 +5309,8 @@ const CORE = (function () {
   const POST_KICK_DECAY_RATE = 1.6;
 
   function pfxNeedsUpload(currentAlive, previousAlive) {
-    const cur = typeof currentAlive === 'number' && isFinite(currentAlive) ? currentAlive : 0;
-    const prev = typeof previousAlive === 'number' && isFinite(previousAlive) ? previousAlive : 0;
+    const cur = _isNum(currentAlive) ? currentAlive : 0;
+    const prev = _isNum(previousAlive) ? previousAlive : 0;
     return cur > 0 || prev > 0;
   }
 
@@ -5302,10 +5323,10 @@ const CORE = (function () {
       o.sy = '0.0px';
       return o;
     }
-    const maxVal = typeof maxOffset === 'number' && isFinite(maxOffset) && maxOffset > 0 ? maxOffset : SCOPE_PARALLAX_MAX;
-    const s = typeof scale === 'number' && isFinite(scale) ? scale : SCOPE_PARALLAX_SCALE;
-    const sx = typeof swayX === 'number' && isFinite(swayX) ? swayX : 0;
-    const sy = typeof swayY === 'number' && isFinite(swayY) ? swayY : 0;
+    const maxVal = _isNum(maxOffset) && maxOffset > 0 ? maxOffset : SCOPE_PARALLAX_MAX;
+    const s = _isNum(scale) ? scale : SCOPE_PARALLAX_SCALE;
+    const sx = _isNum(swayX) ? swayX : 0;
+    const sy = _isNum(swayY) ? swayY : 0;
     const px = Math.max(-maxVal, Math.min(maxVal, -sx * s));
     const py = Math.max(-maxVal, Math.min(maxVal, sy * s));
     o.x = px;
@@ -5320,26 +5341,26 @@ const CORE = (function () {
   }
 
   function rangefinderLabel(distance, isHostile) {
-    const d = typeof distance === 'number' && isFinite(distance) ? distance : Infinity;
+    const d = _isNum(distance) ? distance : Infinity;
     if (!isFinite(d)) return 'RNG ---';
     const tag = isHostile ? 'TGT ' : 'RNG ';
     return tag + Math.round(d) + 'm';
   }
 
   function isHostileTarget(enemyDist, worldDist, tolerance) {
-    const ed = typeof enemyDist === 'number' && isFinite(enemyDist) ? enemyDist : Infinity;
+    const ed = _isNum(enemyDist) ? enemyDist : Infinity;
     if (!isFinite(ed)) return false;
-    const wd = typeof worldDist === 'number' && isFinite(worldDist) ? worldDist : Infinity;
-    const tol = typeof tolerance === 'number' && isFinite(tolerance) ? tolerance : 0.5;
+    const wd = _isNum(worldDist) ? worldDist : Infinity;
+    const tol = _isNum(tolerance) ? tolerance : 0.5;
     return ed < (wd + tol);
   }
 
   function stepRangefinderTimer(timer, dt, interval) {
-    const t = typeof timer === 'number' && isFinite(timer) ? timer : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
+    const t = _isNum(timer) ? timer : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
     const next = t - delta;
     if (next <= 0) {
-      const inv = typeof interval === 'number' && isFinite(interval) && interval > 0 ? interval : SCOPE_RANGE_INTERVAL;
+      const inv = _isNum(interval) && interval > 0 ? interval : SCOPE_RANGE_INTERVAL;
       return { ready: true, timer: inv };
     }
     return { ready: false, timer: next };
@@ -5347,12 +5368,12 @@ const CORE = (function () {
 
   function stepSpring(x, v, target, k, c, dt, out) {
     const o = out || [0, 0];
-    const tgt = typeof target === 'number' && isFinite(target) ? target : 0;
-    let curX = typeof x === 'number' && isFinite(x) ? x : tgt;
-    let curV = typeof v === 'number' && isFinite(v) ? v : 0;
-    const stiff = typeof k === 'number' && isFinite(k) && k > 0 ? k : 90;
-    const damp = typeof c === 'number' && isFinite(c) && c >= 0 ? c : 11;
-    const delta = typeof dt === 'number' && isFinite(dt) && dt > 0 ? dt : 0;
+    const tgt = _isNum(target) ? target : 0;
+    let curX = _isNum(x) ? x : tgt;
+    let curV = _isNum(v) ? v : 0;
+    const stiff = _isNum(k) && k > 0 ? k : 90;
+    const damp = _isNum(c) && c >= 0 ? c : 11;
+    const delta = _isNum(dt) && dt > 0 ? dt : 0;
 
     const n = Math.max(1, Math.ceil(delta * 120)), h = delta / n;
     for (let i = 0; i < n; i++) {
@@ -5365,39 +5386,39 @@ const CORE = (function () {
   }
 
   function vmSmooth(a, b, x) {
-    const start = typeof a === 'number' && isFinite(a) ? a : 0;
-    const end = typeof b === 'number' && isFinite(b) ? b : 1;
-    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    const start = _isNum(a) ? a : 0;
+    const end = _isNum(b) ? b : 1;
+    const val = _isNum(x) ? x : start;
     if (end === start) return val >= end ? 1 : 0;
     const t = Math.max(0, Math.min(1, (val - start) / (end - start)));
     return t * t * (3 - 2 * t);
   }
 
   function vmBump(a, b, x) {
-    const start = typeof a === 'number' && isFinite(a) ? a : 0;
-    const end = typeof b === 'number' && isFinite(b) ? b : 1;
-    const val = typeof x === 'number' && isFinite(x) ? x : start;
+    const start = _isNum(a) ? a : 0;
+    const end = _isNum(b) ? b : 1;
+    const val = _isNum(x) ? x : start;
     if (val <= start || val >= end || start === end) return 0;
     return Math.sin((val - start) / (end - start) * Math.PI);
   }
 
   function wrapAngle(a) {
-    let ang = typeof a === 'number' && isFinite(a) ? a : 0;
+    let ang = _isNum(a) ? a : 0;
     while (ang > Math.PI) ang -= Math.PI * 2;
     while (ang < -Math.PI) ang += Math.PI * 2;
     return ang;
   }
 
   function stepPostKick(currentKick, dt, decayRate) {
-    const cur = typeof currentKick === 'number' && isFinite(currentKick) ? Math.max(0, currentKick) : 0;
-    const delta = typeof dt === 'number' && isFinite(dt) ? Math.max(0, dt) : 0;
-    const rate = typeof decayRate === 'number' && isFinite(decayRate) && decayRate > 0 ? decayRate : POST_KICK_DECAY_RATE;
+    const cur = _isNum(currentKick) ? Math.max(0, currentKick) : 0;
+    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
+    const rate = _isNum(decayRate) && decayRate > 0 ? decayRate : POST_KICK_DECAY_RATE;
     return Math.max(0, cur - delta * rate);
   }
 
   function postFringe(kick, isReducedMotion) {
     if (isReducedMotion) return 0;
-    return typeof kick === 'number' && isFinite(kick) ? Math.max(0, kick) : 0;
+    return _isNum(kick) ? Math.max(0, kick) : 0;
   }
 
   function isPostfxWanted(quality, isTouch) {
@@ -5503,19 +5524,19 @@ const CORE = (function () {
   }
 
   function enemyGrenadeSpeed(distance) {
-    const d = typeof distance === 'number' && isFinite(distance) ? Math.max(0, distance) : 0;
+    const d = _isNum(distance) ? Math.max(0, distance) : 0;
     return Math.min(ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_MIN_SPEED + d * ENEMY_GRENADE_SPEED_DIST_SCALE);
   }
 
   function enemyGrenadeFuse(baseFuse, bonus) {
-    const base = typeof baseFuse === 'number' && isFinite(baseFuse) ? Math.max(0.5, baseFuse) : 2.5;
-    const b = typeof bonus === 'number' && isFinite(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS;
+    const base = _isNum(baseFuse) ? Math.max(0.5, baseFuse) : 2.5;
+    const b = _isNum(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS;
     return base + b;
   }
 
   function enemyGrenadeCooldown(isGrenadier, currentT, randomVal) {
-    const t = typeof currentT === 'number' && isFinite(currentT) ? currentT : 0;
-    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    const t = _isNum(currentT) ? currentT : 0;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     if (isGrenadier) {
       return t + 5.5 + r * 4;
     }
@@ -5523,24 +5544,24 @@ const CORE = (function () {
   }
 
   function enemyBurstInterval(burstRemaining, rof, randomVal) {
-    if (typeof burstRemaining === 'number' && isFinite(burstRemaining) && burstRemaining > 0) return 0.12;
-    const baseRof = typeof rof === 'number' && isFinite(rof) && rof > 0 ? rof : 0.4;
-    const r = typeof randomVal === 'number' && isFinite(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
+    if (_isNum(burstRemaining) && burstRemaining > 0) return 0.12;
+    const baseRof = _isNum(rof) && rof > 0 ? rof : 0.4;
+    const r = _isNum(randomVal) ? Math.max(0, Math.min(1, randomVal)) : 0.5;
     return baseRof * 1.6 * (0.8 + r * 0.4);
   }
 
   function pickupBobHeight(t, isPower) {
-    const time = typeof t === 'number' && isFinite(t) ? t : 0;
+    const time = _isNum(t) ? t : 0;
     const baseY = isPower ? 0.55 : 0.3;
     const amp = isPower ? 0.12 : 0.06;
     return baseY + Math.sin(time * 3) * amp;
   }
 
   function isPickupVisible(t, blinkStart, maxLife) {
-    const time = typeof t === 'number' && isFinite(t) ? t : 0;
-    const life = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    const time = _isNum(t) ? t : 0;
+    const life = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
     if (time > life) return false;
-    const blink = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    const blink = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START;
     if (time > blink) return (time * 6 % 2) < 1.4;
     return true;
   }
@@ -5552,10 +5573,10 @@ const CORE = (function () {
   //     expiry so the urgency is legible without being harsh.
   //   - At or past maxLife: 0 (invisible).
   function pickupBlinkOpacity(t, blinkStart, maxLife) {
-    const time = typeof t === 'number' && isFinite(t) ? t : 0;
-    const life = typeof maxLife === 'number' && isFinite(maxLife) ? maxLife : PICKUP_LIFE;
+    const time = _isNum(t) ? t : 0;
+    const life = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
     if (time >= life) return 0;
-    const blink = typeof blinkStart === 'number' && isFinite(blinkStart) ? blinkStart : PICKUP_BLINK_START;
+    const blink = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START;
     if (time <= blink) return 1;
     // Ramp up blink frequency linearly from 3 Hz at blinkStart to 7 Hz at maxLife.
     const progress = (time - blink) / Math.max(0.001, life - blink); // 0→1
@@ -5708,7 +5729,7 @@ const CORE = (function () {
 
   function casingRestRotation(rotX, rotY, rotZ, out) {
     const o = out || { rotX: 0, rotY: 0, rotZ: 0 };
-    const ry = typeof rotY === 'number' && isFinite(rotY) ? rotY : 0;
+    const ry = _isNum(rotY) ? rotY : 0;
     o.rotX = Math.PI * 0.5;
     o.rotY = ry;
     o.rotZ = 0;
@@ -5717,7 +5738,7 @@ const CORE = (function () {
 
   function stepMeleeKnifePose(progress, out) {
     const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
-    const p = typeof progress === 'number' && isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const p = _isNum(progress) ? Math.max(0, Math.min(1, progress)) : 0;
     const sw = vmSmooth(0.1, 0.45, p);
     const bump = vmBump(0, 1, p);
     o.posX = 0.22 - sw * 0.36;
@@ -5956,23 +5977,23 @@ const CORE = (function () {
   }
 
   function enemyProcLimbSwing(phase, isMoving) {
-    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const p = (_isNum(phase)) ? phase : 0;
     const amp = isMoving ? 0.55 : 0.06;
     return Math.sin(p) * amp;
   }
 
   function enemyProcPitchTrack(playerEyeY, enemyY, dist) {
-    const py = (typeof playerEyeY === 'number' && isFinite(playerEyeY)) ? playerEyeY : 0;
-    const ey = (typeof enemyY === 'number' && isFinite(enemyY)) ? enemyY : 0;
-    const d = (typeof dist === 'number' && isFinite(dist)) ? Math.max(0.1, dist) : 1;
+    const py = (_isNum(playerEyeY)) ? playerEyeY : 0;
+    const ey = (_isNum(enemyY)) ? enemyY : 0;
+    const d = (_isNum(dist)) ? Math.max(0.1, dist) : 1;
     return Math.atan2(py - (ey + 1.5), d);
   }
 
   function enemyProcPose(phase, moveSpeed, kind, dist, playerEyeY, enemyY, out) {
     const o = out || { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
-    const spd = (typeof moveSpeed === 'number' && isFinite(moveSpeed)) ? moveSpeed : 0;
+    const spd = (_isNum(moveSpeed)) ? moveSpeed : 0;
     const moving = spd > ENEMY_PROC_WALK_THRESHOLD;
-    const p = (typeof phase === 'number' && isFinite(phase)) ? phase : 0;
+    const p = (_isNum(phase)) ? phase : 0;
     const swing = enemyProcLimbSwing(p, moving);
     o.moving = moving;
     o.legLRotX = swing;
@@ -6122,9 +6143,9 @@ const CORE = (function () {
   }
 
   function isSlideExpired(slideT, isCrouchHeld, hasMoveInput, maxDuration, minMoveDuration) {
-    const t = (typeof slideT === 'number' && isFinite(slideT)) ? slideT : 0;
-    const maxT = (typeof maxDuration === 'number' && isFinite(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T;
-    const minMoveT = (typeof minMoveDuration === 'number' && isFinite(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T;
+    const t = (_isNum(slideT)) ? slideT : 0;
+    const maxT = (_isNum(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T;
+    const minMoveT = (_isNum(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T;
     if (t > maxT) return true;
     if (!isCrouchHeld) return true;
     if (!hasMoveInput && t > minMoveT) return true;
@@ -6132,18 +6153,18 @@ const CORE = (function () {
   }
 
   function stepStationHold(holdT, isHolding, dt, decayRate, buyHold) {
-    const cur = (typeof holdT === 'number' && isFinite(holdT)) ? Math.max(0, holdT) : 0;
-    const delta = (typeof dt === 'number' && isFinite(dt)) ? dt : 0;
-    const maxHold = (typeof buyHold === 'number' && isFinite(buyHold)) ? buyHold : BUY_HOLD;
+    const cur = (_isNum(holdT)) ? Math.max(0, holdT) : 0;
+    const delta = (_isNum(dt)) ? dt : 0;
+    const maxHold = (_isNum(buyHold)) ? buyHold : BUY_HOLD;
     if (isHolding) {
       return Math.min(maxHold, cur + delta);
     }
-    const dec = (typeof decayRate === 'number' && isFinite(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE;
+    const dec = (_isNum(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE;
     return Math.max(0, cur - delta * dec);
   }
 
   function weaponFireInterval(rpm) {
-    const r = (typeof rpm === 'number' && isFinite(rpm) && rpm > 0) ? rpm : 600;
+    const r = (_isNum(rpm) && rpm > 0) ? rpm : 600;
     return 60 / r;
   }
 
@@ -6721,11 +6742,11 @@ const CORE = (function () {
     const o = out || { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
     const k = typeof kind === 'number' ? kind : 0;
     const s = curState || 'chase';
-    const st = typeof stateT === 'number' && isFinite(stateT) ? stateT : 0;
-    const d = typeof dist === 'number' && isFinite(dist) ? dist : 0;
+    const st = _isNum(stateT) ? stateT : 0;
+    const d = _isNum(dist) ? dist : 0;
     const los = !!hasLOS;
-    const rr = typeof rangedRange === 'number' && isFinite(rangedRange) ? rangedRange : 44;
-    const pr = typeof preferredRange === 'number' && isFinite(preferredRange) ? preferredRange : 16;
+    const rr = _isNum(rangedRange) ? rangedRange : 44;
+    const pr = _isNum(preferredRange) ? preferredRange : 16;
 
     o.state = s;
     o.strafeT = 0;
@@ -8194,6 +8215,7 @@ const CORE = (function () {
     GRENADE_POOL_MAX, canRecycleGrenade, canPlayerMelee,
     touchPauseState, touchPauseLabel, touchPauseChanged, syncTouchPauseState, isTouchControlSelected,
     streakHudPosition, joystickMoveSpeedTier, joystickIndicatorClass,
+    touchJoystickChanged, syncTouchJoystickState, touchControlLocked,
     SENTRY_MUZZLE_FORWARD_OFFSET, SENTRY_MUZZLE_HEIGHT_OFFSET, SENTRY_MUZZLE_LIGHT_COLOR, SENTRY_MUZZLE_LIGHT_INTENSITY, SENTRY_MUZZLE_LIGHT_DIST, SENTRY_MUZZLE_LIGHT_DUR,
     sentryMuzzlePosition, sentryShootDirection, sentryMuzzleLightParams, shouldSpawnPenetrationCoverVfx, canMeleeStrikeWorld,
     MELEE_HIT_SOUND, MELEE_BACKSTAB_SOUND, meleeHitSound, hitmarkerSound, landingSound,

@@ -493,5 +493,76 @@ test('v146 mobile UI polish: universal dead-state tactical, equipment, streak, a
   assert.equal(CORE.touchUseChanged(useInit, true, true, false, 'wall', 'buy', false, false), true);
 });
 
+test('v151 mobile UI polish: virtual joystick dead-state lockout, change-detection, and universal control lockout gating', () => {
+  // 1. Virtual joystick movement speed tier supporting dead-state lockout
+  assert.equal(CORE.joystickMoveSpeedTier(0.8, 0, true, false, true), 'locked');
+  assert.equal(CORE.joystickMoveSpeedTier(0.8, 0, true, false, false), 'sprint');
+  assert.equal(CORE.joystickMoveSpeedTier(0.2, 0.2, false, true, false), 'crawl');
+  assert.equal(CORE.joystickMoveSpeedTier(0.2, 0.2, false, false, false), 'walk');
+  assert.equal(CORE.joystickMoveSpeedTier(0, 0, false, false, false), 'idle');
+
+  // 2-argument and 3-argument signature backward compatibility
+  assert.equal(CORE.joystickMoveSpeedTier(0, false, true), 'locked');
+  assert.equal(CORE.joystickMoveSpeedTier(0, true, false), 'crawl');
+  assert.equal(CORE.joystickMoveSpeedTier(0.8, false, false), 'sprint');
+  assert.equal(CORE.joystickMoveSpeedTier(0.3, false, false), 'walk');
+  assert.equal(CORE.joystickMoveSpeedTier(0.05, false, false), 'idle');
+
+  // 2. Virtual joystick CSS indicator class mapping
+  assert.equal(CORE.joystickIndicatorClass('locked'), 'locked');
+  assert.equal(CORE.joystickIndicatorClass('crawl'), 'crawl');
+  assert.equal(CORE.joystickIndicatorClass('sprint'), 'sprint');
+  assert.equal(CORE.joystickIndicatorClass('walk'), 'walk');
+  assert.equal(CORE.joystickIndicatorClass('idle'), '');
+
+  // 3. Virtual joystick change detection
+  const joyInit = { sprint: null, tier: null };
+  assert.equal(CORE.touchJoystickChanged(joyInit, true, 'sprint'), true);
+  CORE.syncTouchJoystickState(joyInit, true, 'sprint');
+  assert.equal(joyInit.sprint, true);
+  assert.equal(joyInit.tier, 'sprint');
+  assert.equal(CORE.touchJoystickChanged(joyInit, true, 'sprint'), false);
+  assert.equal(CORE.touchJoystickChanged(joyInit, false, 'sprint'), true);
+  assert.equal(CORE.touchJoystickChanged(joyInit, true, 'crawl'), true);
+  assert.equal(CORE.touchJoystickChanged(joyInit, false, 'locked'), true);
+
+  // 4. Universal touch control lockout gating
+  assert.equal(CORE.touchControlLocked('tbtn-fire', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-fire', false, true), false);
+  assert.equal(CORE.touchControlLocked('tbtn-fire', false, false), false);
+
+  assert.equal(CORE.touchControlLocked('tbtn-reload', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-reload', false, true), false);
+  assert.equal(CORE.touchControlLocked('tbtn-reload', false, false), false);
+
+  assert.equal(CORE.touchControlLocked('tbtn-pause', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-pause', false, true), false);
+  assert.equal(CORE.touchControlLocked('tbtn-pause', false, false), false);
+
+  assert.equal(CORE.touchControlLocked('tbtn-jump', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-jump', false, true), true);
+  assert.equal(CORE.touchControlLocked('tbtn-jump', false, false), false);
+
+  assert.equal(CORE.touchControlLocked('tbtn-slide', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-slide', false, true), true);
+
+  assert.equal(CORE.touchControlLocked('tbtn-melee', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-melee', false, true), true);
+
+  assert.equal(CORE.touchControlLocked('tbtn-swap', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-swap', false, true), true);
+
+  assert.equal(CORE.touchControlLocked('tbtn-ads', true, false), true);
+  assert.equal(CORE.touchControlLocked('tbtn-ads', false, true), true);
+
+  assert.equal(CORE.touchControlLocked('joy-base', true, false), true);
+  assert.equal(CORE.touchControlLocked('joy-base', false, true), true);
+  assert.equal(CORE.touchControlLocked('joy-base', false, false), false);
+
+  // 5. CSS locked state definitions in head.html
+  assert.match(head, /body\.touch\s+#joy-base\.locked/);
+  assert.match(head, /body\.touch\s+#tbtn-pause\.locked/);
+});
+
 
 

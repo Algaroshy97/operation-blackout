@@ -502,6 +502,9 @@ function downPlayer() {
   showCenterMsg('DOWN — HOLD OUT');
   playSound(CORE.playerDownSound());
   updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof updateHudStreaks === 'function') updateHudStreaks();
+  if (typeof applyTouchInput === 'function') applyTouchInput();
 }
 
 let _downTimerEl = null;
