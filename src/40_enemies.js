@@ -192,7 +192,7 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
-function damageEnemy(en, dmg, point, isHead, throughCover) {
+function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
   if (en.dead) return;
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
@@ -208,7 +208,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (shield < 1) {
     CORE.shieldDeflectNormal(en.yaw, _shieldNormOut);
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
-    spawnImpact(point, _shieldNormOut, null);
+    spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
@@ -221,7 +221,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   showHitmarker(isHead, tier);
   addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
-  spawnBlood(point, isHead);
+  spawnBlood(point, isHead, weaponType);
   if (point) {
     _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
     if (isHead && CORE.enemyHasHelmet(en.kind)) {

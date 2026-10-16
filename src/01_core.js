@@ -301,7 +301,7 @@ const CORE = (function () {
       return { floorY: floorY, ceilY: ceilY };
     }
     const rad = (_isNum(r) && r > 0) ? r : 0;
-    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    const maxStepY = feet + (_isNum(stepH) ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       if (!c || !c.min || !c.max) continue;
@@ -321,7 +321,7 @@ const CORE = (function () {
     let floorY = (_isNum(groundY)) ? groundY : 0;
     if (!colliders || !colliders.length) return floorY;
     const rad = (_isNum(r) && r > 0) ? r : 0;
-    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    const maxStepY = feet + (_isNum(stepH) ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       if (!c || !c.min || !c.max) continue;
@@ -3583,7 +3583,7 @@ const CORE = (function () {
     const win = (_isNum(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
     let write = 0;
     for (let i = 0; i < hits.length; i++) {
-      if (typeof hits[i] === 'number' && isFinite(hits[i]) && (now - hits[i]) < win) {
+      if (_isNum(hits[i]) && (now - hits[i]) < win) {
         if (write !== i) hits[write] = hits[i];
         write++;
       }
@@ -4938,11 +4938,11 @@ const CORE = (function () {
   const SLIDE_VIGNETTE_MAX_ALPHA = 0.55;
 
   function stepSlideVignette(curOpacity, wantSlide, dt, rate) {
-    const cur = typeof curOpacity === 'number' && !isNaN(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
+    const cur = _isNum(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
     const target = wantSlide ? 1 : 0;
     if (cur === target) return target;
-    const r = typeof rate === 'number' && rate > 0 ? rate : SLIDE_VIGNETTE_RATE;
-    const delta = typeof dt === 'number' && dt > 0 ? dt : 0;
+    const r = (_isNum(rate) && rate > 0) ? rate : SLIDE_VIGNETTE_RATE;
+    const delta = (_isNum(dt) && dt > 0) ? dt : 0;
     const step = Math.min(1, r * delta);
     const next = cur + (target - cur) * step;
     if (Math.abs(next - target) < 0.005) return target;
@@ -4950,8 +4950,8 @@ const CORE = (function () {
   }
 
   function slideVignetteStyle(opacity, maxAlpha) {
-    const op = typeof opacity === 'number' && !isNaN(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
-    const ma = typeof maxAlpha === 'number' && maxAlpha >= 0 ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
+    const op = _isNum(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
+    const ma = (_isNum(maxAlpha) && maxAlpha >= 0) ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
     const a = Math.round((op * ma) * 1000) / 1000;
     return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
   }
@@ -4979,7 +4979,7 @@ const CORE = (function () {
   }
 
   function isScopeOverlayActive(adsAmount, weaponType) {
-    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     const type = String(weaponType || '').toUpperCase();
     return ads > 0.75 && (type === 'BR' || type === 'SR');
   }
@@ -5000,16 +5000,16 @@ const CORE = (function () {
 
   function isSteadyIndicatorVisible(weaponType, adsAmount) {
     const type = String(weaponType || '').toUpperCase();
-    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     return type === 'SR' && ads > 0.8;
   }
 
   function steadyIndicatorLabel(steadyActive, steadyT) {
     if (steadyActive) {
-      const t = Math.max(0, typeof steadyT === 'number' ? steadyT : 0);
+      const t = Math.max(0, _isNum(steadyT) ? steadyT : 0);
       return 'STEADY · ' + (Math.ceil(t * 10) / 10) + 's';
     }
-    const t = typeof steadyT === 'number' ? steadyT : 0;
+    const t = _isNum(steadyT) ? steadyT : 0;
     return t < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY';
   }
 
@@ -6642,11 +6642,11 @@ const CORE = (function () {
 
   function canRecycleGrenade(fuseOrCount, atRestOrMax) {
     if (typeof atRestOrMax === 'boolean') {
-      const fuse = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+      const fuse = _isNum(fuseOrCount) ? fuseOrCount : 0;
       return fuse <= 0 || atRestOrMax;
     }
-    const maxP = _isNum(atRestOrMax) && atRestOrMax > 0 ? atRestOrMax : GRENADE_POOL_MAX;
-    const count = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+    const maxP = (_isNum(atRestOrMax) && atRestOrMax > 0) ? atRestOrMax : GRENADE_POOL_MAX;
+    const count = _isNum(fuseOrCount) ? fuseOrCount : 0;
     return count < maxP;
   }
 
@@ -7115,8 +7115,8 @@ const CORE = (function () {
     let rounds = 0;
     for (let i = 0; i < wState.length; i++) {
       if (!wState[i] || weaponsOwned[i] < 0) continue;
-      const ammo = typeof wState[i].ammo === 'number' && isFinite(wState[i].ammo) ? wState[i].ammo : 0;
-      const res = typeof wState[i].reserve === 'number' && isFinite(wState[i].reserve) ? wState[i].reserve : 0;
+      const ammo = _isNum(wState[i].ammo) ? wState[i].ammo : 0;
+      const res = _isNum(wState[i].reserve) ? wState[i].reserve : 0;
       rounds += Math.max(0, ammo) + Math.max(0, res);
     }
     return rounds;
@@ -7977,6 +7977,88 @@ const CORE = (function () {
     return (_isNum(scale) && scale >= 1.2) ? EXPLOSION_HEAVY_SOUND : EXPLOSION_SOUND;
   }
 
+  // ---- Ballistic Surface Impact VFX, Dynamic Light & Blood Spatter Kinematics (v152 Visual Polish) ----
+  const SURFACE_IMPACT_DUST_BASE = 3, SURFACE_IMPACT_CHIP_BASE = 5;
+  const SURFACE_IMPACT_SPARK_METAL = 8, SURFACE_IMPACT_SPARK_CONCRETE = 1;
+  const SURFACE_IMPACT_LIGHT_COLOR_METAL = 0xffb060, SURFACE_IMPACT_LIGHT_COLOR_HEAVY = 0xffd090;
+  const BLOOD_DROPLET_BASE_BODY = 6, BLOOD_DROPLET_BASE_HEAD = 10;
+  const BLOOD_MIST_BASE_BODY = 2, BLOOD_MIST_BASE_HEAD = 4;
+
+  const _SURFACE_DEFS = {
+    concrete: { dust0: 0x8f8a84, dust1: 0x5e5a56, chips: 0xb0aca4, sparks: 1 },
+    brick:    { dust0: 0x9a6a52, dust1: 0x5a3e32, chips: 0x8a4a34, sparks: 0 },
+    metal:    { dust0: 0x6a6a70, dust1: 0x404048, chips: 0,        sparks: 8 },
+    wood:     { dust0: 0x8a6a48, dust1: 0x5a4430, chips: 0x9a7448, sparks: 0 },
+    glass:    { dust0: 0xa8b8c8, dust1: 0x6a7888, chips: 0xc0d8f0, sparks: 0 },
+    ground:   { dust0: 0x6a625a, dust1: 0x403a36, chips: 0x3a3632, sparks: 1 }
+  };
+
+  function surfaceImpactVfxParams(surface, weaponType) {
+    const srf = _SURFACE_DEFS[surface] || _SURFACE_DEFS.concrete;
+    const wt = weaponType || 'AR';
+    let dustCount = 3, dustScale = 1.0, chipMul = 1.0, sparkMul = 1.0;
+    if (wt === 'SR') { dustCount = 5; dustScale = 1.4; chipMul = 1.4; sparkMul = 1.75; }
+    else if (wt === 'BR') { dustCount = 4; dustScale = 1.2; chipMul = 1.2; sparkMul = 1.35; }
+    else if (wt === 'SMG') { dustCount = 2; dustScale = 0.8; chipMul = 0.8; sparkMul = 0.65; }
+    const chipCount = srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * chipMul) : 0;
+    const sparkCount = srf.sparks ? Math.round(srf.sparks * sparkMul) : 0;
+    return {
+      dustCount,
+      dustScale,
+      chipCount,
+      sparkCount,
+      dustColor0: srf.dust0,
+      dustColor1: srf.dust1,
+      chipColor: srf.chips
+    };
+  }
+
+  function surfaceImpactLightParams(surface, weaponType) {
+    const s = surface || 'concrete';
+    const wt = weaponType || 'AR';
+    if (s === 'metal') {
+      if (wt === 'SR') return { color: 0xffc070, intensity: 2.2, distance: 5.5, duration: 0.08 };
+      if (wt === 'BR') return { color: 0xffb060, intensity: 1.6, distance: 4.8, duration: 0.07 };
+      if (wt === 'SMG') return { color: 0xffa050, intensity: 0.8, distance: 3.2, duration: 0.05 };
+      return { color: 0xffb060, intensity: 1.2, distance: 4.0, duration: 0.06 };
+    }
+    if (s === 'concrete' || s === 'brick' || s === 'ground') {
+      if (wt === 'SR') return { color: SURFACE_IMPACT_LIGHT_COLOR_HEAVY, intensity: 1.0, distance: 4.0, duration: 0.05 };
+      if (wt === 'BR') return { color: 0xffc880, intensity: 0.6, distance: 3.0, duration: 0.04 };
+    }
+    return { color: 0, intensity: 0, distance: 0, duration: 0 };
+  }
+
+  function bloodImpactVfxParams(isHead, weaponType) {
+    const head = Boolean(isHead);
+    const wt = weaponType || 'AR';
+    let dropletCount = head ? 10 : 6;
+    let mistCount = head ? 4 : 2;
+    let mistScale = head ? 0.8 : 0.5;
+    if (wt === 'SR') {
+      dropletCount = head ? 16 : 10;
+      mistCount = head ? 6 : 3;
+      mistScale = head ? 1.1 : 0.7;
+    } else if (wt === 'BR') {
+      dropletCount = head ? 13 : 8;
+      mistCount = head ? 5 : 2;
+      mistScale = head ? 0.95 : 0.6;
+    } else if (wt === 'SMG') {
+      dropletCount = head ? 7 : 4;
+      mistCount = head ? 3 : 1;
+      mistScale = head ? 0.65 : 0.4;
+    }
+    return {
+      dropletCount,
+      mistCount,
+      mistScale,
+      dropletColor0: 0x5a0404,
+      dropletColor1: 0x2a0202,
+      mistColor0: 0x6a0808,
+      mistColor1: 0x3a0404
+    };
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -8283,7 +8365,14 @@ const CORE = (function () {
     TAC_SPRINT_STF_MUL, FAST_HANDS_STF_MUL, weaponSprintToFireTime,
     STANCE_SPREAD_SPRINT, STANCE_SPREAD_TAC_SPRINT, PLATE_MOVE_SPEED_MUL,
     FLOW_FIELD_QUEUE_MASK, FLOW_FIELD_QUEUE_SHIFT, packNavCell, unpackNavCell, isNavDiagonalWalkable,
-    ENEMY_FOOTSTEP_MAX_DIST, isTargetInFootstepRange, enemiesRemainingChanged, syncEnemiesRemaining
+    ENEMY_FOOTSTEP_MAX_DIST, isTargetInFootstepRange, enemiesRemainingChanged, syncEnemiesRemaining,
+    SURFACE_IMPACT_DUST_BASE, SURFACE_IMPACT_CHIP_BASE,
+    SURFACE_IMPACT_SPARK_METAL, SURFACE_IMPACT_SPARK_CONCRETE,
+    SURFACE_IMPACT_LIGHT_COLOR_METAL, SURFACE_IMPACT_LIGHT_COLOR_HEAVY,
+    surfaceImpactVfxParams, surfaceImpactLightParams,
+    BLOOD_DROPLET_BASE_BODY, BLOOD_DROPLET_BASE_HEAD,
+    BLOOD_MIST_BASE_BODY, BLOOD_MIST_BASE_HEAD,
+    bloodImpactVfxParams
   };
 })();
 

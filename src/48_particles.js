@@ -245,48 +245,41 @@ function fxSurfaceFor(obj) {
   if (mat === MAT.brick) return 'brick';
   return penMaterialFor(mat);
 }
-const SURFACE_FX = {
-  concrete: { dust: 0x8f8a84, dust2: 0x5e5a56, sparks: 1, chips: 0xb0aca4 },
-  brick:    { dust: 0x9a6a52, dust2: 0x5a3e32, sparks: 0, chips: 0x8a4a34 },
-  metal:    { dust: 0x6a6a70, dust2: 0x404048, sparks: 8, chips: 0 },
-  wood:     { dust: 0x8a6a48, dust2: 0x5a4430, sparks: 0, chips: 0x9a7448 },
-  glass:    { dust: 0xa8b8c8, dust2: 0x6a7888, sparks: 0, chips: 0xc0d8f0 },
-  ground:   { dust: 0x6a625a, dust2: 0x403a36, sparks: 1, chips: 0x3a3632 }
-};
-function fxImpact(p, n, surface) {
-  const S = SURFACE_FX[surface] || SURFACE_FX.concrete;
+function fxImpact(p, n, surface, weaponType) {
+  const S = CORE.surfaceImpactVfxParams(surface, weaponType);
   const nx = n ? n.x : 0, ny = n ? n.y : 1, nz = n ? n.z : 0;
   // dust puff along the normal
-  for (let i = 0; i < 3; i++) {
-    const s = pfxRnd(0.6, 1.8);
+  for (let i = 0; i < S.dustCount; i++) {
+    const s = pfxRnd(0.6, 1.8) * S.dustScale;
     pfxEmit(PFX_SMOKE, p.x + nx * 0.05, p.y + ny * 0.05, p.z + nz * 0.05,
       nx * s + pfxRnd(-0.4, 0.4), ny * s + pfxRnd(0, 0.5), nz * s + pfxRnd(-0.4, 0.4),
-      pfxRnd(0.6, 1.3), 0.1, pfxRnd(0.5, 0.9), S.dust, S.dust2, 0.55, 3, -0.2, 0);
+      pfxRnd(0.6, 1.3), 0.1, pfxRnd(0.5, 0.9) * S.dustScale, S.dustColor0, S.dustColor1, 0.55, 3, -0.2, 0);
   }
   // chips / splinters (small, heavy, bouncing)
-  if (S.chips) for (let i = 0; i < 5; i++) {
+  if (S.chipCount) for (let i = 0; i < S.chipCount; i++) {
     const s = pfxRnd(2, 4.5);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, nx * s + pfxRnd(-1.5, 1.5), ny * s + pfxRnd(0.5, 2.5), nz * s + pfxRnd(-1.5, 1.5),
-      pfxRnd(0.5, 0.9), 0.035, 0.03, S.chips, S.chips, 1.0, 0.5, 11, PF_BOUNCE);
+      pfxRnd(0.5, 0.9), 0.035, 0.03, S.chipColor, S.chipColor, 1.0, 0.5, 11, PF_BOUNCE);
   }
   // sparks: bright, fast, gravity-bound, bounce on the ground
-  for (let i = 0; i < S.sparks; i++) {
+  for (let i = 0; i < S.sparkCount; i++) {
     const s = pfxRnd(3, 8);
     pfxEmit(PFX_ADD, p.x, p.y, p.z, nx * s + pfxRnd(-3, 3), ny * s + pfxRnd(0, 3), nz * s + pfxRnd(-3, 3),
       pfxRnd(0.15, 0.4), 0.035, 0.015, 0xfff0b0, 0xff6010, 3, 1.5, 12, PF_BOUNCE);
   }
-  if (S.sparks > 2) flashLight(p, 0xffb060, 1.2, 4, 0.06);
+  const L = CORE.surfaceImpactLightParams(surface, weaponType);
+  if (L.intensity > 0) flashLight(p, L.color, L.intensity, L.distance, L.duration);
 }
-function fxBlood(p, dir, isHead) {
-  const n = isHead ? 10 : 6;
-  for (let i = 0; i < n; i++) {
+function fxBlood(p, dir, isHead, weaponType) {
+  const cfg = CORE.bloodImpactVfxParams(isHead, weaponType);
+  for (let i = 0; i < cfg.dropletCount; i++) {
     const s = pfxRnd(1, 3.5);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, dir.x * s + pfxRnd(-1, 1), dir.y * s + pfxRnd(-0.2, 1.4), dir.z * s + pfxRnd(-1, 1),
-      pfxRnd(0.4, 0.8), 0.06, 0.04, 0x5a0404, 0x2a0202, 1.0, 1, 12, PF_STICK);
+      pfxRnd(0.4, 0.8), 0.06, 0.04, cfg.dropletColor0, cfg.dropletColor1, 1.0, 1, 12, PF_STICK);
   }
-  for (let i = 0; i < (isHead ? 4 : 2); i++) {
+  for (let i = 0; i < cfg.mistCount; i++) {
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, dir.x * 0.8 + pfxRnd(-0.3, 0.3), pfxRnd(0, 0.4), dir.z * 0.8 + pfxRnd(-0.3, 0.3),
-      pfxRnd(0.3, 0.6), 0.12, isHead ? 0.8 : 0.5, 0x6a0808, 0x3a0404, 0.5, 4, 0.5, 0);
+      pfxRnd(0.3, 0.6), 0.12, cfg.mistScale, cfg.mistColor0, cfg.mistColor1, 0.5, 4, 0.5, 0);
   }
 }
 function fxHeadshotSparks(p, dir) {

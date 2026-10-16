@@ -172,7 +172,7 @@ function spawnTracer(from, to, mat) {
 }
 
 const _tmpN = new THREE.Vector3();
-function spawnImpact(point, normal, obj, soundOverride) {
+function spawnImpact(point, normal, obj, soundOverride, weaponType) {
   // flash sphere + spark lines + decal-ish quad
   const m = getImpactMesh();
   m.position.copy(point);
@@ -187,7 +187,7 @@ function spawnImpact(point, normal, obj, soundOverride) {
     if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize();
   } else _tmpN.set(0, 1, 0);
   const surface = fxSurfaceFor(obj);
-  fxImpact(point, _tmpN, surface);
+  fxImpact(point, _tmpN, surface, weaponType);
   const impSnd = soundOverride || CORE.surfaceImpactSound(surface);
   if (point && player && player.pos) playSound3D(impSnd, point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
   else playSound(impSnd);
@@ -265,12 +265,12 @@ function clearDecals() {
 }
 
 const _bloodDir = new THREE.Vector3();
-function spawnBlood(point, isHead) {
+function spawnBlood(point, isHead, weaponType) {
   // spray away from the shooter: exit spatter reads as the hit direction
   _bloodDir.copy(point).sub(camera.position).setY(0);
   if (_bloodDir.lengthSq() < 1e-6) _bloodDir.set(0, 0, -1);
   _bloodDir.normalize();
-  fxBlood(point, _bloodDir, isHead);
+  fxBlood(point, _bloodDir, isHead, weaponType);
 }
 
 // ---- Shell casings (eject on every shot) ----

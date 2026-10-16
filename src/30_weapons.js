@@ -402,13 +402,13 @@ function fireShot(preserveSchedule) {
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
-    damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR');
     if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
-      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object);
+      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object, null, w ? w.type : 'AR');
       if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
     }
   } else if (hit) {
-    spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
+    spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, null, w ? w.type : 'AR');
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));

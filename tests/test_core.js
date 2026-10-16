@@ -9426,3 +9426,57 @@ test('v151 mobile UI polish: virtual joystick dead-state lockout, change-detecti
   assert.strictEqual(CORE.touchControlLocked('joy-base', false, false), false);
 });
 
+test('v152 visual polish: ballistic surface impact VFX, dynamic light, and blood spatter kinematics rules', () => {
+  // 1. Surface impact constants & defaults
+  assert.strictEqual(CORE.SURFACE_IMPACT_DUST_BASE, 3);
+  assert.strictEqual(CORE.SURFACE_IMPACT_CHIP_BASE, 5);
+  assert.strictEqual(CORE.SURFACE_IMPACT_SPARK_METAL, 8);
+  assert.strictEqual(CORE.SURFACE_IMPACT_SPARK_CONCRETE, 1);
+  assert.strictEqual(CORE.SURFACE_IMPACT_LIGHT_COLOR_METAL, 0xffb060);
+  assert.strictEqual(CORE.SURFACE_IMPACT_LIGHT_COLOR_HEAVY, 0xffd090);
+
+  // 2. Ballistic surface impact VFX params
+  const srfSR = CORE.surfaceImpactVfxParams('concrete', 'SR');
+  assert.strictEqual(srfSR.dustCount, 5);
+  assert.strictEqual(srfSR.dustScale, 1.4);
+  assert.strictEqual(srfSR.chipCount, 7);
+  assert.strictEqual(srfSR.sparkCount, 2);
+
+  const srfSMG = CORE.surfaceImpactVfxParams('concrete', 'SMG');
+  assert.strictEqual(srfSMG.dustCount, 2);
+  assert.strictEqual(srfSMG.dustScale, 0.8);
+  assert.strictEqual(srfSMG.chipCount, 4);
+  assert.strictEqual(srfSMG.sparkCount, 1);
+
+  const srfMetalSR = CORE.surfaceImpactVfxParams('metal', 'SR');
+  assert.strictEqual(srfMetalSR.sparkCount, 14);
+  assert.strictEqual(srfMetalSR.chipCount, 0);
+
+  // 3. Surface impact dynamic point light parameters
+  const lMetalSR = CORE.surfaceImpactLightParams('metal', 'SR');
+  assert.strictEqual(lMetalSR.intensity, 2.2);
+  assert.strictEqual(lMetalSR.distance, 5.5);
+
+  const lMetalAR = CORE.surfaceImpactLightParams('metal', 'AR');
+  assert.strictEqual(lMetalAR.intensity, 1.2);
+  assert.strictEqual(lMetalAR.distance, 4.0);
+
+  const lConcSR = CORE.surfaceImpactLightParams('concrete', 'SR');
+  assert.strictEqual(lConcSR.intensity, 1.0);
+  assert.strictEqual(lConcSR.distance, 4.0);
+
+  const lConcAR = CORE.surfaceImpactLightParams('concrete', 'AR');
+  assert.strictEqual(lConcAR.intensity, 0);
+
+  // 4. Ballistic blood impact VFX params
+  const bHeadSR = CORE.bloodImpactVfxParams(true, 'SR');
+  assert.strictEqual(bHeadSR.dropletCount, 16);
+  assert.strictEqual(bHeadSR.mistCount, 6);
+  assert.strictEqual(bHeadSR.mistScale, 1.1);
+
+  const bBodySMG = CORE.bloodImpactVfxParams(false, 'SMG');
+  assert.strictEqual(bBodySMG.dropletCount, 4);
+  assert.strictEqual(bBodySMG.mistCount, 1);
+  assert.strictEqual(bBodySMG.mistScale, 0.4);
+});
+

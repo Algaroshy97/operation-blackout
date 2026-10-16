@@ -4646,7 +4646,41 @@ def main() -> int:
         }""")
         checks.append(("mobile-touch-joystick-and-control-lockout-rules", mobile_polish_v151_check))
 
-        # 102) Clean console throughout gameplay.
+        # 102) Ballistic surface impact VFX, dynamic light, and blood spatter kinematics rules (v152 visual polish).
+        visual_polish_v152_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const vfxConcreteSR = CORE.surfaceImpactVfxParams('concrete', 'SR');
+            const vfxConcreteSMG = CORE.surfaceImpactVfxParams('concrete', 'SMG');
+            const vfxMetalSR = CORE.surfaceImpactVfxParams('metal', 'SR');
+            const vfxMetalSMG = CORE.surfaceImpactVfxParams('metal', 'SMG');
+
+            const dustOk = vfxConcreteSR.dustCount === 5 && vfxConcreteSMG.dustCount === 2 &&
+                           vfxConcreteSR.dustScale > vfxConcreteSMG.dustScale;
+            const sparkOk = vfxMetalSR.sparkCount === 14 && vfxMetalSMG.sparkCount === 5 &&
+                            vfxConcreteSR.sparkCount === 2 && vfxConcreteSMG.sparkCount === 1;
+
+            const lightMetalSR = CORE.surfaceImpactLightParams('metal', 'SR');
+            const lightMetalAR = CORE.surfaceImpactLightParams('metal', 'AR');
+            const lightConcreteSR = CORE.surfaceImpactLightParams('concrete', 'SR');
+            const lightConcreteAR = CORE.surfaceImpactLightParams('concrete', 'AR');
+
+            const lightOk = lightMetalSR.intensity > lightMetalAR.intensity &&
+                            lightMetalAR.intensity === 1.2 &&
+                            lightConcreteSR.intensity === 1.0 &&
+                            lightConcreteAR.intensity === 0;
+
+            const bloodSRHead = CORE.bloodImpactVfxParams(true, 'SR');
+            const bloodSMGBody = CORE.bloodImpactVfxParams(false, 'SMG');
+            const bloodOk = bloodSRHead.dropletCount === 16 && bloodSRHead.mistCount === 6 &&
+                            bloodSMGBody.dropletCount === 4 && bloodSMGBody.mistCount === 1 &&
+                            bloodSRHead.mistScale > bloodSMGBody.mistScale;
+
+            return dustOk && sparkOk && lightOk && bloodOk;
+        }""")
+        checks.append(("ballistic-surface-impact-and-blood-vfx-rules", visual_polish_v152_check))
+
+        # 103) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -934,4 +934,102 @@ test('v149 combat balance integration: weapon sprint-to-fire agility, sprint sta
   assert.ok(Math.abs(platingMove - (5.4 * 0.78)) < 1e-4);
 });
 
+test('v152 visual polish integration: ballistic surface impact VFX, dynamic light, and blood spatter kinematics rules', () => {
+  // 1. Surface impact constants
+  assert.equal(CORE.SURFACE_IMPACT_DUST_BASE, 3);
+  assert.equal(CORE.SURFACE_IMPACT_CHIP_BASE, 5);
+  assert.equal(CORE.SURFACE_IMPACT_SPARK_METAL, 8);
+  assert.equal(CORE.SURFACE_IMPACT_SPARK_CONCRETE, 1);
+  assert.equal(CORE.SURFACE_IMPACT_LIGHT_COLOR_METAL, 0xffb060);
+  assert.equal(CORE.SURFACE_IMPACT_LIGHT_COLOR_HEAVY, 0xffd090);
 
+  // 2. Ballistic surface impact VFX params across weapon calibers
+  const srfConcreteSR = CORE.surfaceImpactVfxParams('concrete', 'SR');
+  assert.equal(srfConcreteSR.dustCount, 5);
+  assert.equal(srfConcreteSR.dustScale, 1.4);
+  assert.equal(srfConcreteSR.chipCount, 7);
+  assert.equal(srfConcreteSR.sparkCount, 2);
+  assert.equal(srfConcreteSR.dustColor0, 0x8f8a84);
+  assert.equal(srfConcreteSR.dustColor1, 0x5e5a56);
+  assert.equal(srfConcreteSR.chipColor, 0xb0aca4);
+
+  const srfConcreteBR = CORE.surfaceImpactVfxParams('concrete', 'BR');
+  assert.equal(srfConcreteBR.dustCount, 4);
+  assert.equal(srfConcreteBR.dustScale, 1.2);
+  assert.equal(srfConcreteBR.chipCount, 6);
+  assert.equal(srfConcreteBR.sparkCount, 1);
+
+  const srfConcreteAR = CORE.surfaceImpactVfxParams('concrete', 'AR');
+  assert.equal(srfConcreteAR.dustCount, 3);
+  assert.equal(srfConcreteAR.dustScale, 1.0);
+  assert.equal(srfConcreteAR.chipCount, 5);
+  assert.equal(srfConcreteAR.sparkCount, 1);
+
+  const srfConcreteSMG = CORE.surfaceImpactVfxParams('concrete', 'SMG');
+  assert.equal(srfConcreteSMG.dustCount, 2);
+  assert.equal(srfConcreteSMG.dustScale, 0.8);
+  assert.equal(srfConcreteSMG.chipCount, 4);
+  assert.equal(srfConcreteSMG.sparkCount, 1);
+
+  const srfMetalSR = CORE.surfaceImpactVfxParams('metal', 'SR');
+  assert.equal(srfMetalSR.dustCount, 5);
+  assert.equal(srfMetalSR.chipCount, 0);
+  assert.equal(srfMetalSR.sparkCount, 14);
+
+  const srfMetalSMG = CORE.surfaceImpactVfxParams('metal', 'SMG');
+  assert.equal(srfMetalSMG.dustCount, 2);
+  assert.equal(srfMetalSMG.chipCount, 0);
+  assert.equal(srfMetalSMG.sparkCount, 5);
+
+  const srfWoodAR = CORE.surfaceImpactVfxParams('wood', 'AR');
+  assert.equal(srfWoodAR.sparkCount, 0);
+  assert.equal(srfWoodAR.chipCount, 5);
+  assert.equal(srfWoodAR.chipColor, 0x9a7448);
+
+  // 3. Dynamic point light impact parameters
+  const lightMetalSR = CORE.surfaceImpactLightParams('metal', 'SR');
+  assert.equal(lightMetalSR.color, 0xffc070);
+  assert.equal(lightMetalSR.intensity, 2.2);
+  assert.equal(lightMetalSR.distance, 5.5);
+  assert.equal(lightMetalSR.duration, 0.08);
+
+  const lightMetalAR = CORE.surfaceImpactLightParams('metal', 'AR');
+  assert.equal(lightMetalAR.color, 0xffb060);
+  assert.equal(lightMetalAR.intensity, 1.2);
+  assert.equal(lightMetalAR.distance, 4.0);
+
+  const lightConcreteSR = CORE.surfaceImpactLightParams('concrete', 'SR');
+  assert.equal(lightConcreteSR.color, 0xffd090);
+  assert.equal(lightConcreteSR.intensity, 1.0);
+  assert.equal(lightConcreteSR.distance, 4.0);
+  assert.equal(lightConcreteSR.duration, 0.05);
+
+  const lightConcreteAR = CORE.surfaceImpactLightParams('concrete', 'AR');
+  assert.equal(lightConcreteAR.intensity, 0);
+
+  const lightWoodSR = CORE.surfaceImpactLightParams('wood', 'SR');
+  assert.equal(lightWoodSR.intensity, 0);
+
+  // 4. Ballistic blood impact VFX params
+  assert.equal(CORE.BLOOD_DROPLET_BASE_BODY, 6);
+  assert.equal(CORE.BLOOD_DROPLET_BASE_HEAD, 10);
+  assert.equal(CORE.BLOOD_MIST_BASE_BODY, 2);
+  assert.equal(CORE.BLOOD_MIST_BASE_HEAD, 4);
+
+  const bSRHead = CORE.bloodImpactVfxParams(true, 'SR');
+  assert.equal(bSRHead.dropletCount, 16);
+  assert.equal(bSRHead.mistCount, 6);
+  assert.equal(bSRHead.mistScale, 1.1);
+  assert.equal(bSRHead.dropletColor0, 0x5a0404);
+  assert.equal(bSRHead.mistColor0, 0x6a0808);
+
+  const bARHead = CORE.bloodImpactVfxParams(true, 'AR');
+  assert.equal(bARHead.dropletCount, 10);
+  assert.equal(bARHead.mistCount, 4);
+  assert.equal(bARHead.mistScale, 0.8);
+
+  const bSMGBody = CORE.bloodImpactVfxParams(false, 'SMG');
+  assert.equal(bSMGBody.dropletCount, 4);
+  assert.equal(bSMGBody.mistCount, 1);
+  assert.equal(bSMGBody.mistScale, 0.4);
+});

@@ -5045,7 +5045,7 @@ const CORE = (function () {
       return { floorY: floorY, ceilY: ceilY };
     }
     const rad = (_isNum(r) && r > 0) ? r : 0;
-    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    const maxStepY = feet + (_isNum(stepH) ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       if (!c || !c.min || !c.max) continue;
@@ -5065,7 +5065,7 @@ const CORE = (function () {
     let floorY = (_isNum(groundY)) ? groundY : 0;
     if (!colliders || !colliders.length) return floorY;
     const rad = (_isNum(r) && r > 0) ? r : 0;
-    const maxStepY = feet + (typeof stepH === 'number' ? stepH : 0.6);
+    const maxStepY = feet + (_isNum(stepH) ? stepH : 0.6);
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       if (!c || !c.min || !c.max) continue;
@@ -8327,7 +8327,7 @@ const CORE = (function () {
     const win = (_isNum(windowSec) && windowSec > 0) ? windowSec : MELEE_CAP_WINDOW;
     let write = 0;
     for (let i = 0; i < hits.length; i++) {
-      if (typeof hits[i] === 'number' && isFinite(hits[i]) && (now - hits[i]) < win) {
+      if (_isNum(hits[i]) && (now - hits[i]) < win) {
         if (write !== i) hits[write] = hits[i];
         write++;
       }
@@ -9682,11 +9682,11 @@ const CORE = (function () {
   const SLIDE_VIGNETTE_MAX_ALPHA = 0.55;
 
   function stepSlideVignette(curOpacity, wantSlide, dt, rate) {
-    const cur = typeof curOpacity === 'number' && !isNaN(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
+    const cur = _isNum(curOpacity) ? Math.max(0, Math.min(1, curOpacity)) : 0;
     const target = wantSlide ? 1 : 0;
     if (cur === target) return target;
-    const r = typeof rate === 'number' && rate > 0 ? rate : SLIDE_VIGNETTE_RATE;
-    const delta = typeof dt === 'number' && dt > 0 ? dt : 0;
+    const r = (_isNum(rate) && rate > 0) ? rate : SLIDE_VIGNETTE_RATE;
+    const delta = (_isNum(dt) && dt > 0) ? dt : 0;
     const step = Math.min(1, r * delta);
     const next = cur + (target - cur) * step;
     if (Math.abs(next - target) < 0.005) return target;
@@ -9694,8 +9694,8 @@ const CORE = (function () {
   }
 
   function slideVignetteStyle(opacity, maxAlpha) {
-    const op = typeof opacity === 'number' && !isNaN(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
-    const ma = typeof maxAlpha === 'number' && maxAlpha >= 0 ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
+    const op = _isNum(opacity) ? Math.max(0, Math.min(1, opacity)) : 0;
+    const ma = (_isNum(maxAlpha) && maxAlpha >= 0) ? maxAlpha : SLIDE_VIGNETTE_MAX_ALPHA;
     const a = Math.round((op * ma) * 1000) / 1000;
     return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
   }
@@ -9723,7 +9723,7 @@ const CORE = (function () {
   }
 
   function isScopeOverlayActive(adsAmount, weaponType) {
-    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     const type = String(weaponType || '').toUpperCase();
     return ads > 0.75 && (type === 'BR' || type === 'SR');
   }
@@ -9744,16 +9744,16 @@ const CORE = (function () {
 
   function isSteadyIndicatorVisible(weaponType, adsAmount) {
     const type = String(weaponType || '').toUpperCase();
-    const ads = typeof adsAmount === 'number' ? adsAmount : 0;
+    const ads = _isNum(adsAmount) ? adsAmount : 0;
     return type === 'SR' && ads > 0.8;
   }
 
   function steadyIndicatorLabel(steadyActive, steadyT) {
     if (steadyActive) {
-      const t = Math.max(0, typeof steadyT === 'number' ? steadyT : 0);
+      const t = Math.max(0, _isNum(steadyT) ? steadyT : 0);
       return 'STEADY · ' + (Math.ceil(t * 10) / 10) + 's';
     }
-    const t = typeof steadyT === 'number' ? steadyT : 0;
+    const t = _isNum(steadyT) ? steadyT : 0;
     return t < 0.25 ? 'CATCH YOUR BREATH' : 'HOLD SHIFT TO STEADY';
   }
 
@@ -11386,11 +11386,11 @@ const CORE = (function () {
 
   function canRecycleGrenade(fuseOrCount, atRestOrMax) {
     if (typeof atRestOrMax === 'boolean') {
-      const fuse = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+      const fuse = _isNum(fuseOrCount) ? fuseOrCount : 0;
       return fuse <= 0 || atRestOrMax;
     }
-    const maxP = _isNum(atRestOrMax) && atRestOrMax > 0 ? atRestOrMax : GRENADE_POOL_MAX;
-    const count = typeof fuseOrCount === 'number' ? fuseOrCount : 0;
+    const maxP = (_isNum(atRestOrMax) && atRestOrMax > 0) ? atRestOrMax : GRENADE_POOL_MAX;
+    const count = _isNum(fuseOrCount) ? fuseOrCount : 0;
     return count < maxP;
   }
 
@@ -11859,8 +11859,8 @@ const CORE = (function () {
     let rounds = 0;
     for (let i = 0; i < wState.length; i++) {
       if (!wState[i] || weaponsOwned[i] < 0) continue;
-      const ammo = typeof wState[i].ammo === 'number' && isFinite(wState[i].ammo) ? wState[i].ammo : 0;
-      const res = typeof wState[i].reserve === 'number' && isFinite(wState[i].reserve) ? wState[i].reserve : 0;
+      const ammo = _isNum(wState[i].ammo) ? wState[i].ammo : 0;
+      const res = _isNum(wState[i].reserve) ? wState[i].reserve : 0;
       rounds += Math.max(0, ammo) + Math.max(0, res);
     }
     return rounds;
@@ -12721,6 +12721,88 @@ const CORE = (function () {
     return (_isNum(scale) && scale >= 1.2) ? EXPLOSION_HEAVY_SOUND : EXPLOSION_SOUND;
   }
 
+  // ---- Ballistic Surface Impact VFX, Dynamic Light & Blood Spatter Kinematics (v152 Visual Polish) ----
+  const SURFACE_IMPACT_DUST_BASE = 3, SURFACE_IMPACT_CHIP_BASE = 5;
+  const SURFACE_IMPACT_SPARK_METAL = 8, SURFACE_IMPACT_SPARK_CONCRETE = 1;
+  const SURFACE_IMPACT_LIGHT_COLOR_METAL = 0xffb060, SURFACE_IMPACT_LIGHT_COLOR_HEAVY = 0xffd090;
+  const BLOOD_DROPLET_BASE_BODY = 6, BLOOD_DROPLET_BASE_HEAD = 10;
+  const BLOOD_MIST_BASE_BODY = 2, BLOOD_MIST_BASE_HEAD = 4;
+
+  const _SURFACE_DEFS = {
+    concrete: { dust0: 0x8f8a84, dust1: 0x5e5a56, chips: 0xb0aca4, sparks: 1 },
+    brick:    { dust0: 0x9a6a52, dust1: 0x5a3e32, chips: 0x8a4a34, sparks: 0 },
+    metal:    { dust0: 0x6a6a70, dust1: 0x404048, chips: 0,        sparks: 8 },
+    wood:     { dust0: 0x8a6a48, dust1: 0x5a4430, chips: 0x9a7448, sparks: 0 },
+    glass:    { dust0: 0xa8b8c8, dust1: 0x6a7888, chips: 0xc0d8f0, sparks: 0 },
+    ground:   { dust0: 0x6a625a, dust1: 0x403a36, chips: 0x3a3632, sparks: 1 }
+  };
+
+  function surfaceImpactVfxParams(surface, weaponType) {
+    const srf = _SURFACE_DEFS[surface] || _SURFACE_DEFS.concrete;
+    const wt = weaponType || 'AR';
+    let dustCount = 3, dustScale = 1.0, chipMul = 1.0, sparkMul = 1.0;
+    if (wt === 'SR') { dustCount = 5; dustScale = 1.4; chipMul = 1.4; sparkMul = 1.75; }
+    else if (wt === 'BR') { dustCount = 4; dustScale = 1.2; chipMul = 1.2; sparkMul = 1.35; }
+    else if (wt === 'SMG') { dustCount = 2; dustScale = 0.8; chipMul = 0.8; sparkMul = 0.65; }
+    const chipCount = srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * chipMul) : 0;
+    const sparkCount = srf.sparks ? Math.round(srf.sparks * sparkMul) : 0;
+    return {
+      dustCount,
+      dustScale,
+      chipCount,
+      sparkCount,
+      dustColor0: srf.dust0,
+      dustColor1: srf.dust1,
+      chipColor: srf.chips
+    };
+  }
+
+  function surfaceImpactLightParams(surface, weaponType) {
+    const s = surface || 'concrete';
+    const wt = weaponType || 'AR';
+    if (s === 'metal') {
+      if (wt === 'SR') return { color: 0xffc070, intensity: 2.2, distance: 5.5, duration: 0.08 };
+      if (wt === 'BR') return { color: 0xffb060, intensity: 1.6, distance: 4.8, duration: 0.07 };
+      if (wt === 'SMG') return { color: 0xffa050, intensity: 0.8, distance: 3.2, duration: 0.05 };
+      return { color: 0xffb060, intensity: 1.2, distance: 4.0, duration: 0.06 };
+    }
+    if (s === 'concrete' || s === 'brick' || s === 'ground') {
+      if (wt === 'SR') return { color: SURFACE_IMPACT_LIGHT_COLOR_HEAVY, intensity: 1.0, distance: 4.0, duration: 0.05 };
+      if (wt === 'BR') return { color: 0xffc880, intensity: 0.6, distance: 3.0, duration: 0.04 };
+    }
+    return { color: 0, intensity: 0, distance: 0, duration: 0 };
+  }
+
+  function bloodImpactVfxParams(isHead, weaponType) {
+    const head = Boolean(isHead);
+    const wt = weaponType || 'AR';
+    let dropletCount = head ? 10 : 6;
+    let mistCount = head ? 4 : 2;
+    let mistScale = head ? 0.8 : 0.5;
+    if (wt === 'SR') {
+      dropletCount = head ? 16 : 10;
+      mistCount = head ? 6 : 3;
+      mistScale = head ? 1.1 : 0.7;
+    } else if (wt === 'BR') {
+      dropletCount = head ? 13 : 8;
+      mistCount = head ? 5 : 2;
+      mistScale = head ? 0.95 : 0.6;
+    } else if (wt === 'SMG') {
+      dropletCount = head ? 7 : 4;
+      mistCount = head ? 3 : 1;
+      mistScale = head ? 0.65 : 0.4;
+    }
+    return {
+      dropletCount,
+      mistCount,
+      mistScale,
+      dropletColor0: 0x5a0404,
+      dropletColor1: 0x2a0202,
+      mistColor0: 0x6a0808,
+      mistColor1: 0x3a0404
+    };
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -13027,7 +13109,14 @@ const CORE = (function () {
     TAC_SPRINT_STF_MUL, FAST_HANDS_STF_MUL, weaponSprintToFireTime,
     STANCE_SPREAD_SPRINT, STANCE_SPREAD_TAC_SPRINT, PLATE_MOVE_SPEED_MUL,
     FLOW_FIELD_QUEUE_MASK, FLOW_FIELD_QUEUE_SHIFT, packNavCell, unpackNavCell, isNavDiagonalWalkable,
-    ENEMY_FOOTSTEP_MAX_DIST, isTargetInFootstepRange, enemiesRemainingChanged, syncEnemiesRemaining
+    ENEMY_FOOTSTEP_MAX_DIST, isTargetInFootstepRange, enemiesRemainingChanged, syncEnemiesRemaining,
+    SURFACE_IMPACT_DUST_BASE, SURFACE_IMPACT_CHIP_BASE,
+    SURFACE_IMPACT_SPARK_METAL, SURFACE_IMPACT_SPARK_CONCRETE,
+    SURFACE_IMPACT_LIGHT_COLOR_METAL, SURFACE_IMPACT_LIGHT_COLOR_HEAVY,
+    surfaceImpactVfxParams, surfaceImpactLightParams,
+    BLOOD_DROPLET_BASE_BODY, BLOOD_DROPLET_BASE_HEAD,
+    BLOOD_MIST_BASE_BODY, BLOOD_MIST_BASE_HEAD,
+    bloodImpactVfxParams
   };
 })();
 
@@ -16076,13 +16165,13 @@ function fireShot(preserveSchedule) {
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
-    damageEnemy(en, dmg, hit.point, isHead, penMul < 1);
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR');
     if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
-      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object);
+      spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object, null, w ? w.type : 'AR');
       if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
     }
   } else if (hit) {
-    spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object);
+    spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, null, w ? w.type : 'AR');
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
@@ -17869,7 +17958,7 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
-function damageEnemy(en, dmg, point, isHead, throughCover) {
+function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
   if (en.dead) return;
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
@@ -17885,7 +17974,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   if (shield < 1) {
     CORE.shieldDeflectNormal(en.yaw, _shieldNormOut);
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
-    spawnImpact(point, _shieldNormOut, null);
+    spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
@@ -17898,7 +17987,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover) {
   showHitmarker(isHead, tier);
   addCredits(CORE.creditsForDamage(isKill, isHead));
   addFieldCharge(lethal ? dmg : dmg * shield);
-  spawnBlood(point, isHead);
+  spawnBlood(point, isHead, weaponType);
   if (point) {
     _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
     if (isHead && CORE.enemyHasHelmet(en.kind)) {
@@ -18985,48 +19074,41 @@ function fxSurfaceFor(obj) {
   if (mat === MAT.brick) return 'brick';
   return penMaterialFor(mat);
 }
-const SURFACE_FX = {
-  concrete: { dust: 0x8f8a84, dust2: 0x5e5a56, sparks: 1, chips: 0xb0aca4 },
-  brick:    { dust: 0x9a6a52, dust2: 0x5a3e32, sparks: 0, chips: 0x8a4a34 },
-  metal:    { dust: 0x6a6a70, dust2: 0x404048, sparks: 8, chips: 0 },
-  wood:     { dust: 0x8a6a48, dust2: 0x5a4430, sparks: 0, chips: 0x9a7448 },
-  glass:    { dust: 0xa8b8c8, dust2: 0x6a7888, sparks: 0, chips: 0xc0d8f0 },
-  ground:   { dust: 0x6a625a, dust2: 0x403a36, sparks: 1, chips: 0x3a3632 }
-};
-function fxImpact(p, n, surface) {
-  const S = SURFACE_FX[surface] || SURFACE_FX.concrete;
+function fxImpact(p, n, surface, weaponType) {
+  const S = CORE.surfaceImpactVfxParams(surface, weaponType);
   const nx = n ? n.x : 0, ny = n ? n.y : 1, nz = n ? n.z : 0;
   // dust puff along the normal
-  for (let i = 0; i < 3; i++) {
-    const s = pfxRnd(0.6, 1.8);
+  for (let i = 0; i < S.dustCount; i++) {
+    const s = pfxRnd(0.6, 1.8) * S.dustScale;
     pfxEmit(PFX_SMOKE, p.x + nx * 0.05, p.y + ny * 0.05, p.z + nz * 0.05,
       nx * s + pfxRnd(-0.4, 0.4), ny * s + pfxRnd(0, 0.5), nz * s + pfxRnd(-0.4, 0.4),
-      pfxRnd(0.6, 1.3), 0.1, pfxRnd(0.5, 0.9), S.dust, S.dust2, 0.55, 3, -0.2, 0);
+      pfxRnd(0.6, 1.3), 0.1, pfxRnd(0.5, 0.9) * S.dustScale, S.dustColor0, S.dustColor1, 0.55, 3, -0.2, 0);
   }
   // chips / splinters (small, heavy, bouncing)
-  if (S.chips) for (let i = 0; i < 5; i++) {
+  if (S.chipCount) for (let i = 0; i < S.chipCount; i++) {
     const s = pfxRnd(2, 4.5);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, nx * s + pfxRnd(-1.5, 1.5), ny * s + pfxRnd(0.5, 2.5), nz * s + pfxRnd(-1.5, 1.5),
-      pfxRnd(0.5, 0.9), 0.035, 0.03, S.chips, S.chips, 1.0, 0.5, 11, PF_BOUNCE);
+      pfxRnd(0.5, 0.9), 0.035, 0.03, S.chipColor, S.chipColor, 1.0, 0.5, 11, PF_BOUNCE);
   }
   // sparks: bright, fast, gravity-bound, bounce on the ground
-  for (let i = 0; i < S.sparks; i++) {
+  for (let i = 0; i < S.sparkCount; i++) {
     const s = pfxRnd(3, 8);
     pfxEmit(PFX_ADD, p.x, p.y, p.z, nx * s + pfxRnd(-3, 3), ny * s + pfxRnd(0, 3), nz * s + pfxRnd(-3, 3),
       pfxRnd(0.15, 0.4), 0.035, 0.015, 0xfff0b0, 0xff6010, 3, 1.5, 12, PF_BOUNCE);
   }
-  if (S.sparks > 2) flashLight(p, 0xffb060, 1.2, 4, 0.06);
+  const L = CORE.surfaceImpactLightParams(surface, weaponType);
+  if (L.intensity > 0) flashLight(p, L.color, L.intensity, L.distance, L.duration);
 }
-function fxBlood(p, dir, isHead) {
-  const n = isHead ? 10 : 6;
-  for (let i = 0; i < n; i++) {
+function fxBlood(p, dir, isHead, weaponType) {
+  const cfg = CORE.bloodImpactVfxParams(isHead, weaponType);
+  for (let i = 0; i < cfg.dropletCount; i++) {
     const s = pfxRnd(1, 3.5);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, dir.x * s + pfxRnd(-1, 1), dir.y * s + pfxRnd(-0.2, 1.4), dir.z * s + pfxRnd(-1, 1),
-      pfxRnd(0.4, 0.8), 0.06, 0.04, 0x5a0404, 0x2a0202, 1.0, 1, 12, PF_STICK);
+      pfxRnd(0.4, 0.8), 0.06, 0.04, cfg.dropletColor0, cfg.dropletColor1, 1.0, 1, 12, PF_STICK);
   }
-  for (let i = 0; i < (isHead ? 4 : 2); i++) {
+  for (let i = 0; i < cfg.mistCount; i++) {
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, dir.x * 0.8 + pfxRnd(-0.3, 0.3), pfxRnd(0, 0.4), dir.z * 0.8 + pfxRnd(-0.3, 0.3),
-      pfxRnd(0.3, 0.6), 0.12, isHead ? 0.8 : 0.5, 0x6a0808, 0x3a0404, 0.5, 4, 0.5, 0);
+      pfxRnd(0.3, 0.6), 0.12, cfg.mistScale, cfg.mistColor0, cfg.mistColor1, 0.5, 4, 0.5, 0);
   }
 }
 function fxHeadshotSparks(p, dir) {
@@ -19324,7 +19406,7 @@ function spawnTracer(from, to, mat) {
 }
 
 const _tmpN = new THREE.Vector3();
-function spawnImpact(point, normal, obj, soundOverride) {
+function spawnImpact(point, normal, obj, soundOverride, weaponType) {
   // flash sphere + spark lines + decal-ish quad
   const m = getImpactMesh();
   m.position.copy(point);
@@ -19339,7 +19421,7 @@ function spawnImpact(point, normal, obj, soundOverride) {
     if (obj && obj.matrixWorld) _tmpN.transformDirection(obj.matrixWorld).normalize();
   } else _tmpN.set(0, 1, 0);
   const surface = fxSurfaceFor(obj);
-  fxImpact(point, _tmpN, surface);
+  fxImpact(point, _tmpN, surface, weaponType);
   const impSnd = soundOverride || CORE.surfaceImpactSound(surface);
   if (point && player && player.pos) playSound3D(impSnd, point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
   else playSound(impSnd);
@@ -19417,12 +19499,12 @@ function clearDecals() {
 }
 
 const _bloodDir = new THREE.Vector3();
-function spawnBlood(point, isHead) {
+function spawnBlood(point, isHead, weaponType) {
   // spray away from the shooter: exit spatter reads as the hit direction
   _bloodDir.copy(point).sub(camera.position).setY(0);
   if (_bloodDir.lengthSq() < 1e-6) _bloodDir.set(0, 0, -1);
   _bloodDir.normalize();
-  fxBlood(point, _bloodDir, isHead);
+  fxBlood(point, _bloodDir, isHead, weaponType);
 }
 
 // ---- Shell casings (eject on every shot) ----
