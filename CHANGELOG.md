@@ -4,6 +4,18 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v117 — Longer sprint, quicker stamina recovery
+
+- Extend normal sprint from 3.2 to 8 seconds; recover a fully empty bar in
+  4 seconds instead of about 4.57 seconds.
+- Clear exhaustion at 20% stamina (0.8 seconds from empty), rather than 35%
+  (1.6 seconds); holding sprint still waits for recovery before resuming.
+- Preserve tactical sprint's 2.5-second burst, 1.25x speed and 2.2x drain,
+  normal movement speeds and combat behavior.
+- Add real-config/controller lifecycle regression tests for duration, recovery,
+  held-sprint hysteresis, repeated bounded cycles and tactical sprint; extend
+  the built-game browser acceptance probe with eight stamina lifecycle checks.
+
 ## v116 — Configurable graphics across devices
 
 - Add saved independent enemy/scenery detail, particles/effect lights, ragdolls,

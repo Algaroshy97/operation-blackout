@@ -174,6 +174,52 @@ def main() -> int:
         }""")
         checks.append(("fireshot-runs", shot))
 
+        # Exercise shipped config/controller synchronously so render-frame timing
+        # cannot turn an eight-second stamina assertion into a wall-clock guess.
+        stamina = page.evaluate("""() => {
+            const saved = Object.fromEntries(Object.entries(player).map(([k,v]) =>
+                [k, v && v.isVector3 ? v.clone() : v]));
+            const savedKeys = {...keys}, savedPressed = {...pressed};
+            const savedTime = gameT, savedTap = lastSprintTap;
+            const near = (a,b) => Math.abs(a-b) < 1e-8;
+            const step = n => { for (let i=0; i<n; i++) { gameT += .01; updatePlayer(.01); } };
+            try {
+                for (const k of Object.keys(keys)) delete keys[k];
+                for (const k of Object.keys(pressed)) delete pressed[k];
+                Object.assign(player, {stamina: CFG.player.maxStamina, exhausted: false,
+                    dead: false, downed: false, crouching: false, sliding: false,
+                    tacT: 0, landStunT: 0, airSpeedY: 0, mantleT: 0, onGround: true});
+                player.pos.set(0, CFG.player.height, 0); player.vel.set(0,0,0);
+                keys.KeyW = keys.ShiftLeft = true;
+                step(790);
+                const duration = near(player.stamina, .1) && player.sprinting && !player.exhausted;
+                step(11);
+                const depleted = player.exhausted && !player.sprinting && player.stamina >= 0;
+                player.stamina = 0; player.exhausted = true;
+                step(79);
+                const held = player.exhausted && !player.sprinting && near(player.stamina, 1.58);
+                step(1);
+                const threshold = !player.exhausted && !player.sprinting && near(player.stamina, 1.6);
+                step(1);
+                const resumed = player.sprinting && near(player.stamina, 1.59);
+                keys.ShiftLeft = false; player.stamina = 0; player.exhausted = true;
+                step(400);
+                const recovered = near(player.stamina, 8) && !player.exhausted;
+                step(100);
+                const bounded = near(player.stamina, 8);
+                keys.ShiftLeft = true; lastSprintTap = gameT - .1; pressed.ShiftLeft = true;
+                step(1); delete pressed.ShiftLeft; step(49);
+                const tactical = near(player.stamina, 6.9) && near(player.tacT, 2) && player.sprinting;
+                return {duration, depleted, held, threshold, resumed, recovered, bounded, tactical};
+            } finally {
+                Object.assign(player, saved);
+                for (const k of Object.keys(keys)) delete keys[k]; Object.assign(keys, savedKeys);
+                for (const k of Object.keys(pressed)) delete pressed[k]; Object.assign(pressed, savedPressed);
+                gameT = savedTime; lastSprintTap = savedTap;
+            }
+        }""")
+        checks.extend(("stamina-" + name, ok) for name, ok in stamina.items())
+
         # Casings must obey the documented 24-mesh budget even in a burst.
         casing_check = page.evaluate("""() => {
             updateCasings(10);

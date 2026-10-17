@@ -4363,8 +4363,8 @@ const CORE = (function () {
     return base * sMul * (Boolean(isTacSprint) ? TAC_SPRINT_SPEED_MUL : 1.0);
   }
 
-  const STAMINA_RECOVER_RATE = 0.7;
-  const STAMINA_EXHAUST_RECOVER_RATIO = 0.35;
+  const STAMINA_RECOVER_RATE = 2;
+  const STAMINA_EXHAUST_RECOVER_RATIO = 0.2;
 
   function stepPlayerStamina(stamina, maxStamina, isSprinting, isTacSprint, dt, drainRate, tacDrainMul, recoverRate) {
     const s = _isNum(stamina) ? stamina : 0;
