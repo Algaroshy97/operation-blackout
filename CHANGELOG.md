@@ -4,6 +4,98 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Reconstructed / partial — updates after the documented v116 baseline
+
+The following 40 commit entries were reconstructed from each commit's actual
+source/test/probe diff and file statistics, not inferred from its release title.
+They summarize implementation and regression additions, not historical test runs,
+deployments, device verification or measured performance. Version labels in those
+commits are historical and may overlap earlier entries. Newest first:
+
+- `e61067b`: Add weapon-specific scope sounds, casing-bounce acoustics, tank kill
+  confirmation and secondary-unlock/station-cycle audio rules, with core and integration regressions.
+- `d53f567`: Add surface-dependent ballistic dust/chip/spark and light parameters,
+  plus blood-spatter kinematics; add core and integration regressions.
+- `ca15632`: Gate virtual joystick feedback and touch controls during dead/downed
+  states, with joystick change-detection and core/integration regressions.
+- `386e708`: Pack flow-field queue coordinates, check diagonal walkability, cull
+  distant footsteps and gate remaining-hostiles updates; add core/integration regressions.
+- `5472bac`: Add weapon-specific sprint-to-fire timing, sprint stance spread and
+  armor-plate action/movement gating; add core and integration regressions.
+- `6725233`: Differentiate dry-fire, resource-pickup, moving melee and ordnance
+  explosion audio, with core and integration regressions.
+- `3f94f97`: Parameterize explosion effects/lights, sniper vapor trails and enemy
+  muzzle flashes; add core and integration regressions.
+- `9fcfa4f`: Extend dead-state lockouts to tactical/equipment, streak, weapon-swap
+  and station controls and labels; add core and integration regressions.
+- `3a1a44e`: Use squared-distance checks for bullet magnetism, munitions boxes and
+  objective zones; gate objective-ring opacity updates and add timer/core/integration regressions.
+- `b7dda91`: Tune weapon recoil decay, empty-weapon swap speed and tactical-sprint
+  slide momentum; add core and integration regressions.
+- `1a5626c`: Differentiate enemy footsteps, weapon reload-magazine audio and melee
+  surface strikes, with core and integration regressions.
+- `df7a790`: Add melee slash/backstab effects and weapon/suppressor-specific muzzle
+  light parameters; add core and integration regressions.
+- `5f59db2`: Gate dead-state fire/reload, slide, melee and jump controls and labels;
+  add action-capability and locked-style core/integration regressions.
+- `ef8a425`: Add aim-assist range/cosine checks and hit-arc opacity change detection,
+  with core and integration regressions.
+- `1817f67`: Tune weapon-class bloom accumulation and tactical-sprint melee momentum;
+  gate armor-plate use and add core/integration regressions.
+- `87a7fa9`: Add shield-deflection, helmet-hit and heavy-landing sound rules, with
+  core and integration regressions.
+- `15b4b77`: Add shield-deflection effects, helmet-headshot detection and landing
+  dust parameters, with core and integration regressions.
+- `8f8dcdd`: Gate downed weapon switching and ADS, update touch labels/reload state,
+  and add core and integration regressions.
+- `57a4f7e`: Gate grenade-charge HUD changes, use squared tactical/cone range checks
+  and dot-product bullet-magnet selection; add core and integration regressions.
+- `da4151c`: Tune weapon ADS movement, empty reloads, bloom recovery and enemy
+  archetype melee damage, with core and integration regressions.
+- `926ff10`: Add slide-jump, empty-chamber, grenade cooking/throw and enemy melee
+  impact audio rules, with core and integration regressions.
+- `ed21ab0`: Add tactical detonation lights/particles and helmet-dependent headshot
+  effects, with core and integration regressions.
+- `5954e51`: Gate downed equipment, streak, field-upgrade and station actions and
+  touch labels, with core and integration regressions.
+- `666cc98`: Gate countdown/downed-timer/flash-overlay updates, use squared blast
+  checks and parameterize ragdoll momentum; add core and integration regressions.
+- `7d91196`: Add damage-type armor absorption including fall-damage bypass, plus
+  weapon-class switch/ADS handling rules; add core and integration regressions.
+- `ed5652c`: Differentiate melee/backstab, through-cover hitmarker, tactical-sprint
+  footstep and landing audio; add core and integration regressions.
+- `86adc7a`: Add sentry muzzle/light kinematics, penetration-cover impact gating
+  and world melee strike effects; extend core/integration tests and adjust probe expectations.
+- `7599eb2`: Transform gyro look deltas by screen orientation, add independently
+  sanitized gyro sensitivity, and request fullscreen/landscape without the portrait
+  overlay; update core/mobile regressions.
+- `343e563`: Add a portrait-phone landscape instruction overlay and optional
+  landscape-lock request, with a mobile source regression. The later `7599eb2`
+  change removes the overlay; this entry records history, not current behavior.
+- `0cf5df2`: Add gyroscope look input plus downed touch-control, pause-feedback,
+  editor-selection and streak-HUD inset changes; add core/mobile/integration regressions.
+- `0955628`: Replace stale reload-sound acceptance expectations with ordered
+  `plate_insert`/`plate_lock` cues and intermediate/final armor, plate-count and
+  timer assertions; add Python probe-contract regressions.
+- `b90a8b2`: Add spatial-audio range culling, forward-sector aim gating and enemy
+  overlap prechecks; pool grenade records and wall-buy offer output, with core/integration regressions.
+- `028d421`: Add weapon-class ballistic falloff, target-evasion accuracy rules and
+  melee backstab/momentum behavior, with core and integration regressions.
+- `810a52e`: Add suppressed weapon fire, dedicated plate insert/lock, tinnitus and
+  flesh-hurt audio rules, with core regressions.
+- `a983b64`: Add expanding/fading blood pools, settled-corpse pooling rules and
+  textured bullet-hole decals, with core regressions.
+- `b715460`: Sanitize touch layout dimensions/coordinates, clamp look jumps and
+  gate gameplay/pause/empty control states; add core/mobile regressions.
+- `92c5dd4`: Reuse shadow-caster and particle-layer data, add sentry squared-range
+  checks and gate pickup-opacity writes; add core/integration regressions.
+- `2e7dbc0`: Tune stance spread, blast camera shake, weapon-class headshot
+  multipliers and enemy accuracy rules, with core regressions.
+- `d2b781f`: Add critical-health heartbeat timing, elite enemy gunfire and
+  distance-dependent audio filtering, with core regressions.
+- `61315e6`: Add persistent blast scorch decals, expanding shockwaves and enemy
+  muzzle lights, with core visual-rule regressions.
+
 ## v117 — Longer sprint, quicker stamina recovery
 
 - Extend normal sprint from 3.2 to 8 seconds; recover a fully empty bar in
