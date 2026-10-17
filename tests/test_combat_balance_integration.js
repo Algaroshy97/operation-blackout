@@ -1033,3 +1033,28 @@ test('v152 visual polish integration: ballistic surface impact VFX, dynamic ligh
   assert.equal(bSMGBody.mistCount, 1);
   assert.equal(bSMGBody.mistScale, 0.4);
 });
+
+test('v153 audio polish integration: scope acoustics, casing bounce, and kill sound differentiation', () => {
+  // 1. Weapon scope in/out sound mappings
+  assert.equal(CORE.weaponScopeSound('SR', true), 'scope_heavy_in');
+  assert.equal(CORE.weaponScopeSound('SR', false), 'scope_heavy_out');
+  assert.equal(CORE.weaponScopeSound('BR', true), 'scope_in');
+  assert.equal(CORE.weaponScopeSound('BR', false), 'scope_out');
+
+  // 2. Spent casing bounce acoustic caliber differentiation
+  assert.equal(CORE.casingBounceSound('SR'), 'casing_heavy');
+  assert.equal(CORE.casingBounceSound('BR'), 'casing_heavy');
+  assert.equal(CORE.casingBounceSound('AR'), 'casing');
+  assert.equal(CORE.casingBounceSound('SMG'), 'casing');
+
+  // 3. Tank enemy kill confirmation acoustics
+  assert.equal(CORE.killConfirmationSound(false, false, true), 'kill_heavy');
+  assert.equal(CORE.killConfirmationSound(false, false, false), 'kill');
+  assert.equal(CORE.killConfirmationSound(true, false, false), 'kill_headshot');
+  assert.equal(CORE.killConfirmationSound(false, true, false), 'kill_elite');
+
+  // 4. Secondary unlock and station cycling acoustics
+  assert.equal(CORE.secondaryUnlockSound('SR'), 'draw_heavy');
+  assert.equal(CORE.secondaryUnlockSound('SMG'), 'draw_light');
+  assert.equal(CORE.stationCycleSound('lethal'), 'draw_light');
+});

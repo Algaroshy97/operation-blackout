@@ -781,7 +781,7 @@ function unlockSecondary() {
   syncMarksmanSlot();   // a marksman secondary frees slot 3
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
-  playSound('draw');
+  playSound(CORE.secondaryUnlockSound(w ? w.type : ''));
   return true;
 }
 

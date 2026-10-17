@@ -4680,7 +4680,38 @@ def main() -> int:
         }""")
         checks.append(("ballistic-surface-impact-and-blood-vfx-rules", visual_polish_v152_check))
 
-        # 103) Clean console throughout gameplay.
+        # 103) Scope acoustics, casing bounce, heavy tank kill confirmation, and secondary unlock rules (v153 audio polish).
+        audio_polish_v153_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const scopeSROk = CORE.isWeaponScopeType('SR') === true && CORE.isWeaponScopeType('BR') === true && CORE.isWeaponScopeType('SMG') === false;
+            const scopeSndOk = CORE.weaponScopeSound('SR', true) === 'scope_heavy_in' &&
+                               CORE.weaponScopeSound('SR', false) === 'scope_heavy_out' &&
+                               CORE.weaponScopeSound('BR', true) === 'scope_in' &&
+                               CORE.weaponScopeSound('BR', false) === 'scope_out';
+            const scopeTransOk = CORE.scopeTransitionState(0.9, false) === 1 &&
+                                 CORE.scopeTransitionState(0.4, true) === -1 &&
+                                 CORE.scopeTransitionState(0.6, true) === 0;
+
+            const casingOk = CORE.casingBounceSound('SR') === 'casing_heavy' &&
+                             CORE.casingBounceSound('BR') === 'casing_heavy' &&
+                             CORE.casingBounceSound('AR') === 'casing' &&
+                             CORE.casingBounceSound('SMG') === 'casing';
+
+            const killOk = CORE.killConfirmationSound(false, false, true) === 'kill_heavy' &&
+                           CORE.killConfirmationSound(false, false, false) === 'kill' &&
+                           CORE.killConfirmationSound(true, false, false) === 'kill_headshot' &&
+                           CORE.killConfirmationSound(false, true, false) === 'kill_elite';
+
+            const secOk = CORE.secondaryUnlockSound('SR') === 'draw_heavy' &&
+                          CORE.secondaryUnlockSound('SMG') === 'draw_light' &&
+                          CORE.stationCycleSound('lethal') === 'draw_light';
+
+            return scopeSROk && scopeSndOk && scopeTransOk && casingOk && killOk && secOk;
+        }""")
+        checks.append(("scope-casing-kill-and-unlock-audio-rules", audio_polish_v153_check))
+
+        # 104) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

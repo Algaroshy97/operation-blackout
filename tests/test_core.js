@@ -9480,3 +9480,72 @@ test('v152 visual polish: ballistic surface impact VFX, dynamic light, and blood
   assert.strictEqual(bBodySMG.mistScale, 0.4);
 });
 
+test('v153 audio polish: weapon scope acoustics, ballistic casing bounce, heavy tank kill confirmation, and secondary unlock rules', () => {
+  // 1. Weapon scope in/out acoustics and transition rules
+  assert.strictEqual(CORE.SCOPE_IN_THRESHOLD, 0.8);
+  assert.strictEqual(CORE.SCOPE_OUT_THRESHOLD, 0.5);
+  assert.strictEqual(CORE.SCOPE_IN_SOUND, 'scope_in');
+  assert.strictEqual(CORE.SCOPE_OUT_SOUND, 'scope_out');
+  assert.strictEqual(CORE.SCOPE_HEAVY_IN_SOUND, 'scope_heavy_in');
+  assert.strictEqual(CORE.SCOPE_HEAVY_OUT_SOUND, 'scope_heavy_out');
+
+  assert.strictEqual(CORE.isWeaponScopeType('SR'), true);
+  assert.strictEqual(CORE.isWeaponScopeType('BR'), true);
+  assert.strictEqual(CORE.isWeaponScopeType('AR'), false);
+  assert.strictEqual(CORE.isWeaponScopeType('SMG'), false);
+  assert.strictEqual(CORE.isWeaponScopeType(''), false);
+  assert.strictEqual(CORE.isWeaponScopeType(), false);
+
+  assert.strictEqual(CORE.weaponScopeSound('SR', true), 'scope_heavy_in');
+  assert.strictEqual(CORE.weaponScopeSound('SR', false), 'scope_heavy_out');
+  assert.strictEqual(CORE.weaponScopeSound('BR', true), 'scope_in');
+  assert.strictEqual(CORE.weaponScopeSound('BR', false), 'scope_out');
+  assert.strictEqual(CORE.weaponScopeSound('AR', true), 'scope_in');
+  assert.strictEqual(CORE.weaponScopeSound('AR', false), 'scope_out');
+  assert.strictEqual(CORE.weaponScopeSound('', true), 'scope_in');
+  assert.strictEqual(CORE.weaponScopeSound(), 'scope_out');
+
+  assert.strictEqual(CORE.scopeTransitionState(0.9, false), 1);
+  assert.strictEqual(CORE.scopeTransitionState(0.8, false), 0);
+  assert.strictEqual(CORE.scopeTransitionState(0.4, true), -1);
+  assert.strictEqual(CORE.scopeTransitionState(0.5, true), 0);
+  assert.strictEqual(CORE.scopeTransitionState(0.6, true), 0);
+  assert.strictEqual(CORE.scopeTransitionState(0.6, false), 0);
+
+  // 2. Ballistic spent casing bounce acoustics by caliber
+  assert.strictEqual(CORE.CASING_SOUND, 'casing');
+  assert.strictEqual(CORE.CASING_HEAVY_SOUND, 'casing_heavy');
+  assert.strictEqual(CORE.casingBounceSound('SR'), 'casing_heavy');
+  assert.strictEqual(CORE.casingBounceSound('BR'), 'casing_heavy');
+  assert.strictEqual(CORE.casingBounceSound('AR'), 'casing');
+  assert.strictEqual(CORE.casingBounceSound('SMG'), 'casing');
+  assert.strictEqual(CORE.casingBounceSound(''), 'casing');
+  assert.strictEqual(CORE.casingBounceSound(), 'casing');
+
+  // 3. Heavy tank enemy kill confirmation acoustics
+  assert.strictEqual(CORE.KILL_SOUND, 'kill');
+  assert.strictEqual(CORE.KILL_HEADSHOT_SOUND, 'kill_headshot');
+  assert.strictEqual(CORE.KILL_ELITE_SOUND, 'kill_elite');
+  assert.strictEqual(CORE.KILL_HEAVY_SOUND, 'kill_heavy');
+
+  assert.strictEqual(CORE.killConfirmationSound(false, false, true), 'kill_heavy');
+  assert.strictEqual(CORE.killConfirmationSound(true, false, true), 'kill_heavy');
+  assert.strictEqual(CORE.killConfirmationSound(false, true, true), 'kill_elite');
+  assert.strictEqual(CORE.killConfirmationSound(true, true, true), 'kill_elite');
+  assert.strictEqual(CORE.killConfirmationSound(false, false, false), 'kill');
+  assert.strictEqual(CORE.killConfirmationSound(true, false, false), 'kill_headshot');
+  assert.strictEqual(CORE.killConfirmationSound(false, true, false), 'kill_elite');
+
+  // 4. Secondary weapon unlock and station cycling acoustics
+  assert.strictEqual(CORE.SECONDARY_UNLOCK_SOUND, 'draw');
+  assert.strictEqual(CORE.STATION_CYCLE_SOUND, 'draw_light');
+  assert.strictEqual(CORE.secondaryUnlockSound('SR'), 'draw_heavy');
+  assert.strictEqual(CORE.secondaryUnlockSound('BR'), 'draw_heavy');
+  assert.strictEqual(CORE.secondaryUnlockSound('SMG'), 'draw_light');
+  assert.strictEqual(CORE.secondaryUnlockSound('AR'), 'draw');
+  assert.strictEqual(CORE.secondaryUnlockSound(), 'draw');
+  assert.strictEqual(CORE.stationCycleSound('lethal'), 'draw_light');
+  assert.strictEqual(CORE.stationCycleSound('tactical'), 'draw_light');
+  assert.strictEqual(CORE.stationCycleSound(), 'draw_light');
+});
+

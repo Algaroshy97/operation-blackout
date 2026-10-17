@@ -284,9 +284,9 @@ const _casingVelOut = { x: 0, y: 0, z: 0 };
 const _casingPhysOut = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, spinZ: 0, rest: false, bounced: false };
 const _casingRotOut = { rotX: 0, rotY: 0, rotZ: 0 };
 
-function getCasingRecord(m, vx, vy, vz, sx, sy, sz) {
+function getCasingRecord(m, vx, vy, vz, sx, sy, sz, weaponType) {
   const r = casingRecPool.length > 0 ? casingRecPool.pop() : {
-    m: null, v: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, rest: false, ry: 0
+    m: null, v: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, rest: false, ry: 0, weaponType: ''
   };
   r.m = m;
   r.v.set(vx, vy, vz);
@@ -294,6 +294,7 @@ function getCasingRecord(m, vx, vy, vz, sx, sy, sz) {
   r.life = CORE.CASING_LIFETIME;
   r.rest = false;
   r.ry = 0;
+  r.weaponType = weaponType || '';
   return r;
 }
 
@@ -316,7 +317,7 @@ function clearCasings() {
   casings.length = 0;
 }
 
-function spawnCasing(camPos, camQ) {
+function spawnCasing(camPos, camQ, weaponType) {
   if (casings.length >= CORE.CASING_MAX) {
     const old = casings.shift();
     releaseCasingRecord(old);
@@ -332,7 +333,7 @@ function spawnCasing(camPos, camQ) {
   const vel = CORE.casingEjectVelocity(_casingRight.x, _casingRight.y, _casingRight.z, Math.random(), Math.random(), _casingVelOut);
   const sx = Math.random() * 14 - 7, sy = Math.random() * 14 - 7, sz = Math.random() * 14 - 7;
   scene.add(m);
-  casings.push(getCasingRecord(m, vel.x, vel.y, vel.z, sx, sy, sz));
+  casings.push(getCasingRecord(m, vel.x, vel.y, vel.z, sx, sy, sz, weaponType));
 }
 
 function updateCasings(dt) {
@@ -365,7 +366,7 @@ function updateCasings(dt) {
       if (p.bounced) {
         const now = performance.now();
         if (now - casingSndT > CORE.CASING_SND_GAP * 1000) {
-          playSound('casing');
+          playSound(CORE.casingBounceSound(c.weaponType));
           casingSndT = now;
         }
       }
@@ -499,7 +500,8 @@ const SND_MIN_GAP = {
   jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15,
   shield_deflect: 0.05, helmet_hit: 0.04,
   estep_heavy: 0.05, reload_heavy_out: 0.15, reload_heavy_in: 0.15, reload_smg_out: 0.15, reload_smg_in: 0.15, melee_hit_metal: 0.08,
-  dry_heavy: 0.06, melee_heavy: 0.08, explosion_heavy: 0.08
+  dry_heavy: 0.06, melee_heavy: 0.08, explosion_heavy: 0.08,
+  scope_heavy_in: 0.08, scope_heavy_out: 0.08, casing_heavy: 0.05, kill_heavy: 0.06
 };
 function soundThrottled(name) {
   const gap = SND_MIN_GAP[name];
@@ -637,7 +639,11 @@ const SOUND_RECIPES = {
   melee_hit_metal:   [['noise', 0.05, 0.28, 3600, 3.0], ['osc', 'square', 1400, 700, 0.06, 0.16], ['osc', 'sine', 2200, 1100, 0.08, 0.18]],
   dry_heavy:         [['osc', 'square', 460, 240, 0.04, 0.15], ['noise', 0.03, 0.12, 1600, 2.5], ['osc', 'sine', 180, 80, 0.045, 0.12]],
   melee_heavy:       [['noise', 0.16, 0.38, 480, 0.9], ['osc', 'sawtooth', 130, 45, 0.13, 0.26], ['osc', 'sine', 85, 30, 0.12, 0.20]],
-  explosion_heavy:   [['noise', 0.75, 0.65, 140, 0.4], ['osc', 'sine', 95, 20, 0.65, 0.5], ['osc', 'sawtooth', 60, 20, 0.35, 0.22], ['noise', 0.4, 0.32, 550, 0.7]]
+  explosion_heavy:   [['noise', 0.75, 0.65, 140, 0.4], ['osc', 'sine', 95, 20, 0.65, 0.5], ['osc', 'sawtooth', 60, 20, 0.35, 0.22], ['noise', 0.4, 0.32, 550, 0.7]],
+  scope_heavy_in:    [['osc', 'sine', 600, 1050, 0.11, 0.14], ['noise', 0.04, 0.10, 1800, 2.0]],
+  scope_heavy_out:   [['osc', 'sine', 1050, 520, 0.10, 0.12], ['noise', 0.03, 0.08, 1400, 2.0]],
+  casing_heavy:      [['osc', 'square', 1400, 950, 0.045, 0.07], ['noise', 0.025, 0.08, 2800, 2.0]],
+  kill_heavy:        [['osc', 'sine', 380, 180, 0.16, 0.28], ['noise', 0.08, 0.22, 600, 1.5], ['osc', 'sawtooth', 180, 60, 0.12, 0.20]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -663,7 +669,8 @@ const SOUND_VARIED = {
   jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1,
   shield_deflect: 1, helmet_hit: 1,
   estep_heavy: 1, reload_heavy_out: 1, reload_heavy_in: 1, reload_smg_out: 1, reload_smg_in: 1, melee_hit_metal: 1,
-  dry_heavy: 1, melee_heavy: 1, explosion_heavy: 1
+  dry_heavy: 1, melee_heavy: 1, explosion_heavy: 1,
+  scope_heavy_in: 1, scope_heavy_out: 1, casing_heavy: 1, kill_heavy: 1
 };
 
 function recipeDuration(recipe) {

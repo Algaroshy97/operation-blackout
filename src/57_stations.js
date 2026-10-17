@@ -311,7 +311,7 @@ function purchase(st) {
     // Cycling the board costs nothing and buys nothing.
     if (st.kind === 'lethal') lethalIdx = (lethalIdx + 1) % CORE.LETHALS.length;
     else if (st.kind === 'tactical') tacticalIdx = (tacticalIdx + 1) % CORE.TACTICALS.length;
-    playSound('draw');
+    playSound(CORE.stationCycleSound(st.kind));
     return true;
   }
   if (!spendCredits(offer.price)) {

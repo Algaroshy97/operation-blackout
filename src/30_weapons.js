@@ -413,7 +413,7 @@ function fireShot(preserveSchedule) {
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
   // shell casing eject
-  spawnCasing(camera.position, camera.quaternion);
+  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') {
     adsAmount = CORE.sniperUnscopeAds(adsAmount);

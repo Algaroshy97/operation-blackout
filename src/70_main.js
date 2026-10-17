@@ -822,9 +822,11 @@ function frame(now) {
       drawCompass();
     }
     // scope in/out sounds
-    if (curW().type === 'SR' || curW().type === 'BR') {
-      if (adsAmount > 0.8 && !wasScoped) { playSound('scope_in'); wasScoped = true; }
-      if (adsAmount < 0.5 && wasScoped) { playSound('scope_out'); wasScoped = false; }
+    const curType = curW().type;
+    if (CORE.isWeaponScopeType(curType)) {
+      const scopeTrans = CORE.scopeTransitionState(adsAmount, wasScoped);
+      if (scopeTrans === 1) { playSound(CORE.weaponScopeSound(curType, true)); wasScoped = true; }
+      else if (scopeTrans === -1) { playSound(CORE.weaponScopeSound(curType, false)); wasScoped = false; }
     } else wasScoped = false;
     // slide vignette
     const wantSlide = player.sliding ? 1 : 0;
