@@ -3,6 +3,7 @@
 // IS_TOUCH is declared in 10_config_world.js
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
+let adsHeld = false;
 let gyroEnabled = false;
 let gyroLast = null;
 const gyroDelta = { yaw: 0, pitch: 0 };
@@ -107,7 +108,8 @@ function touchGameplayEnabled() {
     touchState.moveZ = res.moveZ;   // up on stick = forward
     touchState.moveX = res.moveX;
   }
-  let fireId = null, lastFX = 0, lastFY = 0, adsHeld = false;
+  let fireId = null, lastFX = 0, lastFY = 0;
+  adsHeld = false;
   const holdResets = [];
   function syncAds() { touchState.ads = adsHeld || (touchState.firing && getSetting('fireMode') === 'ads + fire'); }
   addEventListener('touchmove', function (e) {
@@ -210,7 +212,12 @@ function touchGameplayEnabled() {
     }
     el.addEventListener('touchstart', function (e) {
       e.preventDefault();
-      if (!touchGameplayEnabled()) return;
+      const isDowned = typeof player !== 'undefined' && !!player.downed;
+      const isDead = typeof player !== 'undefined' && !!player.dead;
+      const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+      if (typeof CORE !== 'undefined' && typeof CORE.canTouchControlActivate === 'function') {
+        if (!CORE.canTouchControlActivate(id, started, paused, isDead, isDowned, isEditing)) return;
+      } else if (!touchGameplayEnabled()) return;
       const wasHeld = fingers.size > 0;
       for (const t of e.changedTouches) fingers.add(t.identifier);
       if (!wasHeld && fingers.size) { el.classList.add('on'); on(); playSound('click'); }
@@ -225,7 +232,12 @@ function touchGameplayEnabled() {
   const fireBtn = document.getElementById('tbtn-fire');
   fireBtn.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    if (!touchGameplayEnabled() || fireId !== null) return;
+    const isDowned = typeof player !== 'undefined' && !!player.downed;
+    const isDead = typeof player !== 'undefined' && !!player.dead;
+    const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
+    if (typeof CORE !== 'undefined' && typeof CORE.canTouchControlActivate === 'function') {
+      if (!CORE.canTouchControlActivate('tbtn-fire', started, paused, isDead, isDowned, isEditing) || fireId !== null) return;
+    } else if (!touchGameplayEnabled() || fireId !== null) return;
     const t = e.changedTouches[0];
     fireId = t.identifier; lastFX = t.clientX; lastFY = t.clientY;
     touchState.firing = true;
@@ -254,13 +266,18 @@ function touchGameplayEnabled() {
   holdBtn('tbtn-streak', function () { pressed['__streak'] = true; pressed['__field'] = true; }, function () {});
   document.getElementById('tbtn-pause').addEventListener('touchstart', function (e) {
     e.preventDefault();
-    playSound('click');
     const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
     const isDead = typeof player !== 'undefined' && !!(player && player.dead);
-    const canPause = (typeof CORE !== 'undefined' && typeof CORE.canTouchPause === 'function')
-      ? CORE.canTouchPause(started, paused, isDead, isEditing)
-      : (!isEditing && started && !paused && !isDead);
-    if (canPause) { resetTouchControls(); pauseGame(); }
+    const isDowned = typeof player !== 'undefined' && !!player.downed;
+    const canPause = (typeof CORE !== 'undefined' && typeof CORE.canTouchControlActivate === 'function')
+      ? CORE.canTouchControlActivate('tbtn-pause', started, paused, isDead, isDowned, isEditing)
+      : ((typeof CORE !== 'undefined' && typeof CORE.canTouchPause === 'function')
+        ? CORE.canTouchPause(started, paused, isDead, isEditing)
+        : (!isEditing && started && !paused && !isDead));
+    if (!canPause) return;
+    playSound('click');
+    resetTouchControls();
+    pauseGame();
   }, { passive: false });
 })();
 
@@ -469,7 +486,15 @@ function applyTouchInput() {
   mouse1Down = touchState.firing || touchState.tapFiring;
   touchState.tapFiring = false;
   // ADS
-  keys['Mouse2'] = touchState.ads || (mouse1Down && getSetting('fireMode') === 'ads + fire');
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  if (isDowned) {
+    adsHeld = false;
+    touchState.ads = false;
+    if (typeof CORE !== 'undefined' && typeof CORE.sanitizeDownedInputKeys === 'function') {
+      CORE.sanitizeDownedInputKeys(keys, pressed);
+    }
+  }
+  keys['Mouse2'] = !isDowned && (touchState.ads || (mouse1Down && getSetting('fireMode') === 'ads + fire'));
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
   touchState.lookX = 0; touchState.lookY = 0;

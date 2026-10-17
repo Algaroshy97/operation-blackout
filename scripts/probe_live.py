@@ -4813,7 +4813,42 @@ def main() -> int:
         }""")
         checks.append(("ragdoll-blast-culling-impulse-and-aim-assist-perf-rules", perf_v155_check))
 
-        # 106) Clean console throughout gameplay.
+        # 106) Mobile touch control activation gating, downed key sanitization, and pointer-events rules (v156 mobile UI polish).
+        mobile_v156_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const actLiveOk = CORE.canTouchControlActivate('tbtn-fire', true, false, false, false, false) === true &&
+                              CORE.canTouchControlActivate('tbtn-jump', true, false, false, false, false) === true &&
+                              CORE.canTouchControlActivate('tbtn-pause', true, false, false, false, false) === true;
+
+            const actDownOk = CORE.canTouchControlActivate('tbtn-fire', true, false, false, true, false) === true &&
+                              CORE.canTouchControlActivate('tbtn-reload', true, false, false, true, false) === true &&
+                              CORE.canTouchControlActivate('tbtn-pause', true, false, false, true, false) === true &&
+                              CORE.canTouchControlActivate('joy-base', true, false, false, true, false) === true &&
+                              CORE.canTouchControlActivate('tbtn-jump', true, false, false, true, false) === false &&
+                              CORE.canTouchControlActivate('tbtn-slide', true, false, false, true, false) === false &&
+                              CORE.canTouchControlActivate('tbtn-ads', true, false, false, true, false) === false;
+
+            const actDeadOk = CORE.canTouchControlActivate('tbtn-fire', true, false, true, false, false) === false &&
+                              CORE.canTouchControlActivate('tbtn-pause', true, false, true, false, false) === false;
+
+            const keyLockOk = CORE.isActionKeyLockedWhileDowned('Space') === true &&
+                              CORE.isActionKeyLockedWhileDowned('KeyC') === true &&
+                              CORE.isActionKeyLockedWhileDowned('Mouse2') === true &&
+                              CORE.isActionKeyLockedWhileDowned('KeyW') === false &&
+                              CORE.isActionKeyLockedWhileDowned('KeyR') === false;
+
+            const k = { KeyC: true, Mouse2: true, KeyW: true };
+            const p = { Space: true, KeyR: true };
+            const sanitizeOk = CORE.sanitizeDownedInputKeys(k, p) === 3 &&
+                               k.KeyC === false && k.Mouse2 === false && k.KeyW === true &&
+                               p.Space === undefined && p.KeyR === true;
+
+            return actLiveOk && actDownOk && actDeadOk && keyLockOk && sanitizeOk;
+        }""")
+        checks.append(("mobile-touch-activation-and-downed-key-rules", mobile_v156_check))
+
+        # 107) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

@@ -7081,127 +7081,71 @@ const CORE = (function () {
   }
 
   function enemyEyeHeight(posY, kind, pelvisH, eyeOffset) {
-    const py = _isNum(posY) ? posY : 0;
-    const pel = _isNum(pelvisH) ? pelvisH : 0.95;
-    const off = _isNum(eyeOffset) ? eyeOffset : ENEMY_EYE_OFFSET_Y;
-    const scale = kind === 2 ? 1.25 : 1.0;
-    return py + pel * scale + off;
+    return ((_isNum(posY)) ? posY : 0) + ((_isNum(pelvisH)) ? pelvisH : 0.95) * (kind === 2 ? 1.25 : 1.0) + ((_isNum(eyeOffset)) ? eyeOffset : ENEMY_EYE_OFFSET_Y);
   }
-
   function enemyLosTargetCoord(coord, randVal, jitter) {
-    const c = _isNum(coord) ? coord : 0;
-    const rv = _isNum(randVal) ? (randVal - 0.5) : 0;
-    const jit = _isNum(jitter) ? jitter : ENEMY_LOS_JITTER;
-    return c + rv * jit;
+    return ((_isNum(coord)) ? coord : 0) + ((_isNum(randVal)) ? (randVal - 0.5) : 0) * ((_isNum(jitter)) ? jitter : ENEMY_LOS_JITTER);
   }
-
   function isEnemyMeleeReset(swinging, sentinel, margin) {
     if (typeof swinging !== 'number' || !isFinite(swinging)) return false;
-    const s = _isNum(sentinel) ? sentinel : ENEMY_MELEE_COOLDOWN_SENTINEL;
-    const m = _isNum(margin) ? margin : ENEMY_MELEE_RESET_MARGIN;
-    return swinging <= s - m;
+    return swinging <= ((_isNum(sentinel)) ? sentinel : ENEMY_MELEE_COOLDOWN_SENTINEL) - ((_isNum(margin)) ? margin : ENEMY_MELEE_RESET_MARGIN);
   }
 
   // ---- Zero-Alloc Raycast Hit Pooling, GPU Particle Update Throttling & Core Perf Rules (v115 Perf Win) ----
   function shouldUpdatePfxLayer(alive, prevAlive, hasNew) {
-    const cur = _isNum(alive) ? alive : 0;
-    const prev = _isNum(prevAlive) ? prevAlive : 0;
-    return cur > 0 || prev > 0 || !!hasNew;
+    return ((_isNum(alive)) ? alive : 0) > 0 || ((_isNum(prevAlive)) ? prevAlive : 0) > 0 || !!hasNew;
   }
-
   function isGrenadeLosBlocker(isGround, isVfx, isGun, isSky, isPickup) {
     return !isGround && !isVfx && !isGun && !isSky && !isPickup;
   }
-
   function enemyToPlayerDir(dx, dz, dist, out) {
-    const o = out || { x: 0, z: 0 };
-    const d = _isNum(dist) ? dist : Math.hypot(dx, dz);
-    if (d > 0.01) {
-      o.x = dx / d;
-      o.z = dz / d;
-    } else {
-      o.x = 0;
-      o.z = 0;
-    }
+    const o = out || { x: 0, z: 0 }, d = _isNum(dist) ? dist : Math.hypot(dx, dz);
+    if (d > 0.01) { o.x = dx / d; o.z = dz / d; } else { o.x = 0; o.z = 0; }
     return o;
   }
-
   function totalPlayerRounds(wState, weaponsOwned) {
     if (!Array.isArray(wState) || !Array.isArray(weaponsOwned)) return 0;
     let rounds = 0;
     for (let i = 0; i < wState.length; i++) {
       if (!wState[i] || weaponsOwned[i] < 0) continue;
-      const ammo = _isNum(wState[i].ammo) ? wState[i].ammo : 0;
-      const res = _isNum(wState[i].reserve) ? wState[i].reserve : 0;
-      rounds += Math.max(0, ammo) + Math.max(0, res);
+      rounds += Math.max(0, (_isNum(wState[i].ammo) ? wState[i].ammo : 0)) + Math.max(0, (_isNum(wState[i].reserve) ? wState[i].reserve : 0));
     }
     return rounds;
   }
-
   function hasPlayerRounds(wState, weaponsOwned) {
     return totalPlayerRounds(wState, weaponsOwned) > 0;
   }
 
   // ---- Blast Scorch & Enemy Muzzle Flash Visual Rules (v117 Visual Polish) ----
-  const SCORCH_MAX = 16;
-  const SCORCH_LIFETIME = 24.0;
-  const SCORCH_FADE_DURATION = 4.0;
-  const SCORCH_BASE_RADIUS = 2.5;
-  const SCORCH_BASE_OPACITY = 0.88;
-  const SCORCH_STANDOFF = 0.016;
-  const SCORCH_EXPANSION_DURATION = 0.10;
-  const ENEMY_MUZZLE_LIGHT_COLOR = 0xff9944;
-  const ENEMY_MUZZLE_LIGHT_INTENSITY = 3.2;
-  const ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY = 4.5;
-  const ENEMY_MUZZLE_LIGHT_DIST = 9.0;
-  const ENEMY_MUZZLE_LIGHT_DUR = 0.08;
+  const SCORCH_MAX = 16, SCORCH_LIFETIME = 24.0, SCORCH_FADE_DURATION = 4.0, SCORCH_BASE_RADIUS = 2.5, SCORCH_BASE_OPACITY = 0.88, SCORCH_STANDOFF = 0.016, SCORCH_EXPANSION_DURATION = 0.10;
+  const ENEMY_MUZZLE_LIGHT_COLOR = 0xff9944, ENEMY_MUZZLE_LIGHT_INTENSITY = 3.2, ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY = 4.5, ENEMY_MUZZLE_LIGHT_DIST = 9.0, ENEMY_MUZZLE_LIGHT_DUR = 0.08;
 
   function scorchScale(dmgScale, jitter) {
-    const s = _isNum(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0;
-    const j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0;
+    const s = _isNum(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0, j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0;
     return SCORCH_BASE_RADIUS * s * j;
   }
-
   function scorchScaleProgress(baseScale, elapsed, duration) {
-    const b = _isNum(baseScale) ? baseScale : SCORCH_BASE_RADIUS;
-    const dur = _isPos(duration) ? duration : SCORCH_EXPANSION_DURATION;
-    const el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
+    const b = _isNum(baseScale) ? baseScale : SCORCH_BASE_RADIUS, dur = _isPos(duration) ? duration : SCORCH_EXPANSION_DURATION, el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
     if (el >= dur) return b;
     const t = el / dur;
-    const progress = 1 - (1 - t) * (1 - t);
-    return b * (0.45 + 0.55 * progress);
+    return b * (0.45 + 0.55 * (1 - (1 - t) * (1 - t)));
   }
-
   function scorchOpacity(life, fadeDuration, maxOpacity) {
     if (!_isPos(life)) return 0;
-    const maxOp = _isNum(maxOpacity) ? maxOpacity : SCORCH_BASE_OPACITY;
-    const fade = _isPos(fadeDuration) ? fadeDuration : SCORCH_FADE_DURATION;
+    const maxOp = _isNum(maxOpacity) ? maxOpacity : SCORCH_BASE_OPACITY, fade = _isPos(fadeDuration) ? fadeDuration : SCORCH_FADE_DURATION;
     if (life >= fade) return maxOp;
     const t = _clamp01(life / fade);
     return maxOp * t * t;
   }
-
   function stepScorchLife(life, dt) {
     if (!_isNum(life)) return 0;
-    const step = _isNum(dt) ? dt : 0;
-    return Math.max(0, life - step);
+    return Math.max(0, life - (_isNum(dt) ? dt : 0));
   }
-
-  function isScorchExpired(life) {
-    return !_isPos(life);
-  }
-
-  function scorchRotation(rand) {
-    const r = _isNum(rand) ? rand : 0;
-    return (r % 1) * Math.PI * 2;
-  }
-
+  function isScorchExpired(life) { return !_isPos(life); }
+  function scorchRotation(rand) { return ((_isNum(rand) ? rand : 0) % 1) * Math.PI * 2; }
   function scorchElevation(blastY, floorY, standoff) {
-    const so = _isNum(standoff) ? standoff : SCORCH_STANDOFF;
-    const f = (_isNum(floorY)) ? floorY : 0;
-    return f + so;
+    return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : SCORCH_STANDOFF);
   }
-
   function enemyMuzzleLightParams(isElite) {
     return {
       color: ENEMY_MUZZLE_LIGHT_COLOR,
@@ -7220,153 +7164,82 @@ const CORE = (function () {
     return HEARTBEAT_BPM_MIN + intensity * (HEARTBEAT_BPM_MAX - HEARTBEAT_BPM_MIN);
   }
 
-  function heartbeatInterval(bpm) {
-    const b = _isPos(bpm) ? bpm : HEARTBEAT_BPM_MIN;
-    return 60 / b;
-  }
-
+  function heartbeatInterval(bpm) { return 60 / (_isPos(bpm) ? bpm : HEARTBEAT_BPM_MIN); }
   function stepHeartbeatTimer(timer, dt, bpm) {
-    const t = (_isNum(timer)) ? timer : 0;
-    const d = _isPos(dt) ? dt : 0;
-    const interval = heartbeatInterval(bpm);
-    const next = t - d;
-    if (next <= 0) {
-      return { ready: true, nextTimer: interval };
-    }
-    return { ready: false, nextTimer: next };
+    const interval = heartbeatInterval(bpm), next = ((_isNum(timer)) ? timer : 0) - (_isPos(dt) ? dt : 0);
+    return next <= 0 ? { ready: true, nextTimer: interval } : { ready: false, nextTimer: next };
   }
-
-  function shouldPlayHeartbeat(isDead, isDowned, isCritical) {
-    if (isDead || isDowned) return false;
-    return !!isCritical;
-  }
-
-  function heartbeatSound() {
-    return 'heartbeat';
-  }
-
-  function enemyGunfireSound(isElite) {
-    return isElite ? 'eshot_elite' : 'eshot';
-  }
+  function shouldPlayHeartbeat(isDead, isDowned, isCritical) { return !isDead && !isDowned && !!isCritical; }
+  function heartbeatSound() { return 'heartbeat'; }
+  function enemyGunfireSound(isElite) { return isElite ? 'eshot_elite' : 'eshot'; }
 
   // ---- Tactical Stance Spread, Blast Camera Shake & Combat Accuracy (v119 Balance Tuning) ----
-  const EXPLOSION_KICK_MAX_DIST = 20.0;
-  const EXPLOSION_POST_KICK_MAX = 0.80;
-  const EXPLOSION_SHOT_KICK_MAX = 1.4;
-  const EXPLOSION_SHOT_KICK_CAP = 2.0;
-
-  const HEADSHOT_MUL_SR = 2.4;
-  const HEADSHOT_MUL_BR = 2.0;
-  const HEADSHOT_MUL_AR = 1.8;
-  const HEADSHOT_MUL_SMG = 1.5;
-
-  const ENEMY_ACCURACY_FALLOFF_DIST = 16.0;
-  const ENEMY_ACCURACY_MIN_FACTOR = 0.55;
+  const EXPLOSION_KICK_MAX_DIST = 20.0, EXPLOSION_POST_KICK_MAX = 0.80, EXPLOSION_SHOT_KICK_MAX = 1.4, EXPLOSION_SHOT_KICK_CAP = 2.0;
+  const HEADSHOT_MUL_SR = 2.4, HEADSHOT_MUL_BR = 2.0, HEADSHOT_MUL_AR = 1.8, HEADSHOT_MUL_SMG = 1.5;
+  const ENEMY_ACCURACY_FALLOFF_DIST = 16.0, ENEMY_ACCURACY_MIN_FACTOR = 0.55;
 
   function explosionKickIntensity(dist, maxDist) {
-    const d = (_isNum(dist)) ? Math.max(0, dist) : Infinity;
-    const max = _isPos(maxDist) ? maxDist : EXPLOSION_KICK_MAX_DIST;
-    if (d >= max) return 0;
-    return _clamp01(1 - d / max);
+    const d = (_isNum(dist)) ? Math.max(0, dist) : Infinity, max = _isPos(maxDist) ? maxDist : EXPLOSION_KICK_MAX_DIST;
+    return d >= max ? 0 : _clamp01(1 - d / max);
   }
-
   function explosionPostKick(dist, maxDist, maxKick) {
-    const k = _isPos(maxKick) ? maxKick : EXPLOSION_POST_KICK_MAX;
-    return explosionKickIntensity(dist, maxDist) * k;
+    return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_POST_KICK_MAX);
   }
-
   function explosionShotKick(dist, maxDist, maxKick) {
-    const k = _isPos(maxKick) ? maxKick : EXPLOSION_SHOT_KICK_MAX;
-    return explosionKickIntensity(dist, maxDist) * k;
+    return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_SHOT_KICK_MAX);
   }
-
   function applyExplosionShotKick(currentKick, addedKick, maxCap) {
-    const cur = _isNonNeg(currentKick) ? currentKick : 0;
-    const add = _isNonNeg(addedKick) ? addedKick : 0;
-    const cap = _isPos(maxCap) ? maxCap : EXPLOSION_SHOT_KICK_CAP;
-    return Math.min(cap, cur + add);
+    return Math.min(_isPos(maxCap) ? maxCap : EXPLOSION_SHOT_KICK_CAP, (_isNonNeg(currentKick) ? currentKick : 0) + (_isNonNeg(addedKick) ? addedKick : 0));
   }
-
   function weaponHeadshotMultiplier(weaponType, defaultMul) {
-    const def = _isPos(defaultMul) ? defaultMul : 1.8;
     const t = String(weaponType || '').toUpperCase();
     if (t === 'SR') return HEADSHOT_MUL_SR;
     if (t === 'BR') return HEADSHOT_MUL_BR;
     if (t === 'AR') return HEADSHOT_MUL_AR;
     if (t === 'SMG') return HEADSHOT_MUL_SMG;
-    return def;
+    return _isPos(defaultMul) ? defaultMul : 1.8;
   }
-
   function enemyDistanceAccuracy(baseAcc, dist, nominalDist, maxDist, minFactor) {
-    const acc = _isNonNeg(baseAcc) ? baseAcc : 0.5;
-    const d = _isNonNeg(dist) ? dist : 0;
-    const nom = _isPos(nominalDist) ? nominalDist : ENEMY_ACCURACY_FALLOFF_DIST;
-    const max = (_isNum(maxDist) && maxDist > nom) ? maxDist : 44.0;
-    const minF = (_isNum(minFactor) && minFactor >= 0 && minFactor <= 1) ? minFactor : ENEMY_ACCURACY_MIN_FACTOR;
+    const acc = _isNonNeg(baseAcc) ? baseAcc : 0.5, d = _isNonNeg(dist) ? dist : 0, nom = _isPos(nominalDist) ? nominalDist : ENEMY_ACCURACY_FALLOFF_DIST;
+    const max = (_isNum(maxDist) && maxDist > nom) ? maxDist : 44.0, minF = (_isNum(minFactor) && minFactor >= 0 && minFactor <= 1) ? minFactor : ENEMY_ACCURACY_MIN_FACTOR;
     if (d <= nom) return acc;
     if (d >= max) return acc * minF;
-    const t = (d - nom) / (max - nom);
-    return acc * (1 - (1 - minF) * t);
+    return acc * (1 - (1 - minF) * ((d - nom) / (max - nom)));
   }
 
   // ---- Target Movement & Stance Evasion on Enemy Accuracy (v124 Balance Tuning) ----
-  const ENEMY_EVASION_SPRINT_MUL = 0.82;
-  const ENEMY_EVASION_TAC_SPRINT_MUL = 0.70;
-  const ENEMY_EVASION_SLIDE_MUL = 0.75;
-  const ENEMY_EVASION_CROUCH_MUL = 0.85;
-  const ENEMY_EVASION_AIRBORNE_MUL = 0.80;
+  const ENEMY_EVASION_SPRINT_MUL = 0.82, ENEMY_EVASION_TAC_SPRINT_MUL = 0.70, ENEMY_EVASION_SLIDE_MUL = 0.75, ENEMY_EVASION_CROUCH_MUL = 0.85, ENEMY_EVASION_AIRBORNE_MUL = 0.80;
 
   function enemyTargetEvasionMultiplier(isSprinting, isTacSprint, isSliding, isCrouching, isAirborne) {
     if (isSliding) return ENEMY_EVASION_SLIDE_MUL;
     if (isTacSprint) return ENEMY_EVASION_TAC_SPRINT_MUL;
     if (isSprinting) return ENEMY_EVASION_SPRINT_MUL;
     if (isAirborne) return ENEMY_EVASION_AIRBORNE_MUL;
-    if (isCrouching) return ENEMY_EVASION_CROUCH_MUL;
-    return 1.0;
+    return isCrouching ? ENEMY_EVASION_CROUCH_MUL : 1.0;
   }
-
   function enemyEffectiveAccuracy(distanceAcc, evasionMul) {
-    const acc = _isNonNeg(distanceAcc) ? distanceAcc : 0.5;
-    const mul = _isNonNeg(evasionMul) ? evasionMul : 1.0;
-    return _clamp01(acc * mul);
+    return _clamp01((_isNonNeg(distanceAcc) ? distanceAcc : 0.5) * (_isNonNeg(evasionMul) ? evasionMul : 1.0));
   }
-
 
   // ---- Dynamic Point Light & Flash VFX, Sentry Rangefinding, Shadow Caster Mask & Pickup Opacity Rules (v120 Perf Win) ----
-  const FLASH_LIGHT_DECAY_EXPONENT = 2;
-  const SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
+  const FLASH_LIGHT_DECAY_EXPONENT = 2, SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
 
-  function stepFlashLightLife(life, dt) {
-    const l = (_isNum(life)) ? life : 0;
-    const delta = (_isNum(dt)) ? dt : 0;
-    return Math.max(0, l - delta);
-  }
-
+  function stepFlashLightLife(life, dt) { return Math.max(0, ((_isNum(life)) ? life : 0) - ((_isNum(dt)) ? dt : 0)); }
   function flashLightIntensity(life, maxLife, peakIntensity) {
-    if (!_isPos(life)) return 0;
-    if (!_isPos(maxLife)) return 0;
-    const peak = (_isNum(peakIntensity)) ? peakIntensity : 0;
+    if (!_isPos(life) || !_isPos(maxLife)) return 0;
     const t = _clamp01(life / maxLife);
-    return peak * t * t;
+    return ((_isNum(peakIntensity)) ? peakIntensity : 0) * t * t;
   }
-
   function particlePerspectiveScale(screenHeight, fovDeg) {
-    const h = _isPos(screenHeight) ? screenHeight : 720;
-    const fov = _isPos(fovDeg) ? fovDeg : 60;
-    const rad = (fov * Math.PI) / 180;
+    const h = _isPos(screenHeight) ? screenHeight : 720, fov = _isPos(fovDeg) ? fovDeg : 60, rad = (fov * Math.PI) / 180;
     return h / (2 * Math.tan(rad / 2));
   }
-
   function isSentryTargetInRange(dx, dz, maxRangeSq) {
-    const x = (_isNum(dx)) ? dx : 0;
-    const z = (_isNum(dz)) ? dz : 0;
-    const maxSq = (_isNum(maxRangeSq)) ? maxRangeSq : 0;
-    return (x * x + z * z) < maxSq;
+    const x = (_isNum(dx)) ? dx : 0, z = (_isNum(dz)) ? dz : 0;
+    return (x * x + z * z) < ((_isNum(maxRangeSq)) ? maxRangeSq : 0);
   }
-
   function buildShadowCasterMask(casterIndices, totalCount, maskOut) {
-    const count = (_isNum(totalCount)) ? Math.max(0, totalCount) : 0;
-    const mask = maskOut || new Array(count);
+    const count = (_isNum(totalCount)) ? Math.max(0, totalCount) : 0, mask = maskOut || new Array(count);
     mask.length = count;
     for (let i = 0; i < count; i++) mask[i] = false;
     if (Array.isArray(casterIndices)) {
@@ -7377,197 +7250,113 @@ const CORE = (function () {
     }
     return mask;
   }
-
   function planarFacingDirection(dirX, dirZ, out) {
-    const o = out || { x: 0, z: 0 };
-    const x = (_isNum(dirX)) ? dirX : 0;
-    const z = (_isNum(dirZ)) ? dirZ : 0;
-    const len = Math.hypot(x, z) || 1;
-    o.x = x / len;
-    o.z = z / len;
-    return o;
+    const o = out || { x: 0, z: 0 }, x = (_isNum(dirX)) ? dirX : 0, z = (_isNum(dirZ)) ? dirZ : 0, len = Math.hypot(x, z) || 1;
+    o.x = x / len; o.z = z / len; return o;
   }
-
   function shouldUpdatePickupOpacity(t, blinkStart, lastOp, curOp) {
     if (lastOp === undefined || lastOp === null) return true;
-    const time = (_isNum(t)) ? t : 0;
-    const start = (_isNum(blinkStart)) ? blinkStart : 20;
-    if (time < start) return false;
-    const last = (_isNum(lastOp)) ? lastOp : 1;
-    const cur = (_isNum(curOp)) ? curOp : 1;
-    return Math.abs(cur - last) >= 0.005;
+    if (((_isNum(t)) ? t : 0) < ((_isNum(blinkStart)) ? blinkStart : 20)) return false;
+    return Math.abs(((_isNum(curOp)) ? curOp : 1) - ((_isNum(lastOp)) ? lastOp : 1)) >= 0.005;
   }
 
   // ---- Blood Pool Seep & Gore Visual Rules (v122 Visual Polish) ----
-  const BLOOD_POOL_MAX = 16;
-  const BLOOD_POOL_LIFETIME = 24.0;
-  const BLOOD_POOL_FADE_DURATION = 4.0;
-  const BLOOD_POOL_BASE_SIZE = 1.35;
-  const BLOOD_POOL_HEAD_MUL = 1.35;
-  const BLOOD_POOL_BASE_OPACITY = 0.88;
-  const BLOOD_POOL_STANDOFF = 0.012;
-  const BLOOD_POOL_EXPANSION_DURATION = 1.2;
-  const BLOOD_POOL_SPAWN_MAX_DIST = 60.0;
+  const BLOOD_POOL_MAX = 16, BLOOD_POOL_LIFETIME = 24.0, BLOOD_POOL_FADE_DURATION = 4.0, BLOOD_POOL_BASE_SIZE = 1.35, BLOOD_POOL_HEAD_MUL = 1.35, BLOOD_POOL_BASE_OPACITY = 0.88, BLOOD_POOL_STANDOFF = 0.012, BLOOD_POOL_EXPANSION_DURATION = 1.2, BLOOD_POOL_SPAWN_MAX_DIST = 60.0;
 
   function bloodPoolScale(isHead, jitter) {
-    const headMul = isHead ? BLOOD_POOL_HEAD_MUL : 1.0;
-    const j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.25 : 1.0;
+    const headMul = isHead ? BLOOD_POOL_HEAD_MUL : 1.0, j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.25 : 1.0;
     return BLOOD_POOL_BASE_SIZE * headMul * j;
   }
-
   function bloodPoolScaleProgress(baseScale, elapsed, duration) {
-    const b = _isNum(baseScale) ? baseScale : BLOOD_POOL_BASE_SIZE;
-    const dur = _isPos(duration) ? duration : BLOOD_POOL_EXPANSION_DURATION;
-    const el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
+    const b = _isNum(baseScale) ? baseScale : BLOOD_POOL_BASE_SIZE, dur = _isPos(duration) ? duration : BLOOD_POOL_EXPANSION_DURATION, el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
     if (el >= dur) return b;
-    const t = el / dur;
-    const progress = 1 - (1 - t) * (1 - t) * (1 - t);
+    const t = el / dur, progress = 1 - (1 - t) * (1 - t) * (1 - t);
     return b * (0.25 + 0.75 * progress);
   }
-
   function bloodPoolOpacity(life, fadeDuration, maxOpacity) {
     if (!_isPos(life)) return 0;
-    const maxOp = _isNum(maxOpacity) ? maxOpacity : BLOOD_POOL_BASE_OPACITY;
-    const fade = _isPos(fadeDuration) ? fadeDuration : BLOOD_POOL_FADE_DURATION;
+    const maxOp = _isNum(maxOpacity) ? maxOpacity : BLOOD_POOL_BASE_OPACITY, fade = _isPos(fadeDuration) ? fadeDuration : BLOOD_POOL_FADE_DURATION;
     if (life >= fade) return maxOp;
     const t = _clamp01(life / fade);
     return maxOp * t * t;
   }
-
   function stepBloodPoolLife(life, dt) {
     if (!_isNum(life)) return 0;
     const step = _isNum(dt) ? dt : 0;
     return Math.max(0, life - step);
   }
-
-  function isBloodPoolExpired(life) {
-    return !_isPos(life);
-  }
-
-  function bloodPoolRotation(rand) {
-    const r = _isNum(rand) ? rand : 0;
-    return (r % 1) * Math.PI * 2;
-  }
-
+  function isBloodPoolExpired(life) { return !_isPos(life); }
+  function bloodPoolRotation(rand) { return ((_isNum(rand) ? rand : 0) % 1) * Math.PI * 2; }
   function bloodPoolElevation(floorY, standoff) {
-    const so = _isNum(standoff) ? standoff : BLOOD_POOL_STANDOFF;
-    const f = (_isNum(floorY)) ? floorY : 0;
-    return f + so;
+    return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : BLOOD_POOL_STANDOFF);
   }
-
   function canSpawnBloodPool(settled, alreadySpawned, distToPlayer, maxDist) {
     if (!settled || alreadySpawned) return false;
     const limit = _isNum(maxDist) ? maxDist : BLOOD_POOL_SPAWN_MAX_DIST;
-    if (_isNum(distToPlayer) && distToPlayer > limit) return false;
-    return true;
+    return !(_isNum(distToPlayer) && distToPlayer > limit);
   }
 
   // ---- Sentry Muzzle Kinematics, Flashlight Dynamics & Combat Penetration / Strike (v127) ----
-  const SENTRY_MUZZLE_FORWARD_OFFSET = 0.85;
-  const SENTRY_MUZZLE_HEIGHT_OFFSET = 0.60;
-  const SENTRY_MUZZLE_LIGHT_COLOR = 0xffaa44;
-  const SENTRY_MUZZLE_LIGHT_INTENSITY = 2.8;
-  const SENTRY_MUZZLE_LIGHT_DIST = 8.0;
-  const SENTRY_MUZZLE_LIGHT_DUR = 0.06;
+  const SENTRY_MUZZLE_FORWARD_OFFSET = 0.85, SENTRY_MUZZLE_HEIGHT_OFFSET = 0.60;
+  const SENTRY_MUZZLE_LIGHT_COLOR = 0xffaa44, SENTRY_MUZZLE_LIGHT_INTENSITY = 2.8, SENTRY_MUZZLE_LIGHT_DIST = 8.0, SENTRY_MUZZLE_LIGHT_DUR = 0.06;
 
   function sentryMuzzlePosition(posX, posY, posZ, yaw, forwardOffset, heightOffset, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const fwd = (_isNum(forwardOffset)) ? forwardOffset : SENTRY_MUZZLE_FORWARD_OFFSET;
-    const h = (_isNum(heightOffset)) ? heightOffset : SENTRY_MUZZLE_HEIGHT_OFFSET;
-    const y = (_isNum(yaw)) ? yaw : 0;
-    const dirX = -Math.sin(y);
-    const dirZ = -Math.cos(y);
-    o.x = ((_isNum(posX)) ? posX : 0) + dirX * fwd;
+    const o = out || { x: 0, y: 0, z: 0 }, fwd = (_isNum(forwardOffset)) ? forwardOffset : SENTRY_MUZZLE_FORWARD_OFFSET, h = (_isNum(heightOffset)) ? heightOffset : SENTRY_MUZZLE_HEIGHT_OFFSET, y = (_isNum(yaw)) ? yaw : 0;
+    o.x = ((_isNum(posX)) ? posX : 0) - Math.sin(y) * fwd;
     o.y = ((_isNum(posY)) ? posY : 0) + h;
-    o.z = ((_isNum(posZ)) ? posZ : 0) + dirZ * fwd;
+    o.z = ((_isNum(posZ)) ? posZ : 0) - Math.cos(y) * fwd;
     return o;
   }
-
   function sentryShootDirection(fromX, fromY, fromZ, toX, toY, toZ, out) {
     const o = out || { x: 0, y: 0, z: 0 };
-    const dx = ((_isNum(toX)) ? toX : 0) - ((_isNum(fromX)) ? fromX : 0);
-    const dy = ((_isNum(toY)) ? toY : 0) - ((_isNum(fromY)) ? fromY : 0);
-    const dz = ((_isNum(toZ)) ? toZ : 0) - ((_isNum(fromZ)) ? fromZ : 0);
+    const dx = ((_isNum(toX)) ? toX : 0) - ((_isNum(fromX)) ? fromX : 0), dy = ((_isNum(toY)) ? toY : 0) - ((_isNum(fromY)) ? fromY : 0), dz = ((_isNum(toZ)) ? toZ : 0) - ((_isNum(fromZ)) ? fromZ : 0);
     const len = Math.hypot(dx, dy, dz) || 1;
-    o.x = dx / len;
-    o.y = dy / len;
-    o.z = dz / len;
-    return o;
+    o.x = dx / len; o.y = dy / len; o.z = dz / len; return o;
   }
-
   function sentryMuzzleLightParams() {
-    return {
-      color: SENTRY_MUZZLE_LIGHT_COLOR,
-      intensity: SENTRY_MUZZLE_LIGHT_INTENSITY,
-      distance: SENTRY_MUZZLE_LIGHT_DIST,
-      duration: SENTRY_MUZZLE_LIGHT_DUR
-    };
+    return { color: SENTRY_MUZZLE_LIGHT_COLOR, intensity: SENTRY_MUZZLE_LIGHT_INTENSITY, distance: SENTRY_MUZZLE_LIGHT_DIST, duration: SENTRY_MUZZLE_LIGHT_DUR };
   }
-
   function shouldSpawnPenetrationCoverVfx(penMul, worldHitDist, enemyHitDist) {
-    return _isNum(penMul) && penMul > 0 && penMul < 1 &&
-      _isNum(worldHitDist) &&
-      _isNum(enemyHitDist) &&
-      worldHitDist < enemyHitDist;
+    return _isNum(penMul) && penMul > 0 && penMul < 1 && _isNum(worldHitDist) && _isNum(enemyHitDist) && worldHitDist < enemyHitDist;
   }
-
   function canMeleeStrikeWorld(enemyTargetIdx, worldHitDist, meleeReach) {
     const reach = _isPos(meleeReach) ? meleeReach : MELEE_REACH;
-    return (typeof enemyTargetIdx !== 'number' || enemyTargetIdx < 0) &&
-      _isNum(worldHitDist) &&
-      worldHitDist > 0 && worldHitDist <= reach;
+    return (typeof enemyTargetIdx !== 'number' || enemyTargetIdx < 0) && _isNum(worldHitDist) && worldHitDist > 0 && worldHitDist <= reach;
   }
 
   // ---- Melee Combat Impact, Penetration Hitmarker & Landing Shock Acoustics (v128 Audio Polish) ----
-  const MELEE_HIT_SOUND = 'melee_hit';
-  const MELEE_BACKSTAB_SOUND = 'melee_backstab';
-
-  function meleeHitSound(isBackstab) {
-    return isBackstab ? MELEE_BACKSTAB_SOUND : MELEE_HIT_SOUND;
-  }
-
+  const MELEE_HIT_SOUND = 'melee_hit', MELEE_BACKSTAB_SOUND = 'melee_backstab';
+  function meleeHitSound(isBackstab) { return isBackstab ? MELEE_BACKSTAB_SOUND : MELEE_HIT_SOUND; }
   function hitmarkerSound(tier, isHead) {
     if (tier === 'kill') return null;
     if (tier === 'block') return 'block';
     if (tier === 'cover') return isHead ? 'headshot' : 'hit_cover';
-    if (isHead) return 'headshot';
-    return 'hit';
+    return isHead ? 'headshot' : 'hit';
   }
-
   function landingSound(hasFallDamageOrImpactSpeed) {
-    if (_isNum(hasFallDamageOrImpactSpeed)) {
-      return hasFallDamageOrImpactSpeed > FALL_SAFE_SPEED ? LAND_HEAVY_SOUND : LAND_SOUND;
-    }
+    if (_isNum(hasFallDamageOrImpactSpeed)) return hasFallDamageOrImpactSpeed > FALL_SAFE_SPEED ? LAND_HEAVY_SOUND : LAND_SOUND;
     return Boolean(hasFallDamageOrImpactSpeed) ? LAND_HEAVY_SOUND : LAND_SOUND;
   }
 
   // ---- Performance Optimization: Countdown & Downed Timer Change-Gating, Blast Spatial Culling & Ragdoll Momentum (v130) ----
   function waveCountdownChanged(lastState, waveNumOrActive, countdownSec) {
     if (!lastState || typeof lastState !== 'object') return true;
-    const t = (_isNum(countdownSec)) ? countdownSec : 0;
-    const n = Math.max(1, Math.ceil(t));
+    const n = Math.max(1, Math.ceil((_isNum(countdownSec)) ? countdownSec : 0));
     if (typeof waveNumOrActive === 'boolean') {
-      const active = waveNumOrActive;
       const curSec = _isNum(lastState.sec) ? lastState.sec : lastState.displaySec;
-      return lastState.active !== active || curSec !== n;
+      return lastState.active !== waveNumOrActive || curSec !== n;
     }
-    const wn = (_isNum(waveNumOrActive)) ? waveNumOrActive : 0;
     const curSec = _isNum(lastState.displaySec) ? lastState.displaySec : lastState.sec;
-    return lastState.waveNum !== wn || curSec !== n;
+    return lastState.waveNum !== ((_isNum(waveNumOrActive)) ? waveNumOrActive : 0) || curSec !== n;
   }
-
   function syncWaveCountdownState(lastState, waveNumOrActive, countdownSec) {
     if (!lastState || typeof lastState !== 'object') return lastState;
-    const t = (_isNum(countdownSec)) ? countdownSec : 0;
-    const n = Math.max(1, Math.ceil(t));
+    const n = Math.max(1, Math.ceil((_isNum(countdownSec)) ? countdownSec : 0));
     if (typeof waveNumOrActive === 'boolean') {
-      const active = waveNumOrActive;
-      lastState.active = active;
+      lastState.active = waveNumOrActive;
       lastState.sec = n;
       lastState.displaySec = n;
-      if (lastState.waveNum === undefined) {
-        lastState.waveNum = active ? 1 : 0;
-      }
+      if (lastState.waveNum === undefined) lastState.waveNum = waveNumOrActive ? 1 : 0;
     } else {
       const wn = (_isNum(waveNumOrActive)) ? waveNumOrActive : 0;
       lastState.waveNum = wn;
@@ -7577,66 +7366,43 @@ const CORE = (function () {
     }
     return lastState;
   }
-
   function downedTimerChanged(lastState, isDowned, leftSec) {
     if (!lastState || typeof lastState !== 'object') return true;
     const downed = !!isDowned;
     if (lastState.downed !== downed) return true;
     if (!downed) return false;
-    const left = Math.max(0, (_isNum(leftSec)) ? leftSec : 0);
-    const tenths = Math.round(left * 10);
-    return lastState.tenths !== tenths;
+    return lastState.tenths !== Math.round(Math.max(0, (_isNum(leftSec)) ? leftSec : 0) * 10);
   }
-
   function syncDownedTimerState(lastState, isDowned, leftSec) {
     if (!lastState || typeof lastState !== 'object') return lastState;
     const downed = !!isDowned;
-    const left = Math.max(0, (_isNum(leftSec)) ? leftSec : 0);
     lastState.downed = downed;
-    lastState.tenths = downed ? Math.round(left * 10) : -1;
+    lastState.tenths = downed ? Math.round(Math.max(0, (_isNum(leftSec)) ? leftSec : 0) * 10) : -1;
     return lastState;
   }
-
   function flashOverlayChanged(lastOpacity, curOpacity, epsilon) {
     if (!_isNum(lastOpacity)) return true;
-    const cur = (_isNum(curOpacity)) ? curOpacity : 0;
-    const eps = _isPos(epsilon) ? epsilon : 0.008;
-    return Math.abs(cur - lastOpacity) >= eps;
+    return Math.abs(((_isNum(curOpacity)) ? curOpacity : 0) - lastOpacity) >= (_isPos(epsilon) ? epsilon : 0.008);
   }
 
   function isTargetInBlastRadius(dx, dy, dz, maxRadiusSq) {
     const limSq = _isPos(maxRadiusSq) ? maxRadiusSq : 0;
-    if (limSq <= 0) return false;
-    const dSq = dx * dx + dy * dy + dz * dz;
-    return dSq < limSq;
+    return limSq > 0 && (dx * dx + dy * dy + dz * dz) < limSq;
   }
 
-  const SOLDIER_RAGDOLL_MOMENTUM_SCALE = 0.55;
-  const SOLDIER_RAGDOLL_KNOCK_BASE = 9.0;
-  const SOLDIER_RAGDOLL_KNOCK_MIN = 2.0;
+  const SOLDIER_RAGDOLL_MOMENTUM_SCALE = 0.55, SOLDIER_RAGDOLL_KNOCK_BASE = 9.0, SOLDIER_RAGDOLL_KNOCK_MIN = 2.0;
 
   function soldierRagdollKnockback(enX, enZ, blastX, blastZ, out) {
-    const kx = enX - blastX, kz = enZ - blastZ;
-    const kl = Math.hypot(kx, kz) || 1;
-    const kf = Math.max(SOLDIER_RAGDOLL_KNOCK_MIN, SOLDIER_RAGDOLL_KNOCK_BASE - kl);
+    const kx = enX - blastX, kz = enZ - blastZ, kl = Math.hypot(kx, kz) || 1, kf = Math.max(SOLDIER_RAGDOLL_KNOCK_MIN, SOLDIER_RAGDOLL_KNOCK_BASE - kl);
     const ox = (kx / kl) * kf, oz = (kz / kl) * kf;
-    if (_isObj(out)) {
-      out.x = ox; out.z = oz;
-      return out;
-    }
+    if (_isObj(out)) { out.x = ox; out.z = oz; return out; }
     return { x: ox, z: oz };
   }
 
   function soldierRagdollMomentum(velX, velZ, knockX, knockZ, momentumScale, out) {
     const ms = (_isNum(momentumScale)) ? momentumScale : SOLDIER_RAGDOLL_MOMENTUM_SCALE;
-    const kx = (_isNum(knockX)) ? knockX : 0;
-    const kz = (_isNum(knockZ)) ? knockZ : 0;
-    const vx = velX * ms + kx;
-    const vz = velZ * ms + kz;
-    if (_isObj(out)) {
-      out.x = vx; out.y = 0; out.z = vz;
-      return out;
-    }
+    const vx = velX * ms + ((_isNum(knockX)) ? knockX : 0), vz = velZ * ms + ((_isNum(knockZ)) ? knockZ : 0);
+    if (_isObj(out)) { out.x = vx; out.y = 0; out.z = vz; return out; }
     return { x: vx, y: 0, z: vz };
   }
 
@@ -7667,30 +7433,12 @@ const CORE = (function () {
   }
 
   // ---- Tactical Combat & Locomotion Acoustics (v133 Audio Polish) ----
-  const JUMP_SLIDE_SOUND = 'jump_slide', JUMP_SOUND = 'jump';
-  const CHAMBER_EMPTY_SOUND = 'chamber_empty';
-  const GRENADE_COOK_SOUND = 'pin';
-  const ENEMY_HIT_SOUND = 'enemy_hit', ENEMY_HIT_HEAVY_SOUND = 'enemy_hit_heavy';
-
-  function jumpSound(isSlideJump) {
-    return Boolean(isSlideJump) ? JUMP_SLIDE_SOUND : JUMP_SOUND;
-  }
-
-  function chamberEmptySound(ammoAfterShot) {
-    return (_isNum(ammoAfterShot) && ammoAfterShot === 0) ? CHAMBER_EMPTY_SOUND : null;
-  }
-
-  function grenadeCookSound() {
-    return GRENADE_COOK_SOUND;
-  }
-
-  function grenadeThrowSound(wasCooked, mode, key) {
-    return Boolean(wasCooked) ? 'draw' : equipmentDeploySound(mode, key);
-  }
-
-  function enemyMeleeHitSound(isTank, isElite) {
-    return Boolean(isTank || isElite) ? ENEMY_HIT_HEAVY_SOUND : ENEMY_HIT_SOUND;
-  }
+  const JUMP_SLIDE_SOUND = 'jump_slide', JUMP_SOUND = 'jump', CHAMBER_EMPTY_SOUND = 'chamber_empty', GRENADE_COOK_SOUND = 'pin', ENEMY_HIT_SOUND = 'enemy_hit', ENEMY_HIT_HEAVY_SOUND = 'enemy_hit_heavy';
+  function jumpSound(isSlideJump) { return Boolean(isSlideJump) ? JUMP_SLIDE_SOUND : JUMP_SOUND; }
+  function chamberEmptySound(ammoAfterShot) { return (_isNum(ammoAfterShot) && ammoAfterShot === 0) ? CHAMBER_EMPTY_SOUND : null; }
+  function grenadeCookSound() { return GRENADE_COOK_SOUND; }
+  function grenadeThrowSound(wasCooked, mode, key) { return Boolean(wasCooked) ? 'draw' : equipmentDeploySound(mode, key); }
+  function enemyMeleeHitSound(isTank, isElite) { return Boolean(isTank || isElite) ? ENEMY_HIT_HEAVY_SOUND : ENEMY_HIT_SOUND; }
 
   // ---- Performance Optimization: Grenade Charge HUD Gating, Tactical Radial Culling, Bullet Magnet Cosine Selection & Cone Range Pre-check (v135) ----
   function grenadeChargeHudChanged(lastState, visible, pct, speed) {
@@ -7698,11 +7446,8 @@ const CORE = (function () {
     const vis = Boolean(visible);
     if (lastState.visible !== vis) return true;
     if (!vis) return false;
-    const p = Math.max(0, Math.min(100, (_isNum(pct)) ? Math.round(pct) : 0));
-    const s = Math.max(0, (_isNum(speed)) ? Math.round(speed) : 0);
-    return lastState.pct !== p || lastState.speed !== s;
+    return lastState.pct !== Math.max(0, Math.min(100, (_isNum(pct)) ? Math.round(pct) : 0)) || lastState.speed !== Math.max(0, (_isNum(speed)) ? Math.round(speed) : 0);
   }
-
   function syncGrenadeChargeHudState(lastState, visible, pct, speed) {
     if (!lastState || typeof lastState !== 'object') return lastState;
     const vis = Boolean(visible);
@@ -7711,11 +7456,8 @@ const CORE = (function () {
     lastState.speed = vis ? Math.max(0, (_isNum(speed)) ? Math.round(speed) : 0) : 0;
     return lastState;
   }
-
   function grenadeChargeLabel(speed, pct) {
-    const s = Math.max(0, (_isNum(speed)) ? Math.round(speed) : 0);
-    const p = Math.max(0, Math.min(100, (_isNum(pct)) ? Math.round(pct) : 0));
-    return 'GRENADE ' + s + ' M/S (' + p + '%)';
+    return 'GRENADE ' + Math.max(0, (_isNum(speed)) ? Math.round(speed) : 0) + ' M/S (' + Math.max(0, Math.min(100, (_isNum(pct)) ? Math.round(pct) : 0)) + '%)';
   }
 
   function isTargetInTacticalRadius(dx, dz, maxRadiusSq) {
@@ -7724,17 +7466,8 @@ const CORE = (function () {
     return (dx * dx + dz * dz) < limSq;
   }
 
-  function bulletMagnetMinCos(angleRad) {
-    const a = (_isNum(angleRad)) ? angleRad : 0;
-    return Math.cos(a);
-  }
-
-  function isMagnetCandidateCloser(dotVal, bestCos) {
-    return _isNum(dotVal) &&
-           _isNum(bestCos) &&
-           dotVal > bestCos;
-  }
-
+  function bulletMagnetMinCos(angleRad) { return Math.cos((_isNum(angleRad)) ? angleRad : 0); }
+  function isMagnetCandidateCloser(dotVal, bestCos) { return _isNum(dotVal) && _isNum(bestCos) && dotVal > bestCos; }
   function isTargetInConeRange(dx, dz, rangeSq) {
     const rSq = _isPos(rangeSq) ? rangeSq : 0;
     if (rSq <= 0) return false;
@@ -7743,38 +7476,16 @@ const CORE = (function () {
   }
 
   // ---- Ballistic Shield Deflection & Concussive Landing Dust (v137 Visual Polish) ----
-  const SHIELD_DEFLECT_SPARK_COUNT = 12;
-  const SHIELD_DEFLECT_SPARK_COLOR0 = 0x90e0ff;
-  const SHIELD_DEFLECT_SPARK_COLOR1 = 0xffa040;
-  const SHIELD_DEFLECT_LIGHT_COLOR = 0x60b0ff;
-  const SHIELD_DEFLECT_LIGHT_INTENSITY = 2.4;
-  const SHIELD_DEFLECT_LIGHT_DIST = 4.5;
-  const SHIELD_DEFLECT_LIGHT_DUR = 0.05;
-  const LANDING_DUST_HEAVY_COUNT = 12;
-  const LANDING_DUST_LIGHT_COUNT = 5;
-  const LANDING_DUST_COLOR = 0x8a8076;
+  const SHIELD_DEFLECT_SPARK_COUNT = 12, SHIELD_DEFLECT_SPARK_COLOR0 = 0x90e0ff, SHIELD_DEFLECT_SPARK_COLOR1 = 0xffa040, SHIELD_DEFLECT_LIGHT_COLOR = 0x60b0ff, SHIELD_DEFLECT_LIGHT_INTENSITY = 2.4, SHIELD_DEFLECT_LIGHT_DIST = 4.5, SHIELD_DEFLECT_LIGHT_DUR = 0.05;
+  const LANDING_DUST_HEAVY_COUNT = 12, LANDING_DUST_LIGHT_COUNT = 5, LANDING_DUST_COLOR = 0x8a8076;
 
   function shieldDeflectNormal(enYaw, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const yaw = (_isNum(enYaw)) ? enYaw : 0;
-    o.x = Math.sin(yaw);
-    o.y = 0;
-    o.z = Math.cos(yaw);
-    return o;
+    const o = out || { x: 0, y: 0, z: 0 }, yaw = (_isNum(enYaw)) ? enYaw : 0;
+    o.x = Math.sin(yaw); o.y = 0; o.z = Math.cos(yaw); return o;
   }
-
   function shieldDeflectVfxParams(shieldMul) {
-    return {
-      sparks: SHIELD_DEFLECT_SPARK_COUNT,
-      sparkColor0: SHIELD_DEFLECT_SPARK_COLOR0,
-      sparkColor1: SHIELD_DEFLECT_SPARK_COLOR1,
-      lightColor: SHIELD_DEFLECT_LIGHT_COLOR,
-      lightIntensity: SHIELD_DEFLECT_LIGHT_INTENSITY,
-      lightDist: SHIELD_DEFLECT_LIGHT_DIST,
-      lightDur: SHIELD_DEFLECT_LIGHT_DUR
-    };
+    return { sparks: SHIELD_DEFLECT_SPARK_COUNT, sparkColor0: SHIELD_DEFLECT_SPARK_COLOR0, sparkColor1: SHIELD_DEFLECT_SPARK_COLOR1, lightColor: SHIELD_DEFLECT_LIGHT_COLOR, lightIntensity: SHIELD_DEFLECT_LIGHT_INTENSITY, lightDist: SHIELD_DEFLECT_LIGHT_DIST, lightDur: SHIELD_DEFLECT_LIGHT_DUR };
   }
-
   function landingDustParams(impactSpeed) {
     if (!_isNum(impactSpeed)) return null;
     if (impactSpeed > FALL_SAFE_SPEED) return { count: LANDING_DUST_HEAVY_COUNT, spread: 2.0, color: LANDING_DUST_COLOR };
@@ -7783,22 +7494,10 @@ const CORE = (function () {
   }
 
   // ---- Ballistic Shield Deflection, Helmet Headshot & Heavy Landing Acoustics (v138 Audio Polish) ----
-  const SHIELD_DEFLECT_SOUND = 'shield_deflect';
-  const HELMET_HIT_SOUND = 'helmet_hit';
-  const LAND_HEAVY_SOUND = 'land_heavy';
-  const LAND_SOUND = 'land';
-
-  function shieldDeflectSound(isShielded) {
-    return (isShielded === undefined || Boolean(isShielded)) ? SHIELD_DEFLECT_SOUND : null;
-  }
-
-  function helmetHitSound(hasHelmet) {
-    return (hasHelmet === undefined || Boolean(hasHelmet)) ? HELMET_HIT_SOUND : null;
-  }
-
-  function enemyGrenadeThrowSound() {
-    return GRENADE_COOK_SOUND;
-  }
+  const SHIELD_DEFLECT_SOUND = 'shield_deflect', HELMET_HIT_SOUND = 'helmet_hit', LAND_HEAVY_SOUND = 'land_heavy', LAND_SOUND = 'land';
+  function shieldDeflectSound(isShielded) { return (isShielded === undefined || Boolean(isShielded)) ? SHIELD_DEFLECT_SOUND : null; }
+  function helmetHitSound(hasHelmet) { return (hasHelmet === undefined || Boolean(hasHelmet)) ? HELMET_HIT_SOUND : null; }
+  function enemyGrenadeThrowSound() { return GRENADE_COOK_SOUND; }
 
   // ---- Tactical Melee Slash Execution & Weapon Muzzle Light Polish (v142 Visual Polish) ----
   const MELEE_SLASH_SPARK_COUNT = 4, MELEE_SLASH_BACKSTAB_SPARKS = 10, MELEE_SLASH_MIST_COUNT = 6, MELEE_SLASH_BACKSTAB_MIST = 14;
@@ -8145,6 +7844,40 @@ const CORE = (function () {
     return (headDot >= bestCos * pri) || (headDot > bestCos);
   }
 
+  // ---- Touch Control Activation Gating, Downed Key Sanitization, and Pointer-Events Rules (v156 Mobile UI Polish) ----
+  function canTouchControlActivate(controlId, started, paused, isDead, isDowned, isEditing) {
+    if (!started || isEditing || isDead) return false;
+    if (controlId === 'tbtn-pause') return !paused;
+    if (paused) return false;
+    if (controlId === 'joy-base') return true;
+    return !touchControlLocked(controlId, false, isDowned);
+  }
+
+  function isActionKeyLockedWhileDowned(keyCode) {
+    return keyCode === 'Space' || keyCode === 'KeyC' || keyCode === 'Mouse2' ||
+           keyCode === 'KeyG' || keyCode === '__use' || keyCode === '__melee' ||
+           keyCode === '__plate' || keyCode === '__tactical' || keyCode === '__streak' ||
+           keyCode === '__field';
+  }
+
+  function sanitizeDownedInputKeys(keys, pressed) {
+    let cleared = 0;
+    if (keys) {
+      if (keys['KeyC']) { keys['KeyC'] = false; cleared++; }
+      if (keys['Mouse2']) { keys['Mouse2'] = false; cleared++; }
+      if (keys['KeyG']) { keys['KeyG'] = false; cleared++; }
+      if (keys['__use']) { keys['__use'] = false; cleared++; }
+    }
+    if (pressed) {
+      const lockList = ['Space', '__melee', '__plate', '__tactical', '__streak', '__field'];
+      for (let i = 0; i < lockList.length; i++) {
+        const k = lockList[i];
+        if (pressed[k]) { delete pressed[k]; cleared++; }
+      }
+    }
+    return cleared;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -8471,7 +8204,8 @@ const CORE = (function () {
     SUPPRESSOR_KICK_MUL, weaponShotKickImpulse,
     STANCE_ADS_CROUCH_MUL, STANCE_ADS_SLIDE_MUL, stanceAdsSpeedMultiplier,
     ENEMY_RANGED_TANK_BONUS, ENEMY_RANGED_SHIELD_PENALTY,
-    RAGDOLL_BLAST_BOUNDING_RADIUS, isRagdollInBlastRadius, isRagdollParticleInBlast, ragdollBlastImpulse, nearestRagdollParticle, isAimAssistHeadCandidateCos
+    RAGDOLL_BLAST_BOUNDING_RADIUS, isRagdollInBlastRadius, isRagdollParticleInBlast, ragdollBlastImpulse, nearestRagdollParticle, isAimAssistHeadCandidateCos,
+    canTouchControlActivate, isActionKeyLockedWhileDowned, sanitizeDownedInputKeys
   };
 
 })();

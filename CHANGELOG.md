@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v156 — Touch control activation gating, downed action key sanitization, and locked control pointer-events
+
+- Implement universal touch control activation gating (`CORE.canTouchControlActivate`): cleanly checks lifecycle state (`started`, `paused`, `isDead`, `isDowned`, `isEditing`) and prevents inactive or dead/downed buttons from activating, gaining the `'on'` visual class, or triggering click audio; wired into `holdBtn()`, `fireBtn()`, and `tbtn-pause` in `src/25_touch.js`.
+- Implement downed input key sanitization (`CORE.isActionKeyLockedWhileDowned`, `CORE.sanitizeDownedInputKeys`): cleanly releases locked inputs (`Space`, `KeyC`, `Mouse2`, `KeyG`, `__use`, `__melee`, `__plate`, `__tactical`, `__streak`, `__field`) and clears `adsHeld` / `touchState.ads` when player enters the downed state; wired into `applyTouchInput()` in `src/25_touch.js`.
+- Add locked touch control pointer-events gating (`body.touch .tbtn.locked { pointer-events: none; }`) in `src/00_head.html` to prevent touch event consumption on locked buttons during gameplay.
+- Add regression suites in `tests/test_mobile_optimization.js` and `tests/test_core.js`, plus live-check 106 (`mobile-touch-activation-and-downed-key-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations, blood pool/scorch, sentry kinematics, and combat acoustics in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,739 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 483 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v155 — Ragdoll blast spatial culling, particle squared-distance gating, impulse scaling, and aim assist cosine selection
 
 - Implement soldier ragdoll blast spatial pre-culling and impulse calculation (`CORE.isRagdollInBlastRadius`, `CORE.isRagdollParticleInBlast`, `CORE.ragdollBlastImpulse`, `CORE.nearestRagdollParticle`, `CORE.RAGDOLL_BLAST_BOUNDING_RADIUS`): spatial distance-squared bounding box and per-particle culling to eliminate redundant updates on distant ragdoll corpses; wired into `sdRagdollBlast` and `sdStartRagdoll` in `src/38_soldier.js`.

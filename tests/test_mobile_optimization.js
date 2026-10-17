@@ -564,5 +564,142 @@ test('v151 mobile UI polish: virtual joystick dead-state lockout, change-detecti
   assert.match(head, /body\.touch\s+#tbtn-pause\.locked/);
 });
 
+test('v156 mobile UI polish: touch control activation gating, downed key sanitization, and locked control pointer-events', () => {
+  // 1. Touch control activation gating across lifecycle states
+  // Live player: all controls can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-reload', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-jump', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-slide', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-ads', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-melee', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-swap', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-pause', true, false, false, false, false), true);
+  assert.equal(CORE.canTouchControlActivate('joy-base', true, false, false, false, false), true);
+
+  // Downed player: only fire, reload, pause, and joystick (crawl) can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', true, false, false, true, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-reload', true, false, false, true, false), true);
+  assert.equal(CORE.canTouchControlActivate('tbtn-pause', true, false, false, true, false), true);
+  assert.equal(CORE.canTouchControlActivate('joy-base', true, false, false, true, false), true);
+
+  assert.equal(CORE.canTouchControlActivate('tbtn-jump', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-slide', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-ads', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-melee', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-swap', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-nade', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-tactical', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-streak', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-plate', true, false, false, true, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-use', true, false, false, true, false), false);
+
+  // Dead player: no control can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', true, false, true, false, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-reload', true, false, true, false, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-pause', true, false, true, false, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-jump', true, false, true, false, false), false);
+  assert.equal(CORE.canTouchControlActivate('joy-base', true, false, true, false, false), false);
+
+  // Paused: no control can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-pause', true, true, false, false, false), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', true, true, false, false, false), false);
+
+  // Editing: no control can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-pause', true, false, false, false, true), false);
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', true, false, false, false, true), false);
+
+  // Unstarted: no control can activate
+  assert.equal(CORE.canTouchControlActivate('tbtn-fire', false, false, false, false, false), false);
+
+  // 2. Downed action key lockout check
+  assert.equal(CORE.isActionKeyLockedWhileDowned('Space'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('KeyC'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('Mouse2'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('KeyG'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__use'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__melee'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__plate'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__tactical'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__streak'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('__field'), true);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('KeyW'), false);
+  assert.equal(CORE.isActionKeyLockedWhileDowned('KeyR'), false);
+
+  // 3. Downed input key sanitization
+  const testKeys = { KeyC: true, Mouse2: true, KeyG: true, __use: true, KeyW: true };
+  const testPressed = { Space: true, __melee: true, __plate: true, KeyR: true };
+  const cleared = CORE.sanitizeDownedInputKeys(testKeys, testPressed);
+  assert.equal(cleared, 7);
+  assert.equal(testKeys.KeyC, false);
+  assert.equal(testKeys.Mouse2, false);
+  assert.equal(testKeys.KeyG, false);
+  assert.equal(testKeys.KeyW, true);
+  assert.equal(testPressed.Space, undefined);
+  assert.equal(testPressed.__melee, undefined);
+  assert.equal(testPressed.__plate, undefined);
+  assert.equal(testPressed.KeyR, true);
+
+  // 4. Host DOM behavior: locked controls reject touch inputs during downed state
+  const h = host();
+  h.ctx.player = { downed: true, dead: false };
+  let clickCount = 0;
+  h.ctx.playSound = (s) => { if (s === 'click') clickCount++; };
+
+  // Jump is locked while downed -> tapping must not set Space, must not add 'on', must not click
+  const jumpBtn = h.elements.get('tbtn-jump');
+  jumpBtn.emit('touchstart', [finger(1)]);
+  assert.equal(h.ctx.pressed.Space, undefined);
+  assert.equal(jumpBtn.classList.contains('on'), false);
+  assert.equal(clickCount, 0);
+
+  // Slide is locked while downed -> tapping must not set KeyC
+  const slideBtn = h.elements.get('tbtn-slide');
+  slideBtn.emit('touchstart', [finger(2)]);
+  assert.equal(h.ctx.keys.KeyC || false, false);
+  assert.equal(slideBtn.classList.contains('on'), false);
+
+  // Melee is locked while downed -> tapping must not set __melee
+  const meleeBtn = h.elements.get('tbtn-melee');
+  meleeBtn.emit('touchstart', [finger(3)]);
+  assert.equal(h.ctx.pressed.__melee, undefined);
+  assert.equal(meleeBtn.classList.contains('on'), false);
+
+  // Reload is allowed while downed -> tapping sets KeyR and plays click
+  const rldBtn = h.elements.get('tbtn-reload');
+  rldBtn.emit('touchstart', [finger(4)]);
+  assert.equal(h.ctx.pressed.KeyR, true);
+  assert.equal(rldBtn.classList.contains('on'), true);
+  assert.equal(clickCount, 1);
+
+  // Fire is allowed while downed
+  const fireBtn = h.elements.get('tbtn-fire');
+  fireBtn.emit('touchstart', [finger(5)]);
+  assert.equal(h.run('touchState.firing'), true);
+  assert.equal(fireBtn.classList.contains('on'), true);
+  assert.equal(clickCount, 2);
+
+  // Dead state: fire button rejects touch
+  h.ctx.player = { downed: false, dead: true };
+  const deadFireBtn = h.elements.get('tbtn-fire');
+  deadFireBtn.emit('touchend', [finger(5)]);
+  deadFireBtn.emit('touchstart', [finger(6)]);
+  assert.equal(h.run('touchState.firing'), false);
+
+  // Downed state key sanitization during applyTouchInput
+  h.ctx.player = { downed: true, dead: false };
+  h.ctx.keys.Mouse2 = true;
+  h.ctx.keys.KeyC = true;
+  h.run('touchState.ads = true; adsHeld = true;');
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.keys.KeyC, false);
+  assert.equal(h.ctx.keys.Mouse2, false);
+  assert.equal(h.run('touchState.ads'), false);
+
+  // 5. CSS pointer-events on locked buttons
+  assert.match(head, /body\.touch\s+\.tbtn\.locked\{[^}]*pointer-events:\s*none/);
+});
+
+
 
 
