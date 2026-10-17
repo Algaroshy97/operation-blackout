@@ -485,11 +485,7 @@ function sdStartRagdoll(en, impulseDir, impulse, hitPoint, blastPos) {
     R.rest.push([a, b, Math.hypot(R.P[a * 3] - R.P[b * 3], R.P[a * 3 + 1] - R.P[b * 3 + 1], R.P[a * 3 + 2] - R.P[b * 3 + 2]), i < RD_BONES.length ? 1 : 0.6]);
   }
   // initial velocities: body momentum + the killing blow at the nearest particle
-  let hitIdx = 1, best = Infinity;
-  if (hitPoint) for (let i = 0; i < 15; i++) {
-    const d = Math.hypot(R.P[i * 3] - hitPoint.x, R.P[i * 3 + 1] - hitPoint.y, R.P[i * 3 + 2] - hitPoint.z);
-    if (d < best) { best = d; hitIdx = i; }
-  }
+  const hitIdx = hitPoint ? CORE.nearestRagdollParticle(R.P, hitPoint.x, hitPoint.y, hitPoint.z) : 1;
   for (let i = 0; i < 15; i++) {
     let vx = _sdMomOut.x, vy = 0, vz = _sdMomOut.z;
     if (explosive) { vx += knockX * 0.6 * (0.8 + Math.random() * 0.4); vy += 3.5 + Math.random() * 2.5 + (i === 2 ? 1 : 0); vz += knockZ * 0.6 * (0.8 + Math.random() * 0.4); }
@@ -657,15 +653,18 @@ function sdUpdateRagdoll(R, dt) {
 function sdWake(R) { R.asleep = false; R.settled = false; R.sleepT = 0; R.age = 0; }
 // Blast: shove every soldier corpse particle inside the radius.
 function sdRagdollBlast(pos, radius, force) {
+  const radSq = radius * radius;
   for (let i = 0; i < ragdolls.length; i++) {
     const R = ragdolls[i].sd;
     if (!R) continue;
+    if (!CORE.isRagdollInBlastRadius(R.P[3], R.P[4], R.P[5], pos.x, pos.y, pos.z, radius)) continue;
     let touched = false;
     for (let k = 0; k < 15; k++) {
       const dx = R.P[k * 3] - pos.x, dy = R.P[k * 3 + 1] - pos.y, dz = R.P[k * 3 + 2] - pos.z;
+      if (!CORE.isRagdollParticleInBlast(dx, dy, dz, radSq)) continue;
       const d = Math.hypot(dx, dy, dz);
-      if (d > radius) continue;
-      const f = force * (1 - d / radius) * RD_H / (d || 1);
+      const f = CORE.ragdollBlastImpulse(d, radius, force, RD_H);
+      if (f <= 0) continue;
       R.Q[k * 3] -= dx * f; R.Q[k * 3 + 1] -= (Math.abs(dy) + 0.8) * f; R.Q[k * 3 + 2] -= dz * f;
       touched = true;
     }

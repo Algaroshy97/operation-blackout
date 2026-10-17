@@ -264,9 +264,9 @@ const _assistNudged = new THREE.Vector3();
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
   if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
-  let hasBest = false, bestAng = CORE.aimAssistAngle(CFG.assist.angle, steadyActive, 1.6);
+  let hasBest = false, bestCos = CORE.aimAssistMinCos(CFG.assist.angle, steadyActive, 1.6);
   const maxDistSq = CORE.AIM_ASSIST_MAX_DIST * CORE.AIM_ASSIST_MAX_DIST;
-  const minCos = CORE.aimAssistMinCos(CFG.assist.angle, steadyActive, 1.6);
+  const minCos = bestCos;
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
@@ -276,25 +276,19 @@ function applyAimAssist(dir, from) {
     _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
     _assistTo.subVectors(_aimTgt, from).normalize();
     const chestDot = dir.dot(_assistTo);
-    if (chestDot > minCos) {
-      const ang = dir.angleTo(_assistTo);
-      if (ang < bestAng) {
-        bestAng = ang;
-        _assistBestTo.copy(_assistTo);
-        hasBest = true;
-      }
+    if (CORE.isAimAssistCandidateCloser(chestDot, bestCos)) {
+      bestCos = chestDot;
+      _assistBestTo.copy(_assistTo);
+      hasBest = true;
     }
     // head magnet (smaller box)
     _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);   // head centre
     _assistToH.subVectors(_aimTgt, from).normalize();
     const headDot = dir.dot(_assistToH);
-    if (headDot > minCos) {
-      const angH = dir.angleTo(_assistToH);
-      if (CORE.isAimAssistHeadCandidate(angH, bestAng, CORE.AIM_ASSIST_HEAD_THRESHOLD)) {
-        bestAng = angH * CORE.AIM_ASSIST_HEAD_PRIORITY;
-        _assistBestTo.copy(_assistToH);
-        hasBest = true;
-      }
+    if (CORE.isAimAssistHeadCandidateCos(headDot, bestCos, minCos, CORE.AIM_ASSIST_HEAD_PRIORITY)) {
+      bestCos = headDot;
+      _assistBestTo.copy(_assistToH);
+      hasBest = true;
     }
   }
   if (!hasBest) return dir;

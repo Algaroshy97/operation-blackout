@@ -9611,4 +9611,49 @@ test('v154 combat balance: weapon shot kick impulses, stance ADS agility, and en
   assert.ok(Math.abs(dmgTankElite - (11.35 * CORE.ELITE.dmgMul)) < 1e-4);
 });
 
+test('v155 performance optimization: ragdoll blast spatial culling, particle squared-distance gating, impulse scaling, and aim assist cosine selection rules', () => {
+  // 1. Soldier ragdoll bounding radius & blast spatial distance-squared culling
+  assert.strictEqual(CORE.RAGDOLL_BLAST_BOUNDING_RADIUS, 2.4);
+  const blastRad = 7.0;
+  // Within reach (pelvis at 5m from blast at 0,0,0)
+  assert.strictEqual(CORE.isRagdollInBlastRadius(3, 0, 4, 0, 0, 0, blastRad), true);
+  // Out of reach (pelvis at 10m from blast at 0,0,0)
+  assert.strictEqual(CORE.isRagdollInBlastRadius(6, 0, 8, 0, 0, 0, blastRad), false);
+  assert.strictEqual(CORE.isRagdollInBlastRadius(NaN, 0, 0, 0, 0, 0), false);
+
+  // 2. Individual particle distance-squared culling
+  const radSq = blastRad * blastRad; // 49
+  assert.strictEqual(CORE.isRagdollParticleInBlast(3, 2, 4, radSq), true);
+  assert.strictEqual(CORE.isRagdollParticleInBlast(5, 1, 5, radSq), false);
+  assert.strictEqual(CORE.isRagdollParticleInBlast(NaN, 0, 0, radSq), false);
+
+  // 3. Ragdoll blast impulse scaling rule
+  const h = 1 / 60;
+  // At center (d = 0)
+  const impCenter = CORE.ragdollBlastImpulse(0, blastRad, 40, h);
+  assert.ok(Math.abs(impCenter - (40 * 1 * h / 1)) < 1e-4);
+  // At 3.5m (halfway in 7m radius: 1 - 3.5/7 = 0.5)
+  const impMid = CORE.ragdollBlastImpulse(3.5, blastRad, 40, h);
+  assert.ok(Math.abs(impMid - (40 * 0.5 * h / 3.5)) < 1e-4);
+  // Beyond radius (d = 8m > 7m)
+  assert.strictEqual(CORE.ragdollBlastImpulse(8.0, blastRad, 40, h), 0);
+  assert.strictEqual(CORE.ragdollBlastImpulse(NaN, blastRad, 40, h), 0);
+
+  // 4. Nearest ragdoll particle squared-distance search
+  const P = new Float32Array(45);
+  P[0] = 0; P[1] = 0; P[2] = 0;
+  P[6] = 10; P[7] = 0; P[8] = 0;
+  P[15] = 2; P[16] = 0; P[17] = 0;
+  assert.strictEqual(CORE.nearestRagdollParticle(P, 2.1, 0, 0), 5);
+  assert.strictEqual(CORE.nearestRagdollParticle(P, 9.8, 0, 0), 2);
+  assert.strictEqual(CORE.nearestRagdollParticle(P, 0.1, 0, 0), 0);
+
+  // 5. Aim assist cosine candidate selection & head priority
+  assert.strictEqual(CORE.isAimAssistHeadCandidateCos(0.998, 0.995, 0.99, 0.85), true);
+  assert.strictEqual(CORE.isAimAssistHeadCandidateCos(0.992, 0.995, 0.99, 0.85), true);
+  assert.strictEqual(CORE.isAimAssistHeadCandidateCos(0.970, 0.995, 0.99, 0.85), false);
+  assert.strictEqual(CORE.isAimAssistHeadCandidateCos(NaN, 0.995, 0.99, 0.85), false);
+});
+
+
 

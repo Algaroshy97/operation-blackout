@@ -4786,7 +4786,34 @@ def main() -> int:
         }""")
         checks.append(("weapon-shot-kick-stance-ads-and-enemy-ranged-balance-rules", combat_balance_v154_check))
 
-        # 105) Clean console throughout gameplay.
+        # 105) Ragdoll blast spatial culling, particle squared-distance gating, impulse scaling, and aim assist cosine selection rules (v155 performance optimization).
+        perf_v155_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const radOk = CORE.RAGDOLL_BLAST_BOUNDING_RADIUS === 2.4 &&
+                          CORE.isRagdollInBlastRadius(3, 0, 4, 0, 0, 0, 7.0) === true &&
+                          CORE.isRagdollInBlastRadius(6, 0, 8, 0, 0, 0, 7.0) === false &&
+                          CORE.isRagdollParticleInBlast(3, 2, 4, 49.0) === true &&
+                          CORE.isRagdollParticleInBlast(5, 1, 5, 49.0) === false;
+
+            const impOk = Math.abs(CORE.ragdollBlastImpulse(0, 7.0, 40, 1/60) - (40 / 60)) < 1e-4 &&
+                          Math.abs(CORE.ragdollBlastImpulse(3.5, 7.0, 40, 1/60) - (20 / (60 * 3.5))) < 1e-4 &&
+                          CORE.ragdollBlastImpulse(8.0, 7.0, 40, 1/60) === 0;
+
+            const P = new Float32Array(45);
+            P[6] = 10; P[15] = 2;
+            const searchOk = CORE.nearestRagdollParticle(P, 2.1, 0, 0) === 5 &&
+                             CORE.nearestRagdollParticle(P, 9.8, 0, 0) === 2;
+
+            const assistOk = CORE.isAimAssistHeadCandidateCos(0.998, 0.995, 0.99, 0.85) === true &&
+                             CORE.isAimAssistHeadCandidateCos(0.992, 0.995, 0.99, 0.85) === true &&
+                             CORE.isAimAssistHeadCandidateCos(0.970, 0.995, 0.99, 0.85) === false;
+
+            return radOk && impOk && searchOk && assistOk;
+        }""")
+        checks.append(("ragdoll-blast-culling-impulse-and-aim-assist-perf-rules", perf_v155_check))
+
+        # 106) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

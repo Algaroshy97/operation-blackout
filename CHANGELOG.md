@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v155 — Ragdoll blast spatial culling, particle squared-distance gating, impulse scaling, and aim assist cosine selection
+
+- Implement soldier ragdoll blast spatial pre-culling and impulse calculation (`CORE.isRagdollInBlastRadius`, `CORE.isRagdollParticleInBlast`, `CORE.ragdollBlastImpulse`, `CORE.nearestRagdollParticle`, `CORE.RAGDOLL_BLAST_BOUNDING_RADIUS`): spatial distance-squared bounding box and per-particle culling to eliminate redundant updates on distant ragdoll corpses; wired into `sdRagdollBlast` and `sdStartRagdoll` in `src/38_soldier.js`.
+- Implement aim assist candidate cosine dot-product selection and scoped head-target priority (`CORE.isAimAssistHeadCandidateCos`): evaluates angle cone thresholds directly in cosine space without per-frame `dir.angleTo` / `Math.acos` trigonometric calls while ADS; wired into `applyAimAssist` in `src/30_weapons.js`.
+- Add dedicated performance optimization suite in `tests/test_performance_optimization.js` (13 tests) and pure core unit coverage in `tests/test_core.js`, plus live-check 105 in `scripts/probe_live.py`.
+- Compact pure core validations, clamp expressions, and object property shorthands in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,037 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 481 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v154 — Weapon shot kick impulses, stance ADS agility, and enemy ranged damage scaling
 
 - Implement weapon shot kick impulse scaling (`CORE.weaponShotKickImpulse`): SMG (0.35), AR (0.50), BR (0.70), and SR (1.10), with 15% suppressor kick dampening (`SUPPRESSOR_KICK_MUL` = 0.85); wired into `fireShot()` in `src/30_weapons.js`.
