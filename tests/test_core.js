@@ -9549,3 +9549,66 @@ test('v153 audio polish: weapon scope acoustics, ballistic casing bounce, heavy 
   assert.strictEqual(CORE.stationCycleSound(), 'draw_light');
 });
 
+test('v154 combat balance: weapon shot kick impulses, stance ADS agility, and enemy ranged damage scaling rules', () => {
+  // 1. Weapon shot kick impulse constants & function with suppressor dampening
+  assert.strictEqual(CORE.WEAPON_SHOT_KICK_SMG, 0.35);
+  assert.strictEqual(CORE.WEAPON_SHOT_KICK_AR, 0.50);
+  assert.strictEqual(CORE.WEAPON_SHOT_KICK_BR, 0.70);
+  assert.strictEqual(CORE.WEAPON_SHOT_KICK_SR, 1.10);
+  assert.strictEqual(CORE.SUPPRESSOR_KICK_MUL, 0.85);
+
+  assert.strictEqual(CORE.weaponShotKickImpulse('SMG', false), 0.35);
+  assert.strictEqual(CORE.weaponShotKickImpulse('AR', false), 0.50);
+  assert.strictEqual(CORE.weaponShotKickImpulse('BR', false), 0.70);
+  assert.strictEqual(CORE.weaponShotKickImpulse('SR', false), 1.10);
+  assert.strictEqual(CORE.weaponShotKickImpulse('', false), 0.50);
+  assert.strictEqual(CORE.weaponShotKickImpulse(undefined, false), 0.50);
+
+  assert.ok(Math.abs(CORE.weaponShotKickImpulse('SMG', true) - (0.35 * 0.85)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponShotKickImpulse('AR', true) - (0.50 * 0.85)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponShotKickImpulse('BR', true) - (0.70 * 0.85)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponShotKickImpulse('SR', true) - (1.10 * 0.85)) < 1e-4);
+
+  // 2. Stance ADS transition agility multiplier rules
+  assert.strictEqual(CORE.STANCE_ADS_CROUCH_MUL, 1.15);
+  assert.strictEqual(CORE.STANCE_ADS_SLIDE_MUL, 0.80);
+
+  assert.strictEqual(CORE.stanceAdsSpeedMultiplier(false, false), 1.0);
+  assert.strictEqual(CORE.stanceAdsSpeedMultiplier(true, false), 1.15);
+  assert.strictEqual(CORE.stanceAdsSpeedMultiplier(false, true), 0.80);
+  assert.strictEqual(CORE.stanceAdsSpeedMultiplier(true, true), 0.80); // sliding takes precedence over crouch
+  assert.strictEqual(CORE.stanceAdsSpeedMultiplier(), 1.0);
+
+  assert.strictEqual(CORE.weaponAdsSpeed('SMG'), CORE.WEAPON_ADS_SPEED_SMG);
+  assert.ok(Math.abs(CORE.weaponAdsSpeed('SMG', undefined, 1.15) - (CORE.WEAPON_ADS_SPEED_SMG * 1.15)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponAdsSpeed('SMG', undefined, 0.80) - (CORE.WEAPON_ADS_SPEED_SMG * 0.80)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponAdsSpeed('AR', undefined, 1.15) - (CORE.WEAPON_ADS_SPEED_AR * 1.15)) < 1e-4);
+  assert.ok(Math.abs(CORE.weaponAdsSpeed('AR', 1.5, 1.15) - (1.5 * 1.15)) < 1e-4);
+
+  // 3. Enemy archetype ranged weapon ballistic scaling rules
+  assert.strictEqual(CORE.ENEMY_RANGED_TANK_BONUS, 3);
+  assert.strictEqual(CORE.ENEMY_RANGED_SHIELD_PENALTY, -2);
+
+  // Default / Rifleman: base 8 + wave 1 * 0.35 = 8.35
+  const baseDmg = 8, wave = 1, diff = 1.0, isElite = false;
+  const dmgDefault = CORE.enemyRangedDamage(baseDmg, wave, diff, isElite);
+  assert.ok(Math.abs(dmgDefault - 8.35) < 1e-4);
+
+  // Tank (kind 2 or 'tank'): (8 + 3 + 1 * 0.35) = 11.35
+  const dmgTankNum = CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 2);
+  const dmgTankStr = CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 'tank');
+  assert.ok(Math.abs(dmgTankNum - 11.35) < 1e-4);
+  assert.ok(Math.abs(dmgTankStr - 11.35) < 1e-4);
+
+  // Shielded (kind 3 or 'shielded'): (8 - 2 + 1 * 0.35) = 6.35
+  const dmgShieldNum = CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 3);
+  const dmgShieldStr = CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 'shielded');
+  assert.ok(Math.abs(dmgShieldNum - 6.35) < 1e-4);
+  assert.ok(Math.abs(dmgShieldStr - 6.35) < 1e-4);
+
+  // Elite multiplier still applies on top
+  const dmgTankElite = CORE.enemyRangedDamage(baseDmg, wave, diff, true, 2);
+  assert.ok(Math.abs(dmgTankElite - (11.35 * CORE.ELITE.dmgMul)) < 1e-4);
+});
+
+

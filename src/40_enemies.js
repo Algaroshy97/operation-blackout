@@ -756,7 +756,7 @@ function enemyShoot(en, dist) {
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = dirToDeg(en);
   if (isHit) {
-    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite);
+    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (player.dead || !started || paused) return;

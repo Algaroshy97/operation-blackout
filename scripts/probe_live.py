@@ -4757,7 +4757,36 @@ def main() -> int:
         }""")
         checks.append(("scope-casing-kill-and-unlock-audio-rules", audio_polish_v153_check))
 
-        # 104) Clean console throughout gameplay.
+        # 104) Weapon shot kick impulses, stance ADS agility, and enemy ranged damage scaling rules (v154 combat balance).
+        combat_balance_v154_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const kickOk = CORE.WEAPON_SHOT_KICK_SMG === 0.35 &&
+                           CORE.WEAPON_SHOT_KICK_AR === 0.50 &&
+                           CORE.WEAPON_SHOT_KICK_BR === 0.70 &&
+                           CORE.WEAPON_SHOT_KICK_SR === 1.10 &&
+                           CORE.SUPPRESSOR_KICK_MUL === 0.85 &&
+                           CORE.weaponShotKickImpulse('SMG', false) === 0.35 &&
+                           Math.abs(CORE.weaponShotKickImpulse('SMG', true) - 0.2975) < 1e-4 &&
+                           CORE.weaponShotKickImpulse('SR', false) === 1.10;
+
+            const stanceOk = CORE.STANCE_ADS_CROUCH_MUL === 1.15 &&
+                             CORE.STANCE_ADS_SLIDE_MUL === 0.80 &&
+                             CORE.stanceAdsSpeedMultiplier(true, false) === 1.15 &&
+                             CORE.stanceAdsSpeedMultiplier(false, true) === 0.80 &&
+                             CORE.stanceAdsSpeedMultiplier(true, true) === 0.80 &&
+                             Math.abs(CORE.weaponAdsSpeed('SMG', undefined, 1.15) - (CORE.WEAPON_ADS_SPEED_SMG * 1.15)) < 1e-4;
+
+            const enemyOk = CORE.ENEMY_RANGED_TANK_BONUS === 3 &&
+                            CORE.ENEMY_RANGED_SHIELD_PENALTY === -2 &&
+                            Math.abs(CORE.enemyRangedDamage(8, 1, 1.0, false, 2) - 11.35) < 1e-4 &&
+                            Math.abs(CORE.enemyRangedDamage(8, 1, 1.0, false, 3) - 6.35) < 1e-4;
+
+            return kickOk && stanceOk && enemyOk;
+        }""")
+        checks.append(("weapon-shot-kick-stance-ads-and-enemy-ranged-balance-rules", combat_balance_v154_check))
+
+        # 105) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

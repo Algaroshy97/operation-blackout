@@ -436,9 +436,9 @@ function fireShot(preserveSchedule) {
   const stanceMul = CORE.stanceRecoilMultiplier(!!player.crouching, !!player.sliding, !player.onGround);
   CORE.effectiveRecoilKick(w.recoilV, w.recoilH, _recoilOut.x, _recoilOut.y, stanceMul, _kickOut);
   player.recoilP += _kickOut.pitchKick;
-  player.recoilY += _kickOut.yawKick;
-  shotKick = CORE.applyShotKick(shotKick);
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
+  shotKick = CORE.applyShotKick(shotKick, kickImp);
   playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
@@ -542,7 +542,8 @@ function updateViewmodel(dt) {
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
   const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
-  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), CORE.weaponAdsSpeed(w ? w.type : '', w ? w.adsSpeed : undefined));
+  const stanceAdsMul = CORE.stanceAdsSpeedMultiplier(!!(player && player.crouching), !!(player && player.sliding));
+  adsAmount = CORE.stepAdsTransition(adsAmount, aimAds, dt, CORE.perkAdsMul(perks), CORE.weaponAdsSpeed(w ? w.type : '', w ? w.adsSpeed : undefined, stanceAdsMul));
   const s = curS();
   const isEmptySwap = !!(s && s.ammo === 0);
   gunSwitchT = CORE.stepGunSwitch(gunSwitchT, dt, CORE.weaponSwitchSpeed(w ? w.type : '', hasFastHands, isEmptySwap));

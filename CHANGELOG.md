@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v154 — Weapon shot kick impulses, stance ADS agility, and enemy ranged damage scaling
+
+- Implement weapon shot kick impulse scaling (`CORE.weaponShotKickImpulse`): SMG (0.35), AR (0.50), BR (0.70), and SR (1.10), with 15% suppressor kick dampening (`SUPPRESSOR_KICK_MUL` = 0.85); wired into `fireShot()` in `src/30_weapons.js`.
+- Implement stance ADS agility multipliers (`CORE.stanceAdsSpeedMultiplier`): 15% ADS acceleration while crouching (`STANCE_ADS_CROUCH_MUL` = 1.15) and 20% penalty while sliding (`STANCE_ADS_SLIDE_MUL` = 0.80); wired into `CORE.weaponAdsSpeed` and `updateViewmodel()` in `src/30_weapons.js`.
+- Implement enemy archetype ranged damage scaling (`CORE.enemyRangedDamage`): +3 caliber bonus for heavy tank enemies (`ENEMY_RANGED_TANK_BONUS`) and -2 damage penalty for shield units (`ENEMY_RANGED_SHIELD_PENALTY`); wired into enemy shooting in `src/40_enemies.js`.
+- Add integration and unit regression suites in `tests/test_combat_balance_integration.js` and `tests/test_core.js`, plus built-game probe contract checks in `scripts/probe_live.py`.
+- Compact pure core validations and object checks in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,795 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 479 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## Reconstructed / partial — updates after the documented v116 baseline
 
 The following 40 commit entries were reconstructed from each commit's actual
