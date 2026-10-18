@@ -1148,4 +1148,29 @@ test('v157 visual polish integration: ballistic casing caliber dimensions, eject
   }
 });
 
+test('v158 audio polish integration: enemy gunfire acoustics, armor absorption gating, and chamber-empty caliber clack', () => {
+  // 1. Enemy gunfire archetype acoustics: Tank uses heavy gunfire sound
+  assert.equal(CORE.enemyGunfireSound(false, 2), 'eshot_elite');
+  assert.equal(CORE.enemyGunfireSound(false, 'tank'), 'eshot_elite');
+  assert.equal(CORE.enemyGunfireSound(false, 1), 'eshot');
+  assert.equal(CORE.enemyGunfireSound(true, 1), 'eshot_elite');
 
+  // 2. Armor damage absorption gating: zero absorbed damage suppresses armor block sound
+  assert.equal(CORE.armorDamageSound(50, 20, 30), 'block');
+  assert.equal(CORE.armorDamageSound(50, 50, 0), null);
+  assert.equal(CORE.armorDamageSound(50, 0, 50), 'armor_break');
+  assert.equal(CORE.armorDamageSound(0, 0, 0), null);
+
+  // 3. Chamber-empty caliber clack
+  assert.equal(CORE.chamberEmptySound(0, 'SR'), 'dry_heavy');
+  assert.equal(CORE.chamberEmptySound(0, 'BR'), 'dry_heavy');
+  assert.equal(CORE.chamberEmptySound(0, 'AR'), 'chamber_empty');
+  assert.equal(CORE.chamberEmptySound(0, 'SMG'), 'chamber_empty');
+  assert.equal(CORE.chamberEmptySound(0), 'chamber_empty');
+  assert.equal(CORE.chamberEmptySound(5, 'SR'), null);
+
+  // 4. Tactical detonation acoustic range
+  assert.equal(CORE.tacticalDetonationMaxDist('smoke'), 85);
+  assert.equal(CORE.tacticalDetonationMaxDist('blind'), 65);
+  assert.equal(CORE.tacticalDetonationMaxDist('stun'), 45);
+});

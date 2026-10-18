@@ -9812,7 +9812,49 @@ test('v157 visual polish: ballistic casing caliber dimensions, eject kinematics,
   assert.ok(Math.abs(pSlow.spread - 1.15 * 0.6) < 1e-4);
 });
 
+test('v158 audio polish: enemy gunfire archetype acoustics, armor damage absorption gating, chamber-empty caliber clack, and tactical detonation audio range rules', () => {
+  // 1. Enemy gunfire archetype acoustics
+  assert.strictEqual(CORE.enemyGunfireSound(false, 2), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 'tank'), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 0), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 1), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 3), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 4), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(false, 5), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(true, 0), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(true, 2), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(false), 'eshot');
+  assert.strictEqual(CORE.enemyGunfireSound(true), 'eshot_elite');
+  assert.strictEqual(CORE.enemyGunfireSound(undefined), 'eshot');
 
+  // 2. Armor damage absorption gating
+  assert.strictEqual(CORE.armorDamageSound(50, 30, 20), 'block');
+  assert.strictEqual(CORE.armorDamageSound(50, 50, 0), null);
+  assert.strictEqual(CORE.armorDamageSound(50, 50, -5), null);
+  assert.strictEqual(CORE.armorDamageSound(50, 0, 50), 'armor_break');
+  assert.strictEqual(CORE.armorDamageSound(10, -5, 15), 'armor_break');
+  assert.strictEqual(CORE.armorDamageSound(0, 0, 0), null);
+  assert.strictEqual(CORE.armorDamageSound(-5, 0, 0), null);
+  assert.strictEqual(CORE.armorDamageSound(50, 30), 'block');
+  assert.strictEqual(CORE.armorDamageSound(50, 0), 'armor_break');
+  assert.strictEqual(CORE.armorDamageSound(0, 0), null);
 
+  // 3. Chamber-empty caliber clack
+  assert.strictEqual(CORE.chamberEmptySound(0, 'SR'), 'dry_heavy');
+  assert.strictEqual(CORE.chamberEmptySound(0, 'BR'), 'dry_heavy');
+  assert.strictEqual(CORE.chamberEmptySound(0, 'AR'), 'chamber_empty');
+  assert.strictEqual(CORE.chamberEmptySound(0, 'SMG'), 'chamber_empty');
+  assert.strictEqual(CORE.chamberEmptySound(0), 'chamber_empty');
+  assert.strictEqual(CORE.chamberEmptySound(1, 'SR'), null);
+  assert.strictEqual(CORE.chamberEmptySound(-1, 'SR'), null);
+  assert.strictEqual(CORE.chamberEmptySound(NaN, 'SR'), null);
 
-
+  // 4. Tactical detonation acoustic range
+  assert.strictEqual(CORE.TACTICAL_DETONATION_MAX_DIST_BLIND, 65);
+  assert.strictEqual(CORE.TACTICAL_DETONATION_MAX_DIST_SMOKE, 85);
+  assert.strictEqual(CORE.tacticalDetonationMaxDist('smoke'), 85);
+  assert.strictEqual(CORE.tacticalDetonationMaxDist('blind'), 65);
+  assert.strictEqual(CORE.tacticalDetonationMaxDist('stun'), 45);
+  assert.strictEqual(CORE.tacticalDetonationMaxDist(null), 45);
+  assert.strictEqual(CORE.tacticalDetonationMaxDist(undefined), 45);
+});

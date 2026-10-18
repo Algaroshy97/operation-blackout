@@ -4880,7 +4880,34 @@ def main() -> int:
         }""")
         checks.append(("ballistic-casing-and-slide-dust-vfx-rules", visual_v157_check))
 
-        # 108) Clean console throughout gameplay.
+        # 108) Enemy gunfire archetype acoustics, armor damage absorption gating, chamber-empty caliber clack, and tactical detonation audio range rules (v158 audio polish).
+        audio_v158_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const gunfireTankOk = CORE.enemyGunfireSound(false, 2) === 'eshot_elite' &&
+                                  CORE.enemyGunfireSound(false, 'tank') === 'eshot_elite' &&
+                                  CORE.enemyGunfireSound(false, 1) === 'eshot' &&
+                                  CORE.enemyGunfireSound(true, 1) === 'eshot_elite';
+
+            const armorAbsorbOk = CORE.armorDamageSound(50, 20, 30) === 'block' &&
+                                  CORE.armorDamageSound(50, 50, 0) === null &&
+                                  CORE.armorDamageSound(50, 0, 50) === 'armor_break';
+
+            const chamberOk = CORE.chamberEmptySound(0, 'SR') === 'dry_heavy' &&
+                              CORE.chamberEmptySound(0, 'BR') === 'dry_heavy' &&
+                              CORE.chamberEmptySound(0, 'AR') === 'chamber_empty' &&
+                              CORE.chamberEmptySound(0) === 'chamber_empty' &&
+                              CORE.chamberEmptySound(1, 'SR') === null;
+
+            const distOk = CORE.tacticalDetonationMaxDist('smoke') === 85 &&
+                           CORE.tacticalDetonationMaxDist('blind') === 65 &&
+                           CORE.tacticalDetonationMaxDist('stun') === 45;
+
+            return gunfireTankOk && armorAbsorbOk && chamberOk && distOk;
+        }""")
+        checks.append(("tactical-audio-polish-v158-rules", audio_v158_check))
+
+        # 109) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

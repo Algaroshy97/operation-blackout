@@ -433,7 +433,7 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType) {
   if (player.dead || godMode) return;
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
-  const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor);
+  const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;

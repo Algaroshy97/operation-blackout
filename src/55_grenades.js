@@ -542,12 +542,14 @@ function detonate(g, i, def) {
 // ---- Tactical payloads -------------------------------------------------------
 function applyTactical(def, pos) {
   const snd = CORE.tacticalDetonationSound(def.effect);
+  const maxDist = (typeof CORE !== 'undefined' && typeof CORE.tacticalDetonationMaxDist === 'function')
+    ? CORE.tacticalDetonationMaxDist(def.effect) : 45;
   if (def.effect === 'smoke') {
     addSmokeCloud(pos.x, Math.max(1.2, pos.y), pos.z, def);
-    playSound3D(snd, pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
+    playSound3D(snd, pos.x, pos.y, pos.z, maxDist);
     return;
   }
-  playSound3D(snd, pos.x, pos.y, pos.z);
+  playSound3D(snd, pos.x, pos.y, pos.z, maxDist);
   if (typeof fxTactical === 'function') fxTactical(pos, def.effect);
   if (typeof flashLight === 'function') {
     const tlp = CORE.tacticalFlashLightParams(def.effect);

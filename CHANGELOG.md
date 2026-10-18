@@ -4,6 +4,16 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v158 — Tactical audio polish: enemy gunfire archetype acoustics, armor damage absorption gating, and chamber-empty caliber clack
+
+- Implement enemy gunfire archetype acoustics (`CORE.enemyGunfireSound`): Tank enemies (`en.kind === 2` or `en.kind === 'tank'`) fire heavy battle rifle rounds and now trigger the punchier elite gunfire sound (`'eshot_elite'`) rather than the lightweight runner rifle shot; wired into `enemyShoot()` in `src/40_enemies.js`.
+- Implement armor damage absorption gating in player hit acoustics (`CORE.armorDamageSound`): clean `absorbedDamage` gating prevents non-absorbed damage (such as fall damage or damage bypassing armor) from playing the metallic `'block'` cue when armor plates are equipped; wired into `damagePlayer()` in `src/20_player.js`.
+- Implement weapon chamber-empty caliber clack (`CORE.chamberEmptySound`): heavy caliber weapons (`SR` and `BR`) produce a distinct heavy mechanical clack (`DRY_FIRE_HEAVY_SOUND = 'dry_heavy'`) on the final empty shot, while standard and lightweight weapons retain the crisp chamber clack (`'chamber_empty'`); wired into `fireShot()` in `src/30_weapons.js`.
+- Implement tactical equipment detonation acoustic range rules (`CORE.tacticalDetonationMaxDist`, `CORE.TACTICAL_DETONATION_MAX_DIST_BLIND`, `CORE.TACTICAL_DETONATION_MAX_DIST_SMOKE`): 85m for smoke canisters and 65m for flashbangs; wired into `applyTactical()` in `src/55_grenades.js`.
+- Add unit and integration regression suites in `tests/test_combat_balance_integration.js` and `tests/test_core.js`, plus contract check 108 (`tactical-audio-polish-v158-rules`) in `scripts/probe_live.py`.
+- Compact pure core helper definitions, ragdoll kinematics, and explosion/trail parameter mappings in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,940 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 487 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v157 — Ballistic casing caliber dimensions, eject kinematics, and tactical slide dust puff scaling
 
 - Implement ballistic casing caliber dimensions and ejection impulse scaling (`CORE.casingCaliberScale`, `CORE.casingEjectImpulse`, `CORE.casingScale`, `CORE.casingEjectVelocity`): SMG (0.75 scale, 1.15 impulse), AR (1.0 scale, 1.0 impulse), BR (1.25 scale, 0.90 impulse), and SR (1.60 scale, 0.75 impulse); wired into spent casing spawning and fade lifecycle in `src/50_vfx_audio.js`.
