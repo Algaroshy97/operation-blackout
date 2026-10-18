@@ -4907,7 +4907,31 @@ def main() -> int:
         }""")
         checks.append(("tactical-audio-polish-v158-rules", audio_v158_check))
 
-        # 109) Clean console throughout gameplay.
+        # 109) Weapon empty reload caliber scaling, enemy scout archetype combat tuning, and fast hands plate insertion agility (v159 combat balance).
+        combat_v159_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const reloadOk = CORE.weaponEmptyReloadMultiplier('SMG') === 1.10 &&
+                             CORE.weaponEmptyReloadMultiplier('AR') === 1.15 &&
+                             CORE.weaponEmptyReloadMultiplier('BR') === 1.22 &&
+                             CORE.weaponEmptyReloadMultiplier('SR') === 1.30 &&
+                             Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'SR') - 2.60) < 1e-4 &&
+                             Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'SMG') - 2.20) < 1e-4;
+
+            const scoutDmgOk = Math.abs(CORE.enemyRangedDamage(8, 3, 1.0, false, 4) - 8.05) < 1e-4 &&
+                               Math.abs(CORE.enemyRangedDamage(8, 3, 1.0, false, 'scout') - 8.05) < 1e-4 &&
+                               CORE.enemyWeaponType(4, false) === 'SMG' &&
+                               CORE.enemyWeaponType('scout', false) === 'SMG';
+
+            const plateOk = CORE.FAST_HANDS_PLATE_MUL === 0.80 &&
+                            Math.abs(CORE.plateApplyDuration(false) - 1.10) < 1e-4 &&
+                            Math.abs(CORE.plateApplyDuration(true) - (1.10 * 0.80)) < 1e-4;
+
+            return reloadOk && scoutDmgOk && plateOk;
+        }""")
+        checks.append(("tactical-combat-balance-v159-rules", combat_v159_check))
+
+        # 110) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

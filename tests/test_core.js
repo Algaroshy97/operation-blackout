@@ -9858,3 +9858,42 @@ test('v158 audio polish: enemy gunfire archetype acoustics, armor damage absorpt
   assert.strictEqual(CORE.tacticalDetonationMaxDist(null), 45);
   assert.strictEqual(CORE.tacticalDetonationMaxDist(undefined), 45);
 });
+
+test('v159 combat balance: weapon empty reload caliber scaling, enemy scout archetype combat tuning, and fast hands plate insertion agility rules', () => {
+  // 1. Weapon empty reload caliber multipliers
+  assert.strictEqual(CORE.EMPTY_RELOAD_TIME_SMG, 1.10);
+  assert.strictEqual(CORE.EMPTY_RELOAD_TIME_AR, 1.15);
+  assert.strictEqual(CORE.EMPTY_RELOAD_TIME_BR, 1.22);
+  assert.strictEqual(CORE.EMPTY_RELOAD_TIME_SR, 1.30);
+
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier('SMG'), 1.10);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier('AR'), 1.15);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier('BR'), 1.22);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier('SR'), 1.30);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier(''), 1.15);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier(undefined), 1.15);
+  assert.strictEqual(CORE.weaponEmptyReloadMultiplier(null), 1.15);
+
+  // effectiveReloadDuration with caliber scaling
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'SMG') - 2.20) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'AR') - 2.30) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'BR') - 2.44) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true, 'SR') - 2.60) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, false, 'SR') - 2.00) < 1e-4);
+  assert.ok(Math.abs(CORE.effectiveReloadDuration(2.0, 1.0, true) - 2.30) < 1e-4);
+
+  // 2. Enemy scout archetype combat tuning
+  assert.strictEqual(CORE.ENEMY_RANGED_SCOUT_PENALTY, -1);
+  const baseDmg = 8, wave = 3, diff = 1.0, isElite = false;
+  assert.ok(Math.abs(CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 4) - 8.05) < 1e-4);
+  assert.ok(Math.abs(CORE.enemyRangedDamage(baseDmg, wave, diff, isElite, 'scout') - 8.05) < 1e-4);
+  assert.strictEqual(CORE.enemyWeaponType(4, false), 'SMG');
+  assert.strictEqual(CORE.enemyWeaponType('scout', false), 'SMG');
+  assert.strictEqual(CORE.enemyWeaponType(4, true), 'SMG');
+
+  // 3. Fast Hands tactical armor plate insertion duration
+  assert.strictEqual(CORE.FAST_HANDS_PLATE_MUL, 0.80);
+  assert.ok(Math.abs(CORE.plateApplyDuration(false) - 1.10) < 1e-4);
+  assert.ok(Math.abs(CORE.plateApplyDuration(true) - (1.10 * 0.80)) < 1e-4);
+  assert.ok(Math.abs(CORE.plateApplyDuration() - 1.10) < 1e-4);
+});

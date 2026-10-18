@@ -1174,3 +1174,30 @@ test('v158 audio polish integration: enemy gunfire acoustics, armor absorption g
   assert.equal(CORE.tacticalDetonationMaxDist('blind'), 65);
   assert.equal(CORE.tacticalDetonationMaxDist('stun'), 45);
 });
+
+test('v159 combat balance integration: weapon empty reload caliber scaling, enemy scout archetype combat tuning, and fast hands plate insertion agility', () => {
+  // 1. Weapon empty reload caliber scaling
+  assert.equal(CORE.weaponEmptyReloadMultiplier('SMG'), 1.10);
+  assert.equal(CORE.weaponEmptyReloadMultiplier('AR'), 1.15);
+  assert.equal(CORE.weaponEmptyReloadMultiplier('BR'), 1.22);
+  assert.equal(CORE.weaponEmptyReloadMultiplier('SR'), 1.30);
+
+  // Caliber-dependent empty reload duration
+  const reloadSmg = CORE.effectiveReloadDuration(1.9, 1.0, true, 'SMG');
+  const reloadSr = CORE.effectiveReloadDuration(3.4, 1.0, true, 'SR');
+  assert.ok(Math.abs(reloadSmg - (1.9 * 1.10)) < 1e-4);
+  assert.ok(Math.abs(reloadSr - (3.4 * 1.30)) < 1e-4);
+
+  // 2. Scout archetype ranged damage scaling & weapon profile
+  const dmgRifle = CORE.enemyRangedDamage(8, 3, 1.0, false, 1);
+  const dmgScout = CORE.enemyRangedDamage(8, 3, 1.0, false, 4);
+  assert.ok(Math.abs(dmgRifle - 9.05) < 1e-4);
+  assert.ok(Math.abs(dmgScout - 8.05) < 1e-4);
+  assert.equal(CORE.enemyWeaponType(4, false), 'SMG');
+  assert.equal(CORE.enemyWeaponType('scout', false), 'SMG');
+
+  // 3. Fast hands plate duration
+  assert.equal(CORE.FAST_HANDS_PLATE_MUL, 0.80);
+  assert.ok(Math.abs(CORE.plateApplyDuration(false) - CORE.PLATE_TIME) < 1e-4);
+  assert.ok(Math.abs(CORE.plateApplyDuration(true) - (CORE.PLATE_TIME * 0.80)) < 1e-4);
+});

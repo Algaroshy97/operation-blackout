@@ -425,7 +425,9 @@ function updateStations(dt) {
         playSound(CORE.plateLockSound ? CORE.plateLockSound() : 'plate_lock');
       }
     }
-    setBuyPrompt('INSERTING PLATE', 1 - plateT / CORE.PLATE_TIME);
+    const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
+    const maxPlateT = typeof CORE.plateApplyDuration === 'function' ? CORE.plateApplyDuration(hasFastHands) : CORE.PLATE_TIME;
+    setBuyPrompt('INSERTING PLATE', 1 - plateT / maxPlateT);
     if (isTouch) updateTouchUseBtn(false, false, false, '', '', isDowned, isDead);
     return;
   }
@@ -471,7 +473,8 @@ function usePlate() {
     if (isDead || isDowned || isIns || curArmor >= maxArmor) return;
     if (curPlates <= 0) { showCenterMsg('NO PLATES'); return; }
   }
-  plateT = CORE.PLATE_TIME;
+  const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
+  plateT = typeof CORE.plateApplyDuration === 'function' ? CORE.plateApplyDuration(hasFastHands) : CORE.PLATE_TIME;
   playSound(CORE.plateInsertSound ? CORE.plateInsertSound() : 'plate_insert');
 }
 

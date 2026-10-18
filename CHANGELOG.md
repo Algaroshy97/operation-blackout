@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v159 — Tactical combat balance: weapon empty reload caliber scaling, enemy scout archetype combat tuning, and fast hands plate insertion agility
+
+- Implement weapon empty reload caliber scaling (`CORE.weaponEmptyReloadMultiplier`, `CORE.effectiveReloadDuration`): scales tactical empty reload duration based on caliber ergonomics — SMG (1.10x), AR (1.15x), BR (1.22x), and SR (1.30x) instead of a flat 1.15x multiplier; wired into `updateWeapons()` in `src/30_weapons.js`.
+- Implement enemy scout archetype combat tuning (`CORE.enemyWeaponType`, `CORE.enemyRangedDamage`): assigns lightweight SMG (`'SMG'`) weapon type to scout hostiles (`kind === 4` or `kind === 'scout'`, standard and elite) and applies scout ranged damage penalty (`ENEMY_RANGED_SCOUT_PENALTY` = -1) to match fast flanking combat identity; wired into enemy weapon initialization and shooting in `src/40_enemies.js`.
+- Implement Fast Hands perk armor plating agility (`CORE.plateApplyDuration`, `FAST_HANDS_PLATE_MUL` = 0.80): reduces armor plate insertion duration by 20% (1.60s vs standard 2.0s) when Fast Hands perk is active; wired into `usePlate()` and `updateStations()` prompt calculations in `src/57_stations.js`.
+- Add unit and integration regression suites in `tests/test_combat_balance_integration.js` and `tests/test_core.js`, plus contract check 109 (`tactical-combat-balance-v159-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations and helper functions in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,097,007 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 489 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v158 — Tactical audio polish: enemy gunfire archetype acoustics, armor damage absorption gating, and chamber-empty caliber clack
 
 - Implement enemy gunfire archetype acoustics (`CORE.enemyGunfireSound`): Tank enemies (`en.kind === 2` or `en.kind === 'tank'`) fire heavy battle rifle rounds and now trigger the punchier elite gunfire sound (`'eshot_elite'`) rather than the lightweight runner rifle shot; wired into `enemyShoot()` in `src/40_enemies.js`.

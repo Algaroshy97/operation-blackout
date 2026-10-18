@@ -152,7 +152,7 @@ function updateWeapons(dt) {
   const wasReloading = s.reloading;
   if (s.reloading) {
     s.reloadT += dt;
-    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload);
+    const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload, w ? w.type : '');
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
       CORE.completeReload(s.ammo, w.mag, s.reserve, _reloadOut);
       s.ammo = _reloadOut.ammo;
