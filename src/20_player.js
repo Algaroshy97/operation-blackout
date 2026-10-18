@@ -241,13 +241,13 @@ function updatePlayer(dt) {
       player.sliding = false;
       player.crouching = !!crouchKey;
       playSound(CORE.slideCancelSound());
-      spawnSlideDust(player.pos);
+      spawnSlideDust(player.pos, 'cancel', Math.hypot(player.vel.x, player.vel.z));
     }
     // slide ends: timeout, released crouch, or stopped
     if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, CORE.SLIDE_TIMEOUT_T, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
-      spawnSlideDust(player.pos);
+      spawnSlideDust(player.pos, 'stop', Math.hypot(player.vel.x, player.vel.z));
     }
     // slide-jump: convert momentum into a boost jump
     if (pressed['Space'] && player.onGround) {
@@ -260,7 +260,7 @@ function updatePlayer(dt) {
       player.jumpBufT = 0;
       player.coyoteT = 0;
       playSound(CORE.jumpSound(true));
-      spawnSlideDust(player.pos);
+      spawnSlideDust(player.pos, 'jump', spd);
     }
   }
 
@@ -467,7 +467,7 @@ function tryMantle() {
   player.sliding = false;
   player.onGround = false;
   playSound(CORE.mantleSound());
-  spawnSlideDust(player.pos);
+  spawnSlideDust(player.pos, 'mantle', Math.hypot(player.vel.x, player.vel.z));
   return true;
 }
 
@@ -480,5 +480,5 @@ function startSlide() {
   if (hv.lengthSq() > 1) hv.normalize(); else hv.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   player.slideDir.copy(hv);
   playSound(CORE.slideStartSound());
-  spawnSlideDust(player.pos);
+  spawnSlideDust(player.pos, 'start', Math.hypot(player.vel.x, player.vel.z));
 }

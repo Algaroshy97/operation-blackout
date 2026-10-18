@@ -9732,6 +9732,87 @@ test('v156 mobile UI polish: touch control activation gating, downed key sanitiz
   assert.strictEqual(CORE.sanitizeDownedInputKeys(null, null), 0);
 });
 
+test('v157 visual polish: ballistic casing caliber dimensions, eject kinematics, and tactical slide dust puff scaling', () => {
+  // 1. Casing caliber scale
+  assert.strictEqual(CORE.casingCaliberScale('SMG'), 0.75);
+  assert.strictEqual(CORE.casingCaliberScale('AR'), 1.0);
+  assert.strictEqual(CORE.casingCaliberScale('BR'), 1.25);
+  assert.strictEqual(CORE.casingCaliberScale('SR'), 1.60);
+  assert.strictEqual(CORE.casingCaliberScale(''), 1.0);
+  assert.strictEqual(CORE.casingCaliberScale(null), 1.0);
+
+  // 2. Casing eject impulse multiplier
+  assert.strictEqual(CORE.casingEjectImpulse('SMG'), 1.15);
+  assert.strictEqual(CORE.casingEjectImpulse('AR'), 1.0);
+  assert.strictEqual(CORE.casingEjectImpulse('BR'), 0.90);
+  assert.strictEqual(CORE.casingEjectImpulse('SR'), 0.75);
+  assert.strictEqual(CORE.casingEjectImpulse(''), 1.0);
+  assert.strictEqual(CORE.casingEjectImpulse(null), 1.0);
+
+  // 3. Casing scale during fadeout with caliber scaling
+  const dur = CORE.CASING_FADE_DURATION;
+  assert.strictEqual(CORE.casingScale(10.0, 20.0, dur, 1.0), 1.0);
+  assert.strictEqual(CORE.casingScale(10.0, 20.0, dur, 1.6), 1.6);
+  assert.strictEqual(CORE.casingScale(10.0, 20.0, dur, 0.75), 0.75);
+  assert.strictEqual(CORE.casingScale(0, 20.0, dur, 1.6), 0.0016);
+  const halfFade = dur * 0.5;
+  const t = 0.5;
+  const smooth = t * t * (3 - 2 * t);
+  assert.ok(Math.abs(CORE.casingScale(halfFade, 20.0, dur, 1.0) - smooth) < 1e-4);
+  assert.ok(Math.abs(CORE.casingScale(halfFade, 20.0, dur, 1.6) - smooth * 1.6) < 1e-4);
+
+  // 4. Casing eject velocity with weapon impulse multiplier
+  const baseVel = CORE.casingEjectVelocity(1, 0, 0, 0, 0);
+  assert.strictEqual(baseVel.x, 1.6);
+  assert.strictEqual(baseVel.y, 1.4);
+  assert.strictEqual(baseVel.z, 0);
+
+  const smgVel = CORE.casingEjectVelocity(1, 0, 0, 0, 0, 1.15);
+  assert.ok(Math.abs(smgVel.x - 1.6 * 1.15) < 1e-4);
+  assert.strictEqual(smgVel.y, 1.4);
+
+  const srVel = CORE.casingEjectVelocity(1, 0, 0, 0, 0, 0.75);
+  assert.ok(Math.abs(srVel.x - 1.6 * 0.75) < 1e-4);
+
+  // 5. Tactical slide dust VFX params per action & speed
+  const pJump = CORE.slideDustVfxParams('jump', 6.0);
+  assert.strictEqual(pJump.count, 9);
+  assert.strictEqual(pJump.spread, 1.35);
+  assert.strictEqual(pJump.scale, 1.25);
+  assert.strictEqual(pJump.color0, 0x8a8076);
+  assert.strictEqual(pJump.color1, 0x5a544e);
+
+  const pStart = CORE.slideDustVfxParams('start', 6.0);
+  assert.strictEqual(pStart.count, 7);
+  assert.strictEqual(pStart.spread, 1.15);
+  assert.strictEqual(pStart.scale, 1.05);
+
+  const pCancel = CORE.slideDustVfxParams('cancel', 6.0);
+  assert.strictEqual(pCancel.count, 5);
+  assert.strictEqual(pCancel.spread, 0.90);
+  assert.strictEqual(pCancel.scale, 0.85);
+
+  const pMantle = CORE.slideDustVfxParams('mantle', 6.0);
+  assert.strictEqual(pMantle.count, 6);
+  assert.strictEqual(pMantle.spread, 1.0);
+  assert.strictEqual(pMantle.scale, 0.95);
+
+  const pStop = CORE.slideDustVfxParams('stop', 6.0);
+  assert.strictEqual(pStop.count, 4);
+  assert.strictEqual(pStop.spread, 0.75);
+  assert.strictEqual(pStop.scale, 0.75);
+
+  // Speed scaling: higher speed increases particle density and spread
+  const pFast = CORE.slideDustVfxParams('start', 9.0);
+  assert.strictEqual(pFast.count, Math.round(7 * 1.5));
+  assert.ok(Math.abs(pFast.spread - 1.15 * 1.5) < 1e-4);
+
+  const pSlow = CORE.slideDustVfxParams('start', 3.0);
+  assert.strictEqual(pSlow.count, Math.round(7 * 0.6));
+  assert.ok(Math.abs(pSlow.spread - 1.15 * 0.6) < 1e-4);
+});
+
+
 
 
 

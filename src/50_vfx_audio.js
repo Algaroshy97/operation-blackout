@@ -324,13 +324,17 @@ function spawnCasing(camPos, camQ, weaponType) {
   }
   const m = getCasingMesh();
   m.position.copy(camPos);
-  m.scale.set(1, 1, 1);
+  const cal = (typeof CORE !== 'undefined' && typeof CORE.casingCaliberScale === 'function')
+    ? CORE.casingCaliberScale(weaponType) : 1;
+  m.scale.set(cal, cal, cal);
   _casingRight.set(1, 0, 0).applyQuaternion(camQ);
   _casingUp.set(0, 1, 0).applyQuaternion(camQ);
   _casingFwd.set(0, 0, -1).applyQuaternion(camQ);
   m.position.addScaledVector(_casingRight, 0.25).addScaledVector(_casingUp, -0.15);
   m.position.addScaledVector(_casingFwd, 0.3);
-  const vel = CORE.casingEjectVelocity(_casingRight.x, _casingRight.y, _casingRight.z, Math.random(), Math.random(), _casingVelOut);
+  const imp = (typeof CORE !== 'undefined' && typeof CORE.casingEjectImpulse === 'function')
+    ? CORE.casingEjectImpulse(weaponType) : 1;
+  const vel = CORE.casingEjectVelocity(_casingRight.x, _casingRight.y, _casingRight.z, Math.random(), Math.random(), imp, _casingVelOut);
   const sx = Math.random() * 14 - 7, sy = Math.random() * 14 - 7, sz = Math.random() * 14 - 7;
   scene.add(m);
   casings.push(getCasingRecord(m, vel.x, vel.y, vel.z, sx, sy, sz, weaponType));
@@ -347,7 +351,9 @@ function updateCasings(dt) {
     }
     // Smooth visual despawn: shrink in final 0.35s to eliminate abrupt pop-out
     if (c.life < CORE.CASING_FADE_DURATION) {
-      c.m.scale.setScalar(CORE.casingScale(c.life, CORE.CASING_LIFETIME, CORE.CASING_FADE_DURATION));
+      const cal = (typeof CORE !== 'undefined' && typeof CORE.casingCaliberScale === 'function')
+        ? CORE.casingCaliberScale(c.weaponType) : 1;
+      c.m.scale.setScalar(CORE.casingScale(c.life, CORE.CASING_LIFETIME, CORE.CASING_FADE_DURATION, cal));
     }
     if (!c.rest) {
       const p = CORE.stepCasingPhysics(
@@ -381,7 +387,14 @@ function updateCasings(dt) {
 }
 
 // ---- Slide dust ----
-function spawnSlideDust(pos) { fxDust(pos, 6, 1); }
+function spawnSlideDust(pos, actionType, speed) {
+  if (typeof CORE !== 'undefined' && typeof CORE.slideDustVfxParams === 'function') {
+    const p = CORE.slideDustVfxParams(actionType, speed);
+    fxDust(pos, p.count, p.spread, p.scale, p.color0, p.color1);
+  } else {
+    fxDust(pos, 6, 1);
+  }
+}
 
 // ---- Muzzle light (point light flash at gun) ----
 let muzzleLight = null;

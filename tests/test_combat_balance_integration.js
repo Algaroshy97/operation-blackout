@@ -1120,3 +1120,32 @@ test('v154 combat balance integration: weapon shot kick impulses, stance ADS agi
   assert.ok(Math.abs(dmgTankElite - (11.35 * CORE.ELITE.dmgMul)) < 1e-4);
 });
 
+test('v157 visual polish integration: ballistic casing caliber dimensions, eject kinematics, and tactical slide dust puff scaling', () => {
+  // 1. Casing caliber scale & impulse multipliers
+  assert.equal(CORE.casingCaliberScale('SMG'), 0.75);
+  assert.equal(CORE.casingCaliberScale('AR'), 1.0);
+  assert.equal(CORE.casingCaliberScale('BR'), 1.25);
+  assert.equal(CORE.casingCaliberScale('SR'), 1.60);
+
+  assert.equal(CORE.casingEjectImpulse('SMG'), 1.15);
+  assert.equal(CORE.casingEjectImpulse('AR'), 1.0);
+  assert.equal(CORE.casingEjectImpulse('BR'), 0.90);
+  assert.equal(CORE.casingEjectImpulse('SR'), 0.75);
+
+  // 2. Casing fade scale respects caliber scale
+  const dur = CORE.CASING_FADE_DURATION;
+  assert.equal(CORE.casingScale(10, 20, dur, CORE.casingCaliberScale('SR')), 1.60);
+  assert.equal(CORE.casingScale(10, 20, dur, CORE.casingCaliberScale('SMG')), 0.75);
+
+  // 3. Slide dust params integration across actions
+  for (const act of ['jump', 'start', 'cancel', 'mantle', 'stop']) {
+    const p = CORE.slideDustVfxParams(act, 6.0);
+    assert.ok(p.count > 0);
+    assert.ok(p.spread > 0);
+    assert.ok(p.scale > 0);
+    assert.equal(typeof p.color0, 'number');
+    assert.equal(typeof p.color1, 'number');
+  }
+});
+
+

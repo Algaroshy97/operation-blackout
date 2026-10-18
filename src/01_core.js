@@ -5663,19 +5663,22 @@ const CORE = (function () {
   const VIEWMODEL_MANTLE_IN_RATE = 8;
   const VIEWMODEL_MANTLE_OUT_RATE = 5;
 
-  function casingScale(life, maxLife, fadeDur) {
+  function casingScale(life, maxLife, fadeDur, caliberScale) {
     const dur = _isPos(fadeDur) ? fadeDur : CASING_FADE_DURATION;
-    if (!_isPos(life)) return 0.001;
-    if (life >= dur) return 1.0;
+    const cal = _isPos(caliberScale) ? caliberScale : 1.0;
+    if (!_isPos(life)) return 0.001 * cal;
+    if (life >= dur) return cal;
     const t = _clamp01(life / dur);
-    return Math.max(0.001, t * t * (3 - 2 * t));
+    return Math.max(0.001 * cal, t * t * (3 - 2 * t) * cal);
   }
 
-  function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
+  function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, impulseMulOrOut, out) {
+    const hasMul = typeof impulseMulOrOut === 'number';
+    const o = hasMul ? (out || { x: 0, y: 0, z: 0 }) : (impulseMulOrOut || { x: 0, y: 0, z: 0 });
+    const mul = hasMul ? impulseMulOrOut : 1.0;
     const rMul = _isNum(randMul) ? randMul : 0;
     const rY = _isNum(randY) ? randY : 0;
-    const speed = 1.6 + rMul;
+    const speed = (1.6 + rMul) * mul;
     const rx = _isNum(rightX) ? rightX : 0;
     const ry = _isNum(rightY) ? rightY : 0;
     const rz = _isNum(rightZ) ? rightZ : 0;
@@ -6597,489 +6600,200 @@ const CORE = (function () {
   const SENTRY_AIM_Y_OFFSET = 1.1;
   const BURN_TICK_INTERVAL = 0.25;
 
-  function stepTracerLife(life, dt) {
-    const cur = _isNum(life) ? life : 0;
-    const delta = _isNum(dt) ? dt : 0;
-    return Math.max(0, cur - delta);
-  }
-
-  function isTracerExpired(life) {
-    return !_isPos(life);
-  }
-
-  function stepImpactLife(life, dt) {
-    const cur = _isNum(life) ? life : 0;
-    const delta = _isNum(dt) ? dt : 0;
-    return Math.max(0, cur - delta);
-  }
-
-  function isImpactExpired(life) {
-    return !_isPos(life);
-  }
-
-  function sentryTargetYaw(dx, dz) {
-    const x = _isNum(dx) ? dx : 0;
-    const z = _isNum(dz) ? dz : 0;
-    return Math.atan2(x, z) + Math.PI;
-  }
-
+  function stepTracerLife(life, dt) { return Math.max(0, ((_isNum(life)) ? life : 0) - ((_isNum(dt)) ? dt : 0)); }
+  function isTracerExpired(life) { return !_isPos(life); }
+  function stepImpactLife(life, dt) { return Math.max(0, ((_isNum(life)) ? life : 0) - ((_isNum(dt)) ? dt : 0)); }
+  function isImpactExpired(life) { return !_isPos(life); }
+  function sentryTargetYaw(dx, dz) { return Math.atan2((_isNum(dx)) ? dx : 0, (_isNum(dz)) ? dz : 0) + Math.PI; }
   function stepSentryTimers(t, cd, dt, out) {
-    const res = out || { t: 0, cd: 0, expired: false, readyToFire: false };
-    const delta = _isNum(dt) ? dt : 0;
-    const curT = _isNum(t) ? t - delta : 0;
-    const curCd = _isNum(cd) ? cd - delta : 0;
-    res.t = curT;
-    res.cd = curCd;
-    res.expired = curT <= 0;
-    res.readyToFire = curCd <= 0;
-    return res;
+    const res = out || { t: 0, cd: 0, expired: false, readyToFire: false }, delta = _isNum(dt) ? dt : 0;
+    const curT = _isNum(t) ? t - delta : 0, curCd = _isNum(cd) ? cd - delta : 0;
+    res.t = curT; res.cd = curCd; res.expired = curT <= 0; res.readyToFire = curCd <= 0; return res;
   }
-
-  function sentryAimTargetY(enemyY, offset) {
-    const base = _isNum(enemyY) ? enemyY : 0;
-    const off = _isNum(offset) ? offset : SENTRY_AIM_Y_OFFSET;
-    return base + off;
-  }
-
-  function burnTickDamage(dps, interval) {
-    const d = _isNum(dps) ? Math.max(0, dps) : 0;
-    const i = _isNum(interval) ? Math.max(0, interval) : BURN_TICK_INTERVAL;
-    return d * i;
-  }
-
+  function sentryAimTargetY(enemyY, offset) { return ((_isNum(enemyY)) ? enemyY : 0) + ((_isNum(offset)) ? offset : SENTRY_AIM_Y_OFFSET); }
+  function burnTickDamage(dps, interval) { return (_isNum(dps) ? Math.max(0, dps) : 0) * (_isNum(interval) ? Math.max(0, interval) : BURN_TICK_INTERVAL); }
   function isPointInBurnRadius(px, pz, bx, bz, radius) {
     const r = _isNum(radius) ? radius : 0;
-    if (r <= 0) return false;
-    const dx = px - bx, dz = pz - bz;
-    return (dx * dx + dz * dz) < (r * r);
+    return r > 0 && (((px - bx) * (px - bx) + (pz - bz) * (pz - bz)) < (r * r));
   }
-
   const GRENADE_POOL_MAX = 12;
-
   function canRecycleGrenade(fuseOrCount, atRestOrMax) {
-    if (typeof atRestOrMax === 'boolean') {
-      const fuse = _isNum(fuseOrCount) ? fuseOrCount : 0;
-      return fuse <= 0 || atRestOrMax;
-    }
-    const maxP = _isPos(atRestOrMax) ? atRestOrMax : GRENADE_POOL_MAX;
-    const count = _isNum(fuseOrCount) ? fuseOrCount : 0;
-    return count < maxP;
+    if (typeof atRestOrMax === 'boolean') return ((_isNum(fuseOrCount)) ? fuseOrCount : 0) <= 0 || atRestOrMax;
+    return ((_isNum(fuseOrCount)) ? fuseOrCount : 0) < (_isPos(atRestOrMax) ? atRestOrMax : GRENADE_POOL_MAX);
   }
 
   // ---- Ballistic spread, aim assist dynamics, enemy AI state kinetics, mantle & grenade loft balance rules (v110 balance tuning) ----
-  const SPREAD_LONGITUDINAL_SCALE = 0.3;
-  const AIM_ASSIST_HEAD_THRESHOLD = 0.55;
-  const AIM_ASSIST_HEAD_PRIORITY = 1.8;
-  const AIM_ASSIST_PULL_WEIGHT = 0.25;
-  const AIM_ASSIST_TRACK_RATE = 3.5;
-  const AIM_ASSIST_CHEST_OFFSET = 1.0;
-  const AIM_ASSIST_HEAD_OFFSET = 1.68;
-  const BULLET_MAGNET_Y_OFFSET = 1.1;
-  const ENEMY_SPAWN_DURATION = 0.5;
-  const ENEMY_STRAFE_MAX_T = 6.0;
-  const GRENADIER_STRAFE_RANGE = 34;
-  const GRENADIER_STRAFE_DURATION = 2.5;
-  const RIFLEMAN_STRAFE_DURATION = 2.0;
-  const RIFLEMAN_LOS_RETRY_DELAY = 0.4;
-  const FLANK_STEER_WEIGHT = 0.45;
-  const ENEMY_OVERLAP_MIN_DIST = 0.05;
-  const ENEMY_SHOT_CHEST_Y_OFFSET = 0.2;
-  const MANTLE_DURATION = 0.35;
-  const MANTLE_COYOTE_GRACE = 0.12;
-  const GRENADE_PITCH_LOFT = 0.45;
-  const GRENADE_COOLDOWN = 0.8;
-  const TACTICAL_SPEED_MUL = 1.15;
-  const PLAYER_FLASH_SELF_MUL = 0.6;
+  const SPREAD_LONGITUDINAL_SCALE = 0.3, AIM_ASSIST_HEAD_THRESHOLD = 0.55, AIM_ASSIST_HEAD_PRIORITY = 1.8, AIM_ASSIST_PULL_WEIGHT = 0.25, AIM_ASSIST_TRACK_RATE = 3.5, AIM_ASSIST_CHEST_OFFSET = 1.0, AIM_ASSIST_HEAD_OFFSET = 1.68, BULLET_MAGNET_Y_OFFSET = 1.1;
+  const ENEMY_SPAWN_DURATION = 0.5, ENEMY_STRAFE_MAX_T = 6.0, GRENADIER_STRAFE_RANGE = 34, GRENADIER_STRAFE_DURATION = 2.5, RIFLEMAN_STRAFE_DURATION = 2.0, RIFLEMAN_LOS_RETRY_DELAY = 0.4, FLANK_STEER_WEIGHT = 0.45, ENEMY_OVERLAP_MIN_DIST = 0.05, ENEMY_SHOT_CHEST_Y_OFFSET = 0.2;
+  const MANTLE_DURATION = 0.35, MANTLE_COYOTE_GRACE = 0.12, GRENADE_PITCH_LOFT = 0.45, GRENADE_COOLDOWN = 0.8, TACTICAL_SPEED_MUL = 1.15, PLAYER_FLASH_SELF_MUL = 0.6;
 
   function ballisticSpreadVector(dirX, dirY, dirZ, spread, randX, randY, randZ, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const s = _isNum(spread) ? Math.max(0, spread) : 0;
-    const rx = _isNum(randX) ? randX : 0.5;
-    const ry = _isNum(randY) ? randY : 0.5;
-    const rz = _isNum(randZ) ? randZ : 0.5;
-    const jx = (rx - 0.5) * 2 * s;
-    const jy = (ry - 0.5) * 2 * s;
-    const jz = (rz - 0.5) * 2 * s * SPREAD_LONGITUDINAL_SCALE;
-    const x = (_isNum(dirX) ? dirX : 0) + jx;
-    const y = (_isNum(dirY) ? dirY : 0) + jy;
-    const z = (_isNum(dirZ) ? dirZ : -1) + jz;
+    const o = out || { x: 0, y: 0, z: 0 }, s = _isNum(spread) ? Math.max(0, spread) : 0;
+    const x = (_isNum(dirX) ? dirX : 0) + ((_isNum(randX) ? randX : 0.5) - 0.5) * 2 * s;
+    const y = (_isNum(dirY) ? dirY : 0) + ((_isNum(randY) ? randY : 0.5) - 0.5) * 2 * s;
+    const z = (_isNum(dirZ) ? dirZ : -1) + ((_isNum(randZ) ? randZ : 0.5) - 0.5) * 2 * s * SPREAD_LONGITUDINAL_SCALE;
     const len = Math.hypot(x, y, z) || 1;
-    o.x = x / len;
-    o.y = y / len;
-    o.z = z / len;
-    return o;
+    o.x = x / len; o.y = y / len; o.z = z / len; return o;
   }
-
   function bulletPenetrationPower(weaponType, weaponPenModifier) {
-    const base = penetrationPower(weaponType);
-    const mul = _isPos(weaponPenModifier) ? weaponPenModifier : 1;
-    return base * mul;
+    return penetrationPower(weaponType) * (_isPos(weaponPenModifier) ? weaponPenModifier : 1);
   }
-
   function isAimAssistHeadCandidate(headAngle, bestAngle, threshold) {
-    const ha = _isNum(headAngle) ? headAngle : Infinity;
-    const ba = _isNum(bestAngle) ? bestAngle : 0;
-    const th = _isNum(threshold) ? threshold : AIM_ASSIST_HEAD_THRESHOLD;
-    return ha < ba * th;
+    return ((_isNum(headAngle)) ? headAngle : Infinity) < ((_isNum(bestAngle)) ? bestAngle : 0) * (_isNum(threshold) ? threshold : AIM_ASSIST_HEAD_THRESHOLD);
   }
-
   function aimAssistAngularDeltas(targetFwdX, targetFwdY, targetFwdZ, curFwdX, curFwdY, curFwdZ, out) {
     const o = out || { yawDelta: 0, pitchDelta: 0 };
-    const tx = _isNum(targetFwdX) ? targetFwdX : 0;
-    const ty = _isNum(targetFwdY) ? targetFwdY : 0;
-    const tz = _isNum(targetFwdZ) ? targetFwdZ : -1;
-    const cx = _isNum(curFwdX) ? curFwdX : 0;
-    const cy = _isNum(curFwdY) ? curFwdY : 0;
-    const cz = _isNum(curFwdZ) ? curFwdZ : -1;
+    const tx = _isNum(targetFwdX) ? targetFwdX : 0, ty = _isNum(targetFwdY) ? targetFwdY : 0, tz = _isNum(targetFwdZ) ? targetFwdZ : -1;
+    const cx = _isNum(curFwdX) ? curFwdX : 0, cy = _isNum(curFwdY) ? curFwdY : 0, cz = _isNum(curFwdZ) ? curFwdZ : -1;
     let dyaw = Math.atan2(-tx, -tz) - Math.atan2(-cx, -cz);
     const dpitch = Math.asin(Math.max(-1, Math.min(1, ty))) - Math.asin(Math.max(-1, Math.min(1, cy)));
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    o.yawDelta = dyaw;
-    o.pitchDelta = dpitch;
-    return o;
+    o.yawDelta = dyaw; o.pitchDelta = dpitch; return o;
   }
-
   function stepAimAssistLook(yaw, pitch, yawDelta, pitchDelta, dt, trackRate, out) {
-    const o = out || { yaw: 0, pitch: 0 };
-    const rate = _isNum(trackRate) ? trackRate : AIM_ASSIST_TRACK_RATE;
-    const dSec = _isNum(dt) ? Math.max(0, dt) : 0;
-    const y = _isNum(yaw) ? yaw : 0;
-    const p = _isNum(pitch) ? pitch : 0;
-    const yd = _isNum(yawDelta) ? yawDelta : 0;
-    const pd = _isNum(pitchDelta) ? pitchDelta : 0;
-    o.yaw = y + yd * rate * dSec;
-    o.pitch = Math.max(-1.45, Math.min(1.45, p + pd * rate * dSec));
+    const o = out || { yaw: 0, pitch: 0 }, rate = _isNum(trackRate) ? trackRate : AIM_ASSIST_TRACK_RATE, dSec = _isNum(dt) ? Math.max(0, dt) : 0;
+    o.yaw = ((_isNum(yaw)) ? yaw : 0) + ((_isNum(yawDelta)) ? yawDelta : 0) * rate * dSec;
+    o.pitch = Math.max(-1.45, Math.min(1.45, ((_isNum(pitch)) ? pitch : 0) + ((_isNum(pitchDelta)) ? pitchDelta : 0) * rate * dSec));
     return o;
   }
-
-
   function enemyAiNextState(kind, curState, stateT, dist, hasLOS, rangedRange, preferredRange, out) {
     const o = out || { state: 'chase', stateT: 0, strafeT: 0, resetStateT: false };
-    const k = _isNum(kind) ? kind : 0;
-    const s = curState || 'chase';
-    const st = _isNum(stateT) ? stateT : 0;
-    const d = _isNum(dist) ? dist : 0;
-    const los = !!hasLOS;
-    const rr = _isNum(rangedRange) ? rangedRange : 44;
-    const pr = _isNum(preferredRange) ? preferredRange : 16;
-
-    o.state = s;
-    o.strafeT = 0;
-    o.resetStateT = false;
-
+    const k = _isNum(kind) ? kind : 0, s = curState || 'chase', st = _isNum(stateT) ? stateT : 0, d = _isNum(dist) ? dist : 0;
+    const los = !!hasLOS, rr = _isNum(rangedRange) ? rangedRange : 44, pr = _isNum(preferredRange) ? preferredRange : 16;
+    o.state = s; o.strafeT = 0; o.resetStateT = false;
     if (s === 'spawn') {
-      if (st > ENEMY_SPAWN_DURATION) {
-        o.state = 'chase';
-        o.resetStateT = true;
-      }
+      if (st > ENEMY_SPAWN_DURATION) { o.state = 'chase'; o.resetStateT = true; }
     } else if (k === 1) {
       if (d < rr && los) {
-        if (s !== 'strafe' && s !== 'shoot') {
-          o.state = 'strafe';
-          o.strafeT = RIFLEMAN_STRAFE_DURATION;
-        }
-      } else if (s !== 'chase') {
-        o.state = 'chase';
-      }
-      if (o.state === 'strafe' && st > ENEMY_STRAFE_MAX_T) {
-        o.state = 'chase';
-        o.resetStateT = true;
-      }
+        if (s !== 'strafe' && s !== 'shoot') { o.state = 'strafe'; o.strafeT = RIFLEMAN_STRAFE_DURATION; }
+      } else if (s !== 'chase') { o.state = 'chase'; }
+      if (o.state === 'strafe' && st > ENEMY_STRAFE_MAX_T) { o.state = 'chase'; o.resetStateT = true; }
     } else if (k === 5) {
-      if (d < pr) {
-        o.state = 'fallback';
-      } else if (d < GRENADIER_STRAFE_RANGE && los) {
-        if (s !== 'strafe') {
-          o.state = 'strafe';
-          o.strafeT = GRENADIER_STRAFE_DURATION;
-        }
-      } else {
-        o.state = 'chase';
-      }
-    } else {
-      o.state = 'chase';
-    }
+      if (d < pr) { o.state = 'fallback'; }
+      else if (d < GRENADIER_STRAFE_RANGE && los) { if (s !== 'strafe') { o.state = 'strafe'; o.strafeT = GRENADIER_STRAFE_DURATION; } }
+      else { o.state = 'chase'; }
+    } else { o.state = 'chase'; }
     return o;
   }
-
   function stepFlankVelocity(mvx, mvz, strafeDir, bias, out) {
-    const o = out || { x: 0, z: 0 };
-    const rawBias = _isNum(bias) ? bias : 0;
-    const b = _clamp01(rawBias * FLANK_STEER_WEIGHT);
-    const vx = _isNum(mvx) ? mvx : 0;
-    const vz = _isNum(mvz) ? mvz : 0;
-    if (b <= 0.001) {
-      o.x = vx;
-      o.z = vz;
-      return o;
-    }
-    const sDir = strafeDir === -1 ? -1 : 1;
-    const px = -vz * sDir;
-    const pz = vx * sDir;
-    const nx = vx * (1 - b) + px * b;
-    const nz = vz * (1 - b) + pz * b;
-    const len = Math.hypot(nx, nz) || 1;
-    o.x = nx / len;
-    o.z = nz / len;
-    return o;
+    const o = out || { x: 0, z: 0 }, b = _clamp01((_isNum(bias) ? bias : 0) * FLANK_STEER_WEIGHT);
+    const vx = _isNum(mvx) ? mvx : 0, vz = _isNum(mvz) ? mvz : 0;
+    if (b <= 0.001) { o.x = vx; o.z = vz; return o; }
+    const sDir = strafeDir === -1 ? -1 : 1, px = -vz * sDir, pz = vx * sDir;
+    const nx = vx * (1 - b) + px * b, nz = vz * (1 - b) + pz * b, len = Math.hypot(nx, nz) || 1;
+    o.x = nx / len; o.z = nz / len; return o;
   }
-
   function playerPushoutOffset(enemyX, enemyZ, playerX, playerZ, enemyYaw, dist, stopDist, out) {
-    const o = out || { pushX: 0, pushZ: 0, applied: false };
-    const d = _isNum(dist) ? dist : 0;
-    const sd = _isNum(stopDist) ? stopDist : 1.9;
+    const o = out || { pushX: 0, pushZ: 0, applied: false }, d = _isNum(dist) ? dist : 0, sd = _isNum(stopDist) ? stopDist : 1.9;
     const overlap = sd - d;
-    if (overlap <= 0) {
-      o.pushX = 0;
-      o.pushZ = 0;
-      o.applied = false;
-      return o;
-    }
+    if (overlap <= 0) { o.pushX = 0; o.pushZ = 0; o.applied = false; return o; }
     let nx, nz;
-    if (d > ENEMY_OVERLAP_MIN_DIST) {
-      nx = (enemyX - playerX) / d;
-      nz = (enemyZ - playerZ) / d;
-    } else {
-      const yaw = _isNum(enemyYaw) ? enemyYaw : 0;
-      nx = -Math.sin(yaw);
-      nz = -Math.cos(yaw);
-    }
-    o.pushX = nx * overlap;
-    o.pushZ = nz * overlap;
-    o.applied = true;
-    return o;
+    if (d > ENEMY_OVERLAP_MIN_DIST) { nx = (enemyX - playerX) / d; nz = (enemyZ - playerZ) / d; }
+    else { const yaw = _isNum(enemyYaw) ? enemyYaw : 0; nx = -Math.sin(yaw); nz = -Math.cos(yaw); }
+    o.pushX = nx * overlap; o.pushZ = nz * overlap; o.applied = true; return o;
   }
 
   function enemyAimTargetY(playerPosY, chestOffset) {
-    const py = _isNum(playerPosY) ? playerPosY : 1.7;
-    const off = _isNum(chestOffset) ? chestOffset : ENEMY_SHOT_CHEST_Y_OFFSET;
-    return py - off;
+    return ((_isNum(playerPosY)) ? playerPosY : 1.7) - ((_isNum(chestOffset)) ? chestOffset : ENEMY_SHOT_CHEST_Y_OFFSET);
   }
-
   function stepMantleProgress(mantleT, dt, duration) {
-    const dur = _isPos(duration) ? duration : MANTLE_DURATION;
-    const t = _isNum(mantleT) ? mantleT : dur;
-    const d = _isNum(dt) ? Math.max(0, dt) : 0;
-    const remaining = Math.max(0, t - d);
-    const k = _clamp01(1 - remaining / dur);
-    return { remainingT: remaining, progressK: k, completed: remaining === 0 };
+    const dur = _isPos(duration) ? duration : MANTLE_DURATION, remaining = Math.max(0, ((_isNum(mantleT)) ? mantleT : dur) - ((_isNum(dt)) ? Math.max(0, dt) : 0));
+    return { remainingT: remaining, progressK: _clamp01(1 - remaining / dur), completed: remaining === 0 };
   }
-
   function grenadeThrowVelocity(fwdX, fwdY, fwdZ, speed, loft, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const l = _isNum(loft) ? loft : GRENADE_PITCH_LOFT;
-    const spd = _isNum(speed) ? Math.max(0, speed) : 9.5;
-    const vx = _isNum(fwdX) ? fwdX : 0;
-    const vy = (_isNum(fwdY) ? fwdY : 0) + l;
-    const vz = _isNum(fwdZ) ? fwdZ : -1;
-    const len = Math.hypot(vx, vy, vz) || 1;
-    o.x = (vx / len) * spd;
-    o.y = (vy / len) * spd;
-    o.z = (vz / len) * spd;
-    return o;
+    const o = out || { x: 0, y: 0, z: 0 }, l = _isNum(loft) ? loft : GRENADE_PITCH_LOFT, spd = _isNum(speed) ? Math.max(0, speed) : 9.5;
+    const vx = _isNum(fwdX) ? fwdX : 0, vy = (_isNum(fwdY) ? fwdY : 0) + l, vz = _isNum(fwdZ) ? fwdZ : -1, len = Math.hypot(vx, vy, vz) || 1;
+    o.x = (vx / len) * spd; o.y = (vy / len) * spd; o.z = (vz / len) * spd; return o;
   }
-
   function playerSelfFlashDuration(flashStrength, baseDur, selfMultiplier) {
     const mul = _isNum(selfMultiplier) ? selfMultiplier : PLAYER_FLASH_SELF_MUL;
-    const dur = _isNum(baseDur) ? baseDur * mul : 2.5 * mul;
-    return flashDuration(flashStrength, dur);
+    return flashDuration(flashStrength, (_isNum(baseDur) ? baseDur : 2.5) * mul);
   }
 
   // ---- Tactical Minimap Deployables & Drops, Dynamic Grenade Danger Ring & Thermite Burn VFX (v112 Visual Polish) ----
-  const GRENADE_RING_BASE_OPACITY = 0.32;
-  const GRENADE_RING_MAX_OPACITY = 0.78;
-  const MINIMAP_SENTRY_COLOR = '#50b4ff';
-  const MINIMAP_MUNITIONS_COLOR = '#8fd66a';
-  const MINIMAP_PICKUP_AMMO_COLOR = '#ffd24a';
-  const MINIMAP_PICKUP_MED_COLOR = '#4fd08a';
-  const MINIMAP_PICKUP_POWER_COLOR = '#d070ff';
-  const MINIMAP_SENTRY_RADIUS = 3.2;
-  const MINIMAP_MUNITIONS_SIZE = 4.5;
-  const MINIMAP_PICKUP_BASE_RADIUS = 2.2;
-  const BURN_PATCH_HEAT_FLICKER_FREQ = 12;
-
+  const GRENADE_RING_BASE_OPACITY = 0.32, GRENADE_RING_MAX_OPACITY = 0.78, MINIMAP_SENTRY_COLOR = '#50b4ff', MINIMAP_MUNITIONS_COLOR = '#8fd66a';
+  const MINIMAP_PICKUP_AMMO_COLOR = '#ffd24a', MINIMAP_PICKUP_MED_COLOR = '#4fd08a', MINIMAP_PICKUP_POWER_COLOR = '#d070ff', MINIMAP_SENTRY_RADIUS = 3.2, MINIMAP_MUNITIONS_SIZE = 4.5, MINIMAP_PICKUP_BASE_RADIUS = 2.2, BURN_PATCH_HEAT_FLICKER_FREQ = 12;
   function grenadeDangerRingOpacity(fuse, restFuse) {
     if (!_isPos(fuse)) return 0;
     if (fuse > 1.6) return GRENADE_RING_BASE_OPACITY;
-    const urgency = 1 - Math.max(0, fuse / 1.6);
-    const freq = 4 + urgency * 6;
-    const pulse = Math.sin((1.6 - fuse) * freq * Math.PI * 2) * 0.5 + 0.5;
-    const dynamicPeak = GRENADE_RING_BASE_OPACITY + (GRENADE_RING_MAX_OPACITY - GRENADE_RING_BASE_OPACITY) * urgency;
-    return Math.max(0.12, GRENADE_RING_BASE_OPACITY + (dynamicPeak - GRENADE_RING_BASE_OPACITY) * pulse);
+    const urgency = 1 - Math.max(0, fuse / 1.6), pulse = Math.sin((1.6 - fuse) * (4 + urgency * 6) * Math.PI * 2) * 0.5 + 0.5, peak = GRENADE_RING_BASE_OPACITY + (GRENADE_RING_MAX_OPACITY - GRENADE_RING_BASE_OPACITY) * urgency;
+    return Math.max(0.12, GRENADE_RING_BASE_OPACITY + (peak - GRENADE_RING_BASE_OPACITY) * pulse);
   }
-
   function burnPatchPulsingOpacity(remainingT, totalLife, maxOpacity) {
     if (!_isPos(remainingT)) return 0;
-    const life = _isPos(totalLife) ? totalLife : 1.0;
-    const maxO = _isNum(maxOpacity) ? maxOpacity : 0.5;
-    const baseDecay = _clamp01(remainingT / life);
-    const shimmer = Math.sin(remainingT * BURN_PATCH_HEAT_FLICKER_FREQ) * 0.08 + Math.cos(remainingT * 19) * 0.05;
-    return Math.max(0, Math.min(1, maxO * (baseDecay + shimmer * baseDecay)));
+    const b = _clamp01(remainingT / (_isPos(totalLife) ? totalLife : 1.0)), sh = Math.sin(remainingT * BURN_PATCH_HEAT_FLICKER_FREQ) * 0.08 + Math.cos(remainingT * 19) * 0.05;
+    return Math.max(0, Math.min(1, (_isNum(maxOpacity) ? maxOpacity : 0.5) * (b + sh * b)));
   }
-
-  function burnPatchFlameStrength(remainingT, totalLife) {
-    if (!_isPos(remainingT)) return 0;
-    const life = _isPos(totalLife) ? totalLife : 1.0;
-    return _clamp01(remainingT / life);
-  }
-
-  function minimapPickupColor(kind) {
-    if (kind === 'ammo') return MINIMAP_PICKUP_AMMO_COLOR;
-    if (kind === 'med') return MINIMAP_PICKUP_MED_COLOR;
-    if (kind === 'power') return MINIMAP_PICKUP_POWER_COLOR;
-    return MINIMAP_PICKUP_AMMO_COLOR;
-  }
-
+  function burnPatchFlameStrength(remainingT, totalLife) { return !_isPos(remainingT) ? 0 : _clamp01(remainingT / (_isPos(totalLife) ? totalLife : 1.0)); }
+  function minimapPickupColor(kind) { return kind === 'med' ? MINIMAP_PICKUP_MED_COLOR : (kind === 'power' ? MINIMAP_PICKUP_POWER_COLOR : MINIMAP_PICKUP_AMMO_COLOR); }
   function pickupMinimapPulse(t, blinkStart, maxLife, baseRadius) {
-    const baseR = _isPos(baseRadius) ? baseRadius : MINIMAP_PICKUP_BASE_RADIUS;
-    const curT = _isNum(t) ? t : 0;
-    const bStart = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START;
-    const mL = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
+    const b = _isPos(baseRadius) ? baseRadius : MINIMAP_PICKUP_BASE_RADIUS, curT = _isNum(t) ? t : 0, bStart = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START, mL = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
     if (curT >= mL) return 0;
-    if (curT <= bStart) return baseR;
-    const progress = (curT - bStart) / Math.max(0.001, mL - bStart);
-    const freq = 3 + progress * 4;
-    const wave = Math.sin((curT - bStart) * freq * Math.PI * 2) * 0.5 + 0.5;
-    return baseR * (0.6 + 0.8 * wave);
+    if (curT <= bStart) return b;
+    const prog = (curT - bStart) / Math.max(0.001, mL - bStart);
+    return b * (0.6 + 0.8 * (Math.sin((curT - bStart) * (3 + prog * 4) * Math.PI * 2) * 0.5 + 0.5));
   }
-
   function sentryMinimapPointer(bx, bz, sentryYaw, length, out) {
-    const o = out || { x: 0, z: 0 };
-    const len = _isNum(length) ? length : 5.5;
-    const yaw = _isNum(sentryYaw) ? sentryYaw : 0;
-    o.x = bx - Math.sin(yaw) * len;
-    o.z = bz - Math.cos(yaw) * len;
-    return o;
+    const o = out || { x: 0, z: 0 }, len = _isNum(length) ? length : 5.5, y = _isNum(sentryYaw) ? sentryYaw : 0;
+    o.x = bx - Math.sin(y) * len; o.z = bz - Math.cos(y) * len; return o;
   }
 
   // ---- Tactical Battlefield & Weapon Audio Polish (v113 Audio Polish) ----
-  const BULLET_WHIZ_MAX_DIST = 3.6;
-  const BULLET_WHIZ_MIN_OFFSET = 0.75;
-  const LOW_AMMO_THRESHOLD_AR = 5;
-  const LOW_AMMO_THRESHOLD_SMG = 6;
-  const LOW_AMMO_THRESHOLD_BR = 4;
-  const LOW_AMMO_THRESHOLD_SR = 1;
-
-  function bulletWhizSound() {
-    return 'bullet_whiz';
-  }
-
-  function isBulletNearMiss(dist, maxDist) {
-    if (!_isPos(dist)) return false;
-    const maxD = _isPos(maxDist) ? maxDist : BULLET_WHIZ_MAX_DIST;
-    return dist <= maxD;
-  }
-
+  const BULLET_WHIZ_MAX_DIST = 3.6, BULLET_WHIZ_MIN_OFFSET = 0.75, LOW_AMMO_THRESHOLD_AR = 5, LOW_AMMO_THRESHOLD_SMG = 6, LOW_AMMO_THRESHOLD_BR = 4, LOW_AMMO_THRESHOLD_SR = 1;
+  function bulletWhizSound() { return 'bullet_whiz'; }
+  function isBulletNearMiss(dist, maxDist) { return _isPos(dist) && dist <= (_isPos(maxDist) ? maxDist : BULLET_WHIZ_MAX_DIST); }
   function bulletNearMissOffset(seedX, seedY, minOffset, maxOffset, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const minO = _isNonNeg(minOffset) ? minOffset : BULLET_WHIZ_MIN_OFFSET;
-    const maxO = _isNum(maxOffset) && maxOffset > minO ? maxOffset : BULLET_WHIZ_MAX_DIST;
-    const sx = _isNum(seedX) ? seedX : 0.5;
-    const sy = _isNum(seedY) ? seedY : 0.5;
-    const signX = sx < 0 ? -1 : 1;
-    const signY = sy < 0 ? -1 : 1;
-    const magX = minO + Math.abs(sx) * (maxO - minO);
-    const magY = (minO * 0.4) + Math.abs(sy) * (maxO * 0.5 - minO * 0.4);
-    o.x = signX * Math.max(minO, Math.min(maxO, magX));
-    o.y = signY * Math.max(minO * 0.4, Math.min(maxO * 0.5, magY));
-    o.z = 0;
-    return o;
+    const o = out || { x: 0, y: 0, z: 0 }, minO = _isNonNeg(minOffset) ? minOffset : BULLET_WHIZ_MIN_OFFSET, maxO = _isNum(maxOffset) && maxOffset > minO ? maxOffset : BULLET_WHIZ_MAX_DIST;
+    const sx = _isNum(seedX) ? seedX : 0.5, sy = _isNum(seedY) ? seedY : 0.5;
+    const magX = minO + Math.abs(sx) * (maxO - minO), magY = (minO * 0.4) + Math.abs(sy) * (maxO * 0.5 - minO * 0.4);
+    o.x = (sx < 0 ? -1 : 1) * Math.max(minO, Math.min(maxO, magX));
+    o.y = (sy < 0 ? -1 : 1) * Math.max(minO * 0.4, Math.min(maxO * 0.5, magY));
+    o.z = 0; return o;
   }
-
   function bulletWhizVolume(dist, maxDist) {
     if (!_isPos(dist)) return 0;
     const maxD = _isPos(maxDist) ? maxDist : BULLET_WHIZ_MAX_DIST;
-    if (dist >= maxD) return 0;
-    return _clamp01(1 - dist / maxD);
+    return dist >= maxD ? 0 : _clamp01(1 - dist / maxD);
   }
-
   function lowAmmoThreshold(weaponType) {
-    if (weaponType === 'SR') return LOW_AMMO_THRESHOLD_SR;
-    if (weaponType === 'SMG') return LOW_AMMO_THRESHOLD_SMG;
-    if (weaponType === 'BR') return LOW_AMMO_THRESHOLD_BR;
-    return LOW_AMMO_THRESHOLD_AR;
+    return weaponType === 'SR' ? LOW_AMMO_THRESHOLD_SR : (weaponType === 'SMG' ? LOW_AMMO_THRESHOLD_SMG : (weaponType === 'BR' ? LOW_AMMO_THRESHOLD_BR : LOW_AMMO_THRESHOLD_AR));
   }
-
-  function isLowAmmo(ammo, weaponType) {
-    if (!_isPos(ammo)) return false;
-    return ammo <= lowAmmoThreshold(weaponType);
-  }
-
-  function lowAmmoSound(ammo, weaponType) {
-    return isLowAmmo(ammo, weaponType) ? 'low_ammo' : null;
-  }
-
-  function reloadBoltSound(weaponType) {
-    return weaponType === 'SR' ? 'sniper_bolt' : 'reload_bolt';
-  }
-
-  function isEmptyReload(ammo) {
-    return _isNum(ammo) && ammo <= 0;
-  }
+  function isLowAmmo(ammo, weaponType) { return _isPos(ammo) && ammo <= lowAmmoThreshold(weaponType); }
+  function lowAmmoSound(ammo, weaponType) { return isLowAmmo(ammo, weaponType) ? 'low_ammo' : null; }
+  function reloadBoltSound(weaponType) { return weaponType === 'SR' ? 'sniper_bolt' : 'reload_bolt'; }
+  function isEmptyReload(ammo) { return _isNum(ammo) && ammo <= 0; }
 
   // ---- Tactical Stance Weapon Recoil Stability & Enemy Grenade/LOS Combat Balance (v114 Balance Tuning) ----
-  const STANCE_RECOIL_CROUCH = 0.80;
-  const STANCE_RECOIL_SLIDE = 0.85;
-  const STANCE_RECOIL_AIRBORNE = 1.25;
-  const ENEMY_GRENADE_ARM_DURATION = 0.5;
-  const ENEMY_LIVE_GRENADES_CAP = 6;
-  const GRENADIER_INITIAL_NADE_DELAY = 3.0;
-  const RIFLEMAN_INITIAL_NADE_DELAY = 6.0;
-  const ENEMY_EYE_OFFSET_Y = 0.5;
-  const ENEMY_LOS_JITTER = 0.3;
-  const ENEMY_MELEE_COOLDOWN_SENTINEL = -1.0;
-  const ENEMY_MELEE_RESET_MARGIN = 0.01;
-
+  const STANCE_RECOIL_CROUCH = 0.80, STANCE_RECOIL_SLIDE = 0.85, STANCE_RECOIL_AIRBORNE = 1.25;
+  const ENEMY_GRENADE_ARM_DURATION = 0.5, ENEMY_LIVE_GRENADES_CAP = 6, GRENADIER_INITIAL_NADE_DELAY = 3.0, RIFLEMAN_INITIAL_NADE_DELAY = 6.0;
+  const ENEMY_EYE_OFFSET_Y = 0.5, ENEMY_LOS_JITTER = 0.3, ENEMY_MELEE_COOLDOWN_SENTINEL = -1.0, ENEMY_MELEE_RESET_MARGIN = 0.01;
   function stanceRecoilMultiplier(isCrouching, isSliding, isAirborne) {
     if (isAirborne) return STANCE_RECOIL_AIRBORNE;
-    // Movement sets crouching during a slide; the active slide takes precedence.
     if (isSliding) return STANCE_RECOIL_SLIDE;
     if (isCrouching) return STANCE_RECOIL_CROUCH;
     return 1.0;
   }
-
   function effectiveRecoilKick(recoilV, recoilH, patternX, patternY, stanceMultiplier, out) {
-    const o = out || { pitchKick: 0, yawKick: 0 };
-    const sm = _isPos(stanceMultiplier) ? stanceMultiplier : 1.0;
-    const rv = _isNum(recoilV) ? recoilV : 0;
-    const rh = _isNum(recoilH) ? recoilH : 0;
-    const py = _isNum(patternY) ? patternY : 0;
-    const px = _isNum(patternX) ? patternX : 0;
-    o.pitchKick = rv * py * sm;
-    o.yawKick = rh * px * sm;
+    const o = out || { pitchKick: 0, yawKick: 0 }, sm = _isPos(stanceMultiplier) ? stanceMultiplier : 1.0;
+    o.pitchKick = (_isNum(recoilV) ? recoilV : 0) * (_isNum(patternY) ? patternY : 0) * sm;
+    o.yawKick = (_isNum(recoilH) ? recoilH : 0) * (_isNum(patternX) ? patternX : 0) * sm;
     return o;
   }
-
   function enemyInitialGrenadeDelay(kind) {
-    if (kind === 5) return GRENADIER_INITIAL_NADE_DELAY;
-    if (kind === 1) return RIFLEMAN_INITIAL_NADE_DELAY;
-    return Infinity;
+    return kind === 5 ? GRENADIER_INITIAL_NADE_DELAY : (kind === 1 ? RIFLEMAN_INITIAL_NADE_DELAY : Infinity);
   }
-
   function canSpawnEnemyGrenade(liveGrenadesCount, cap) {
-    const c = _isPos(cap) ? cap : ENEMY_LIVE_GRENADES_CAP;
-    const count = _isNum(liveGrenadesCount) ? liveGrenadesCount : 0;
-    return count < c;
+    return (_isNum(liveGrenadesCount) ? liveGrenadesCount : 0) < (_isPos(cap) ? cap : ENEMY_LIVE_GRENADES_CAP);
   }
-
   function enemyGrenadeVelocity(dx, dz, dist, speed, arcY, randX, randZ, jitter, out) {
-    const o = out || { x: 0, y: 0, z: 0 };
-    const d = _isPos(dist) ? dist : (Math.hypot(dx, dz) || 1);
-    const spd = _isPos(speed) ? speed : 10;
-    const ay = _isNum(arcY) ? arcY : ENEMY_GRENADE_ARC_Y;
-    const jit = _isNum(jitter) ? jitter : ENEMY_GRENADE_JITTER;
-    const rx = _isNum(randX) ? (randX - 0.5) : 0;
-    const rz = _isNum(randZ) ? (randZ - 0.5) : 0;
-    const nx = dx / d;
-    const nz = dz / d;
-    const len = Math.hypot(nx, ay, nz) || 1;
-    o.x = (nx / len) * spd + rx * jit;
-    o.y = (ay / len) * spd;
-    o.z = (nz / len) * spd + rz * jit;
+    const o = out || { x: 0, y: 0, z: 0 }, d = _isPos(dist) ? dist : (Math.hypot(dx, dz) || 1), spd = _isPos(speed) ? speed : 10;
+    const ay = _isNum(arcY) ? arcY : ENEMY_GRENADE_ARC_Y, jit = _isNum(jitter) ? jitter : ENEMY_GRENADE_JITTER;
+    const rx = _isNum(randX) ? (randX - 0.5) : 0, rz = _isNum(randZ) ? (randZ - 0.5) : 0;
+    const nx = dx / d, nz = dz / d, len = Math.hypot(nx, ay, nz) || 1;
+    o.x = (nx / len) * spd + rx * jit; o.y = (ay / len) * spd; o.z = (nz / len) * spd + rz * jit;
     return o;
   }
-
   function enemyEyeHeight(posY, kind, pelvisH, eyeOffset) {
     return ((_isNum(posY)) ? posY : 0) + ((_isNum(pelvisH)) ? pelvisH : 0.95) * (kind === 2 ? 1.25 : 1.0) + ((_isNum(eyeOffset)) ? eyeOffset : ENEMY_EYE_OFFSET_Y);
   }
@@ -7119,10 +6833,8 @@ const CORE = (function () {
   // ---- Blast Scorch & Enemy Muzzle Flash Visual Rules (v117 Visual Polish) ----
   const SCORCH_MAX = 16, SCORCH_LIFETIME = 24.0, SCORCH_FADE_DURATION = 4.0, SCORCH_BASE_RADIUS = 2.5, SCORCH_BASE_OPACITY = 0.88, SCORCH_STANDOFF = 0.016, SCORCH_EXPANSION_DURATION = 0.10;
   const ENEMY_MUZZLE_LIGHT_COLOR = 0xff9944, ENEMY_MUZZLE_LIGHT_INTENSITY = 3.2, ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY = 4.5, ENEMY_MUZZLE_LIGHT_DIST = 9.0, ENEMY_MUZZLE_LIGHT_DUR = 0.08;
-
   function scorchScale(dmgScale, jitter) {
-    const s = _isNum(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0, j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0;
-    return SCORCH_BASE_RADIUS * s * j;
+    return SCORCH_BASE_RADIUS * (_isNum(dmgScale) ? Math.max(0.65, Math.min(1.6, dmgScale)) : 1.0) * (_isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.2 : 1.0);
   }
   function scorchScaleProgress(baseScale, elapsed, duration) {
     const b = _isNum(baseScale) ? baseScale : SCORCH_BASE_RADIUS, dur = _isPos(duration) ? duration : SCORCH_EXPANSION_DURATION, el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
@@ -7137,33 +6849,17 @@ const CORE = (function () {
     const t = _clamp01(life / fade);
     return maxOp * t * t;
   }
-  function stepScorchLife(life, dt) {
-    if (!_isNum(life)) return 0;
-    return Math.max(0, life - (_isNum(dt) ? dt : 0));
-  }
+  function stepScorchLife(life, dt) { return _isNum(life) ? Math.max(0, life - (_isNum(dt) ? dt : 0)) : 0; }
   function isScorchExpired(life) { return !_isPos(life); }
   function scorchRotation(rand) { return ((_isNum(rand) ? rand : 0) % 1) * Math.PI * 2; }
-  function scorchElevation(blastY, floorY, standoff) {
-    return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : SCORCH_STANDOFF);
-  }
+  function scorchElevation(blastY, floorY, standoff) { return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : SCORCH_STANDOFF); }
   function enemyMuzzleLightParams(isElite) {
-    return {
-      color: ENEMY_MUZZLE_LIGHT_COLOR,
-      intensity: isElite ? ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY : ENEMY_MUZZLE_LIGHT_INTENSITY,
-      distance: isElite ? 11.0 : ENEMY_MUZZLE_LIGHT_DIST,
-      duration: ENEMY_MUZZLE_LIGHT_DUR
-    };
+    return { color: ENEMY_MUZZLE_LIGHT_COLOR, intensity: isElite ? ENEMY_MUZZLE_LIGHT_ELITE_INTENSITY : ENEMY_MUZZLE_LIGHT_INTENSITY, distance: isElite ? 11.0 : ENEMY_MUZZLE_LIGHT_DIST, duration: ENEMY_MUZZLE_LIGHT_DUR };
   }
 
   // ---- Critical Heartbeat, Elite Gunfire & Air Absorption Audio (v118 Audio Polish) ----
-  const HEARTBEAT_BPM_MIN = 72;
-  const HEARTBEAT_BPM_MAX = 136;
-
-  function heartbeatBpm(health, maxHealth, ratio) {
-    const intensity = criticalHealthIntensity(health, maxHealth, ratio);
-    return HEARTBEAT_BPM_MIN + intensity * (HEARTBEAT_BPM_MAX - HEARTBEAT_BPM_MIN);
-  }
-
+  const HEARTBEAT_BPM_MIN = 72, HEARTBEAT_BPM_MAX = 136;
+  function heartbeatBpm(health, maxHealth, ratio) { return HEARTBEAT_BPM_MIN + criticalHealthIntensity(health, maxHealth, ratio) * (HEARTBEAT_BPM_MAX - HEARTBEAT_BPM_MIN); }
   function heartbeatInterval(bpm) { return 60 / (_isPos(bpm) ? bpm : HEARTBEAT_BPM_MIN); }
   function stepHeartbeatTimer(timer, dt, bpm) {
     const interval = heartbeatInterval(bpm), next = ((_isNum(timer)) ? timer : 0) - (_isPos(dt) ? dt : 0);
@@ -7177,27 +6873,18 @@ const CORE = (function () {
   const EXPLOSION_KICK_MAX_DIST = 20.0, EXPLOSION_POST_KICK_MAX = 0.80, EXPLOSION_SHOT_KICK_MAX = 1.4, EXPLOSION_SHOT_KICK_CAP = 2.0;
   const HEADSHOT_MUL_SR = 2.4, HEADSHOT_MUL_BR = 2.0, HEADSHOT_MUL_AR = 1.8, HEADSHOT_MUL_SMG = 1.5;
   const ENEMY_ACCURACY_FALLOFF_DIST = 16.0, ENEMY_ACCURACY_MIN_FACTOR = 0.55;
-
   function explosionKickIntensity(dist, maxDist) {
     const d = (_isNum(dist)) ? Math.max(0, dist) : Infinity, max = _isPos(maxDist) ? maxDist : EXPLOSION_KICK_MAX_DIST;
     return d >= max ? 0 : _clamp01(1 - d / max);
   }
-  function explosionPostKick(dist, maxDist, maxKick) {
-    return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_POST_KICK_MAX);
-  }
-  function explosionShotKick(dist, maxDist, maxKick) {
-    return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_SHOT_KICK_MAX);
-  }
+  function explosionPostKick(dist, maxDist, maxKick) { return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_POST_KICK_MAX); }
+  function explosionShotKick(dist, maxDist, maxKick) { return explosionKickIntensity(dist, maxDist) * (_isPos(maxKick) ? maxKick : EXPLOSION_SHOT_KICK_MAX); }
   function applyExplosionShotKick(currentKick, addedKick, maxCap) {
     return Math.min(_isPos(maxCap) ? maxCap : EXPLOSION_SHOT_KICK_CAP, (_isNonNeg(currentKick) ? currentKick : 0) + (_isNonNeg(addedKick) ? addedKick : 0));
   }
   function weaponHeadshotMultiplier(weaponType, defaultMul) {
     const t = String(weaponType || '').toUpperCase();
-    if (t === 'SR') return HEADSHOT_MUL_SR;
-    if (t === 'BR') return HEADSHOT_MUL_BR;
-    if (t === 'AR') return HEADSHOT_MUL_AR;
-    if (t === 'SMG') return HEADSHOT_MUL_SMG;
-    return _isPos(defaultMul) ? defaultMul : 1.8;
+    return t === 'SR' ? HEADSHOT_MUL_SR : (t === 'BR' ? HEADSHOT_MUL_BR : (t === 'AR' ? HEADSHOT_MUL_AR : (t === 'SMG' ? HEADSHOT_MUL_SMG : (_isPos(defaultMul) ? defaultMul : 1.8))));
   }
   function enemyDistanceAccuracy(baseAcc, dist, nominalDist, maxDist, minFactor) {
     const acc = _isNonNeg(baseAcc) ? baseAcc : 0.5, d = _isNonNeg(dist) ? dist : 0, nom = _isPos(nominalDist) ? nominalDist : ENEMY_ACCURACY_FALLOFF_DIST;
@@ -7209,7 +6896,6 @@ const CORE = (function () {
 
   // ---- Target Movement & Stance Evasion on Enemy Accuracy (v124 Balance Tuning) ----
   const ENEMY_EVASION_SPRINT_MUL = 0.82, ENEMY_EVASION_TAC_SPRINT_MUL = 0.70, ENEMY_EVASION_SLIDE_MUL = 0.75, ENEMY_EVASION_CROUCH_MUL = 0.85, ENEMY_EVASION_AIRBORNE_MUL = 0.80;
-
   function enemyTargetEvasionMultiplier(isSprinting, isTacSprint, isSliding, isCrouching, isAirborne) {
     if (isSliding) return ENEMY_EVASION_SLIDE_MUL;
     if (isTacSprint) return ENEMY_EVASION_TAC_SPRINT_MUL;
@@ -7223,7 +6909,6 @@ const CORE = (function () {
 
   // ---- Dynamic Point Light & Flash VFX, Sentry Rangefinding, Shadow Caster Mask & Pickup Opacity Rules (v120 Perf Win) ----
   const FLASH_LIGHT_DECAY_EXPONENT = 2, SENTRY_TARGET_ACQUIRE_EPSILON = 1e-4;
-
   function stepFlashLightLife(life, dt) { return Math.max(0, ((_isNum(life)) ? life : 0) - ((_isNum(dt)) ? dt : 0)); }
   function flashLightIntensity(life, maxLife, peakIntensity) {
     if (!_isPos(life) || !_isPos(maxLife)) return 0;
@@ -7262,10 +6947,8 @@ const CORE = (function () {
 
   // ---- Blood Pool Seep & Gore Visual Rules (v122 Visual Polish) ----
   const BLOOD_POOL_MAX = 16, BLOOD_POOL_LIFETIME = 24.0, BLOOD_POOL_FADE_DURATION = 4.0, BLOOD_POOL_BASE_SIZE = 1.35, BLOOD_POOL_HEAD_MUL = 1.35, BLOOD_POOL_BASE_OPACITY = 0.88, BLOOD_POOL_STANDOFF = 0.012, BLOOD_POOL_EXPANSION_DURATION = 1.2, BLOOD_POOL_SPAWN_MAX_DIST = 60.0;
-
   function bloodPoolScale(isHead, jitter) {
-    const headMul = isHead ? BLOOD_POOL_HEAD_MUL : 1.0, j = _isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.25 : 1.0;
-    return BLOOD_POOL_BASE_SIZE * headMul * j;
+    return BLOOD_POOL_BASE_SIZE * (isHead ? BLOOD_POOL_HEAD_MUL : 1.0) * (_isNum(jitter) ? 1.0 + (jitter - 0.5) * 0.25 : 1.0);
   }
   function bloodPoolScaleProgress(baseScale, elapsed, duration) {
     const b = _isNum(baseScale) ? baseScale : BLOOD_POOL_BASE_SIZE, dur = _isPos(duration) ? duration : BLOOD_POOL_EXPANSION_DURATION, el = _isNum(elapsed) ? Math.max(0, elapsed) : dur;
@@ -7280,20 +6963,13 @@ const CORE = (function () {
     const t = _clamp01(life / fade);
     return maxOp * t * t;
   }
-  function stepBloodPoolLife(life, dt) {
-    if (!_isNum(life)) return 0;
-    const step = _isNum(dt) ? dt : 0;
-    return Math.max(0, life - step);
-  }
+  function stepBloodPoolLife(life, dt) { return _isNum(life) ? Math.max(0, life - (_isNum(dt) ? dt : 0)) : 0; }
   function isBloodPoolExpired(life) { return !_isPos(life); }
   function bloodPoolRotation(rand) { return ((_isNum(rand) ? rand : 0) % 1) * Math.PI * 2; }
-  function bloodPoolElevation(floorY, standoff) {
-    return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : BLOOD_POOL_STANDOFF);
-  }
+  function bloodPoolElevation(floorY, standoff) { return ((_isNum(floorY)) ? floorY : 0) + (_isNum(standoff) ? standoff : BLOOD_POOL_STANDOFF); }
   function canSpawnBloodPool(settled, alreadySpawned, distToPlayer, maxDist) {
     if (!settled || alreadySpawned) return false;
-    const limit = _isNum(maxDist) ? maxDist : BLOOD_POOL_SPAWN_MAX_DIST;
-    return !(_isNum(distToPlayer) && distToPlayer > limit);
+    return !(_isNum(distToPlayer) && distToPlayer > (_isNum(maxDist) ? maxDist : BLOOD_POOL_SPAWN_MAX_DIST));
   }
 
   // ---- Sentry Muzzle Kinematics, Flashlight Dynamics & Combat Penetration / Strike (v127) ----
@@ -7529,89 +7205,39 @@ const CORE = (function () {
 
   // ---- Tactical Locomotion Acoustics, Weapon Reload Audio & Melee Blade Surface Polish (v143 Audio Polish) ----
   const ENEMY_STEP_SOUND = 'estep', ENEMY_STEP_HEAVY_SOUND = 'estep_heavy';
-  function enemyFootstepSound(kind, isElite) {
-    if (Boolean(isElite)) return ENEMY_STEP_HEAVY_SOUND;
-    if (kind === 2 || kind === 'tank') return ENEMY_STEP_HEAVY_SOUND;
-    return ENEMY_STEP_SOUND;
-  }
-  const RELOAD_OUT_SOUND = 'reload_out', RELOAD_IN_SOUND = 'reload_in';
-  const RELOAD_HEAVY_OUT_SOUND = 'reload_heavy_out', RELOAD_HEAVY_IN_SOUND = 'reload_heavy_in';
-  const RELOAD_SMG_OUT_SOUND = 'reload_smg_out', RELOAD_SMG_IN_SOUND = 'reload_smg_in';
-  function reloadMagazineOutSound(weaponType) {
-    if (weaponType === 'SMG') return RELOAD_SMG_OUT_SOUND;
-    if (weaponType === 'SR' || weaponType === 'BR') return RELOAD_HEAVY_OUT_SOUND;
-    return RELOAD_OUT_SOUND;
-  }
-  function reloadMagazineInSound(weaponType) {
-    if (weaponType === 'SMG') return RELOAD_SMG_IN_SOUND;
-    if (weaponType === 'SR' || weaponType === 'BR') return RELOAD_HEAVY_IN_SOUND;
-    return RELOAD_IN_SOUND;
-  }
-  const MELEE_SURFACE_METAL_SOUND = 'melee_hit_metal', MELEE_SURFACE_WOOD_SOUND = 'impact_wood';
-  const MELEE_SURFACE_GLASS_SOUND = 'impact_glass', MELEE_SURFACE_GROUND_SOUND = 'impact_ground';
-  const MELEE_SURFACE_DEFAULT_SOUND = 'impact';
-  function meleeSurfaceSound(surface) {
-    if (surface === 'metal') return MELEE_SURFACE_METAL_SOUND;
-    if (surface === 'wood') return MELEE_SURFACE_WOOD_SOUND;
-    if (surface === 'glass') return MELEE_SURFACE_GLASS_SOUND;
-    if (surface === 'ground') return MELEE_SURFACE_GROUND_SOUND;
-    return MELEE_SURFACE_DEFAULT_SOUND;
-  }
+  function enemyFootstepSound(kind, isElite) { return (Boolean(isElite) || kind === 2 || kind === 'tank') ? ENEMY_STEP_HEAVY_SOUND : ENEMY_STEP_SOUND; }
+  const RELOAD_OUT_SOUND = 'reload_out', RELOAD_IN_SOUND = 'reload_in', RELOAD_HEAVY_OUT_SOUND = 'reload_heavy_out', RELOAD_HEAVY_IN_SOUND = 'reload_heavy_in', RELOAD_SMG_OUT_SOUND = 'reload_smg_out', RELOAD_SMG_IN_SOUND = 'reload_smg_in';
+  function reloadMagazineOutSound(weaponType) { return weaponType === 'SMG' ? RELOAD_SMG_OUT_SOUND : ((weaponType === 'SR' || weaponType === 'BR') ? RELOAD_HEAVY_OUT_SOUND : RELOAD_OUT_SOUND); }
+  function reloadMagazineInSound(weaponType) { return weaponType === 'SMG' ? RELOAD_SMG_IN_SOUND : ((weaponType === 'SR' || weaponType === 'BR') ? RELOAD_HEAVY_IN_SOUND : RELOAD_IN_SOUND); }
+  const MELEE_SURFACE_METAL_SOUND = 'melee_hit_metal', MELEE_SURFACE_WOOD_SOUND = 'impact_wood', MELEE_SURFACE_GLASS_SOUND = 'impact_glass', MELEE_SURFACE_GROUND_SOUND = 'impact_ground', MELEE_SURFACE_DEFAULT_SOUND = 'impact';
+  function meleeSurfaceSound(surface) { return surface === 'metal' ? MELEE_SURFACE_METAL_SOUND : (surface === 'wood' ? MELEE_SURFACE_WOOD_SOUND : (surface === 'glass' ? MELEE_SURFACE_GLASS_SOUND : (surface === 'ground' ? MELEE_SURFACE_GROUND_SOUND : MELEE_SURFACE_DEFAULT_SOUND))); }
 
   // ---- Tactical Weapon Recoil Decay Agility & Stance Stabilization (v144 Balance Tuning) ----
-  const RECOIL_DECAY_SMG = 0.006, RECOIL_DECAY_AR = 0.02, RECOIL_DECAY_BR = 0.05, RECOIL_DECAY_SR = 0.10;
-  const RECOIL_DECAY_CROUCH_MUL = 0.65, RECOIL_DECAY_SLIDE_MUL = 0.85;
+  const RECOIL_DECAY_SMG = 0.006, RECOIL_DECAY_AR = 0.02, RECOIL_DECAY_BR = 0.05, RECOIL_DECAY_SR = 0.10, RECOIL_DECAY_CROUCH_MUL = 0.65, RECOIL_DECAY_SLIDE_MUL = 0.85;
   function weaponRecoilDecayRate(weaponType, isCrouching, isSliding) {
-    const t = String(weaponType || '').toUpperCase();
-    let base = RECOIL_DECAY_AR;
-    if (t === 'SMG') base = RECOIL_DECAY_SMG;
-    else if (t === 'BR') base = RECOIL_DECAY_BR;
-    else if (t === 'SR') base = RECOIL_DECAY_SR;
-    let mul = 1.0;
-    if (isSliding) mul = RECOIL_DECAY_SLIDE_MUL;
-    else if (isCrouching) mul = RECOIL_DECAY_CROUCH_MUL;
-    return base * mul;
+    const t = String(weaponType || '').toUpperCase(), base = t === 'SMG' ? RECOIL_DECAY_SMG : (t === 'BR' ? RECOIL_DECAY_BR : (t === 'SR' ? RECOIL_DECAY_SR : RECOIL_DECAY_AR));
+    return base * (isSliding ? RECOIL_DECAY_SLIDE_MUL : (isCrouching ? RECOIL_DECAY_CROUCH_MUL : 1.0));
   }
 
   // ---- Bullet Magnetism, Munitions Box & Tactical Zone Objective Optimization (v145 Performance Win) ----
-  const BULLET_MAGNET_MAX_DIST = 45.0;
-  const OBJECTIVE_RING_OPACITY_INSIDE = 0.85, OBJECTIVE_RING_OPACITY_OUTSIDE = 0.40;
+  const BULLET_MAGNET_MAX_DIST = 45.0, OBJECTIVE_RING_OPACITY_INSIDE = 0.85, OBJECTIVE_RING_OPACITY_OUTSIDE = 0.40;
   function isTargetInMagnetRange(toX, toZ, maxDistSq) {
-    if (!_isNum(toX) || !_isNum(toZ)) return false;
-    const limSq = _isPos(maxDistSq) ? maxDistSq : (BULLET_MAGNET_MAX_DIST * BULLET_MAGNET_MAX_DIST);
-    return (toX * toX + toZ * toZ) <= limSq;
+    return _isNum(toX) && _isNum(toZ) && ((toX * toX + toZ * toZ) <= (_isPos(maxDistSq) ? maxDistSq : (BULLET_MAGNET_MAX_DIST * BULLET_MAGNET_MAX_DIST)));
   }
   function isTargetInMunitionsRadius(px, pz, mx, mz, radiusSq) {
-    if (!_isNum(px) || !_isNum(pz) || !_isNum(mx) || !_isNum(mz)) return false;
-    const rSq = _isPos(radiusSq) ? radiusSq : (FIELD_UPGRADE.radius * FIELD_UPGRADE.radius);
-    const dx = px - mx, dz = pz - mz;
-    return (dx * dx + dz * dz) < rSq;
+    return _isNum(px) && _isNum(pz) && _isNum(mx) && _isNum(mz) && (((px - mx) * (px - mx) + (pz - mz) * (pz - mz)) < (_isPos(radiusSq) ? radiusSq : (FIELD_UPGRADE.radius * FIELD_UPGRADE.radius)));
   }
   function stepMunitionsTimers(life, tick, dt, out) {
-    const o = out || { t: 0, tick: 0, expired: false, readyToResupply: false };
-    const l = _isNum(life) ? Math.max(0, life) : 0;
-    const tk = _isNum(tick) ? tick : 0;
-    const d = _isNum(dt) ? Math.max(0, dt) : 0;
-    const nextL = Math.max(0, l - d);
-    const nextTk = tk - d;
-    o.t = nextL;
-    o.expired = nextL <= 0;
-    o.readyToResupply = nextTk <= 0;
-    o.tick = nextTk <= 0 ? 1.0 : nextTk;
+    const o = out || { t: 0, tick: 0, expired: false, readyToResupply: false }, l = _isNum(life) ? Math.max(0, life) : 0, tk = _isNum(tick) ? tick : 0, d = _isNum(dt) ? Math.max(0, dt) : 0;
+    const nextL = Math.max(0, l - d), nextTk = tk - d;
+    o.t = nextL; o.expired = nextL <= 0; o.readyToResupply = nextTk <= 0; o.tick = nextTk <= 0 ? 1.0 : nextTk;
     return o;
   }
   function isPlayerInObjectiveZone(px, pz, ox, oz, radiusSq) {
-    if (!_isNum(px) || !_isNum(pz) || !_isNum(ox) || !_isNum(oz)) return false;
-    const rSq = _isPos(radiusSq) ? radiusSq : (OBJECTIVE_RADIUS * OBJECTIVE_RADIUS);
-    const dx = px - ox, dz = pz - oz;
-    return (dx * dx + dz * dz) < rSq;
+    return _isNum(px) && _isNum(pz) && _isNum(ox) && _isNum(oz) && (((px - ox) * (px - ox) + (pz - oz) * (pz - oz)) < (_isPos(radiusSq) ? radiusSq : (OBJECTIVE_RADIUS * OBJECTIVE_RADIUS)));
   }
-  function objectiveRingOpacityChanged(lastInside, inside) {
-    return lastInside !== !!inside;
-  }
-  function objectiveRingOpacity(inside) {
-    return inside ? OBJECTIVE_RING_OPACITY_INSIDE : OBJECTIVE_RING_OPACITY_OUTSIDE;
-  }
+  function objectiveRingOpacityChanged(lastInside, inside) { return lastInside !== !!inside; }
+  function objectiveRingOpacity(inside) { return inside ? OBJECTIVE_RING_OPACITY_INSIDE : OBJECTIVE_RING_OPACITY_OUTSIDE; }
 
   // ---- Ordnance Explosion VFX, Sniper Vapor Trail & Enemy Muzzle Flash Rules (v147 Visual Polish) ----
   const EXPLOSION_FIREBALL_BASE_COUNT = 18, EXPLOSION_SPARK_BASE_COUNT = 40, EXPLOSION_SMOKE_BASE_COUNT = 22, EXPLOSION_DUST_BASE_COUNT = 16, EXPLOSION_DEBRIS_BASE_COUNT = 14;
@@ -7669,36 +7295,25 @@ const CORE = (function () {
 
   // ---- Tactical Audio Polish: Weapon Dry Fire, Resource Pickups, Athletic Melee Swing, and Ordnance Explosions (v148 Audio Polish) ----
   const DRY_FIRE_SOUND = 'dry', DRY_FIRE_HEAVY_SOUND = 'dry_heavy';
-  function dryFireSound(weaponType) {
-    if (weaponType === 'SR' || weaponType === 'BR') return DRY_FIRE_HEAVY_SOUND;
-    return DRY_FIRE_SOUND;
-  }
+  function dryFireSound(weaponType) { return (weaponType === 'SR' || weaponType === 'BR') ? DRY_FIRE_HEAVY_SOUND : DRY_FIRE_SOUND; }
   const PICKUP_AMMO_SOUND = 'pickup_ammo', PICKUP_MED_SOUND = 'pickup_med', PICKUP_POWER_SOUND = 'powerup';
   function pickupSound(kind, powerKey) {
     if (kind === 'med' || kind === 'health') return PICKUP_MED_SOUND;
     if (kind === 'power') {
       const k = powerKey === 'ammo' ? 'maxammo' : powerKey;
-      const ps = k && typeof powerupSound === 'function' ? powerupSound(k) : null;
-      return ps || PICKUP_POWER_SOUND;
+      return (k && typeof powerupSound === 'function' ? powerupSound(k) : null) || PICKUP_POWER_SOUND;
     }
     return PICKUP_AMMO_SOUND;
   }
   const MELEE_SWING_SOUND = 'melee', MELEE_SWING_HEAVY_SOUND = 'melee_heavy';
-  function meleeSwingSound(isTacSprint, isSliding) {
-    return (Boolean(isTacSprint) || Boolean(isSliding)) ? MELEE_SWING_HEAVY_SOUND : MELEE_SWING_SOUND;
-  }
+  function meleeSwingSound(isTacSprint, isSliding) { return (Boolean(isTacSprint) || Boolean(isSliding)) ? MELEE_SWING_HEAVY_SOUND : MELEE_SWING_SOUND; }
   const EXPLOSION_SOUND = 'explosion', EXPLOSION_HEAVY_SOUND = 'explosion_heavy';
-  function explosionSound(scale) {
-    return (_isNum(scale) && scale >= 1.2) ? EXPLOSION_HEAVY_SOUND : EXPLOSION_SOUND;
-  }
+  function explosionSound(scale) { return (_isNum(scale) && scale >= 1.2) ? EXPLOSION_HEAVY_SOUND : EXPLOSION_SOUND; }
 
   // ---- Ballistic Surface Impact VFX, Dynamic Light & Blood Spatter Kinematics (v152 Visual Polish) ----
-  const SURFACE_IMPACT_DUST_BASE = 3, SURFACE_IMPACT_CHIP_BASE = 5;
-  const SURFACE_IMPACT_SPARK_METAL = 8, SURFACE_IMPACT_SPARK_CONCRETE = 1;
+  const SURFACE_IMPACT_DUST_BASE = 3, SURFACE_IMPACT_CHIP_BASE = 5, SURFACE_IMPACT_SPARK_METAL = 8, SURFACE_IMPACT_SPARK_CONCRETE = 1;
   const SURFACE_IMPACT_LIGHT_COLOR_METAL = 0xffb060, SURFACE_IMPACT_LIGHT_COLOR_HEAVY = 0xffd090;
-  const BLOOD_DROPLET_BASE_BODY = 6, BLOOD_DROPLET_BASE_HEAD = 10;
-  const BLOOD_MIST_BASE_BODY = 2, BLOOD_MIST_BASE_HEAD = 4;
-
+  const BLOOD_DROPLET_BASE_BODY = 6, BLOOD_DROPLET_BASE_HEAD = 10, BLOOD_MIST_BASE_BODY = 2, BLOOD_MIST_BASE_HEAD = 4;
   const _SURFACE_DEFS = {
     concrete: { dust0: 0x8f8a84, dust1: 0x5e5a56, chips: 0xb0aca4, sparks: 1 },
     brick:    { dust0: 0x9a6a52, dust1: 0x5a3e32, chips: 0x8a4a34, sparks: 0 },
@@ -7707,28 +7322,24 @@ const CORE = (function () {
     glass:    { dust0: 0xa8b8c8, dust1: 0x6a7888, chips: 0xc0d8f0, sparks: 0 },
     ground:   { dust0: 0x6a625a, dust1: 0x403a36, chips: 0x3a3632, sparks: 1 }
   };
-
   function surfaceImpactVfxParams(surface, weaponType) {
     const srf = _SURFACE_DEFS[surface] || _SURFACE_DEFS.concrete, wt = weaponType || 'AR';
-    let dustCount = 3, dustScale = 1.0, chipMul = 1.0, sparkMul = 1.0;
-    if (wt === 'SR') { dustCount = 5; dustScale = 1.4; chipMul = 1.4; sparkMul = 1.75; }
-    else if (wt === 'BR') { dustCount = 4; dustScale = 1.2; chipMul = 1.2; sparkMul = 1.35; }
-    else if (wt === 'SMG') { dustCount = 2; dustScale = 0.8; chipMul = 0.8; sparkMul = 0.65; }
+    const cMul = wt === 'SR' ? 1.4 : (wt === 'BR' ? 1.2 : (wt === 'SMG' ? 0.8 : 1.0));
     return {
-      dustCount, dustScale,
-      chipCount: srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * chipMul) : 0,
-      sparkCount: srf.sparks ? Math.round(srf.sparks * sparkMul) : 0,
+      dustCount: wt === 'SR' ? 5 : (wt === 'BR' ? 4 : (wt === 'SMG' ? 2 : 3)),
+      dustScale: cMul,
+      chipCount: srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * cMul) : 0,
+      sparkCount: srf.sparks ? Math.round(srf.sparks * (wt === 'SR' ? 1.75 : (wt === 'BR' ? 1.35 : (wt === 'SMG' ? 0.65 : 1.0)))) : 0,
       dustColor0: srf.dust0, dustColor1: srf.dust1, chipColor: srf.chips
     };
   }
-
   function surfaceImpactLightParams(surface, weaponType) {
     const s = surface || 'concrete', wt = weaponType || 'AR';
     if (s === 'metal') {
-      if (wt === 'SR') return { color: 0xffc070, intensity: 2.2, distance: 5.5, duration: 0.08 };
-      if (wt === 'BR') return { color: 0xffb060, intensity: 1.6, distance: 4.8, duration: 0.07 };
-      if (wt === 'SMG') return { color: 0xffa050, intensity: 0.8, distance: 3.2, duration: 0.05 };
-      return { color: 0xffb060, intensity: 1.2, distance: 4.0, duration: 0.06 };
+      return wt === 'SR' ? { color: 0xffc070, intensity: 2.2, distance: 5.5, duration: 0.08 }
+        : (wt === 'BR' ? { color: 0xffb060, intensity: 1.6, distance: 4.8, duration: 0.07 }
+        : (wt === 'SMG' ? { color: 0xffa050, intensity: 0.8, distance: 3.2, duration: 0.05 }
+        : { color: 0xffb060, intensity: 1.2, distance: 4.0, duration: 0.06 }));
     }
     if (s === 'concrete' || s === 'brick' || s === 'ground') {
       if (wt === 'SR') return { color: SURFACE_IMPACT_LIGHT_COLOR_HEAVY, intensity: 1.0, distance: 4.0, duration: 0.05 };
@@ -7736,18 +7347,12 @@ const CORE = (function () {
     }
     return { color: 0, intensity: 0, distance: 0, duration: 0 };
   }
-
   function bloodImpactVfxParams(isHead, weaponType) {
-    const head = Boolean(isHead), wt = weaponType || 'AR';
-    let dropletCount = head ? 10 : 6, mistCount = head ? 4 : 2, mistScale = head ? 0.8 : 0.5;
-    if (wt === 'SR') { dropletCount = head ? 16 : 10; mistCount = head ? 6 : 3; mistScale = head ? 1.1 : 0.7; }
-    else if (wt === 'BR') { dropletCount = head ? 13 : 8; mistCount = head ? 5 : 2; mistScale = head ? 0.95 : 0.6; }
-    else if (wt === 'SMG') { dropletCount = head ? 7 : 4; mistCount = head ? 3 : 1; mistScale = head ? 0.65 : 0.4; }
-    return {
-      dropletCount, mistCount, mistScale,
-      dropletColor0: 0x5a0404, dropletColor1: 0x2a0202,
-      mistColor0: 0x6a0808, mistColor1: 0x3a0404
-    };
+    const h = Boolean(isHead), wt = weaponType || 'AR';
+    const drop = wt === 'SR' ? (h ? 16 : 10) : (wt === 'BR' ? (h ? 13 : 8) : (wt === 'SMG' ? (h ? 7 : 4) : (h ? 10 : 6)));
+    const mist = wt === 'SR' ? (h ? 6 : 3) : (wt === 'BR' ? (h ? 5 : 2) : (wt === 'SMG' ? (h ? 3 : 1) : (h ? 4 : 2)));
+    const mSc = wt === 'SR' ? (h ? 1.1 : 0.7) : (wt === 'BR' ? (h ? 0.95 : 0.6) : (wt === 'SMG' ? (h ? 0.65 : 0.4) : (h ? 0.8 : 0.5)));
+    return { dropletCount: drop, mistCount: mist, mistScale: mSc, dropletColor0: 0x5a0404, dropletColor1: 0x2a0202, mistColor0: 0x6a0808, mistColor1: 0x3a0404 };
   }
 
   // ---- Tactical Scope Acoustics, Ballistic Casing Bounce & Sound Differentiation (v153 Audio Polish) ----
@@ -7876,6 +7481,44 @@ const CORE = (function () {
       }
     }
     return cleared;
+  }
+
+  // ---- Ballistic Casing Caliber Dimensions, Eject Kinematics & Tactical Slide Dust Puff Scaling (v157 Visual Polish) ----
+  const CASING_CALIBER_SCALE_SMG = 0.75, CASING_CALIBER_SCALE_AR = 1.0, CASING_CALIBER_SCALE_BR = 1.25, CASING_CALIBER_SCALE_SR = 1.60;
+  const CASING_EJECT_IMPULSE_SMG = 1.15, CASING_EJECT_IMPULSE_AR = 1.0, CASING_EJECT_IMPULSE_BR = 0.90, CASING_EJECT_IMPULSE_SR = 0.75;
+  const SLIDE_DUST_COLOR0 = 0x8a8076, SLIDE_DUST_COLOR1 = 0x5a544e;
+
+  function casingCaliberScale(weaponType) {
+    if (weaponType === 'SMG') return CASING_CALIBER_SCALE_SMG;
+    if (weaponType === 'BR') return CASING_CALIBER_SCALE_BR;
+    if (weaponType === 'SR') return CASING_CALIBER_SCALE_SR;
+    return CASING_CALIBER_SCALE_AR;
+  }
+
+  function casingEjectImpulse(weaponType) {
+    if (weaponType === 'SMG') return CASING_EJECT_IMPULSE_SMG;
+    if (weaponType === 'BR') return CASING_EJECT_IMPULSE_BR;
+    if (weaponType === 'SR') return CASING_EJECT_IMPULSE_SR;
+    return CASING_EJECT_IMPULSE_AR;
+  }
+
+  function slideDustVfxParams(actionType, speed) {
+    const act = actionType || 'start';
+    const spd = _isNum(speed) ? Math.max(0, speed) : 0;
+    let count = 6, spread = 1.0, scale = 1.0;
+    if (act === 'jump') { count = 9; spread = 1.35; scale = 1.25; }
+    else if (act === 'start') { count = 7; spread = 1.15; scale = 1.05; }
+    else if (act === 'cancel') { count = 5; spread = 0.90; scale = 0.85; }
+    else if (act === 'mantle') { count = 6; spread = 1.00; scale = 0.95; }
+    else if (act === 'stop') { count = 4; spread = 0.75; scale = 0.75; }
+    const speedMul = spd > 0 ? Math.min(1.5, Math.max(0.6, spd / 6.0)) : 1.0;
+    return {
+      count: Math.round(count * speedMul),
+      spread: spread * speedMul,
+      scale: scale * (0.85 + speedMul * 0.15),
+      color0: SLIDE_DUST_COLOR0,
+      color1: SLIDE_DUST_COLOR1
+    };
   }
 
   return {
@@ -8205,7 +7848,11 @@ const CORE = (function () {
     STANCE_ADS_CROUCH_MUL, STANCE_ADS_SLIDE_MUL, stanceAdsSpeedMultiplier,
     ENEMY_RANGED_TANK_BONUS, ENEMY_RANGED_SHIELD_PENALTY,
     RAGDOLL_BLAST_BOUNDING_RADIUS, isRagdollInBlastRadius, isRagdollParticleInBlast, ragdollBlastImpulse, nearestRagdollParticle, isAimAssistHeadCandidateCos,
-    canTouchControlActivate, isActionKeyLockedWhileDowned, sanitizeDownedInputKeys
+    canTouchControlActivate, isActionKeyLockedWhileDowned, sanitizeDownedInputKeys,
+    CASING_CALIBER_SCALE_SMG, CASING_CALIBER_SCALE_AR, CASING_CALIBER_SCALE_BR, CASING_CALIBER_SCALE_SR,
+    CASING_EJECT_IMPULSE_SMG, CASING_EJECT_IMPULSE_AR, CASING_EJECT_IMPULSE_BR, CASING_EJECT_IMPULSE_SR,
+    SLIDE_DUST_COLOR0, SLIDE_DUST_COLOR1,
+    casingCaliberScale, casingEjectImpulse, slideDustVfxParams
   };
 
 })();

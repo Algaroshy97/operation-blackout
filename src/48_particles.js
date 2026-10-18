@@ -316,11 +316,15 @@ function fxMeleeSlash(p, normal, isBackstab) {
     flashLight(p, cfg.lightColor, cfg.lightIntensity, cfg.lightDist, cfg.lightDur);
   }
 }
-function fxDust(p, n, spread, color) {
+function fxDust(p, n, spread, scaleOrColor, color0, color1) {
+  const isScale = typeof scaleOrColor === 'number' && scaleOrColor <= 10;
+  const scale = isScale ? scaleOrColor : 1.0;
+  const c0 = isScale ? (color0 || 0x8a8076) : (scaleOrColor || 0x8a8076);
+  const c1 = isScale ? (color1 || 0x5a544e) : (color0 || 0x5a544e);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, s = pfxRnd(0.4, 1.4) * (spread || 1);
     pfxEmit(PFX_SMOKE, p.x + Math.cos(a) * 0.3, 0.12, p.z + Math.sin(a) * 0.3, Math.cos(a) * s, pfxRnd(0.2, 0.7), Math.sin(a) * s,
-      pfxRnd(0.6, 1.2), 0.25, pfxRnd(0.8, 1.4), color || 0x8a8076, 0x5a544e, 0.4, 2.5, -0.1, 0);
+      pfxRnd(0.6, 1.2), 0.25 * scale, pfxRnd(0.8, 1.4) * scale, c0, c1, 0.4, 2.5, -0.1, 0);
   }
 }
 function fxExplosion(p, scale) {

@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v157 — Ballistic casing caliber dimensions, eject kinematics, and tactical slide dust puff scaling
+
+- Implement ballistic casing caliber dimensions and ejection impulse scaling (`CORE.casingCaliberScale`, `CORE.casingEjectImpulse`, `CORE.casingScale`, `CORE.casingEjectVelocity`): SMG (0.75 scale, 1.15 impulse), AR (1.0 scale, 1.0 impulse), BR (1.25 scale, 0.90 impulse), and SR (1.60 scale, 0.75 impulse); wired into spent casing spawning and fade lifecycle in `src/50_vfx_audio.js`.
+- Implement action-specific tactical slide and locomotion dust puff scaling (`CORE.slideDustVfxParams`): action-tuned particle counts, spread, and puff scales for slide start (7 puffs, 1.15 spread, 1.05 scale), slide-jump boost (9 puffs, 1.35 spread, 1.25 scale), slide cancel (5 puffs, 0.90 spread, 0.85 scale), mantle grab (6 puffs, 1.00 spread, 0.95 scale), and slide stop (4 puffs, 0.75 spread, 0.75 scale), with speed-dependent scaling; wired into `src/20_player.js`, `src/50_vfx_audio.js`, and `src/48_particles.js`.
+- Add regression suites in `tests/test_combat_balance_integration.js` and `tests/test_core.js`, plus live-check 107 (`ballistic-casing-and-slide-dust-vfx-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations, locomotion audio, and combat kinematics in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,687 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 485 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v156 — Touch control activation gating, downed action key sanitization, and locked control pointer-events
 
 - Implement universal touch control activation gating (`CORE.canTouchControlActivate`): cleanly checks lifecycle state (`started`, `paused`, `isDead`, `isDowned`, `isEditing`) and prevents inactive or dead/downed buttons from activating, gaining the `'on'` visual class, or triggering click audio; wired into `holdBtn()`, `fireBtn()`, and `tbtn-pause` in `src/25_touch.js`.

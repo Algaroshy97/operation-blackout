@@ -4846,9 +4846,41 @@ def main() -> int:
 
             return actLiveOk && actDownOk && actDeadOk && keyLockOk && sanitizeOk;
         }""")
-        checks.append(("mobile-touch-activation-and-downed-key-rules", mobile_v156_check))
+        # 107) Ballistic casing caliber dimensions, eject kinematics, and tactical slide dust puff scaling rules (v157 visual polish).
+        visual_v157_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
 
-        # 107) Clean console throughout gameplay.
+            const caliberOk = CORE.casingCaliberScale('SMG') === 0.75 &&
+                              CORE.casingCaliberScale('AR') === 1.0 &&
+                              CORE.casingCaliberScale('BR') === 1.25 &&
+                              CORE.casingCaliberScale('SR') === 1.60;
+
+            const impulseOk = CORE.casingEjectImpulse('SMG') === 1.15 &&
+                              CORE.casingEjectImpulse('AR') === 1.0 &&
+                              CORE.casingEjectImpulse('BR') === 0.90 &&
+                              CORE.casingEjectImpulse('SR') === 0.75;
+
+            const dur = CORE.CASING_FADE_DURATION;
+            const scaleOk = CORE.casingScale(10, 20, dur, 1.6) === 1.6 &&
+                            CORE.casingScale(10, 20, dur, 0.75) === 0.75;
+
+            const pJump = CORE.slideDustVfxParams('jump', 6.0);
+            const pStart = CORE.slideDustVfxParams('start', 6.0);
+            const pCancel = CORE.slideDustVfxParams('cancel', 6.0);
+            const pMantle = CORE.slideDustVfxParams('mantle', 6.0);
+            const pStop = CORE.slideDustVfxParams('stop', 6.0);
+
+            const dustOk = pJump.count === 9 && pJump.spread === 1.35 && pJump.scale === 1.25 &&
+                           pStart.count === 7 && pStart.scale === 1.05 &&
+                           pCancel.count === 5 && pCancel.scale === 0.85 &&
+                           pMantle.count === 6 && pMantle.scale === 0.95 &&
+                           pStop.count === 4 && pStop.scale === 0.75;
+
+            return caliberOk && impulseOk && scaleOk && dustOk;
+        }""")
+        checks.append(("ballistic-casing-and-slide-dust-vfx-rules", visual_v157_check))
+
+        # 108) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
