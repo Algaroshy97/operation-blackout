@@ -23,6 +23,23 @@ def read_lf(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace(CRLF, LF)
 
 
+def strip_line_comments(js: str) -> str:
+    """Drop full-line `//` comments from a source module for the shipped file.
+
+    The release has a hard 2 MiB budget and the modules are heavily commented,
+    which is where their explanations belong; the player's browser has no use
+    for them. Only lines whose first non-blank characters are `//` go, so code,
+    strings and trailing comments are untouched. A module's first line is its
+    banner and is kept: it marks where each module starts in the bundle (the
+    release test checks every banner arrives). No module has a multi-line
+    template literal or string with a line beginning `//`; the release test
+    that parses the bundle would catch one that did.
+    """
+    lines = js.split(LF)
+    kept = lines[:1] + [ln for ln in lines[1:] if not ln.lstrip().startswith("//")]
+    return LF.join(kept)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project_dir", nargs="?", default=".", type=Path)
@@ -55,7 +72,7 @@ def main() -> None:
         parts.extend(["<script>\n", read_lf(library), "\n</script>\n"])
     parts.extend([
         "<script>\n",
-        "\n".join(read_lf(module) for module in modules),
+        "\n".join(strip_line_comments(read_lf(module)) for module in modules),
         "\n</script>\n</body>\n</html>\n",
     ])
     output.parent.mkdir(parents=True, exist_ok=True)
