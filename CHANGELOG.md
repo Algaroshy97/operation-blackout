@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v162 — Ballistic tracer caliber scaling and impact flash sphere dimensions
+
+- Implement ballistic tracer caliber dimensions and thickness scaling (`CORE.tracerCaliberScale`, `CORE.tracerThicknessScale`, `CORE.TRACER_CALIBER_SCALE_SMG` = 0.80, `CORE.TRACER_CALIBER_SCALE_AR` = 1.00, `CORE.TRACER_CALIBER_SCALE_BR` = 1.30, `CORE.TRACER_CALIBER_SCALE_SR` = 1.75): scales ballistic tracer geometry thickness based on caliber ergonomics (SMG 0.80x, AR 1.00x, BR 1.30x, SR 1.75x) for both initial mesh sizing and lifecycle thickness decay; wired into `spawnTracer()` and `updateVfx()` in `src/50_vfx_audio.js`, player firing in `src/30_weapons.js`, enemy shooting in `src/40_enemies.js` via `CORE.enemyWeaponType()`, and sentry turret fire in `src/58_streaks.js`.
+- Implement ballistic impact flash sphere caliber scaling (`CORE.impactFlashCaliberScale`, `CORE.impactVfxScale`, `CORE.IMPACT_FLASH_SCALE_SMG` = 0.75, `CORE.IMPACT_FLASH_SCALE_AR` = 1.00, `CORE.IMPACT_FLASH_SCALE_BR` = 1.25, `CORE.IMPACT_FLASH_SCALE_SR` = 1.60): scales impact flash sphere mesh dimensions and lifetime expansion by weapon caliber; wired into `spawnImpact()`, record pooling, and `updateVfx()` in `src/50_vfx_audio.js`.
+- Add unit and integration regression suites in `tests/test_combat_balance_integration.js` and `tests/test_core.js`, plus contract check 112 (`ballistic-tracer-and-impact-flash-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations, locomotion kinetics, and combat helper functions in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,877 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 495 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v161 — Mobile optical look sensitivity scaling, touch action availability, and empty control pointer-events
 
 - Implement optical ADS and sniper scope look sensitivity scaling (`CORE.touchLookSensitivity`, `CORE.TOUCH_ADS_SENSITIVITY_MUL` = 0.65, `CORE.TOUCH_SCOPED_SENSITIVITY_MUL` = 0.40, `CORE.TOUCH_STEADY_SENSITIVITY_MUL` = 0.25): scales touch drag look factor down when aiming down sights (0.65x), scoped in with sniper rifle (0.40x), or holding breath / steadying aim (0.25x) for fine-grained target acquisition on touchscreens; wired into `touchLookFactor()` in `src/25_touch.js` affecting `lookMove()`, `fireLookMove()`, and `onGyroOrientation()`.

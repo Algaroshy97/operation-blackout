@@ -74,33 +74,37 @@ function warmupVfx() {
 }
 warmupVfx();
 
-function getTracerRecord(m, life, maxLife, len) {
-  const r = tracerRecPool.length > 0 ? tracerRecPool.pop() : { m: null, life: 0, maxLife: 0, len: 0 };
+function getTracerRecord(m, life, maxLife, len, weaponType) {
+  const r = tracerRecPool.length > 0 ? tracerRecPool.pop() : { m: null, life: 0, maxLife: 0, len: 0, weaponType: '' };
   r.m = m;
   r.life = life;
   r.maxLife = maxLife;
   r.len = len;
+  r.weaponType = weaponType || '';
   return r;
 }
 
 function releaseTracerRecord(t) {
   if (!t) return;
   t.m = null;
+  t.weaponType = '';
   tracerRecPool.push(t);
 }
 
-function getImpactRecord(m, life, isBulletImpact, isBlastFlash) {
-  const r = impactRecPool.length > 0 ? impactRecPool.pop() : { m: null, life: 0, isBulletImpact: false, isBlastFlash: false };
+function getImpactRecord(m, life, isBulletImpact, isBlastFlash, weaponType) {
+  const r = impactRecPool.length > 0 ? impactRecPool.pop() : { m: null, life: 0, isBulletImpact: false, isBlastFlash: false, weaponType: '' };
   r.m = m;
   r.life = life;
   r.isBulletImpact = !!isBulletImpact;
   r.isBlastFlash = !!isBlastFlash;
+  r.weaponType = weaponType || '';
   return r;
 }
 
 function releaseImpactRecord(im) {
   if (!im) return;
   im.m = null;
+  im.weaponType = '';
   impactRecPool.push(im);
 }
 
@@ -160,15 +164,17 @@ function getCasingMesh() {
   return m;
 }
 
-function spawnTracer(from, to, mat) {
+function spawnTracer(from, to, mat, weaponType) {
   const mMat = (mat === 0xff8844 || mat === tracerMatE) ? tracerMatE : (mat || tracerMat);
   const m = getTracerMesh(mMat);
   const len = from.distanceTo(to);
-  m.scale.set(1, 1, len);
+  const cal = (typeof CORE !== 'undefined' && typeof CORE.tracerCaliberScale === 'function')
+    ? CORE.tracerCaliberScale(weaponType) : 1;
+  m.scale.set(cal, cal, len);
   m.position.copy(from).add(to).multiplyScalar(0.5);
   m.lookAt(to);
   scene.add(m);
-  vfx.tracers.push(getTracerRecord(m, CORE.TRACER_LIFETIME, CORE.TRACER_LIFETIME, len));
+  vfx.tracers.push(getTracerRecord(m, CORE.TRACER_LIFETIME, CORE.TRACER_LIFETIME, len, weaponType));
 }
 
 const _tmpN = new THREE.Vector3();
@@ -176,10 +182,12 @@ function spawnImpact(point, normal, obj, soundOverride, weaponType) {
   // flash sphere + spark lines + decal-ish quad
   const m = getImpactMesh();
   m.position.copy(point);
-  m.scale.set(1, 1, 1);
+  const cal = (typeof CORE !== 'undefined' && typeof CORE.impactFlashCaliberScale === 'function')
+    ? CORE.impactFlashCaliberScale(weaponType) : 1;
+  m.scale.set(cal, cal, cal);
   m.userData.isBulletImpact = true;
   scene.add(m);
-  vfx.impacts.push(getImpactRecord(m, CORE.IMPACT_VFX_LIFETIME, true, false));
+  vfx.impacts.push(getImpactRecord(m, CORE.IMPACT_VFX_LIFETIME, true, false, weaponType));
   // dust, chips and sparks per surface (48_particles.js). The raycast normal is
   // in the hit object's space; the static batches sit at the origin, props do not.
   if (normal) {
@@ -429,14 +437,18 @@ function updateVfx(dt) {
       releaseTracerRecord(t);
       vfx.tracers.splice(i, 1);
     } else {
-      const thick = CORE.tracerThicknessScale(t.life, t.maxLife);
+      const cal = (typeof CORE !== 'undefined' && typeof CORE.tracerCaliberScale === 'function')
+        ? CORE.tracerCaliberScale(t.weaponType) : 1;
+      const thick = CORE.tracerThicknessScale(t.life, t.maxLife, cal);
       t.m.scale.set(thick, thick, t.len);
     }
   }
   for (let i = vfx.impacts.length - 1; i >= 0; i--) {
     const im = vfx.impacts[i];
     im.life = CORE.stepImpactLife(im.life, dt);
-    im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME));
+    const impCal = (typeof CORE !== 'undefined' && typeof CORE.impactFlashCaliberScale === 'function')
+      ? CORE.impactFlashCaliberScale(im.weaponType) : 1;
+    im.m.scale.setScalar(CORE.impactVfxScale(im.life, CORE.IMPACT_VFX_LIFETIME, impCal));
     if (CORE.isImpactExpired(im.life)) {
       scene.remove(im.m);
       im.m.visible = false;

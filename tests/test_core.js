@@ -9956,4 +9956,50 @@ test('v161 mobile UI polish: optical ADS & scope look sensitivity scaling, touch
   assert.strictEqual(CORE.isTouchActionAvailable('cooldown'), false);
 });
 
+test('v162 visual polish: ballistic tracer caliber scaling and impact flash sphere dimensions', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.TRACER_CALIBER_SCALE_SMG, 0.80);
+  assert.strictEqual(CORE.TRACER_CALIBER_SCALE_AR, 1.00);
+  assert.strictEqual(CORE.TRACER_CALIBER_SCALE_BR, 1.30);
+  assert.strictEqual(CORE.TRACER_CALIBER_SCALE_SR, 1.75);
+
+  // 2. Ballistic tracer caliber scale
+  assert.strictEqual(CORE.tracerCaliberScale('SMG'), 0.80);
+  assert.strictEqual(CORE.tracerCaliberScale('AR'), 1.00);
+  assert.strictEqual(CORE.tracerCaliberScale('BR'), 1.30);
+  assert.strictEqual(CORE.tracerCaliberScale('SR'), 1.75);
+  assert.strictEqual(CORE.tracerCaliberScale('smg'), 0.80);
+  assert.strictEqual(CORE.tracerCaliberScale('br'), 1.30);
+  assert.strictEqual(CORE.tracerCaliberScale('unknown'), 1.00);
+  assert.strictEqual(CORE.tracerCaliberScale(null), 1.00);
+
+  // 3. Ballistic tracer thickness scaling
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 1.0) - 1.0) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 0.8) - 0.8) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 1.75) - 1.75) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.05, 0.1, 1.30) - 0.65) < 1e-4);
+  assert.strictEqual(CORE.tracerThicknessScale(0, 0.1, 1.0), 0.1);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(0.1, 0.1) - 1.0) < 1e-4);
+
+  // 4. Impact flash sphere caliber scale & scaling
+  assert.strictEqual(CORE.IMPACT_FLASH_SCALE_SMG, 0.75);
+  assert.strictEqual(CORE.IMPACT_FLASH_SCALE_AR, 1.00);
+  assert.strictEqual(CORE.IMPACT_FLASH_SCALE_BR, 1.25);
+  assert.strictEqual(CORE.IMPACT_FLASH_SCALE_SR, 1.60);
+
+  assert.strictEqual(CORE.impactFlashCaliberScale('SMG'), 0.75);
+  assert.strictEqual(CORE.impactFlashCaliberScale('AR'), 1.00);
+  assert.strictEqual(CORE.impactFlashCaliberScale('BR'), 1.25);
+  assert.strictEqual(CORE.impactFlashCaliberScale('SR'), 1.60);
+  assert.strictEqual(CORE.impactFlashCaliberScale('smg'), 0.75);
+  assert.strictEqual(CORE.impactFlashCaliberScale(null), 1.00);
+
+  assert.ok(Math.abs(CORE.impactVfxScale(0.05, 0.05, 1.0) - 1.0) < 1e-4);
+  assert.ok(Math.abs(CORE.impactVfxScale(0.05, 0.05, 0.75) - 0.75) < 1e-4);
+  assert.ok(Math.abs(CORE.impactVfxScale(0.05, 0.05, 1.60) - 1.60) < 1e-4);
+  assert.ok(Math.abs(CORE.impactVfxScale(0.05, 0.05) - 1.0) < 1e-4);
+  assert.strictEqual(CORE.impactVfxScale(0, 0.05), 0.001);
+});
+
+
 

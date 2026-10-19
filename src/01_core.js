@@ -5332,12 +5332,11 @@ const CORE = (function () {
     return Math.max(0, cur - delta * rate * compat * 4);
   }
 
-  function impactVfxScale(life, maxLife) {
-    const maxL = _isPos(maxLife) ? maxLife : IMPACT_VFX_LIFETIME;
-    const curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
+  function impactVfxScale(life, maxLife, caliberScale) {
+    const maxL = _isPos(maxLife) ? maxLife : IMPACT_VFX_LIFETIME, curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
     if (curL <= 0) return 0.001;
-    const expansion = 1 + (maxL - curL) * IMPACT_VFX_EXPANSION_RATE;
-    return Math.max(0.001, expansion * (curL / maxL));
+    const cal = _isPos(caliberScale) ? caliberScale : 1.0, expansion = 1 + (maxL - curL) * IMPACT_VFX_EXPANSION_RATE;
+    return Math.max(0.001, expansion * (curL / maxL) * cal);
   }
 
   // ---- Particle Upload Optimization, Marksman Scope & Spring Physics (v94) ----
@@ -5734,110 +5733,53 @@ const CORE = (function () {
 
   // ---- Station Buy Prompt Performance Rules ----
   const BUY_PROMPT_DEFAULT_COLOR = '#ffd24a', BUY_PROMPT_DIM_COLOR = 'rgba(255,255,255,.55)';
-
   function buyPromptLabel(label, price, prefix) {
     return ((typeof prefix === 'string') ? prefix : '') + ((typeof label === 'string') ? label : '') + (_isPos(price) ? ('  ·  ' + price + ' CR') : '');
   }
-
   function buyPromptFillPct(holdT, maxHold) {
     return Math.round(Math.min(1, Math.max(0, (_isNum(holdT) ? holdT : 0) / (_isPos(maxHold) ? maxHold : 1))) * 100);
   }
-
-  function buyPromptColor(dim) {
-    return dim ? BUY_PROMPT_DIM_COLOR : BUY_PROMPT_DEFAULT_COLOR;
-  }
-
-
+  function buyPromptColor(dim) { return dim ? BUY_PROMPT_DIM_COLOR : BUY_PROMPT_DEFAULT_COLOR; }
   function buyPromptChanged(lastState, visible, text, fillPct, dim) {
     if (!lastState) return true;
-    return lastState.visible !== !!visible ||
-           lastState.text !== (text || '') ||
-           lastState.fillPct !== fillPct ||
-           lastState.dim !== !!dim;
+    return lastState.visible !== !!visible || lastState.text !== (text || '') || lastState.fillPct !== fillPct || lastState.dim !== !!dim;
   }
-
   function syncBuyPromptState(lastState, visible, text, fillPct, dim) {
     if (!lastState) return { visible: !!visible, text: text || '', fillPct: fillPct || 0, dim: !!dim };
-    lastState.visible = !!visible;
-    lastState.text = text || '';
-    lastState.fillPct = fillPct || 0;
-    lastState.dim = !!dim;
-    return lastState;
+    lastState.visible = !!visible; lastState.text = text || ''; lastState.fillPct = fillPct || 0; lastState.dim = !!dim; return lastState;
   }
 
   // ---- Minimap & Compass 2D Canvas Gating & Projection ----
-  const COMPASS_YAW_THRESHOLD = 0.002; // ~0.11 degrees
-
+  const COMPASS_YAW_THRESHOLD = 0.002;
   function compassNeedsRedraw(lastYaw, currentYaw, threshold) {
-    if (!_isNum(lastYaw)) return true;
-    if (!_isNum(currentYaw)) return false;
-    const limit = _isNum(threshold) ? threshold : COMPASS_YAW_THRESHOLD;
-    return Math.abs(currentYaw - lastYaw) >= limit;
+    return !_isNum(lastYaw) || (_isNum(currentYaw) && Math.abs(currentYaw - lastYaw) >= (_isNum(threshold) ? threshold : COMPASS_YAW_THRESHOLD));
   }
-
   function minimapScale(canvasRadius, worldSize, margin) {
-    const r = _isNum(canvasRadius) ? canvasRadius : 75;
-    const ws = _isNum(worldSize) ? worldSize : 90;
-    const m = _isNum(margin) ? margin : 8;
-    return r / (ws / 2 + m);
+    return (_isNum(canvasRadius) ? canvasRadius : 75) / (((_isNum(worldSize) ? worldSize : 90) / 2) + (_isNum(margin) ? margin : 8));
   }
-
   function minimapDetectRadiusSq(uavActive, canvasRadius, baseDetect, scale) {
     const r = _isNum(canvasRadius) ? canvasRadius : 75;
     if (uavActive) return r * r;
-    const bd = _isNum(baseDetect) ? baseDetect : 26;
-    const s = _isNum(scale) ? scale : 1;
-    const dist = bd * s;
+    const dist = (_isNum(baseDetect) ? baseDetect : 26) * (_isNum(scale) ? scale : 1);
     return dist * dist;
   }
-
   function minimapBlipOffset(worldX, worldZ, playerX, playerZ, scale, out) {
-    const o = out || { x: 0, z: 0 };
-    const s = _isNum(scale) ? scale : 1;
+    const o = out || { x: 0, z: 0 }, s = _isNum(scale) ? scale : 1;
     o.x = ((_isNum(worldX) ? worldX : 0) - (_isNum(playerX) ? playerX : 0)) * s;
     o.z = ((_isNum(worldZ) ? worldZ : 0) - (_isNum(playerZ) ? playerZ : 0)) * s;
     return o;
   }
-
   function isMinimapBlipVisible(offsetX, offsetZ, maxRadiusSq) {
-    if (!isFinite(offsetX) || !isFinite(offsetZ)) return false;
-    const limit = _isNum(maxRadiusSq) ? maxRadiusSq : Infinity;
-    return (offsetX * offsetX + offsetZ * offsetZ) <= limit;
+    return isFinite(offsetX) && isFinite(offsetZ) && (offsetX * offsetX + offsetZ * offsetZ) <= (_isNum(maxRadiusSq) ? maxRadiusSq : Infinity);
   }
-
-  function minimapEnemyRadius(kind) {
-    if (kind === 2 || kind === 3) return 4;
-    if (kind === 4) return 2.5;
-    return 3;
-  }
-
-  function compassTickAngle(heading, offset) {
-    const h = _isNum(heading) ? heading : 0;
-    const off = _isNum(offset) ? offset : 0;
-    return (h + off + 360) % 360;
-  }
-
-  function compassSnapAngle(deg, step) {
-    const d = _isNum(deg) ? deg : 0;
-    const s = _isPos(step) ? step : 5;
-    return Math.round(d / s) * s;
-  }
-
-  function compassTickVisible(offset, maxSpan) {
-    if (!isFinite(offset)) return false;
-    const span = _isNum(maxSpan) ? maxSpan : 45;
-    return Math.abs(offset) <= span;
-  }
-
-  function compassTickStyle(isMajor) {
-    return isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
-  }
+  function minimapEnemyRadius(kind) { return (kind === 2 || kind === 3) ? 4 : (kind === 4 ? 2.5 : 3); }
+  function compassTickAngle(heading, offset) { return (((_isNum(heading) ? heading : 0) + ((_isNum(offset) ? offset : 0)) + 360) % 360); }
+  function compassSnapAngle(deg, step) { const s = _isPos(step) ? step : 5; return Math.round((_isNum(deg) ? deg : 0) / s) * s; }
+  function compassTickVisible(offset, maxSpan) { return isFinite(offset) && Math.abs(offset) <= (_isNum(maxSpan) ? maxSpan : 45); }
+  function compassTickStyle(isMajor) { return isMajor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)'; }
 
   // ---- Ragdoll Settling, Sinking & Despawn Lifecycle ----
-  const RAGDOLL_SINK_DELAY = 3.5;
-  const RAGDOLL_SINK_RATE = 0.6;
-  const RAGDOLL_SINK_MAX = 1.6;
-  const RAGDOLL_DROP_SCALE = 0.02;
+  const RAGDOLL_SINK_DELAY = 3.5, RAGDOLL_SINK_RATE = 0.6, RAGDOLL_SINK_MAX = 1.6, RAGDOLL_DROP_SCALE = 0.02;
 
   function isRagdollSinkReady(isSettled, age, delay) {
     if (!isSettled) return false;
@@ -5847,294 +5789,121 @@ const CORE = (function () {
   }
 
   function stepRagdollSink(currentSunk, dt, rate) {
-    const s = _isNum(currentSunk) ? currentSunk : 0;
-    const delta = _isNum(dt) ? dt : 0;
-    const r = _isNum(rate) ? rate : RAGDOLL_SINK_RATE;
-    return s + delta * r;
+    return (_isNum(currentSunk) ? currentSunk : 0) + (_isNum(dt) ? dt : 0) * (_isNum(rate) ? rate : RAGDOLL_SINK_RATE);
   }
-
-  function ragdollDropOffsetY(sunk, scale) {
-    const s = _isNum(sunk) ? sunk : 0;
-    const sc = _isNum(scale) ? scale : RAGDOLL_DROP_SCALE;
-    return s * sc;
-  }
-
-  function isRagdollExpired(sunk, maxSunk) {
-    const s = _isNum(sunk) ? sunk : 0;
-    const m = _isNum(maxSunk) ? maxSunk : RAGDOLL_SINK_MAX;
-    return s > m;
-  }
+  function ragdollDropOffsetY(sunk, scale) { return (_isNum(sunk) ? sunk : 0) * (_isNum(scale) ? scale : RAGDOLL_DROP_SCALE); }
+  function isRagdollExpired(sunk, maxSunk) { return (_isNum(sunk) ? sunk : 0) > (_isNum(maxSunk) ? maxSunk : RAGDOLL_SINK_MAX); }
 
   // ---- Procedural Box-Man Enemy Animation Kinematics ----
-  const ENEMY_PROC_WALK_THRESHOLD = 0.3;
-  const ENEMY_PROC_BASE_FREQ = 9;
-
+  const ENEMY_PROC_WALK_THRESHOLD = 0.3, ENEMY_PROC_BASE_FREQ = 9;
   function enemyProcWalkSpeed(moveSpeed, kind, threshold) {
     const spd = _isNum(moveSpeed) ? moveSpeed : 0;
-    const th = _isNum(threshold) ? threshold : ENEMY_PROC_WALK_THRESHOLD;
-    if (spd <= th) return 0;
-    const runnerMul = kind === 0 ? 1.5 : 1;
-    return ENEMY_PROC_BASE_FREQ * (spd / 3.2) * runnerMul;
+    return spd <= (_isNum(threshold) ? threshold : ENEMY_PROC_WALK_THRESHOLD) ? 0 : ENEMY_PROC_BASE_FREQ * (spd / 3.2) * (kind === 0 ? 1.5 : 1);
   }
-
-  function stepEnemyProcWalkPhase(phase, speed, dt) {
-    const p = _isNum(phase) ? phase : 0;
-    const s = _isNum(speed) ? speed : 0;
-    const delta = _isNum(dt) ? dt : 0;
-    return p + s * delta;
-  }
-
-  function enemyProcLimbSwing(phase, isMoving) {
-    const p = (_isNum(phase)) ? phase : 0;
-    const amp = isMoving ? 0.55 : 0.06;
-    return Math.sin(p) * amp;
-  }
-
-  function enemyProcPitchTrack(playerEyeY, enemyY, dist) {
-    const py = (_isNum(playerEyeY)) ? playerEyeY : 0;
-    const ey = (_isNum(enemyY)) ? enemyY : 0;
-    const d = (_isNum(dist)) ? Math.max(0.1, dist) : 1;
-    return Math.atan2(py - (ey + 1.5), d);
-  }
-
+  function stepEnemyProcWalkPhase(phase, speed, dt) { return (_isNum(phase) ? phase : 0) + (_isNum(speed) ? speed : 0) * (_isNum(dt) ? dt : 0); }
+  function enemyProcLimbSwing(phase, isMoving) { return Math.sin((_isNum(phase)) ? phase : 0) * (isMoving ? 0.55 : 0.06); }
+  function enemyProcPitchTrack(playerEyeY, enemyY, dist) { return Math.atan2(((_isNum(playerEyeY)) ? playerEyeY : 0) - (((_isNum(enemyY)) ? enemyY : 0) + 1.5), (_isNum(dist)) ? Math.max(0.1, dist) : 1); }
   function enemyProcPose(phase, moveSpeed, kind, dist, playerEyeY, enemyY, out) {
     const o = out || { legLRotX: 0, legRRotX: 0, armLRotX: 0, armRRotX: 0, bodyRotX: 0, bodyPosY: 0, moving: false };
-    const spd = (_isNum(moveSpeed)) ? moveSpeed : 0;
-    const moving = spd > ENEMY_PROC_WALK_THRESHOLD;
-    const p = (_isNum(phase)) ? phase : 0;
-    const swing = enemyProcLimbSwing(p, moving);
-    o.moving = moving;
-    o.legLRotX = swing;
-    o.legRRotX = -swing;
-    o.armLRotX = -swing * 0.7;
-    o.armRRotX = swing * 0.7 - (kind === 1 ? 0.5 : 0);
+    const spd = (_isNum(moveSpeed)) ? moveSpeed : 0, moving = spd > ENEMY_PROC_WALK_THRESHOLD, p = (_isNum(phase)) ? phase : 0, swing = enemyProcLimbSwing(p, moving);
+    o.moving = moving; o.legLRotX = swing; o.legRRotX = -swing; o.armLRotX = -swing * 0.7; o.armRRotX = swing * 0.7 - (kind === 1 ? 0.5 : 0);
     const pitch = enemyProcPitchTrack(playerEyeY, enemyY, dist);
-    let bRotX = kind === 1 ? -pitch * 0.25 : 0;
-    if (kind === 0) bRotX += 0.12;
-    o.bodyRotX = bRotX;
-    o.bodyPosY = moving ? Math.abs(Math.cos(p)) * 0.03 : 0;
-    return o;
+    let bRotX = kind === 1 ? -pitch * 0.25 : 0; if (kind === 0) bRotX += 0.12;
+    o.bodyRotX = bRotX; o.bodyPosY = moving ? Math.abs(Math.cos(p)) * 0.03 : 0; return o;
   }
 
   // ---- Combat Balance & Wave Pacing Dynamics ----
-  const WAVE_SPAWN_PRESSURE_QUEUE = 18;
-  const WAVE_SPAWN_SWEET_SPOT = 26;
-  const WAVE_SPAWN_JITTER = 6;
-  const AMMO_RELIEF_DRY_THRESHOLD = 5;
-  const AMMO_RELIEF_COOLDOWN = 18;
-  const ENEMY_BULLET_DELAY_FACTOR = 2.2;
-  const ENEMY_BULLET_MAX_DELAY_MS = 300;
-  const ENEMY_MELEE_WINDUP_BASE = 0.25;
-  const ENEMY_MELEE_WINDUP_RANGE = 0.45;
-  const ENEMY_MELEE_FOLLOW_REACH_PADDING = 0.35;
-  const ENEMY_STUN_SPEED_MUL = 0.35;
-  const ENEMY_BLIND_YAW_RATE = 1.6;
-  const ENEMY_FALL_SPEED = 6;
-  const SLIDE_CANCEL_MIN_T = 0.12;
-  const SLIDE_TIMEOUT_T = 0.9;
-  const SLIDE_STOP_MIN_T = 0.25;
-  const STATION_HOLD_DECAY_RATE = 3;
+  const WAVE_SPAWN_PRESSURE_QUEUE = 18, WAVE_SPAWN_SWEET_SPOT = 26, WAVE_SPAWN_JITTER = 6, AMMO_RELIEF_DRY_THRESHOLD = 5, AMMO_RELIEF_COOLDOWN = 18;
+  const ENEMY_BULLET_DELAY_FACTOR = 2.2, ENEMY_BULLET_MAX_DELAY_MS = 300, ENEMY_MELEE_WINDUP_BASE = 0.25, ENEMY_MELEE_WINDUP_RANGE = 0.45;
+  const ENEMY_MELEE_FOLLOW_REACH_PADDING = 0.35, ENEMY_STUN_SPEED_MUL = 0.35, ENEMY_BLIND_YAW_RATE = 1.6, ENEMY_FALL_SPEED = 6;
+  const SLIDE_CANCEL_MIN_T = 0.12, SLIDE_TIMEOUT_T = 0.9, SLIDE_STOP_MIN_T = 0.25, STATION_HOLD_DECAY_RATE = 3;
 
   function waveSpawnPressure(waveQueue, queueThreshold) {
-    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0;
-    const thresh = _isNum(queueThreshold) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
+    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0, thresh = _isNum(queueThreshold) ? Math.max(1, queueThreshold) : WAVE_SPAWN_PRESSURE_QUEUE;
     return Math.min(1, q / thresh);
   }
-
   function waveSpawnBurstCount(waveQueue, canSpawn, pressure, randomVal) {
-    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0;
-    const maxCan = _isNum(canSpawn) ? Math.max(0, canSpawn) : 0;
-    const press = _isNum(pressure) ? _clamp01(pressure) : 0;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    const randBase = Math.floor(Math.min(0.9999, r) * 2);
-    const burstSize = randBase + 3 + Math.round(press * 3);
-    return Math.min(burstSize, q, maxCan);
+    const q = _isNum(waveQueue) ? Math.max(0, waveQueue) : 0, maxCan = _isNum(canSpawn) ? Math.max(0, canSpawn) : 0, press = _isNum(pressure) ? _clamp01(pressure) : 0, r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
+    return Math.min(Math.floor(Math.min(0.9999, r) * 2) + 3 + Math.round(press * 3), q, maxCan);
   }
 
   function waveSpawnDelay(pressure, randomVal) {
-    const press = _isNum(pressure) ? _clamp01(pressure) : 0;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
+    const press = _isNum(pressure) ? _clamp01(pressure) : 0, r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
     return (2.5 - press * 1.4) + r * 1.2;
   }
-
   function spawnCandidateScore(dist, sweetSpot, randomVal) {
-    const d = _isNum(dist) ? dist : 0;
-    const target = _isNum(sweetSpot) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    const res = -Math.abs(d - target) - r * WAVE_SPAWN_JITTER;
+    const d = _isNum(dist) ? dist : 0, target = _isNum(sweetSpot) ? sweetSpot : WAVE_SPAWN_SWEET_SPOT, r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5, res = -Math.abs(d - target) - r * WAVE_SPAWN_JITTER;
     return res === 0 ? 0 : res;
   }
-
   function stepAmmoReliefTimer(dryT, dt, hasAmmo) {
-    if (hasAmmo) return 0;
-    const cur = _isNum(dryT) ? Math.max(0, dryT) : 0;
-    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
-    return cur + delta;
+    return hasAmmo ? 0 : (_isNum(dryT) ? Math.max(0, dryT) : 0) + (_isNum(dt) ? Math.max(0, dt) : 0);
   }
-
   function isAmmoReliefNeeded(waveActive, isDead, dryT, gameT, nextCacheT, threshold) {
-    if (!waveActive || isDead) return false;
-    const t = _isNum(dryT) ? dryT : 0;
-    const th = _isNum(threshold) ? threshold : AMMO_RELIEF_DRY_THRESHOLD;
-    const gT = _isNum(gameT) ? gameT : 0;
-    const nextT = _isNum(nextCacheT) ? nextCacheT : 0;
-    return t > th && gT > nextT;
+    return !!waveActive && !isDead && ((_isNum(dryT) ? dryT : 0) > (_isNum(threshold) ? threshold : AMMO_RELIEF_DRY_THRESHOLD)) && ((_isNum(gameT) ? gameT : 0) > (_isNum(nextCacheT) ? nextCacheT : 0));
   }
-
   function enemyBulletTravelDelay(dist, factor, maxDelay) {
-    const d = _isNum(dist) ? Math.max(0, dist) : 0;
-    const f = _isNum(factor) ? factor : ENEMY_BULLET_DELAY_FACTOR;
-    const cap = _isNum(maxDelay) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS;
-    return Math.min(cap, d * f);
+    return Math.min(_isNum(maxDelay) ? maxDelay : ENEMY_BULLET_MAX_DELAY_MS, (_isNum(dist) ? Math.max(0, dist) : 0) * (_isNum(factor) ? factor : ENEMY_BULLET_DELAY_FACTOR));
   }
-
   function enemyRangedNextShot(currentT, rangedRof, randomVal) {
-    const t = _isNum(currentT) ? currentT : 0;
-    const rof = _isNum(rangedRof) ? rangedRof : 1.35;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    return t + rof * (0.75 + r * 0.5);
+    return (_isNum(currentT) ? currentT : 0) + (_isNum(rangedRof) ? rangedRof : 1.35) * (0.75 + (_isNum(randomVal) ? _clamp01(randomVal) : 0.5) * 0.5);
   }
-
   function enemyMeleeWindup(randomVal) {
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    return ENEMY_MELEE_WINDUP_BASE + r * ENEMY_MELEE_WINDUP_RANGE;
+    return ENEMY_MELEE_WINDUP_BASE + (_isNum(randomVal) ? _clamp01(randomVal) : 0.5) * ENEMY_MELEE_WINDUP_RANGE;
   }
-
   function enemyAttackReadyTime(currentT, baseCooldown, randomVal) {
-    const t = _isNum(currentT) ? currentT : 0;
-    const cd = _isNum(baseCooldown) ? baseCooldown : 1.1;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    return t + cd + r * 0.5;
+    return (_isNum(currentT) ? currentT : 0) + (_isNum(baseCooldown) ? baseCooldown : 1.1) + (_isNum(randomVal) ? _clamp01(randomVal) : 0.5) * 0.5;
   }
-
   function enemyKillImpulse(lastHitForce, isHead, randomVal, out) {
-    const o = out || { force: 0, y: 0 };
-    const forceVal = _isNum(lastHitForce) ? Math.max(0, lastHitForce) : 20;
-    o.force = Math.min(0.085, 0.012 + forceVal * 0.00035);
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    o.y = (isHead ? 0.030 : 0.016) + r * 0.008;
-    return o;
+    const o = out || { force: 0, y: 0 }, forceVal = _isNum(lastHitForce) ? Math.max(0, lastHitForce) : 20, r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
+    o.force = Math.min(0.085, 0.012 + forceVal * 0.00035); o.y = (isHead ? 0.030 : 0.016) + r * 0.008; return o;
   }
-
   function enemyStunSpeedMultiplier(baseSpeedMul, isStunned) {
-    const base = _isNum(baseSpeedMul) ? baseSpeedMul : 1;
-    return isStunned ? base * ENEMY_STUN_SPEED_MUL : base;
+    const base = _isNum(baseSpeedMul) ? baseSpeedMul : 1; return isStunned ? base * ENEMY_STUN_SPEED_MUL : base;
   }
-
   function stepEnemyBlindYaw(yaw, dt, rate) {
-    const y = _isNum(yaw) ? yaw : 0;
-    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
-    const r = _isNum(rate) ? rate : ENEMY_BLIND_YAW_RATE;
-    return y + delta * r;
+    return (_isNum(yaw) ? yaw : 0) + (_isNum(dt) ? Math.max(0, dt) : 0) * (_isNum(rate) ? rate : ENEMY_BLIND_YAW_RATE);
   }
-
   function stepEnemyFallY(currentY, floorY, dt, fallSpeed, stepH) {
-    const cy = _isNum(currentY) ? currentY : 0;
-    const fy = _isNum(floorY) ? floorY : 0;
-    const delta = _isNum(dt) ? Math.max(0, dt) : 0;
-    const spd = _isNum(fallSpeed) ? fallSpeed : ENEMY_FALL_SPEED;
-    const step = _isNum(stepH) ? stepH : 0.60;
-    if (fy < cy) {
-      const needed = cy - fy;
-      return cy - Math.min(needed, delta * spd);
-    } else if (fy > cy && (fy - cy) <= step) {
-      const needed = fy - cy;
-      return cy + Math.min(needed, delta * spd);
-    }
+    const cy = _isNum(currentY) ? currentY : 0, fy = _isNum(floorY) ? floorY : 0, delta = _isNum(dt) ? Math.max(0, dt) : 0, spd = _isNum(fallSpeed) ? fallSpeed : ENEMY_FALL_SPEED, step = _isNum(stepH) ? stepH : 0.60;
+    if (fy < cy) return cy - Math.min(cy - fy, delta * spd);
+    if (fy > cy && (fy - cy) <= step) return cy + Math.min(fy - cy, delta * spd);
     return cy;
   }
-
   function canSlideCancel(slideT, minDuration) {
-    const t = _isNum(slideT) ? slideT : 0;
-    const minT = _isNum(minDuration) ? minDuration : SLIDE_CANCEL_MIN_T;
-    return t > minT;
+    return (_isNum(slideT) ? slideT : 0) > (_isNum(minDuration) ? minDuration : SLIDE_CANCEL_MIN_T);
   }
 
   function isSlideExpired(slideT, isCrouchHeld, hasMoveInput, maxDuration, minMoveDuration) {
     const t = (_isNum(slideT)) ? slideT : 0;
-    const maxT = (_isNum(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T;
-    const minMoveT = (_isNum(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T;
-    if (t > maxT) return true;
-    if (!isCrouchHeld) return true;
-    if (!hasMoveInput && t > minMoveT) return true;
-    return false;
+    return t > ((_isNum(maxDuration)) ? maxDuration : SLIDE_TIMEOUT_T) || !isCrouchHeld || (!hasMoveInput && t > ((_isNum(minMoveDuration)) ? minMoveDuration : SLIDE_STOP_MIN_T));
   }
-
   function stepStationHold(holdT, isHolding, dt, decayRate, buyHold) {
-    const cur = (_isNum(holdT)) ? Math.max(0, holdT) : 0;
-    const delta = (_isNum(dt)) ? dt : 0;
-    const maxHold = (_isNum(buyHold)) ? buyHold : BUY_HOLD;
-    if (isHolding) {
-      return Math.min(maxHold, cur + delta);
-    }
-    const dec = (_isNum(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE;
-    return Math.max(0, cur - delta * dec);
+    const cur = (_isNum(holdT)) ? Math.max(0, holdT) : 0, delta = (_isNum(dt)) ? dt : 0;
+    return isHolding ? Math.min((_isNum(buyHold)) ? buyHold : BUY_HOLD, cur + delta) : Math.max(0, cur - delta * ((_isNum(decayRate)) ? decayRate : STATION_HOLD_DECAY_RATE));
   }
-
-  function weaponFireInterval(rpm) {
-    const r = _isPos(rpm) ? rpm : 600;
-    return 60 / r;
-  }
+  function weaponFireInterval(rpm) { return 60 / (_isPos(rpm) ? rpm : 600); }
 
   // ---- Ballistic surface impact and tactical weapon acoustics (v101) ----
-  const SPATIAL_IMPACT_MAX_DIST = 55;
-  const SNIPER_BOLT_DELAY_MS = 280;
-
+  const SPATIAL_IMPACT_MAX_DIST = 55, SNIPER_BOLT_DELAY_MS = 280;
   function surfaceImpactSound(surface) {
-    if (surface === 'metal') return 'impact_metal';
-    if (surface === 'wood') return 'impact_wood';
-    if (surface === 'glass') return 'impact_glass';
-    if (surface === 'ground') return 'impact_ground';
-    return 'impact';
+    return surface === 'metal' ? 'impact_metal' : (surface === 'wood' ? 'impact_wood' : (surface === 'glass' ? 'impact_glass' : (surface === 'ground' ? 'impact_ground' : 'impact')));
   }
-
-  function sniperBoltSound() {
-    return 'sniper_bolt';
-  }
-
-  function streakReadySound(key) {
-    return 'streak_ready';
-  }
-
-  function fieldUpgradeReadySound() {
-    return 'field_ready';
-  }
-
-  function secondWindSound() {
-    return 'second_wind';
-  }
-
-  function objectiveCompleteSound() {
-    return 'objective_complete';
-  }
-
+  function sniperBoltSound() { return 'sniper_bolt'; }
+  function streakReadySound(key) { return 'streak_ready'; }
+  function fieldUpgradeReadySound() { return 'field_ready'; }
+  function secondWindSound() { return 'second_wind'; }
+  function objectiveCompleteSound() { return 'objective_complete'; }
   function weaponDrawSound(weaponType) {
-    if (weaponType === 'SR' || weaponType === 'BR') return 'draw_heavy';
-    if (weaponType === 'SMG') return 'draw_light';
-    return 'draw';
+    return (weaponType === 'SR' || weaponType === 'BR') ? 'draw_heavy' : (weaponType === 'SMG' ? 'draw_light' : 'draw');
   }
 
   // ---- Ballistic bullet hole decals, viewmodel muzzle flash dynamics, and tracer kinematics (v103) ----
-  const DECAL_MAX = 48;
-  const DECAL_LIFETIME = 25;
-  const DECAL_FADE_DURATION = 3.5;
-  const DECAL_BASE_RADIUS = 0.075;
-  const DECAL_STANDOFF = 0.012;
-  const MUZZLE_FLASH_SUPPRESSED_SCALE = 0.22;
-  const TRACER_LIFETIME = 0.065;
-
+  const DECAL_MAX = 48, DECAL_LIFETIME = 25, DECAL_FADE_DURATION = 3.5, DECAL_BASE_RADIUS = 0.075, DECAL_STANDOFF = 0.012, MUZZLE_FLASH_SUPPRESSED_SCALE = 0.22, TRACER_LIFETIME = 0.065;
   function decalCaliberScale(weaponType) {
-    if (weaponType === 'SMG') return 0.72;
-    if (weaponType === 'BR') return 1.25;
-    if (weaponType === 'SR') return 1.5;
-    return 1.0;
+    return weaponType === 'SMG' ? 0.72 : (weaponType === 'BR' ? 1.25 : (weaponType === 'SR' ? 1.5 : 1.0));
   }
-
   function decalSurfaceMultiplier(surface) {
-    if (surface === 'glass') return 1.25;
-    if (surface === 'wood') return 1.1;
-    if (surface === 'metal') return 0.82;
-    return 1.0;
+    return surface === 'glass' ? 1.25 : (surface === 'wood' ? 1.1 : (surface === 'metal' ? 0.82 : 1.0));
   }
 
   function decalScale(weaponType, surface, life, maxLife, fadeDuration) {
@@ -6170,9 +5939,10 @@ const CORE = (function () {
     res.x = (_isNum(baseK) ? baseK : 1) * km; res.y = res.x; res.z = (_isNum(baseZ) ? baseZ : 1) * zm; return res;
   }
 
-  function tracerThicknessScale(life, maxLife) {
+  function tracerThicknessScale(life, maxLife, caliberScale) {
     const maxL = _isPos(maxLife) ? maxLife : TRACER_LIFETIME, curL = _isNum(life) ? Math.max(0, Math.min(maxL, life)) : 0;
-    return Math.max(0.1, curL / maxL);
+    const cal = _isPos(caliberScale) ? caliberScale : 1.0;
+    return Math.max(0.1, (curL / maxL) * cal);
   }
 
   function tracerColor(isEnemy) { return isEnemy ? 0xff8844 : 0xffe9a0; }
@@ -7053,21 +6823,17 @@ const CORE = (function () {
   function ragdollBlastImpulse(dist, radius, force, dtSubstep) {
     if (!_isNum(dist) || dist < 0) return 0;
     const r = _isPos(radius) ? radius : 7.0;
-    if (dist > r) return 0;
-    return (_isPos(force) ? force : 40.0) * (1 - dist / r) * (_isPos(dtSubstep) ? dtSubstep : 1 / 60) / (dist || 1);
+    return dist > r ? 0 : (_isPos(force) ? force : 40.0) * (1 - dist / r) * (_isPos(dtSubstep) ? dtSubstep : 1 / 60) / (dist || 1);
   }
-
   function nearestRagdollParticle(P, hitX, hitY, hitZ) {
     if (!P || P.length < 45 || !_isNum(hitX) || !_isNum(hitY) || !_isNum(hitZ)) return 1;
     let hitIdx = 1, bestSq = Infinity;
     for (let i = 0; i < 15; i++) {
-      const dx = P[i * 3] - hitX, dy = P[i * 3 + 1] - hitY, dz = P[i * 3 + 2] - hitZ;
-      const dSq = dx * dx + dy * dy + dz * dz;
+      const dx = P[i * 3] - hitX, dy = P[i * 3 + 1] - hitY, dz = P[i * 3 + 2] - hitZ, dSq = dx * dx + dy * dy + dz * dz;
       if (dSq < bestSq) { bestSq = dSq; hitIdx = i; }
     }
     return hitIdx;
   }
-
   function isAimAssistHeadCandidateCos(headDot, bestCos, thresholdAngleCos, priorityMul) {
     if (!_isNum(headDot) || !_isNum(bestCos)) return false;
     const thCos = _isNum(thresholdAngleCos) ? thresholdAngleCos : 0.99, pri = _isPos(priorityMul) ? priorityMul : 0.85;
@@ -7078,14 +6844,11 @@ const CORE = (function () {
   function canTouchControlActivate(controlId, started, paused, isDead, isDowned, isEditing) {
     if (!started || isEditing || isDead) return false;
     if (controlId === 'tbtn-pause') return !paused;
-    if (paused) return false;
-    return controlId === 'joy-base' || !touchControlLocked(controlId, false, isDowned);
+    return !paused && (controlId === 'joy-base' || !touchControlLocked(controlId, false, isDowned));
   }
-
   function isActionKeyLockedWhileDowned(keyCode) {
     return keyCode === 'Space' || keyCode === 'KeyC' || keyCode === 'Mouse2' || keyCode === 'KeyG' || keyCode === '__use' || keyCode === '__melee' || keyCode === '__plate' || keyCode === '__tactical' || keyCode === '__streak' || keyCode === '__field';
   }
-
   function sanitizeDownedInputKeys(keys, pressed) {
     let cleared = 0;
     if (keys) { const kl = ['KeyC', 'Mouse2', 'KeyG', '__use']; for (let i = 0; i < kl.length; i++) if (keys[kl[i]]) { keys[kl[i]] = false; cleared++; } }
@@ -7097,15 +6860,12 @@ const CORE = (function () {
   const CASING_CALIBER_SCALE_SMG = 0.75, CASING_CALIBER_SCALE_AR = 1.0, CASING_CALIBER_SCALE_BR = 1.25, CASING_CALIBER_SCALE_SR = 1.60;
   const CASING_EJECT_IMPULSE_SMG = 1.15, CASING_EJECT_IMPULSE_AR = 1.0, CASING_EJECT_IMPULSE_BR = 0.90, CASING_EJECT_IMPULSE_SR = 0.75;
   const SLIDE_DUST_COLOR0 = 0x8a8076, SLIDE_DUST_COLOR1 = 0x5a544e;
-
   function casingCaliberScale(weaponType) {
     return weaponType === 'SMG' ? CASING_CALIBER_SCALE_SMG : (weaponType === 'BR' ? CASING_CALIBER_SCALE_BR : (weaponType === 'SR' ? CASING_CALIBER_SCALE_SR : CASING_CALIBER_SCALE_AR));
   }
-
   function casingEjectImpulse(weaponType) {
     return weaponType === 'SMG' ? CASING_EJECT_IMPULSE_SMG : (weaponType === 'BR' ? CASING_EJECT_IMPULSE_BR : (weaponType === 'SR' ? CASING_EJECT_IMPULSE_SR : CASING_EJECT_IMPULSE_AR));
   }
-
   function slideDustVfxParams(actionType, speed) {
     const act = actionType || 'start', spd = _isNum(speed) ? Math.max(0, speed) : 0;
     const count = act === 'jump' ? 9 : (act === 'start' ? 7 : (act === 'cancel' ? 5 : (act === 'mantle' ? 6 : 4))), spread = act === 'jump' ? 1.35 : (act === 'start' ? 1.15 : (act === 'cancel' ? 0.90 : (act === 'mantle' ? 1.00 : 0.75))), scale = act === 'jump' ? 1.25 : (act === 'start' ? 1.05 : (act === 'cancel' ? 0.85 : (act === 'mantle' ? 0.95 : 0.75))), speedMul = spd > 0 ? Math.min(1.5, Math.max(0.6, spd / 6.0)) : 1.0;
@@ -7114,17 +6874,22 @@ const CORE = (function () {
 
   // ---- Mobile Optical Look Sensitivity Scaling & Touch Action Availability Rules (v161 Mobile UI Polish) ----
   const TOUCH_ADS_SENSITIVITY_MUL = 0.65, TOUCH_SCOPED_SENSITIVITY_MUL = 0.40, TOUCH_STEADY_SENSITIVITY_MUL = 0.25;
-
   function touchLookSensitivity(baseSensitivity, isAds, isScoped, isSteady) {
     const base = _isPos(baseSensitivity) ? baseSensitivity : 1;
-    if (isSteady) return base * TOUCH_STEADY_SENSITIVITY_MUL;
-    if (isScoped) return base * TOUCH_SCOPED_SENSITIVITY_MUL;
-    if (isAds) return base * TOUCH_ADS_SENSITIVITY_MUL;
-    return base;
+    return isSteady ? base * TOUCH_STEADY_SENSITIVITY_MUL : (isScoped ? base * TOUCH_SCOPED_SENSITIVITY_MUL : (isAds ? base * TOUCH_ADS_SENSITIVITY_MUL : base));
   }
+  function isTouchActionAvailable(actionState) { return !isTouchControlEmpty(actionState); }
 
-  function isTouchActionAvailable(actionState) {
-    return !isTouchControlEmpty(actionState);
+  // ---- Ballistic Tracer & Impact Flash Caliber Scaling (v162 Visual Polish) ----
+  const TRACER_CALIBER_SCALE_SMG = 0.80, TRACER_CALIBER_SCALE_AR = 1.00, TRACER_CALIBER_SCALE_BR = 1.30, TRACER_CALIBER_SCALE_SR = 1.75;
+  function tracerCaliberScale(weaponType) {
+    const t = String(weaponType || '').toUpperCase();
+    return t === 'SMG' ? TRACER_CALIBER_SCALE_SMG : (t === 'BR' ? TRACER_CALIBER_SCALE_BR : (t === 'SR' ? TRACER_CALIBER_SCALE_SR : TRACER_CALIBER_SCALE_AR));
+  }
+  const IMPACT_FLASH_SCALE_SMG = 0.75, IMPACT_FLASH_SCALE_AR = 1.00, IMPACT_FLASH_SCALE_BR = 1.25, IMPACT_FLASH_SCALE_SR = 1.60;
+  function impactFlashCaliberScale(weaponType) {
+    const t = String(weaponType || '').toUpperCase();
+    return t === 'SMG' ? IMPACT_FLASH_SCALE_SMG : (t === 'BR' ? IMPACT_FLASH_SCALE_BR : (t === 'SR' ? IMPACT_FLASH_SCALE_SR : IMPACT_FLASH_SCALE_AR));
   }
 
   return {
@@ -7464,7 +7229,11 @@ const CORE = (function () {
     weaponEmptyReloadMultiplier, ENEMY_RANGED_SCOUT_PENALTY, FAST_HANDS_PLATE_MUL, plateApplyDuration,
     ENEMY_RAY_BOUNDING_RADIUS, ENEMY_RAY_CENTER_OFFSET_Y, isEnemyRayCandidate, blastTargetDistance,
     TOUCH_ADS_SENSITIVITY_MUL, TOUCH_SCOPED_SENSITIVITY_MUL, TOUCH_STEADY_SENSITIVITY_MUL,
-    touchLookSensitivity, isTouchActionAvailable
+    touchLookSensitivity, isTouchActionAvailable,
+    TRACER_CALIBER_SCALE_SMG, TRACER_CALIBER_SCALE_AR, TRACER_CALIBER_SCALE_BR, TRACER_CALIBER_SCALE_SR,
+    tracerCaliberScale,
+    IMPACT_FLASH_SCALE_SMG, IMPACT_FLASH_SCALE_AR, IMPACT_FLASH_SCALE_BR, IMPACT_FLASH_SCALE_SR,
+    impactFlashCaliberScale
   };
 
 

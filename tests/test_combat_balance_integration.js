@@ -1201,3 +1201,29 @@ test('v159 combat balance integration: weapon empty reload caliber scaling, enem
   assert.ok(Math.abs(CORE.plateApplyDuration(false) - CORE.PLATE_TIME) < 1e-4);
   assert.ok(Math.abs(CORE.plateApplyDuration(true) - (CORE.PLATE_TIME * 0.80)) < 1e-4);
 });
+
+test('v162 visual polish integration: ballistic tracer caliber scaling and impact flash sphere dimensions', () => {
+  // 1. Tracer caliber scaling across weapon calibers
+  assert.equal(CORE.tracerCaliberScale('SMG'), 0.80);
+  assert.equal(CORE.tracerCaliberScale('AR'), 1.00);
+  assert.equal(CORE.tracerCaliberScale('BR'), 1.30);
+  assert.equal(CORE.tracerCaliberScale('SR'), 1.75);
+
+  // 2. Thickness scaling respects caliber scale
+  const life = 0.1, maxLife = 0.1;
+  assert.ok(Math.abs(CORE.tracerThicknessScale(life, maxLife, CORE.tracerCaliberScale('SMG')) - 0.80) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(life, maxLife, CORE.tracerCaliberScale('AR')) - 1.00) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(life, maxLife, CORE.tracerCaliberScale('BR')) - 1.30) < 1e-4);
+  assert.ok(Math.abs(CORE.tracerThicknessScale(life, maxLife, CORE.tracerCaliberScale('SR')) - 1.75) < 1e-4);
+
+  // 3. Impact flash sphere caliber scale & scaling
+  assert.equal(CORE.impactFlashCaliberScale('SMG'), 0.75);
+  assert.equal(CORE.impactFlashCaliberScale('AR'), 1.00);
+  assert.equal(CORE.impactFlashCaliberScale('BR'), 1.25);
+  assert.equal(CORE.impactFlashCaliberScale('SR'), 1.60);
+
+  const impLife = 0.05, impMax = 0.05;
+  assert.ok(Math.abs(CORE.impactVfxScale(impLife, impMax, CORE.impactFlashCaliberScale('SMG')) - 0.75) < 1e-4);
+  assert.ok(Math.abs(CORE.impactVfxScale(impLife, impMax, CORE.impactFlashCaliberScale('SR')) - 1.60) < 1e-4);
+});
+

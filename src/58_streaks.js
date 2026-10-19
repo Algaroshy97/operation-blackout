@@ -186,7 +186,7 @@ function updateSentries(dt) {
       const slp = CORE.sentryMuzzleLightParams();
       flashLight(_sentryMuzzle, slp.color, slp.intensity, slp.distance, slp.duration);
     }
-    spawnTracer(_sentryMuzzle, _sentryTo);
+    spawnTracer(_sentryMuzzle, _sentryTo, null, 'BR');
     _sentryHitPoint.copy(_sentryTo);
     damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);

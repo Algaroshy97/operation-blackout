@@ -4977,7 +4977,44 @@ def main() -> int:
         }""")
         checks.append(("mobile-optical-sensitivity-and-action-rules", mobile_v161_check))
 
-        # 112) Clean console throughout gameplay.
+        # 112) Ballistic tracer caliber scaling and impact flash sphere dimensions (v162 visual polish).
+        visual_v162_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const tSmg = CORE.TRACER_CALIBER_SCALE_SMG === 0.80;
+            const tAr = CORE.TRACER_CALIBER_SCALE_AR === 1.00;
+            const tBr = CORE.TRACER_CALIBER_SCALE_BR === 1.30;
+            const tSr = CORE.TRACER_CALIBER_SCALE_SR === 1.75;
+
+            const calSmg = CORE.tracerCaliberScale('SMG') === 0.80;
+            const calAr = CORE.tracerCaliberScale('AR') === 1.00;
+            const calBr = CORE.tracerCaliberScale('BR') === 1.30;
+            const calSr = CORE.tracerCaliberScale('SR') === 1.75;
+
+            const thickNorm = Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 1.0) - 1.0) < 1e-4;
+            const thickSmg = Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 0.80) - 0.80) < 1e-4;
+            const thickSr = Math.abs(CORE.tracerThicknessScale(0.1, 0.1, 1.75) - 1.75) < 1e-4;
+
+            const fSmg = CORE.IMPACT_FLASH_SCALE_SMG === 0.75;
+            const fAr = CORE.IMPACT_FLASH_SCALE_AR === 1.00;
+            const fBr = CORE.IMPACT_FLASH_SCALE_BR === 1.25;
+            const fSr = CORE.IMPACT_FLASH_SCALE_SR === 1.60;
+
+            const fCalSmg = CORE.impactFlashCaliberScale('SMG') === 0.75;
+            const fCalSr = CORE.impactFlashCaliberScale('SR') === 1.60;
+
+            const vfxNorm = Math.abs(CORE.impactVfxScale(0.05, 0.05, 1.0) - 1.0) < 1e-4;
+            const vfxSmg = Math.abs(CORE.impactVfxScale(0.05, 0.05, 0.75) - 0.75) < 1e-4;
+            const vfxSr = Math.abs(CORE.impactVfxScale(0.05, 0.05, 1.60) - 1.60) < 1e-4;
+
+            return tSmg && tAr && tBr && tSr && calSmg && calAr && calBr && calSr &&
+                   thickNorm && thickSmg && thickSr &&
+                   fSmg && fAr && fBr && fSr && fCalSmg && fCalSr &&
+                   vfxNorm && vfxSmg && vfxSr;
+        }""")
+        checks.append(("ballistic-tracer-and-impact-flash-rules", visual_v162_check))
+
+        # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

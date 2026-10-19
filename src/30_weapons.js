@@ -410,7 +410,7 @@ function fireShot(preserveSchedule) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, null, w ? w.type : 'AR');
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
-  spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range));
+  spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
   // sniper: brief unscope on shot (recoil re-chamber feel)

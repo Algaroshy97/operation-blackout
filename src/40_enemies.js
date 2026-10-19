@@ -750,7 +750,7 @@ function enemyShoot(en, dist) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
-  spawnTracer(from, to, CORE.tracerColor(true));
+  spawnTracer(from, to, CORE.tracerColor(true), CORE.enemyWeaponType(en.kind, en.elite));
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
