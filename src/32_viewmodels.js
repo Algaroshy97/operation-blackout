@@ -445,8 +445,56 @@ function vmBuildSG(g, P, att) {
   P.loadPort = new THREE.Vector3(0, -0.05, -0.08);
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.15, -0.14, -0.36], kick: 1.5 };
 }
+// Belt-fed LMG: long barrel inside a perforated heat shroud that glows with the
+// barrel's heat (P.heatMat, its own material per build), feed cover, carry handle,
+// folded bipod and a side-hung ammo box that the reload drops (P.mag).
+function vmBuildLMG(g, P, att) {
+  const R = VMAT.polymer;
+  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);                    // receiver
+  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);                     // feed cover
+  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);               // feed tray
+  P.heatMat = vmMat({ color: 0x2c2d30, roughness: 0.45, metalness: 0.8, emissive: 0xff4a12, emissiveIntensity: 0 });
+  P.heatMat.userData.perModel = true;
+  const bl = att.barrel === 'longbarrel' ? 0.62 : 0.52;
+  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);                // barrel
+  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);     // heat shroud
+  for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.01, 0.022, sx * 0.022, 0.03, -0.27 - i * bl * 0.09, VMAT.knuckle);
+  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);                // carry handle post, off the sight line
+  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);                // carry handle
+  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05); // bipod legs, folded
+  vmBox(g, 0.01, 0.01, 0.2, 0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
+  const muzzleZ = vmMuzzleDevice(g, att, -0.2 - bl, 0.03, 0.05);
+  // stock and grip
+  vmBox(g, 0.05, 0.085, 0.22, 0, -0.01, 0.17, R);
+  vmBox(g, 0.052, 0.1, 0.02, 0, -0.012, 0.285, VMAT.knuckle);
+  vmBox(g, 0.034, 0.1, 0.044, 0, -0.08, 0.05, R, 0.3);
+  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.0, VMAT.metal);
+  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.0, VMAT.steel, 0.3);
+  // side-hung 100-round box: what the reload drops and swaps
+  P.mag = new THREE.Group(); g.add(P.mag);
+  P.mag.position.set(-0.045, -0.035, -0.09);
+  vmBox(P.mag, 0.05, 0.1, 0.12, -0.02, -0.04, 0, VMAT.olive);
+  vmBox(P.mag, 0.054, 0.012, 0.124, -0.02, 0.012, 0, VMAT.metal);
+  for (let i = 0; i < 4; i++) vmCyl(P.mag, 0.004, 0.03, -0.004, 0.025 + i * 0.002, -0.03 + i * 0.02, VMAT.brass, 6, undefined, 'x');
+  let sight;
+  if (att.optic === 'reddot') sight = vmRedDot(g, -0.07, 0.076);
+  else if (att.optic === 'scope4x') sight = vmAcog(g, -0.08, 0.076);
+  else sight = vmIrons(g, -0.2 - bl * 0.75, 0.04, 0.052);
+  const grip = vmUnder(g, P, att, -0.32, -0.02);
+  P.handR = vmHand(g, 0, -0.075, 0.05, 1, 0.3);
+  vmForearm(g, 0.02, -0.125, 0.08, 0.1, -0.25, 0.38);
+  P.handL = new THREE.Group(); g.add(P.handL);
+  if (grip) {
+    vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
+    vmForearm(P.handL, -0.01, grip.gripY - 0.05, grip.gripZ + 0.03, -0.12, -0.34, -0.02);
+  } else {
+    vmHand(P.handL, -0.004, -0.03, -0.3, -1, 1.2, 0.1);
+    vmForearm(P.handL, -0.03, -0.065, -0.27, -0.13, -0.34, -0.02);
+  }
+  return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
+}
 function buildGunModel(g, P, type, att) {
-  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG };
+  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG };
   const tune = (builders[type] || vmBuildAR)(g, P, att || {}, false);
   // magazine-less guns name the point a reload reaches for instead
   P.magRest = P.mag ? P.mag.position.clone() : (P.loadPort || null);
@@ -458,8 +506,12 @@ function buildGunModel(g, P, type, att) {
   return tune;
 }
 function disposeGunModel(g) {
-  // Materials are module-level and shared by every model; only geometry is per-build.
-  g.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  // Materials are module-level and shared by every model, except the few a builder
+  // makes for itself (flagged perModel, e.g. the LMG heat shroud).
+  g.traverse(function (o) {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material && o.material.userData && o.material.userData.perModel) o.material.dispose();
+  });
 }
 
 // ---- springs: look inertia, recoil ----
@@ -583,6 +635,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       rz += vmBump(0, 1, k) * 0.12 * hipK; py -= vmBump(0, 1, k) * 0.02;
     }
   }
+  // LMG shroud glows with barrel heat
+  if (P.heatMat) P.heatMat.emissiveIntensity = s && s.heat ? s.heat * s.heat * 2.2 : 0;
   if (P.bolt) {
     if (w.type === 'SR') { P.bolt.rotation.z = boltLift * 1.1; P.bolt.position.z = P.boltRest + boltBack * 0.08; }
     else if (w.cls === 'SG') {

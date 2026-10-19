@@ -968,7 +968,7 @@ const CORE = (function () {
 
   // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
   // available so a new player still has a choice on their first deploy.
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -2253,7 +2253,7 @@ const CORE = (function () {
 
   // Wall buys. Priced by class rather than per weapon, so adding a weapon cannot
   // leave a station with an undefined price.
-  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900 };
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900, lmg: 1800 };
   const AMMO_REFILL_DIVISOR = 3;
   function wallBuyPrice(type) {
     const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
@@ -7051,6 +7051,32 @@ const CORE = (function () {
     return o;
   }
 
+  // LMG: a barrel that heats with sustained fire. Heat widens the cone and the
+  // kick (quadratically, so the first second of a burst is clean) and bleeds off
+  // once the trigger has been off for a moment. Bursts beat a held trigger.
+  const LMG_HEAT_HOLD = 0.35;
+  const LMG_HEAT_DECAY = 0.5;
+  const LMG_HEAT_SPREAD = 1.4;
+  const LMG_HEAT_RECOIL = 0.7;
+
+  function lmgHeatAfterShot(heat, perShot) {
+    const h = _isNum(heat) ? Math.max(0, heat) : 0;
+    return Math.min(1, h + (_isPos(perShot) ? perShot : 0));
+  }
+  function lmgHeatDecay(heat, dt, sinceShot) {
+    if (!_isNum(heat) || heat <= 0) return 0;
+    if (!_isPos(dt) || (_isNum(sinceShot) && sinceShot < LMG_HEAT_HOLD)) return Math.min(1, heat);
+    return Math.max(0, Math.min(1, heat) - LMG_HEAT_DECAY * dt);
+  }
+  function lmgHeatSpreadMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_SPREAD * h * h;
+  }
+  function lmgHeatRecoilMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_RECOIL * h * h;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -7402,7 +7428,8 @@ const CORE = (function () {
     GRENADE_WARN_MARGIN, grenadeWarnUrgency,
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
-    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound
+    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
+    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul
   };
 
 

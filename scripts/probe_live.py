@@ -5129,6 +5129,27 @@ def main() -> int:
         checks.append(("shotgun-pellets-fall-off-with-range", sg["near"] >= 100 and sg["far"] < sg["near"] * 0.4))
         checks.append(("shotgun-shell-reload-and-trigger-cancel", sg["one"] == 1 and sg["two"] == 2 and sg["cancelled"]))
 
+        # 113f) LMG: a held trigger heats the barrel, which widens the cone and makes
+        #       the shroud glow; it cools once the trigger is released.
+        lmg = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), god: godMode };
+            godMode = true;
+            weaponsOwned[0] = 5; curWeapon = 0; wState[0] = null; freshWeaponState(0); buildViewmodel(); gunSwitchT = 1;
+            mouse1Down = true; player.sprinting = false;
+            for (let f = 0; f < 180; f++) { fireClockT += 1 / 60; updateWeapons(1 / 60); }
+            mouse1Down = false;
+            const hot = curS().heat, fired = 100 - curS().ammo;
+            updateViewmodel(1 / 60);
+            const glow = gunParts.heatMat ? gunParts.heatMat.emissiveIntensity : 0;
+            for (let f = 0; f < 300; f++) { fireClockT += 1 / 60; updateWeapons(1 / 60); }
+            const cooled = curS().heat;
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; godMode = saved.god; buildViewmodel();
+            return { hot: hot, fired: fired, glow: glow, cooled: cooled };
+        }""")
+        checks.append(("lmg-heat-builds-and-glows", lmg["fired"] >= 30 and lmg["hot"] > 0.4 and lmg["glow"] > 0.2))
+        checks.append(("lmg-cools-off-trigger", lmg["cooled"] == 0))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops

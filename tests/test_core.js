@@ -10061,3 +10061,23 @@ test('shotgun: pellet cone, shell-by-shell loading, class sounds and price', () 
   assert.ok(CORE.wallBuyPrice('SG') < CORE.wallBuyPrice('SMG'));
   assert.ok(CORE.weaponUnlockRank(4) <= CORE.MAX_RANK);
 });
+
+
+test('LMG heat: builds per shot, holds briefly, bleeds off, and scales spread and kick', () => {
+  let h = 0;
+  for (let i = 0; i < 30; i++) h = CORE.lmgHeatAfterShot(h, 0.016);
+  assert.ok(Math.abs(h - 0.48) < 1e-9);
+  for (let i = 0; i < 100; i++) h = CORE.lmgHeatAfterShot(h, 0.016);
+  assert.strictEqual(h, 1, 'capped');
+  assert.strictEqual(CORE.lmgHeatDecay(0.8, 0.1, CORE.LMG_HEAT_HOLD - 0.01), 0.8, 'holds right after a shot');
+  assert.ok(CORE.lmgHeatDecay(0.8, 0.1, 1) < 0.8);
+  assert.strictEqual(CORE.lmgHeatDecay(0.01, 1, 5), 0);
+  assert.strictEqual(CORE.lmgHeatDecay(NaN, 0.1, 5), 0);
+  // quadratic: the opening of a burst is clean, a held trigger is not
+  assert.strictEqual(CORE.lmgHeatSpreadMul(0), 1);
+  assert.ok(CORE.lmgHeatSpreadMul(0.2) < 1.1);
+  assert.ok(CORE.lmgHeatSpreadMul(1) > 2);
+  assert.ok(CORE.lmgHeatRecoilMul(1) > 1.5 && CORE.lmgHeatRecoilMul(1) < CORE.lmgHeatSpreadMul(1));
+  assert.ok(CORE.wallBuyPrice('LMG') > CORE.wallBuyPrice('BR'));
+  assert.strictEqual(CORE.weaponClassFireSound('LMG', 'AR', false), 'lmg');
+});

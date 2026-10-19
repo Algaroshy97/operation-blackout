@@ -5576,7 +5576,7 @@ const CORE = (function () {
     return Math.round(xp);
   }
 
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -6642,7 +6642,7 @@ const CORE = (function () {
     return best;
   }
 
-  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900 };
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900, lmg: 1800 };
   const AMMO_REFILL_DIVISOR = 3;
   function wallBuyPrice(type) {
     const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
@@ -10948,6 +10948,29 @@ const CORE = (function () {
     return o;
   }
 
+  const LMG_HEAT_HOLD = 0.35;
+  const LMG_HEAT_DECAY = 0.5;
+  const LMG_HEAT_SPREAD = 1.4;
+  const LMG_HEAT_RECOIL = 0.7;
+
+  function lmgHeatAfterShot(heat, perShot) {
+    const h = _isNum(heat) ? Math.max(0, heat) : 0;
+    return Math.min(1, h + (_isPos(perShot) ? perShot : 0));
+  }
+  function lmgHeatDecay(heat, dt, sinceShot) {
+    if (!_isNum(heat) || heat <= 0) return 0;
+    if (!_isPos(dt) || (_isNum(sinceShot) && sinceShot < LMG_HEAT_HOLD)) return Math.min(1, heat);
+    return Math.max(0, Math.min(1, heat) - LMG_HEAT_DECAY * dt);
+  }
+  function lmgHeatSpreadMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_SPREAD * h * h;
+  }
+  function lmgHeatRecoilMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_RECOIL * h * h;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -11299,7 +11322,8 @@ const CORE = (function () {
     GRENADE_WARN_MARGIN, grenadeWarnUrgency,
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
-    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound
+    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
+    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul
   };
 
 
@@ -11951,7 +11975,8 @@ const CFG = {
     { name: 'MK18 Mod1', type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160, reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005, range: 80, auto: true },
     { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
     { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false },
-    { name: 'M870 Express', type: 'AR', cls: 'SG', dmg: 16, pellets: 8, pelletSpread: 0.05, shellReload: true, rpm: 68, mag: 6, reserveMax: 36, reload: 0.5, spread: 0.02, adsSpread: 0.01, recoilV: 0.05, recoilH: 0.014, range: 32, penetration: 0.05, auto: false }
+    { name: 'M870 Express', type: 'AR', cls: 'SG', dmg: 16, pellets: 8, pelletSpread: 0.05, shellReload: true, rpm: 68, mag: 6, reserveMax: 36, reload: 0.5, spread: 0.02, adsSpread: 0.01, recoilV: 0.05, recoilH: 0.014, range: 32, penetration: 0.05, auto: false },
+    { name: 'M249 SAW', type: 'AR', cls: 'LMG', dmg: 24, rpm: 760, mag: 100, reserveMax: 300, reload: 5.4, spread: 0.024, adsSpread: 0.006, recoilV: 0.0105, recoilH: 0.0075, range: 120, auto: true, heatPerShot: 0.016, adsSpeed: 0.72, moveMul: 0.75, stfMul: 1.6 }
   ],
   ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
@@ -13818,7 +13843,7 @@ function updateWeapons(dt) {
     if (player.sprinting) {
       const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
       const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
-      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands);
+      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands) * (w && w.stfMul > 0 ? w.stfMul : 1);
       player.sprinting = false;
       player.tacT = 0;
       s.nextShot = Math.max(s.nextShot, fireClockT + stf);
@@ -13838,6 +13863,10 @@ function updateWeapons(dt) {
   } else {
     dryPlayed = false;
     s.nextShot = CORE.shotScheduleAfterInactive();
+  }
+  for (let i = 0; i < wState.length; i++) {
+    const ws = wState[i];
+    if (ws && ws.heat > 0) ws.heat = CORE.lmgHeatDecay(ws.heat, dt, fireClockT - (ws.lastShotClock || 0));
   }
   const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown(), w ? w.type : '');
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
@@ -13978,8 +14007,9 @@ function fireShot(preserveSchedule) {
   bp.cap *= CORE.perkBloomMul(perks);
   const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
+  const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround, stanceSpread);
+    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   const pellets = w.pellets > 1 ? w.pellets : 1;
@@ -14073,6 +14103,12 @@ function finishShot(s, w, hit) {
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, _recoilOut);
   const stanceMul = CORE.stanceRecoilMultiplier(!!player.crouching, !!player.sliding, !player.onGround);
   CORE.effectiveRecoilKick(w.recoilV, w.recoilH, _recoilOut.x, _recoilOut.y, stanceMul, _kickOut);
+  if (w.heatPerShot) {
+    _kickOut.pitchKick *= CORE.lmgHeatRecoilMul(s.heat);
+    s.heat = CORE.lmgHeatAfterShot(s.heat, w.heatPerShot);
+    s.lastShotClock = fireClockT;
+    if (s.heat > 0.8) playSound('sizzle');
+  }
   player.recoilP += _kickOut.pitchKick;
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
@@ -14692,8 +14728,51 @@ function vmBuildSG(g, P, att) {
   P.loadPort = new THREE.Vector3(0, -0.05, -0.08);
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.15, -0.14, -0.36], kick: 1.5 };
 }
+function vmBuildLMG(g, P, att) {
+  const R = VMAT.polymer;
+  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);                    // receiver
+  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);                     // feed cover
+  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);               // feed tray
+  P.heatMat = vmMat({ color: 0x2c2d30, roughness: 0.45, metalness: 0.8, emissive: 0xff4a12, emissiveIntensity: 0 });
+  P.heatMat.userData.perModel = true;
+  const bl = att.barrel === 'longbarrel' ? 0.62 : 0.52;
+  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);                // barrel
+  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);     // heat shroud
+  for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.01, 0.022, sx * 0.022, 0.03, -0.27 - i * bl * 0.09, VMAT.knuckle);
+  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);                // carry handle post, off the sight line
+  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);                // carry handle
+  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05); // bipod legs, folded
+  vmBox(g, 0.01, 0.01, 0.2, 0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
+  const muzzleZ = vmMuzzleDevice(g, att, -0.2 - bl, 0.03, 0.05);
+  vmBox(g, 0.05, 0.085, 0.22, 0, -0.01, 0.17, R);
+  vmBox(g, 0.052, 0.1, 0.02, 0, -0.012, 0.285, VMAT.knuckle);
+  vmBox(g, 0.034, 0.1, 0.044, 0, -0.08, 0.05, R, 0.3);
+  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.0, VMAT.metal);
+  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.0, VMAT.steel, 0.3);
+  P.mag = new THREE.Group(); g.add(P.mag);
+  P.mag.position.set(-0.045, -0.035, -0.09);
+  vmBox(P.mag, 0.05, 0.1, 0.12, -0.02, -0.04, 0, VMAT.olive);
+  vmBox(P.mag, 0.054, 0.012, 0.124, -0.02, 0.012, 0, VMAT.metal);
+  for (let i = 0; i < 4; i++) vmCyl(P.mag, 0.004, 0.03, -0.004, 0.025 + i * 0.002, -0.03 + i * 0.02, VMAT.brass, 6, undefined, 'x');
+  let sight;
+  if (att.optic === 'reddot') sight = vmRedDot(g, -0.07, 0.076);
+  else if (att.optic === 'scope4x') sight = vmAcog(g, -0.08, 0.076);
+  else sight = vmIrons(g, -0.2 - bl * 0.75, 0.04, 0.052);
+  const grip = vmUnder(g, P, att, -0.32, -0.02);
+  P.handR = vmHand(g, 0, -0.075, 0.05, 1, 0.3);
+  vmForearm(g, 0.02, -0.125, 0.08, 0.1, -0.25, 0.38);
+  P.handL = new THREE.Group(); g.add(P.handL);
+  if (grip) {
+    vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
+    vmForearm(P.handL, -0.01, grip.gripY - 0.05, grip.gripZ + 0.03, -0.12, -0.34, -0.02);
+  } else {
+    vmHand(P.handL, -0.004, -0.03, -0.3, -1, 1.2, 0.1);
+    vmForearm(P.handL, -0.03, -0.065, -0.27, -0.13, -0.34, -0.02);
+  }
+  return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
+}
 function buildGunModel(g, P, type, att) {
-  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG };
+  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG };
   const tune = (builders[type] || vmBuildAR)(g, P, att || {}, false);
   P.magRest = P.mag ? P.mag.position.clone() : (P.loadPort || null);
   P.handLRest = P.handL ? P.handL.position.clone() : null;
@@ -14704,7 +14783,10 @@ function buildGunModel(g, P, type, att) {
   return tune;
 }
 function disposeGunModel(g) {
-  g.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  g.traverse(function (o) {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material && o.material.userData && o.material.userData.perModel) o.material.dispose();
+  });
 }
 
 const vmSpring = { sx: 0, sy: 0, vx: 0, vy: 0, kz: 0, kvz: 0, kr: 0, kvr: 0, roll: 0, vroll: 0, tilt: 0, sprint: 0, tac: 0, slide: 0, mantle: 0, lastYaw: null, lastPitch: 0, boltT: 0, boltDur: 0 };
@@ -14812,6 +14894,7 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       rz += vmBump(0, 1, k) * 0.12 * hipK; py -= vmBump(0, 1, k) * 0.02;
     }
   }
+  if (P.heatMat) P.heatMat.emissiveIntensity = s && s.heat ? s.heat * s.heat * 2.2 : 0;
   if (P.bolt) {
     if (w.type === 'SR') { P.bolt.rotation.z = boltLift * 1.1; P.bolt.position.z = P.boltRest + boltBack * 0.08; }
     else if (w.cls === 'SG') {
@@ -17287,6 +17370,7 @@ function setMasterVolume(v) {
 }
 const _sndLast = Object.create(null);
 const SND_MIN_GAP = {
+  sizzle: 0.45,
   impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045,
   casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
@@ -17334,6 +17418,8 @@ const SOUND_RECIPES = {
   shotgun:     [['noise', 0.2, 0.72, 520, 0.5], ['osc', 'sine', 115, 34, 0.2, 0.46], ['noise', 0.45, 0.24, 1300, 0.6]],
   pump:        [['noise', 0.06, 0.3, 1100, 2.2], ['osc', 'square', 210, 120, 0.05, 0.12], ['noise', 0.05, 0.26, 1700, 2.6]],
   shell_in:    [['noise', 0.045, 0.22, 1900, 3], ['osc', 'square', 430, 300, 0.03, 0.06]],
+  lmg:         [['noise', 0.11, 0.56, 720, 0.6], ['osc', 'square', 155, 55, 0.09, 0.3], ['osc', 'sine', 92, 34, 0.12, 0.2]],
+  sizzle:      [['noise', 0.35, 0.12, 5200, 1.2], ['noise', 0.25, 0.08, 2600, 2]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
   slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
@@ -17441,7 +17527,7 @@ const SOUND_RECIPES = {
 
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
-  shotgun: 1, pump: 1, shell_in: 1,
+  shotgun: 1, pump: 1, shell_in: 1, lmg: 1, sizzle: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
@@ -18675,6 +18761,7 @@ const STATION_LAYOUT = [
   { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
   { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
   { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
+  { kind: 'wall', x:  40, z:   4, weapon: 5 },   // M249, east flank, outside the districts
   { kind: 'armory', x: 0, z: -22 },
   { kind: 'plate',  x: 0, z:  20 },
   { kind: 'perk', x: -21, z:  10, perk: 'jugg' },

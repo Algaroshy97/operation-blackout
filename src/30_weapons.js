@@ -193,7 +193,7 @@ function updateWeapons(dt) {
     if (player.sprinting) {
       const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
       const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
-      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands);
+      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands) * (w && w.stfMul > 0 ? w.stfMul : 1);
       player.sprinting = false;
       player.tacT = 0;
       s.nextShot = Math.max(s.nextShot, fireClockT + stf);
@@ -213,6 +213,11 @@ function updateWeapons(dt) {
   } else {
     dryPlayed = false;
     s.nextShot = CORE.shotScheduleAfterInactive();
+  }
+  // LMG barrels cool off the trigger, held or not
+  for (let i = 0; i < wState.length; i++) {
+    const ws = wState[i];
+    if (ws && ws.heat > 0) ws.heat = CORE.lmgHeatDecay(ws.heat, dt, fireClockT - (ws.lastShotClock || 0));
   }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
@@ -368,8 +373,9 @@ function fireShot(preserveSchedule) {
   bp.cap *= CORE.perkBloomMul(perks);
   const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
+  const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround, stanceSpread);
+    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // A shotgun traces every pellet through the same path as a rifle round, inside
@@ -484,6 +490,12 @@ function finishShot(s, w, hit) {
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, _recoilOut);
   const stanceMul = CORE.stanceRecoilMultiplier(!!player.crouching, !!player.sliding, !player.onGround);
   CORE.effectiveRecoilKick(w.recoilV, w.recoilH, _recoilOut.x, _recoilOut.y, stanceMul, _kickOut);
+  if (w.heatPerShot) {
+    _kickOut.pitchKick *= CORE.lmgHeatRecoilMul(s.heat);
+    s.heat = CORE.lmgHeatAfterShot(s.heat, w.heatPerShot);
+    s.lastShotClock = fireClockT;
+    if (s.heat > 0.8) playSound('sizzle');
+  }
   player.recoilP += _kickOut.pitchKick;
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);

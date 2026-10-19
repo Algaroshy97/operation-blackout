@@ -21,6 +21,7 @@ const STATION_LAYOUT = [
   { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
   { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
   { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
+  { kind: 'wall', x:  40, z:   4, weapon: 5 },   // M249, east flank, outside the districts
   { kind: 'armory', x: 0, z: -22 },
   { kind: 'plate',  x: 0, z:  20 },
   { kind: 'perk', x: -21, z:  10, perk: 'jugg' },

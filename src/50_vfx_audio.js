@@ -513,6 +513,7 @@ function setMasterVolume(v) {
 // largest cost in fireShot — larger than both raycasts combined.
 const _sndLast = Object.create(null);
 const SND_MIN_GAP = {
+  sizzle: 0.45,
   impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045,
   casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
@@ -567,6 +568,8 @@ const SOUND_RECIPES = {
   shotgun:     [['noise', 0.2, 0.72, 520, 0.5], ['osc', 'sine', 115, 34, 0.2, 0.46], ['noise', 0.45, 0.24, 1300, 0.6]],
   pump:        [['noise', 0.06, 0.3, 1100, 2.2], ['osc', 'square', 210, 120, 0.05, 0.12], ['noise', 0.05, 0.26, 1700, 2.6]],
   shell_in:    [['noise', 0.045, 0.22, 1900, 3], ['osc', 'square', 430, 300, 0.03, 0.06]],
+  lmg:         [['noise', 0.11, 0.56, 720, 0.6], ['osc', 'square', 155, 55, 0.09, 0.3], ['osc', 'sine', 92, 34, 0.12, 0.2]],
+  sizzle:      [['noise', 0.35, 0.12, 5200, 1.2], ['noise', 0.25, 0.08, 2600, 2]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
   slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
@@ -679,7 +682,7 @@ const SOUND_RECIPES = {
 // than the old live synthesis had, since its parameters were fixed too.
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
-  shotgun: 1, pump: 1, shell_in: 1,
+  shotgun: 1, pump: 1, shell_in: 1, lmg: 1, sizzle: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
