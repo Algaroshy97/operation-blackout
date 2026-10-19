@@ -117,6 +117,7 @@
 > heartbeat pulse driven by one intensity number. Measured response — idle 46 bpm /
 > 200 Hz cutoff, overrun 132 bpm / 1098 Hz, tension voice fading in past 25%.
 > Mute and stop both take it to exactly 0.
+> *(Superseded by v163: replaced by a sequenced adaptive score; see CHANGELOG.md.)*
 >
 > Prop batching: the 48 scattered GLB props became **4 merged meshes**, taking draw
 > calls **166 → 106**. The `fireShot` monkey-patch (ENG-07) is gone.

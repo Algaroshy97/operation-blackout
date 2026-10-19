@@ -4,6 +4,20 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v163 — Build comment stripping, grenade HUD warnings, near-miss suppression, wall occlusion, and an adaptive score
+
+- Build headroom: `scripts/build.py` now drops full-line `//` comments from the shipped file (`strip_line_comments`). Each module keeps its banner line, which `tests/test_release_build.py` checks. The `src/` modules keep every comment. With this release's features included, the artifact goes from 2,096,877 to 1,968,167 bytes, 128,985 under the 2,097,152-byte budget.
+- Live-grenade HUD warning (`CORE.grenadeWarnUrgency`, `CORE.GRENADE_WARN_MARGIN` = 1.3): each timed frag/semtex within its blast radius plus margin gets an arrow and icon on the hit-direction ring. It turns red and blinks as the fuse runs down or distance closes. Claymores, thermite, tacticals and the player's own mid-air throw stay quiet. Wired into `updateGrenadeWarnings()` in `src/60_hud_waves.js`.
+- Near-miss suppression (`CORE.suppressionAdd`, `CORE.suppressionDecay`, `CORE.SUPPRESS_HOLD` = 0.6 s). It applies to misses that already play `bulletWhizSound` and have a clear line to the player. Each one draws a grey arc toward the shooter and stacks suppression, which holds and then bleeds off. A `#suppress-vignette` darkens the edges on every quality level. With post-FX, the composite pass also desaturates and blurs them; the blur is off under reduced motion.
+- Wall occlusion for positional audio (`CORE.occludedCutoff`, `CORE.occludedGain`, `CORE.OCCLUDED_CUTOFF` = 700 Hz, `CORE.OCCLUDED_GAIN` = 0.55). `playSound3D()` checks the segment from the player to the source; a blocked sound is capped below air absorption's cutoff and played quieter.
+- Adaptive score:
+  - Replaces the sawtooth drone and the per-frame noise pulse, which crackled at low frame rates, with a look-ahead sequencer on the audio clock in `src/50_vfx_audio.js`.
+  - The music is an i–VI–iv–V cue in D minor at 104 bpm. Layers are a pad, bass ostinato, drums, brass swells and a sixteenth-note arpeggio. They follow `CORE.combatIntensity` via `setTargetAtTime`, through a generated-impulse reverb and a compressor.
+  - Pure rules: `CORE.musicLayerGains`, `musicDrumHits`, `musicBassNote`, `musicArpNote`, `musicChordAt`, `musicChordChanges`, `musicStepSeconds`, `midiToHz`. The tension/filter/pulse helpers are removed.
+- Add `ROADMAP.md` (six milestones: weapons, game modes, a second map, Survival objectives and extraction, feel and AI, retention).
+- Add regression tests in `tests/test_core.js`, plus probe checks 113a–d: `grenade-warning-*`, `near-misses-build-suppression`, `suppression-bleeds-off`, `occluded-sounds-are-muffled`, `music-sequencer-running`. The adaptive-music contract check is updated for the new rules.
+- Local test verification: 498 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 193/193 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`).
+
 ## v162 — Ballistic tracer caliber scaling and impact flash sphere dimensions
 
 - Implement ballistic tracer caliber dimensions and thickness scaling (`CORE.tracerCaliberScale`, `CORE.tracerThicknessScale`, `CORE.TRACER_CALIBER_SCALE_SMG` = 0.80, `CORE.TRACER_CALIBER_SCALE_AR` = 1.00, `CORE.TRACER_CALIBER_SCALE_BR` = 1.30, `CORE.TRACER_CALIBER_SCALE_SR` = 1.75): scales ballistic tracer geometry thickness based on caliber ergonomics (SMG 0.80x, AR 1.00x, BR 1.30x, SR 1.75x) for both initial mesh sizing and lifecycle thickness decay; wired into `spawnTracer()` and `updateVfx()` in `src/50_vfx_audio.js`, player firing in `src/30_weapons.js`, enemy shooting in `src/40_enemies.js` via `CORE.enemyWeaponType()`, and sentry turret fire in `src/58_streaks.js`.
