@@ -853,101 +853,237 @@ function updateFootsteps(dt) {
 }
 let wasGround = true;
 
-// ============ ADAPTIVE MUSIC & AMBIENCE ============
+// ============ ADAPTIVE MUSIC ============
 // Everything here is synthesised, like the rest of the audio — no asset bytes.
 //
-// Built as ONE persistent graph rather than scheduled notes: continuous
-// oscillators whose gains and filter cutoff are modulated per frame. That keeps
-// the node count constant (a per-note scheduler would allocate forever, which is
-// exactly the cost that made fireShot expensive before it was throttled).
+// A look-ahead sequencer: each frame schedules the sixteenth steps that fall in
+// the next ~0.2 s on the audio clock, so timing is sample-accurate whatever the
+// frame rate. What to play comes from CORE (chart, layer levels, patterns); this
+// file only voices it. Layers sit on their own gain nodes and are faded with
+// setTargetAtTime, never written per frame, so intensity changes cannot click.
+// A layer whose level is ~0 schedules nothing, which keeps calm stretches cheap.
 const MUSIC = {
-  built: false, ctx: null, bus: null,
-  drone: null, tension: null, pulseGain: null, filter: null,
-  intensity: 0, pulsePhase: 0, running: false
+  built: false, ctx: null, bus: null, comp: null, verb: null, layers: null,
+  intensity: 0, running: false, step: 0, nextT: 0
 };
+const MUSIC_LOOKAHEAD = 0.2;
+
+// Two seconds of decaying stereo noise: a cheap hall that glues the layers.
+function musicImpulse(ctx) {
+  const len = Math.floor(ctx.sampleRate * 2.0);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+  }
+  return buf;
+}
 
 function buildMusicGraph() {
   const ctx = audioCtx();
   if (!ctx || MUSIC.built) return MUSIC.built;
   const master = audioMaster();
   if (!master) return false;
+  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
 
   MUSIC.ctx = ctx;
   MUSIC.bus = ctx.createGain();
   MUSIC.bus.gain.value = 0;             // faded in by updateMusic
-  MUSIC.bus.connect(master);
+  MUSIC.comp = ctx.createDynamicsCompressor();
+  MUSIC.comp.threshold.value = -18; MUSIC.comp.ratio.value = 3;
+  MUSIC.comp.attack.value = 0.01; MUSIC.comp.release.value = 0.25;
+  MUSIC.bus.connect(MUSIC.comp); MUSIC.comp.connect(master);
 
-  // Low drone: two slightly detuned voices a fifth apart. Quiet, tense, endless.
-  MUSIC.filter = ctx.createBiquadFilter();
-  MUSIC.filter.type = 'lowpass';
-  MUSIC.filter.frequency.value = 240;
-  MUSIC.filter.Q.value = 4;
-  MUSIC.filter.connect(MUSIC.bus);
+  MUSIC.verb = ctx.createConvolver();
+  MUSIC.verb.buffer = musicImpulse(ctx);
+  const wet = ctx.createGain(); wet.gain.value = 0.5;
+  MUSIC.verb.connect(wet); wet.connect(MUSIC.bus);
 
-  MUSIC.drone = ctx.createGain();
-  MUSIC.drone.gain.value = 0.5;
-  MUSIC.drone.connect(MUSIC.filter);
-  [55, 82.41, 55.4].forEach(function (f) {       // A1, E2, and a detuned A1 for beating
-    const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = f;
-    o.connect(MUSIC.drone);
-    o.start();
+  // reverb send per layer: drums and bass stay mostly dry so they keep their punch
+  const SENDS = { pad: 0.55, drums: 0.12, bass: 0.05, horn: 0.35, arp: 0.3 };
+  MUSIC.layers = {};
+  Object.keys(SENDS).forEach(function (k) {
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.connect(MUSIC.bus);
+    const send = ctx.createGain(); send.gain.value = SENDS[k];
+    g.connect(send); send.connect(MUSIC.verb);
+    MUSIC.layers[k] = g;
   });
-
-  // Tension voice: a minor third that only appears when things get bad.
-  MUSIC.tension = ctx.createGain();
-  MUSIC.tension.gain.value = 0;
-  MUSIC.tension.connect(MUSIC.filter);
-  [98, 130.81].forEach(function (f) {             // G2, C3
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = f;
-    o.connect(MUSIC.tension);
-    o.start();
-  });
-
-  // Pulse: filtered noise gated by a per-frame envelope — a heartbeat that
-  // speeds up with the fight.
-  if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
-  MUSIC.pulseGain = ctx.createGain();
-  MUSIC.pulseGain.gain.value = 0;
-  const pf = ctx.createBiquadFilter();
-  pf.type = 'bandpass'; pf.frequency.value = 90; pf.Q.value = 1.2;
-  MUSIC.pulseGain.connect(pf); pf.connect(MUSIC.bus);
-  const src = ctx.createBufferSource();
-  src.buffer = noiseBuf; src.loop = true;
-  src.connect(MUSIC.pulseGain);
-  src.start();
-
   MUSIC.built = true;
   return true;
 }
 
+// ---- voices ----
+// Each takes the audio-clock time to start at and the layer node to play into.
+function musOsc(ctx, type, hz, detune) {
+  const o = ctx.createOscillator();
+  o.type = type; o.frequency.value = hz;
+  if (detune) o.detune.value = detune;
+  return o;
+}
+function musEnv(ctx, t, peak, attack, hold, release, out) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.setValueAtTime(peak, t + attack + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
+  g.connect(out);
+  return g;
+}
+function musNoise(ctx, t, dur, type, hz, q, peak, out) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  src.playbackRate.value = 0.8 + Math.random() * 0.4;
+  const f = ctx.createBiquadFilter();
+  f.type = type; f.frequency.value = hz; f.Q.value = q;
+  const g = musEnv(ctx, t, peak, 0.002, 0, dur, out);
+  src.connect(f); f.connect(g);
+  src.start(t, Math.random() * 0.3); src.stop(t + dur + 0.05);
+}
+
+// Warm string pad: two detuned saws per chord tone plus a sine sub, darkened.
+function musPad(ctx, t, chord, dur, out) {
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.5;
+  const g = musEnv(ctx, t, 0.11, 0.9, Math.max(0.1, dur - 0.9), 1.4, out);
+  lp.connect(g);
+  const end = t + dur + 1.5;
+  chord.notes.forEach(function (n) {
+    const hz = CORE.midiToHz(n);
+    [-7, 7].forEach(function (cents) {
+      const o = musOsc(ctx, 'sawtooth', hz, cents);
+      o.connect(lp); o.start(t); o.stop(end);
+    });
+  });
+  const sub = musOsc(ctx, 'sine', CORE.midiToHz(chord.root + 12), 0);
+  const sg = ctx.createGain(); sg.gain.value = 1.6;
+  sub.connect(sg); sg.connect(lp); sub.start(t); sub.stop(end);
+}
+function musBass(ctx, t, note, out) {
+  const o = musOsc(ctx, 'sawtooth', CORE.midiToHz(note), 0);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.Q.value = 6;
+  lp.frequency.setValueAtTime(1400, t);
+  lp.frequency.exponentialRampToValueAtTime(160, t + 0.16);
+  const g = musEnv(ctx, t, 0.22, 0.005, 0.06, 0.12, out);
+  o.connect(lp); lp.connect(g);
+  o.start(t); o.stop(t + 0.25);
+}
+function musArp(ctx, t, note, out) {
+  const hz = CORE.midiToHz(note);
+  const g = musEnv(ctx, t, 0.05, 0.004, 0, 0.22, out);
+  const o1 = musOsc(ctx, 'triangle', hz, 0), o2 = musOsc(ctx, 'sawtooth', hz, 4);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 2600;
+  o1.connect(g); o2.connect(lp); lp.connect(g);
+  o1.start(t); o2.start(t); o1.stop(t + 0.3); o2.stop(t + 0.3);
+}
+// Brass swell on each chord change: root and fifth an octave up, filter opening.
+function musHorn(ctx, t, chord, dur, out) {
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.Q.value = 1.5;
+  lp.frequency.setValueAtTime(300, t);
+  lp.frequency.exponentialRampToValueAtTime(1900, t + 0.5);
+  lp.frequency.exponentialRampToValueAtTime(700, t + dur);
+  const g = musEnv(ctx, t, 0.09, 0.35, Math.max(0.1, dur - 0.6), 0.5, out);
+  lp.connect(g);
+  [chord.root + 24, chord.root + 31].forEach(function (n) {
+    [-5, 5].forEach(function (cents) {
+      const o = musOsc(ctx, 'sawtooth', CORE.midiToHz(n), cents);
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.6);
+    });
+  });
+}
+function musDrum(ctx, t, kind, vel, out) {
+  if (kind === 'kick' || kind === 'boom' || kind === 'tom') {
+    const f0 = kind === 'kick' ? 150 : kind === 'boom' ? 95 : 190;
+    const f1 = kind === 'kick' ? 42 : kind === 'boom' ? 48 : 105;
+    const dur = kind === 'kick' ? 0.32 : kind === 'boom' ? 0.9 : 0.35;
+    const o = musOsc(ctx, 'sine', f0, 0);
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.4);
+    const g = musEnv(ctx, t, 0.5 * vel, 0.003, 0, dur, out);
+    o.connect(g); o.start(t); o.stop(t + dur + 0.05);
+    if (kind !== 'kick') musNoise(ctx, t, dur * 0.35, 'lowpass', 260, 0.7, 0.18 * vel, out);
+    else musNoise(ctx, t, 0.02, 'highpass', 2500, 0.7, 0.05 * vel, out);   // beater click
+  } else if (kind === 'snare') {
+    musNoise(ctx, t, 0.17, 'bandpass', 1900, 0.8, 0.32 * vel, out);
+    const o = musOsc(ctx, 'triangle', 190, 0);
+    const g = musEnv(ctx, t, 0.16 * vel, 0.002, 0, 0.08, out);
+    o.connect(g); o.start(t); o.stop(t + 0.12);
+  } else if (kind === 'hat') {
+    musNoise(ctx, t, 0.035, 'highpass', 7500, 0.7, 0.12 * vel, out);
+  }
+}
+
+function scheduleMusicStep(ctx, n, t, gains) {
+  const L = MUSIC.layers;
+  const i = MUSIC.intensity;
+  const bar = Math.floor(n / CORE.MUSIC_STEPS_PER_BAR);
+  const chord = CORE.musicChordAt(bar);
+  if (CORE.musicChordChanges(n)) {
+    const dur = CORE.musicStepSeconds() * CORE.MUSIC_STEPS_PER_BAR * CORE.MUSIC_BARS_PER_CHORD;
+    musPad(ctx, t, chord, dur, L.pad);
+    if (gains.horn > 0.02) musHorn(ctx, t, chord, dur * 0.5, L.horn);
+  }
+  if (gains.bass > 0.02) {
+    const b = CORE.musicBassNote(n, i);
+    if (b >= 0) musBass(ctx, t, b, L.bass);
+  }
+  if (gains.arp > 0.02) musArp(ctx, t, CORE.musicArpNote(n), L.arp);
+  const h = CORE.musicDrumHits(n, i);
+  if (h.boom) musDrum(ctx, t, 'boom', h.boom, L.drums);
+  if (h.kick) musDrum(ctx, t, 'kick', h.kick, L.drums);
+  if (h.snare) musDrum(ctx, t, 'snare', h.snare, L.drums);
+  if (h.tom) musDrum(ctx, t, 'tom', h.tom, L.drums);
+  if (h.hat) musDrum(ctx, t, 'hat', h.hat, L.drums);
+}
+
 function startMusic() {
   if (!buildMusicGraph()) return;
+  if (!MUSIC.running) {
+    // start at the top of a phrase, just ahead of now
+    MUSIC.step = 0;
+    MUSIC.nextT = MUSIC.ctx.currentTime + 0.08;
+  }
   MUSIC.running = true;
 }
 function stopMusic() {
   MUSIC.running = false;
-  if (MUSIC.bus) MUSIC.bus.gain.value = 0;
-  if (MUSIC.pulseGain) MUSIC.pulseGain.gain.value = 0;
+  if (MUSIC.bus) {
+    const t = MUSIC.ctx.currentTime;
+    MUSIC.bus.gain.cancelScheduledValues(t);
+    MUSIC.bus.gain.setTargetAtTime(0, t, 0.05);   // fast, but not a click
+  }
 }
 
 // Called every frame while playing.
 function updateMusic(dt, state) {
   if (!MUSIC.built || !MUSIC.running) return;
+  const ctx = MUSIC.ctx;
+  const now = ctx.currentTime;
   const vol = getSetting('muted') ? 0 : getSetting('musicVolume');
   const target = CORE.combatIntensity(state);
   MUSIC.intensity = CORE.stepMusicIntensity(MUSIC.intensity, target, dt);
   const i = MUSIC.intensity;
+  const gains = CORE.musicLayerGains(i);
 
-  MUSIC.bus.gain.value = CORE.musicBusGain(vol, i);
-  MUSIC.tension.gain.value = CORE.musicTensionGain(i);
-  MUSIC.filter.frequency.value = CORE.musicFilterCutoff(i);
+  MUSIC.bus.gain.setTargetAtTime(CORE.musicBusGain(vol, i), now, 0.15);
+  for (const k in MUSIC.layers) MUSIC.layers[k].gain.setTargetAtTime(gains[k], now, 0.35);
 
-  const bpm = CORE.musicPulseBpm(i);
-  MUSIC.pulsePhase = CORE.stepMusicPulsePhase(MUSIC.pulsePhase, dt, bpm);
-  const env = CORE.musicPulseEnvelope(MUSIC.pulsePhase);
-  MUSIC.pulseGain.gain.value = CORE.musicPulseGain(env, i);
+  // After a pause or a hidden tab the clock has run on without us: rejoin on the
+  // next step instead of firing the whole backlog at once.
+  if (MUSIC.nextT < now - 0.05) MUSIC.nextT = now + 0.05;
+  if (vol <= 0) {            // muted: keep time, schedule nothing
+    const st = CORE.musicStepSeconds();
+    while (MUSIC.nextT < now + MUSIC_LOOKAHEAD) { MUSIC.nextT += st; MUSIC.step++; }
+    return;
+  }
+  const st = CORE.musicStepSeconds();
+  while (MUSIC.nextT < now + MUSIC_LOOKAHEAD) {
+    scheduleMusicStep(ctx, MUSIC.step, MUSIC.nextT, gains);
+    MUSIC.nextT += st;
+    MUSIC.step++;
+  }
 }

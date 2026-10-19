@@ -5270,84 +5270,72 @@ test('stepSlideVignette, slideVignetteStyle, objectiveHud, isScopeOverlayActive,
   assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, false, false, ''), false);
 });
 
-test('stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff, musicPulseBpm, stepMusicPulsePhase, musicPulseEnvelope, musicPulseGain, stationPurchaseSound, playerDownSound, and playerReviveSound govern adaptive music and tactical audio', () => {
+test('adaptive score: intensity smoothing, bus gain, chart, layers and patterns; station and downed audio cues', () => {
   assert.strictEqual(CORE.MUSIC_RISE_RATE, 1.6);
   assert.strictEqual(CORE.MUSIC_FALL_RATE, 0.5);
   assert.strictEqual(CORE.MUSIC_BASE_BUS_GAIN, 0.22);
   assert.strictEqual(CORE.MUSIC_INTENSITY_BUS_SCALE, 0.5);
-  assert.strictEqual(CORE.MUSIC_TENSION_THRESHOLD, 0.25);
-  assert.strictEqual(CORE.MUSIC_TENSION_MAX_GAIN, 0.16);
-  assert.strictEqual(CORE.MUSIC_BASE_CUTOFF, 200);
-  assert.strictEqual(CORE.MUSIC_MAX_CUTOFF_SCALE, 900);
-  assert.strictEqual(CORE.MUSIC_BASE_BPM, 46);
-  assert.strictEqual(CORE.MUSIC_MAX_BPM_SCALE, 86);
-  assert.strictEqual(CORE.MUSIC_PULSE_BASE_GAIN, 0.05);
-  assert.strictEqual(CORE.MUSIC_PULSE_MAX_GAIN_SCALE, 0.5);
-  assert.strictEqual(CORE.MUSIC_PULSE_EXPONENT, 6);
 
-  // stepMusicIntensity:
-  // Rising from 0 toward 1
-  const riseStep = CORE.stepMusicIntensity(0, 1, 0.05);
-  assert.ok(Math.abs(riseStep - (1.6 * 0.05)) < 1e-4);
-  // Falling from 1 toward 0
-  const fallStep = CORE.stepMusicIntensity(1, 0, 0.05);
-  assert.ok(Math.abs(fallStep - (1 - 0.5 * 0.05)) < 1e-4);
-  // Reaches target exactly when dt is large
+  // stepMusicIntensity: rises fast, falls slowly, clamps, survives junk
+  assert.ok(Math.abs(CORE.stepMusicIntensity(0, 1, 0.05) - 0.08) < 1e-4);
+  assert.ok(Math.abs(CORE.stepMusicIntensity(1, 0, 0.05) - 0.975) < 1e-4);
   assert.strictEqual(CORE.stepMusicIntensity(0, 0.8, 10), 0.8);
   assert.strictEqual(CORE.stepMusicIntensity(1, 0.2, 10), 0.2);
-  // Clamps out of range target
   assert.strictEqual(CORE.stepMusicIntensity(0.5, 1.5, 10), 1.0);
   assert.strictEqual(CORE.stepMusicIntensity(0.5, -0.5, 10), 0.0);
-  // Zero-safety on invalid / non-finite inputs
   assert.strictEqual(CORE.stepMusicIntensity('invalid', 'bad', NaN), 0);
 
-  // musicBusGain:
+  // musicBusGain
   assert.ok(Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4);
   assert.ok(Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4);
-  assert.ok(Math.abs(CORE.musicBusGain(0.5, 0.5) - (0.5 * (0.22 + 0.25))) < 1e-4);
   assert.strictEqual(CORE.musicBusGain(0, 1.0), 0);
   assert.strictEqual(CORE.musicBusGain(NaN, 1.0), 0);
 
-  // musicTensionGain:
-  assert.strictEqual(CORE.musicTensionGain(0), 0);
-  assert.strictEqual(CORE.musicTensionGain(0.25), 0);
-  assert.strictEqual(CORE.musicTensionGain(0.2), 0);
-  assert.ok(Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4);
-  assert.ok(Math.abs(CORE.musicTensionGain(0.625) - 0.08) < 1e-4);
-  assert.strictEqual(CORE.musicTensionGain('bad'), 0);
+  // timing and pitch
+  assert.ok(Math.abs(CORE.musicStepSeconds(120) - 0.125) < 1e-12);
+  assert.strictEqual(CORE.musicStepSeconds(NaN), CORE.musicStepSeconds(CORE.MUSIC_BPM));
+  assert.ok(Math.abs(CORE.midiToHz(69) - 440) < 1e-9);
+  assert.ok(Math.abs(CORE.midiToHz(57) - 220) < 1e-9);
 
-  // musicFilterCutoff:
-  assert.strictEqual(CORE.musicFilterCutoff(0), 200);
-  assert.strictEqual(CORE.musicFilterCutoff(1.0), 1100);
-  assert.strictEqual(CORE.musicFilterCutoff(0.5), 650);
-  assert.strictEqual(CORE.musicFilterCutoff('bad'), 200);
+  // chart: two bars per chord, i-VI-iv-V, loops every phrase
+  const per = CORE.MUSIC_BARS_PER_CHORD;
+  assert.deepStrictEqual([0, per, 2 * per, 3 * per].map(b => CORE.musicChordAt(b).name), ['Dm', 'Bb', 'Gm', 'A']);
+  assert.strictEqual(CORE.musicChordAt(CORE.MUSIC_PHRASE_BARS).name, 'Dm');
+  assert.strictEqual(CORE.musicChordAt(-3).name, 'Dm');
+  const stepsPerChord = CORE.MUSIC_STEPS_PER_BAR * per;
+  assert.ok(CORE.musicChordChanges(0) && CORE.musicChordChanges(stepsPerChord));
+  assert.ok(!CORE.musicChordChanges(1) && !CORE.musicChordChanges(CORE.MUSIC_STEPS_PER_BAR));
 
-  // musicPulseBpm:
-  assert.strictEqual(CORE.musicPulseBpm(0), 46);
-  assert.strictEqual(CORE.musicPulseBpm(1.0), 132);
-  assert.strictEqual(CORE.musicPulseBpm(0.5), 89);
-  assert.strictEqual(CORE.musicPulseBpm('bad'), 46);
+  // layers: the pad never drops out; everything else enters in order
+  const calm = CORE.musicLayerGains(0), full = CORE.musicLayerGains(1);
+  assert.ok(calm.pad > 0.4 && full.pad > 0.3, 'pad always present');
+  assert.strictEqual(calm.bass + calm.horn + calm.arp, 0, 'calm is pad and boom only');
+  assert.ok(full.bass === 1 && full.horn === 1 && full.arp === 1 && full.drums === 1);
+  const mid = CORE.musicLayerGains(0.5);
+  assert.ok(mid.bass > mid.horn && mid.horn > mid.arp, 'bass enters before brass before strings');
+  assert.deepStrictEqual(CORE.musicLayerGains(NaN), calm);
 
-  // stepMusicPulsePhase:
-  const phaseStep = CORE.stepMusicPulsePhase(0, 0.5, 60);
-  assert.ok(Math.abs(phaseStep - 0.5) < 1e-4);
-  // Wraps around 1.0
-  const phaseWrap = CORE.stepMusicPulsePhase(0.9, 0.2, 60);
-  assert.ok(Math.abs(phaseWrap - 0.1) < 1e-4);
-  assert.ok(phaseWrap >= 0 && phaseWrap < 1);
-  assert.strictEqual(CORE.stepMusicPulsePhase('bad', 0, 60), 0);
+  // drums: density climbs with intensity, the downbeat always lands
+  const count = (i) => { let n = 0; for (let s = 0; s < 16; s++) { const h = CORE.musicDrumHits(s, i); n += (h.kick > 0) + (h.snare > 0) + (h.hat > 0) + (h.boom > 0); } return n; };
+  assert.ok(count(0) < count(0.3) && count(0.3) < count(0.6) && count(0.6) < count(0.9));
+  for (const i of [0, 0.3, 0.6, 0.9]) assert.ok(CORE.musicDrumHits(0, i).boom > 0);
+  assert.strictEqual(CORE.musicDrumHits(4, 0.3).snare, 0);
+  assert.ok(CORE.musicDrumHits(4, 0.6).snare > 0, 'backbeat from mid intensity');
+  const lastBar = (CORE.MUSIC_PHRASE_BARS - 1) * 16;
+  assert.ok(CORE.musicDrumHits(lastBar + 13, 0.9).tom > 0, 'fill into the next phrase');
+  assert.strictEqual(CORE.musicDrumHits(13, 0.9).tom, 0);
 
-  // musicPulseEnvelope:
-  assert.strictEqual(CORE.musicPulseEnvelope(0), 1.0);
-  assert.strictEqual(CORE.musicPulseEnvelope(1.0), 0.0);
-  assert.ok(Math.abs(CORE.musicPulseEnvelope(0.5) - Math.pow(0.5, 6)) < 1e-4);
-  assert.strictEqual(CORE.musicPulseEnvelope('bad'), 1.0);
-
-  // musicPulseGain:
-  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4);
-  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4);
-  assert.ok(Math.abs(CORE.musicPulseGain(0.5, 0.5) - (0.5 * (0.05 + 0.25))) < 1e-4);
-  assert.strictEqual(CORE.musicPulseGain(0, 1.0), 0);
+  // bass sits on the chord root (or its octave); arp stays inside the chord
+  for (let n = 0; n < CORE.MUSIC_PHRASE_BARS * 16; n++) {
+    const chord = CORE.musicChordAt(Math.floor(n / 16));
+    for (const i of [0.3, 0.9]) {
+      const b = CORE.musicBassNote(n, i);
+      assert.ok(b === -1 || b === chord.root || b === chord.root + 12);
+    }
+    const a = CORE.musicArpNote(n);
+    assert.ok(chord.notes.some(t => (a - t) % 12 === 0) && a > Math.max(...chord.notes));
+  }
+  assert.ok(CORE.musicBassNote(0, 0.3) >= 0 && CORE.musicBassNote(1, 0.3) === -1);
 
   // stationPurchaseSound:
   assert.strictEqual(CORE.stationPurchaseSound('armory'), 'armory_upgrade');

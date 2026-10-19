@@ -1804,12 +1804,11 @@ def main() -> int:
             if (typeof CORE === 'undefined' ||
                 typeof CORE.stepMusicIntensity !== 'function' ||
                 typeof CORE.musicBusGain !== 'function' ||
-                typeof CORE.musicTensionGain !== 'function' ||
-                typeof CORE.musicFilterCutoff !== 'function' ||
-                typeof CORE.musicPulseBpm !== 'function' ||
-                typeof CORE.stepMusicPulsePhase !== 'function' ||
-                typeof CORE.musicPulseEnvelope !== 'function' ||
-                typeof CORE.musicPulseGain !== 'function' ||
+                typeof CORE.musicLayerGains !== 'function' ||
+                typeof CORE.musicDrumHits !== 'function' ||
+                typeof CORE.musicBassNote !== 'function' ||
+                typeof CORE.musicArpNote !== 'function' ||
+                typeof CORE.musicChordAt !== 'function' ||
                 typeof CORE.stationPurchaseSound !== 'function' ||
                 typeof CORE.playerDownSound !== 'function' ||
                 typeof CORE.playerReviveSound !== 'function') return false;
@@ -1821,23 +1820,11 @@ def main() -> int:
             const busZero = Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4;
             const busFull = Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4;
 
-            const tensionLow = CORE.musicTensionGain(0.2) === 0;
-            const tensionHigh = Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4;
-
-            const cutoffLow = CORE.musicFilterCutoff(0) === 200;
-            const cutoffHigh = CORE.musicFilterCutoff(1.0) === 1100;
-
-            const bpmLow = CORE.musicPulseBpm(0) === 46;
-            const bpmHigh = CORE.musicPulseBpm(1.0) === 132;
-
-            const phaseStep = Math.abs(CORE.stepMusicPulsePhase(0, 0.5, 60) - 0.5) < 1e-4;
-            const phaseWrap = Math.abs(CORE.stepMusicPulsePhase(0.9, 0.2, 60) - 0.1) < 1e-4;
-
-            const envPeak = CORE.musicPulseEnvelope(0) === 1.0;
-            const envFloor = CORE.musicPulseEnvelope(1.0) === 0.0;
-
-            const pulseLow = Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4;
-            const pulseHigh = Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4;
+            const calm = CORE.musicLayerGains(0), full = CORE.musicLayerGains(1);
+            const layersOk = calm.pad > 0.4 && calm.bass === 0 && calm.arp === 0 &&
+                             full.bass === 1 && full.horn === 1 && full.arp === 1;
+            const chordOk = CORE.musicChordAt(0).name === 'Dm';
+            const drumsOk = CORE.musicDrumHits(0, 0).boom > 0 && CORE.musicDrumHits(4, 0.6).snare > 0;
 
             const sndArmory = CORE.stationPurchaseSound('armory') === 'armory_upgrade';
             const sndDoor = CORE.stationPurchaseSound('door') === 'door_unlock';
@@ -1864,10 +1851,7 @@ def main() -> int:
                              SOUND_VARIED.player_revive === 1;
 
             return riseStep && fallStep && fullTarget &&
-                   busZero && busFull && tensionLow && tensionHigh &&
-                   cutoffLow && cutoffHigh && bpmLow && bpmHigh &&
-                   phaseStep && phaseWrap && envPeak && envFloor &&
-                   pulseLow && pulseHigh &&
+                   busZero && busFull && layersOk && chordOk && drumsOk &&
                    sndArmory && sndDoor && sndWeapon && sndAmmo && sndPlate && sndPerk &&
                    sndDown && sndRevive && recipesOk && variedOk;
         }""")
@@ -5100,6 +5084,15 @@ def main() -> int:
         }""")
         checks.append(("occluded-sounds-are-muffled", occ.get("skipped") or
                        (0 < occ["behindWall"] <= 700 and occ["open"] > 700)))
+
+        # 113d) The score is a live sequencer: once deployed it has built its layer
+        #       graph and scheduled steps ahead on the audio clock.
+        mus = page.evaluate("""() => ({
+            built: MUSIC.built, running: MUSIC.running, steps: MUSIC.step,
+            layers: MUSIC.layers ? Object.keys(MUSIC.layers).sort().join(',') : ''
+        })""")
+        checks.append(("music-sequencer-running", bool(mus["built"]) and bool(mus["running"]) and mus["steps"] > 0
+                       and mus["layers"] == "arp,bass,drums,horn,pad"))
 
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
