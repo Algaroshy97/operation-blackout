@@ -5576,7 +5576,7 @@ const CORE = (function () {
     return Math.round(xp);
   }
 
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -6642,7 +6642,7 @@ const CORE = (function () {
     return best;
   }
 
-  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000 };
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900 };
   const AMMO_REFILL_DIVISOR = 3;
   function wallBuyPrice(type) {
     const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
@@ -10925,6 +10925,36 @@ const CORE = (function () {
     return blocked ? OCCLUDED_GAIN : 1;
   }
 
+
+  const PELLET_ADS_TIGHTEN = 0.75;
+  const PELLET_BLOOM_SHARE = 0.5;
+  const SHOTGUN_PUMP_DELAY_MS = 240;
+
+  function pelletConeSpread(pelletSpread, baseSpread, ads) {
+    const p = _isPos(pelletSpread) ? pelletSpread : 0;
+    const b = _isPos(baseSpread) ? baseSpread : 0;
+    return p * (ads ? PELLET_ADS_TIGHTEN : 1) + b * PELLET_BLOOM_SHARE;
+  }
+
+  function loadShell(ammo, mag, reserve, out) {
+    const o = out || { ammo: 0, reserve: 0, loaded: false, done: false };
+    const a = _isNum(ammo) ? Math.max(0, ammo) : 0;
+    const m = _isPos(mag) ? mag : 0;
+    const r = _isNum(reserve) ? Math.max(0, reserve) : 0;
+    o.loaded = a < m && r > 0;
+    o.ammo = o.loaded ? a + 1 : a;
+    o.reserve = o.loaded ? r - 1 : r;
+    o.done = o.ammo >= m || o.reserve <= 0;
+    return o;
+  }
+
+  function weaponClassFireSound(cls, weaponType, isSuppressed) {
+    if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
+    if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
+    if (cls === 'PST') return isSuppressed ? 'smg_suppressed' : 'pistol';
+    return weaponFireSound(weaponType, isSuppressed);
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -11268,7 +11298,8 @@ const CORE = (function () {
     impactFlashCaliberScale,
     GRENADE_WARN_MARGIN, grenadeWarnUrgency,
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
-    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain
+    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
+    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound
   };
 
 
@@ -11919,7 +11950,8 @@ const CFG = {
     { name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 150, reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006, range: 120, auto: true },
     { name: 'MK18 Mod1', type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160, reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005, range: 80, auto: true },
     { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
-    { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false }
+    { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false },
+    { name: 'M870 Express', type: 'AR', cls: 'SG', dmg: 16, pellets: 8, pelletSpread: 0.05, shellReload: true, rpm: 68, mag: 6, reserveMax: 36, reload: 0.5, spread: 0.02, adsSpread: 0.01, recoilV: 0.05, recoilH: 0.014, range: 32, penetration: 0.05, auto: false }
   ],
   ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
@@ -13727,6 +13759,7 @@ function switchWeapon(slot) {
 }
 
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
+const _shellOut = { ammo: 0, reserve: 0, loaded: false, done: false };
 
 function tryReload() {
   const s = curS(), w = curW();
@@ -13746,8 +13779,24 @@ function tryReload() {
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
+  if (w.shellReload && s.reloading && mouse1Down && s.ammo > 0) { s.reloading = false; s.reloadPaused = false; updateHudAmmo(); }
   const wasReloading = s.reloading;
-  if (s.reloading) {
+  if (s.reloading && w.shellReload) {
+    s.reloadT += dt;
+    const perShell = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), false, w.type);
+    while (s.reloading && s.reloadT >= perShell) {
+      s.reloadT -= perShell;
+      CORE.loadShell(s.ammo, w.mag, s.reserve, _shellOut);
+      s.ammo = _shellOut.ammo; s.reserve = _shellOut.reserve;
+      if (_shellOut.loaded) playSound('shell_in');
+      if (_shellOut.done) {
+        s.reloading = false; s.reloadPaused = false;
+        if (s.emptyReload) { playSound('pump'); s.emptyReload = false; }
+      }
+      updateHudAmmo();
+    }
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  } else if (s.reloading) {
     s.reloadT += dt;
     const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload, w ? w.type : '');
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
@@ -13933,10 +13982,32 @@ function fireShot(preserveSchedule) {
     hSpeedForSpread, !player.onGround, stanceSpread);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
+  const pellets = w.pellets > 1 ? w.pellets : 1;
+  const cone = pellets > 1 ? CORE.pelletConeSpread(w.pelletSpread, spreadNow, ads) : spreadNow;
+  let anyHit = false, lastHit = null;
+  for (let p = 0; p < pellets; p++) {
+    const r = traceRound(w, cone, pellets === 1);
+    if (r.enemy) anyHit = true;
+    lastHit = r.hit;
+  }
+  if (anyHit) shotsHit++;
+  const hit = lastHit;
+  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  if (w.cls === 'SG') {
+    const pumpRun = runId;
+    setTimeout(function () {
+      if (runId === pumpRun && started && !paused && !player.dead) playSound('pump');
+    }, CORE.SHOTGUN_PUMP_DELAY_MS);
+  }
+  finishShot(s, w, hit);
+}
+
+const _roundOut = { hit: null, enemy: false };
+function traceRound(w, spreadNow, magnetize) {
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   CORE.ballisticSpreadVector(_shootDir.x, _shootDir.y, _shootDir.z, spreadNow, Math.random(), Math.random(), Math.random(), _spreadOut);
   _shootDir.set(_spreadOut.x, _spreadOut.y, _spreadOut.z);
-  _shootDir.copy(magnetizeBullet(_shootDir, _from));
+  if (magnetize) _shootDir.copy(magnetizeBullet(_shootDir, _from));
   raycaster.set(_from, _shootDir);
   raycaster.far = w.range;
 
@@ -13969,7 +14040,6 @@ function fireShot(preserveSchedule) {
   if (!isEnemy && worldHits.length) hit = worldHits[0];
 
   if (hit && isEnemy) {
-    shotsHit++;
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
@@ -13983,7 +14053,11 @@ function fireShot(preserveSchedule) {
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
-  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  _roundOut.hit = hit; _roundOut.enemy = isEnemy;
+  return _roundOut;
+}
+
+function finishShot(s, w, hit) {
   if (w.type === 'SR') {
     adsAmount = CORE.sniperUnscopeAds(adsAmount);
     const firedRun = runId;
@@ -14003,7 +14077,7 @@ function fireShot(preserveSchedule) {
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);
-  playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
+  playSound(CORE.weaponClassFireSound(w ? w.cls : '', w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
   const emptySnd = CORE.chamberEmptySound(s.ammo, w ? w.type : '');
@@ -14077,7 +14151,7 @@ function buildViewmodel() {
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
-  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].type, getLoadout(gi));
+  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
   muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });
@@ -14576,10 +14650,52 @@ function buildKnife() {
   gunCamera.add(knifeGroup);
 }
 
+function vmBuildSG(g, P, att) {
+  const R = VMAT.polymer;
+  vmBox(g, 0.05, 0.062, 0.24, 0, 0.026, -0.05, VMAT.metal);                    // receiver
+  vmBox(g, 0.012, 0.026, 0.06, 0.026, 0.034, -0.06, VMAT.steel);               // ejection port
+  vmBox(g, 0.03, 0.01, 0.07, 0, -0.008, -0.07, VMAT.knuckle);                  // loading port
+  const bl = att.barrel === 'longbarrel' ? 0.6 : 0.5;
+  vmCyl(g, 0.012, bl, 0, 0.04, -0.17 - bl / 2, VMAT.metal, 16);                // barrel
+  vmCyl(g, 0.011, bl * 0.78, 0, 0.012, -0.17 - bl * 0.39, VMAT.metal, 14);     // magazine tube
+  vmBox(g, 0.026, 0.03, 0.012, 0, 0.026, -0.17 - bl * 0.78, VMAT.metal);       // barrel clamp
+  const pump = new THREE.Group(); g.add(pump);
+  pump.position.set(0, 0.012, -0.32);
+  vmBox(pump, 0.05, 0.046, 0.15, 0, 0, 0, R);
+  for (let i = 0; i < 6; i++) vmBox(pump, 0.054, 0.006, 0.012, 0, -0.012, -0.06 + i * 0.024, VMAT.knuckle);
+  P.bolt = pump; P.boltRest = -0.32;
+  const muzzleZ = att.barrel === 'suppressor'
+    ? vmMuzzleDevice(g, att, -0.17 - bl, 0.04, 0.03) : -0.17 - bl;
+  vmBox(g, 0.042, 0.06, 0.2, 0, -0.012, 0.16, R, -0.12);
+  vmBox(g, 0.046, 0.11, 0.024, 0, -0.034, 0.27, VMAT.knuckle, -0.12);
+  vmBox(g, 0.032, 0.095, 0.042, 0, -0.07, 0.05, R, 0.3);
+  vmBox(g, 0.008, 0.006, 0.07, 0, -0.04, -0.0, VMAT.metal);
+  vmBox(g, 0.004, 0.02, 0.006, 0, -0.026, -0.0, VMAT.steel, 0.3);
+  let sight;
+  if (att.optic === 'reddot' || att.optic === 'scope4x') {
+    vmRail(g, 0.12, 0, 0.061, -0.06);
+    sight = vmRedDot(g, -0.06, 0.061);
+  } else {
+    vmBox(g, 0.008, 0.004, bl, 0, 0.054, -0.17 - bl / 2, VMAT.metal);
+    vmBox(g, 0.004, 0.012, 0.004, 0, 0.061, muzzleZ + 0.012, VMAT.metal);
+    const bead = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 8, 6), VMAT.brass);
+    bead.position.set(0, 0.069, muzzleZ + 0.012); g.add(bead);
+    vmBox(g, 0.004, 0.009, 0.01, -0.0065, 0.0645, -0.02, VMAT.metal);
+    vmBox(g, 0.004, 0.009, 0.01, 0.0065, 0.0645, -0.02, VMAT.metal);
+    sight = { y: 0.069, z: -0.02 };
+  }
+  P.handR = vmHand(g, 0, -0.07, 0.05, 1, 0.3);
+  vmForearm(g, 0.02, -0.12, 0.08, 0.1, -0.24, 0.38);
+  P.handL = new THREE.Group(); g.add(P.handL);
+  vmHand(P.handL, -0.004, -0.02, -0.32, -1, 1.2, 0.1);
+  vmForearm(P.handL, -0.03, -0.055, -0.29, -0.13, -0.34, -0.02);
+  P.loadPort = new THREE.Vector3(0, -0.05, -0.08);
+  return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.15, -0.14, -0.36], kick: 1.5 };
+}
 function buildGunModel(g, P, type, att) {
-  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR };
+  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG };
   const tune = (builders[type] || vmBuildAR)(g, P, att || {}, false);
-  P.magRest = P.mag ? P.mag.position.clone() : null;
+  P.magRest = P.mag ? P.mag.position.clone() : (P.loadPort || null);
   P.handLRest = P.handL ? P.handL.position.clone() : null;
   P.muzzle = new THREE.Object3D();
   P.muzzle.position.set(0, tune.muzzleY, tune.muzzleZ);
@@ -14598,6 +14714,7 @@ function kickViewmodel(w, tune) {
   vmSpring.kvr += 7.5 * k;
   vmSpring.vroll += (Math.random() - 0.5) * 6 * k;
   if (w.type === 'SR') { vmSpring.boltDur = Math.min(0.95, 60 / w.rpm * 0.75); vmSpring.boltT = vmSpring.boltDur + 0.12; }
+  if (w.cls === 'SG') { vmSpring.boltDur = 0.42; vmSpring.boltT = vmSpring.boltDur + CORE.SHOTGUN_PUMP_DELAY_MS / 1000; }
 }
 const _springOut = [0, 0];
 const _vmMantleOut = { posY: 0, rotX: 0, rotZ: 0 };
@@ -14697,7 +14814,10 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   }
   if (P.bolt) {
     if (w.type === 'SR') { P.bolt.rotation.z = boltLift * 1.1; P.bolt.position.z = P.boltRest + boltBack * 0.08; }
-    else P.bolt.position.z = P.boltRest + boltBack * 0.07 + Math.min(1, shotKick) * 0.02;
+    else if (w.cls === 'SG') {
+      P.bolt.position.z = P.boltRest + boltBack * 0.1;
+      if (P.handL) P.handL.position.z += boltBack * 0.1;
+    } else P.bolt.position.z = P.boltRest + boltBack * 0.07 + Math.min(1, shotKick) * 0.02;
   }
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
   CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
@@ -17211,6 +17331,9 @@ const SOUND_RECIPES = {
   smg:         [['noise', 0.065, 0.42, 1250, 0.85], ['osc', 'square', 260, 110, 0.05, 0.22]],
   br:          [['noise', 0.12, 0.58, 650, 0.6], ['osc', 'square', 140, 50, 0.10, 0.32], ['osc', 'sine', 85, 30, 0.13, 0.22]],
   sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  shotgun:     [['noise', 0.2, 0.72, 520, 0.5], ['osc', 'sine', 115, 34, 0.2, 0.46], ['noise', 0.45, 0.24, 1300, 0.6]],
+  pump:        [['noise', 0.06, 0.3, 1100, 2.2], ['osc', 'square', 210, 120, 0.05, 0.12], ['noise', 0.05, 0.26, 1700, 2.6]],
+  shell_in:    [['noise', 0.045, 0.22, 1900, 3], ['osc', 'square', 430, 300, 0.03, 0.06]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
   slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
@@ -17318,6 +17441,7 @@ const SOUND_RECIPES = {
 
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
+  shotgun: 1, pump: 1, shell_in: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
@@ -18550,6 +18674,7 @@ const STATION_LAYOUT = [
   { kind: 'wall', x:  34, z:  30, weapon: 0 },   // M4
   { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
   { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
+  { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
   { kind: 'armory', x: 0, z: -22 },
   { kind: 'plate',  x: 0, z:  20 },
   { kind: 'perk', x: -21, z:  10, perk: 'jugg' },
@@ -18719,7 +18844,7 @@ function stationOffer(st, out) {
     const s = held >= 0 ? wState[held] : null;
     const reserve = s ? s.reserve : 0;
     const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
-    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax, _wallOfferOut);
+    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.cls || w.type, reserve, reserveMax, _wallOfferOut);
     if (offer.action === 'full') {
       res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
       return res;
@@ -20912,8 +21037,8 @@ function buildGunSelect(slot) {
     if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
-      '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      '<div class="gc-type">' + (({ SG: 'SHOTGUN', LMG: 'LIGHT MACHINE GUN', PST: 'PISTOL' })[w.cls] || ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type]) + '</div>' +
+      '<div class="gc-stats">Damage <b>' + w.dmg + (w.pellets > 1 ? '×' + w.pellets : '') + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
       (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
     if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);

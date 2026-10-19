@@ -10033,3 +10033,31 @@ test('occlusion muffles blocked sources on top of air absorption', () => {
   assert.strictEqual(CORE.occludedGain(false), 1);
   assert.ok(CORE.occludedGain(true) < 1 && CORE.occludedGain(true) > 0.3);
 });
+
+
+test('shotgun: pellet cone, shell-by-shell loading, class sounds and price', () => {
+  // ADS tightens the fixed cone; hipfire bloom widens it a little
+  assert.ok(Math.abs(CORE.pelletConeSpread(0.05, 0, false) - 0.05) < 1e-12);
+  assert.ok(Math.abs(CORE.pelletConeSpread(0.05, 0, true) - 0.05 * CORE.PELLET_ADS_TIGHTEN) < 1e-12);
+  assert.ok(CORE.pelletConeSpread(0.05, 0.02, false) > CORE.pelletConeSpread(0.05, 0, false));
+  assert.strictEqual(CORE.pelletConeSpread(NaN, NaN, false), 0);
+  // one shell at a time, done when full or dry
+  let r = CORE.loadShell(0, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [1, 9, true, false]);
+  r = CORE.loadShell(5, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [6, 9, true, true]);
+  r = CORE.loadShell(2, 6, 1);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [3, 0, true, true]);
+  r = CORE.loadShell(6, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [6, 10, false, true]);
+  r = CORE.loadShell(3, 6, 0);
+  assert.strictEqual(r.loaded, false); assert.strictEqual(r.done, true);
+  // class sounds fall back to the type sound for the rifle family
+  assert.strictEqual(CORE.weaponClassFireSound('SG', 'AR', false), 'shotgun');
+  assert.strictEqual(CORE.weaponClassFireSound('SG', 'AR', true), 'shot_suppressed');
+  assert.strictEqual(CORE.weaponClassFireSound(undefined, 'SR', false), CORE.weaponFireSound('SR', false));
+  assert.strictEqual(CORE.weaponClassFireSound('', 'SMG', true), CORE.weaponFireSound('SMG', true));
+  // the cheapest wall buy, and reachable early
+  assert.ok(CORE.wallBuyPrice('SG') < CORE.wallBuyPrice('SMG'));
+  assert.ok(CORE.weaponUnlockRank(4) <= CORE.MAX_RANK);
+});

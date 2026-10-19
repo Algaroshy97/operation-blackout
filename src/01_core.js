@@ -968,7 +968,7 @@ const CORE = (function () {
 
   // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
   // available so a new player still has a choice on their first deploy.
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -2253,7 +2253,7 @@ const CORE = (function () {
 
   // Wall buys. Priced by class rather than per weapon, so adding a weapon cannot
   // leave a station with an undefined price.
-  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000 };
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900 };
   const AMMO_REFILL_DIVISOR = 3;
   function wallBuyPrice(type) {
     const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
@@ -7021,6 +7021,43 @@ const CORE = (function () {
     return blocked ? OCCLUDED_GAIN : 1;
   }
 
+
+  // ---- Weapon classes beyond the rifle family (M1) ----
+  // New guns keep an existing `type` ('AR'/'SMG'), so the forty-odd type switches
+  // above (falloff, bloom, sounds, casings, tracers...) give them sane rifle or
+  // SMG behaviour, and add a `cls` that drives what is genuinely new about them.
+  // Shotgun: a fixed pellet cone around the aim point. Hipfire bloom still widens
+  // it a little, ADS tightens it, and magnetism is skipped per pellet.
+  const PELLET_ADS_TIGHTEN = 0.75;
+  const PELLET_BLOOM_SHARE = 0.5;
+  const SHOTGUN_PUMP_DELAY_MS = 240;
+
+  function pelletConeSpread(pelletSpread, baseSpread, ads) {
+    const p = _isPos(pelletSpread) ? pelletSpread : 0;
+    const b = _isPos(baseSpread) ? baseSpread : 0;
+    return p * (ads ? PELLET_ADS_TIGHTEN : 1) + b * PELLET_BLOOM_SHARE;
+  }
+
+  // One shell into the tube. `done` once the tube is full or the reserve is dry.
+  function loadShell(ammo, mag, reserve, out) {
+    const o = out || { ammo: 0, reserve: 0, loaded: false, done: false };
+    const a = _isNum(ammo) ? Math.max(0, ammo) : 0;
+    const m = _isPos(mag) ? mag : 0;
+    const r = _isNum(reserve) ? Math.max(0, reserve) : 0;
+    o.loaded = a < m && r > 0;
+    o.ammo = o.loaded ? a + 1 : a;
+    o.reserve = o.loaded ? r - 1 : r;
+    o.done = o.ammo >= m || o.reserve <= 0;
+    return o;
+  }
+
+  function weaponClassFireSound(cls, weaponType, isSuppressed) {
+    if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
+    if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
+    if (cls === 'PST') return isSuppressed ? 'smg_suppressed' : 'pistol';
+    return weaponFireSound(weaponType, isSuppressed);
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7364,7 +7401,8 @@ const CORE = (function () {
     impactFlashCaliberScale,
     GRENADE_WARN_MARGIN, grenadeWarnUrgency,
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
-    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain
+    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
+    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound
   };
 
 

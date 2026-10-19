@@ -129,6 +129,7 @@ function switchWeapon(slot) {
 }
 
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
+const _shellOut = { ammo: 0, reserve: 0, loaded: false, done: false };
 
 function tryReload() {
   const s = curS(), w = curW();
@@ -149,8 +150,26 @@ function tryReload() {
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
+  // A shotgun reload is shell by shell, and pulling the trigger with anything in
+  // the tube stops it so the next frame can fire.
+  if (w.shellReload && s.reloading && mouse1Down && s.ammo > 0) { s.reloading = false; s.reloadPaused = false; updateHudAmmo(); }
   const wasReloading = s.reloading;
-  if (s.reloading) {
+  if (s.reloading && w.shellReload) {
+    s.reloadT += dt;
+    const perShell = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), false, w.type);
+    while (s.reloading && s.reloadT >= perShell) {
+      s.reloadT -= perShell;
+      CORE.loadShell(s.ammo, w.mag, s.reserve, _shellOut);
+      s.ammo = _shellOut.ammo; s.reserve = _shellOut.reserve;
+      if (_shellOut.loaded) playSound('shell_in');
+      if (_shellOut.done) {
+        s.reloading = false; s.reloadPaused = false;
+        if (s.emptyReload) { playSound('pump'); s.emptyReload = false; }
+      }
+      updateHudAmmo();
+    }
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  } else if (s.reloading) {
     s.reloadT += dt;
     const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload, w ? w.type : '');
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
@@ -353,12 +372,40 @@ function fireShot(preserveSchedule) {
     hSpeedForSpread, !player.onGround, stanceSpread);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
+  // A shotgun traces every pellet through the same path as a rifle round, inside
+  // a fixed cone; one shot counts once for accuracy however many pellets connect.
+  const pellets = w.pellets > 1 ? w.pellets : 1;
+  const cone = pellets > 1 ? CORE.pelletConeSpread(w.pelletSpread, spreadNow, ads) : spreadNow;
+  let anyHit = false, lastHit = null;
+  for (let p = 0; p < pellets; p++) {
+    const r = traceRound(w, cone, pellets === 1);
+    if (r.enemy) anyHit = true;
+    lastHit = r.hit;
+  }
+  if (anyHit) shotsHit++;
+  const hit = lastHit;
+  // shell casing eject
+  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  if (w.cls === 'SG') {
+    const pumpRun = runId;
+    setTimeout(function () {
+      if (runId === pumpRun && started && !paused && !player.dead) playSound('pump');
+    }, CORE.SHOTGUN_PUMP_DELAY_MS);
+  }
+  finishShot(s, w, hit);
+}
+
+// One round (or one pellet) from the camera: spread, optional magnetism, the
+// enemy/world raycasts with penetration, damage, impacts and the tracer. Returns
+// the hit (or null) and whether it was an enemy.
+const _roundOut = { hit: null, enemy: false };
+function traceRound(w, spreadNow, magnetize) {
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   CORE.ballisticSpreadVector(_shootDir.x, _shootDir.y, _shootDir.z, spreadNow, Math.random(), Math.random(), Math.random(), _spreadOut);
   _shootDir.set(_spreadOut.x, _spreadOut.y, _spreadOut.z);
   // bullet magnetism (small snap onto enemy center-mass)
-  _shootDir.copy(magnetizeBullet(_shootDir, _from));
+  if (magnetize) _shootDir.copy(magnetizeBullet(_shootDir, _from));
   raycaster.set(_from, _shootDir);
   raycaster.far = w.range;
 
@@ -397,7 +444,6 @@ function fireShot(preserveSchedule) {
   if (!isEnemy && worldHits.length) hit = worldHits[0];
 
   if (hit && isEnemy) {
-    shotsHit++;
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
@@ -411,8 +457,12 @@ function fireShot(preserveSchedule) {
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
-  // shell casing eject
-  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  _roundOut.hit = hit; _roundOut.enemy = isEnemy;
+  return _roundOut;
+}
+
+// Everything that happens once per trigger pull, after the round(s) are traced.
+function finishShot(s, w, hit) {
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') {
     adsAmount = CORE.sniperUnscopeAds(adsAmount);
@@ -438,7 +488,7 @@ function fireShot(preserveSchedule) {
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);
-  playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
+  playSound(CORE.weaponClassFireSound(w ? w.cls : '', w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
   const emptySnd = CORE.chamberEmptySound(s.ammo, w ? w.type : '');
@@ -528,7 +578,7 @@ function buildViewmodel() {
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
-  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].type, getLoadout(gi));
+  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
   muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });

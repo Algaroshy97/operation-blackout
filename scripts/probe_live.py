@@ -5094,6 +5094,41 @@ def main() -> int:
         checks.append(("music-sequencer-running", bool(mus["built"]) and bool(mus["running"]) and mus["steps"] > 0
                        and mus["layers"] == "arp,bass,drums,horn,pad"))
 
+        # 113e) Shotgun: eight pellets that fall off hard with range in a clear lane,
+        #       shell-by-shell reload, and the trigger cancels a reload in progress.
+        sg = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), pos: player.pos.clone(), god: godMode };
+            godMode = true;
+            const PX = -38, PZ = 10;
+            weaponsOwned[0] = 4; curWeapon = 0; wState[0] = null; freshWeaponState(0);
+            const dmgAt = function (d) {
+                spawnEnemy(1, PX, PZ - d);
+                const en = enemies[enemies.length - 1];
+                en.pos.set(PX, 0, PZ - d); en.parts.group.position.copy(en.pos);
+                en.health = 1e6; en.parts.group.updateMatrixWorld(true);
+                let tot = 0;
+                for (let i = 0; i < 12; i++) {
+                    bloom = 0; curS().ammo = 5; curS().nextShot = 0;
+                    player.pos.set(PX, CFG.player.height, PZ);
+                    camera.position.copy(player.pos); camera.lookAt(PX, 1.15, PZ - d); camera.updateMatrixWorld();
+                    const h0 = en.health; fireShot(false); tot += h0 - en.health;
+                }
+                en.dead = true; scene.remove(en.parts.group); enemies.splice(enemies.indexOf(en), 1);
+                return tot / 12;
+            };
+            const near = dmgAt(3), far = dmgAt(20);
+            const per = CORE.effectiveReloadDuration(curW().reload, CORE.perkReloadMul(perks), false, curW().type);
+            curS().ammo = 0; curS().reserve = 10; mouse1Down = false; tryReload();
+            updateWeapons(per + 0.001); const one = curS().ammo;
+            updateWeapons(per + 0.001); const two = curS().ammo;
+            mouse1Down = true; updateWeapons(0.001); const cancelled = !curS().reloading; mouse1Down = false;
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; player.pos.copy(saved.pos); godMode = saved.god; buildViewmodel();
+            return { near: near, far: far, one: one, two: two, cancelled: cancelled };
+        }""")
+        checks.append(("shotgun-pellets-fall-off-with-range", sg["near"] >= 100 and sg["far"] < sg["near"] * 0.4))
+        checks.append(("shotgun-shell-reload-and-trigger-cancel", sg["one"] == 1 and sg["two"] == 2 and sg["cancelled"]))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops

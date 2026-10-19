@@ -564,6 +564,9 @@ const SOUND_RECIPES = {
   smg:         [['noise', 0.065, 0.42, 1250, 0.85], ['osc', 'square', 260, 110, 0.05, 0.22]],
   br:          [['noise', 0.12, 0.58, 650, 0.6], ['osc', 'square', 140, 50, 0.10, 0.32], ['osc', 'sine', 85, 30, 0.13, 0.22]],
   sniper:      [['noise', 0.16, 0.6, 700, 0.6], ['osc', 'sine', 150, 40, 0.22, 0.4], ['noise', 0.5, 0.25, 220, 0.4]],
+  shotgun:     [['noise', 0.2, 0.72, 520, 0.5], ['osc', 'sine', 115, 34, 0.2, 0.46], ['noise', 0.45, 0.24, 1300, 0.6]],
+  pump:        [['noise', 0.06, 0.3, 1100, 2.2], ['osc', 'square', 210, 120, 0.05, 0.12], ['noise', 0.05, 0.26, 1700, 2.6]],
+  shell_in:    [['noise', 0.045, 0.22, 1900, 3], ['osc', 'square', 430, 300, 0.03, 0.06]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
   slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
@@ -676,6 +679,7 @@ const SOUND_RECIPES = {
 // than the old live synthesis had, since its parameters were fixed too.
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
+  shotgun: 1, pump: 1, shell_in: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,

@@ -417,8 +417,8 @@ function buildGunSelect(slot) {
     if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
-      '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      '<div class="gc-type">' + (({ SG: 'SHOTGUN', LMG: 'LIGHT MACHINE GUN', PST: 'PISTOL' })[w.cls] || ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type]) + '</div>' +
+      '<div class="gc-stats">Damage <b>' + w.dmg + (w.pellets > 1 ? '×' + w.pellets : '') + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
       (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
     if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
