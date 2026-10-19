@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v161 — Mobile optical look sensitivity scaling, touch action availability, and empty control pointer-events
+
+- Implement optical ADS and sniper scope look sensitivity scaling (`CORE.touchLookSensitivity`, `CORE.TOUCH_ADS_SENSITIVITY_MUL` = 0.65, `CORE.TOUCH_SCOPED_SENSITIVITY_MUL` = 0.40, `CORE.TOUCH_STEADY_SENSITIVITY_MUL` = 0.25): scales touch drag look factor down when aiming down sights (0.65x), scoped in with sniper rifle (0.40x), or holding breath / steadying aim (0.25x) for fine-grained target acquisition on touchscreens; wired into `touchLookFactor()` in `src/25_touch.js` affecting `lookMove()`, `fireLookMove()`, and `onGyroOrientation()`.
+- Implement touch action availability validation (`CORE.isTouchActionAvailable`): validates contextual action availability states (`ammo`, `reserve`, `hasWeapon`, `streakActive`, `hasUsePrompt`) before permitting touch control interactions.
+- Implement empty control pointer-events suppression (`body.touch #tbtn-swap.empty,body.touch #tbtn-streak.empty,body.touch #tbtn-use.empty { pointer-events: none; }` in `src/00_head.html`) so non-functional contextual buttons do not intercept touch input, and clean crawl class cleanup in `releaseTouches()` in `src/25_touch.js`.
+- Add unit and integration regression suites in `tests/test_mobile_optimization.js` and `tests/test_core.js`, plus contract check 111 (`mobile-optical-sensitivity-and-action-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations, enemy AI state kinetics, and ballistic helper functions in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,932 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 493 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v160 — Ballistic enemy raycast spatial culling and grenade blast delta distance performance optimization
 
 - Implement ballistic enemy raycast spatial culling (`CORE.isEnemyRayCandidate`, `CORE.ENEMY_RAY_BOUNDING_RADIUS` = 1.8, `CORE.ENEMY_RAY_CENTER_OFFSET_Y` = 0.9): evaluates forward ray projection and squared perpendicular distance against spherical bounding volume to eliminate off-axis, behind-the-camera, and out-of-range enemies with arithmetic before Three.js recursive hierarchy traversal; wired into `fireShot()` and `updateMarksmanScope()` in `src/30_weapons.js`.

@@ -700,6 +700,58 @@ test('v156 mobile UI polish: touch control activation gating, downed key sanitiz
   assert.match(head, /body\.touch\s+\.tbtn\.locked\{[^}]*pointer-events:\s*none/);
 });
 
+test('v161 mobile UI polish: optical ADS & scope look sensitivity scaling, touch action availability, and empty control pointer-events', () => {
+  // 1. Pure sensitivity scaling rules
+  assert.equal(CORE.TOUCH_ADS_SENSITIVITY_MUL, 0.65);
+  assert.equal(CORE.TOUCH_SCOPED_SENSITIVITY_MUL, 0.40);
+  assert.equal(CORE.TOUCH_STEADY_SENSITIVITY_MUL, 0.25);
+
+  assert.equal(CORE.touchLookSensitivity(1.0, false, false, false), 1.0);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, false, false) - 0.65) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, true, false) - 0.40) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, true, true) - 0.25) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.5, true, false, false) - 0.975) < 1e-4);
+  assert.equal(CORE.touchLookSensitivity(null, false, false, false), 1.0);
+
+  // 2. Action availability validation
+  assert.equal(CORE.isTouchActionAvailable('ready'), true);
+  assert.equal(CORE.isTouchActionAvailable('urgent'), true);
+  assert.equal(CORE.isTouchActionAvailable('active'), true);
+  assert.equal(CORE.isTouchActionAvailable('empty'), false);
+  assert.equal(CORE.isTouchActionAvailable('locked'), false);
+  assert.equal(CORE.isTouchActionAvailable('cooldown'), false);
+
+  // 3. Host DOM behavior: ADS sensitivity scaling in lookMove
+  const h = host();
+  h.settings.touchSensitivity = 1.0;
+  const lookZone = h.elements.get('look-zone');
+
+  // Hipfire look: 10px delta -> 10px lookX
+  lookZone.emit('touchstart', [finger(1, 100, 100)]);
+  h.win.emit('touchmove', [finger(1, 110, 100)]);
+  assert.ok(Math.abs(h.run('touchState.lookX') - 10) < 1e-4);
+  h.run('touchState.lookX = 0');
+  h.win.emit('touchend', [finger(1)]);
+
+  // ADS look: 10px delta -> 6.5px lookX
+  h.run('touchState.ads = true');
+  lookZone.emit('touchstart', [finger(2, 100, 100)]);
+  h.win.emit('touchmove', [finger(2, 110, 100)]);
+  assert.ok(Math.abs(h.run('touchState.lookX') - 6.5) < 1e-4);
+  h.win.emit('touchend', [finger(2)]);
+
+  // 4. Joystick release removes crawl class
+  const joy = h.elements.get('joy-base');
+  joy.classList.add('crawl');
+  joy.emit('touchstart', [finger(3, 76, 106)]);
+  h.win.emit('touchend', [finger(3)]);
+  assert.equal(joy.classList.contains('crawl'), false);
+
+  // 5. CSS pointer-events on empty contextual buttons
+  assert.match(head, /body\.touch\s+(?:#[-\w.]+\.empty\s*,\s*)*#[-\w.]+\.empty\{[^}]*pointer-events:\s*none/);
+});
+
+
 
 
 

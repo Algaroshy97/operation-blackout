@@ -33,6 +33,14 @@ function setGyroAimEnabled(enabled) {
 if (typeof window !== 'undefined') window.addEventListener('click', function () {
   if (typeof getSetting === 'function' && getSetting('gyroAim') && !gyroEnabled) setGyroAimEnabled(true);
 }, { passive: true });
+function touchLookFactor(base) {
+  const isAds = !!(touchState && touchState.ads);
+  const isScp = typeof isScoped === 'function' ? isScoped() : false;
+  const isStd = typeof steadyActive === 'boolean' ? steadyActive : false;
+  return (typeof CORE !== 'undefined' && typeof CORE.touchLookSensitivity === 'function')
+    ? CORE.touchLookSensitivity(base, isAds, isScp, isStd)
+    : (isAds ? base * 0.65 : base);
+}
 function onGyroOrientation(event) {
   if (!gyroEnabled || !touchState.active || !touchGameplayEnabled() ||
       typeof event.beta !== 'number' || typeof event.gamma !== 'number') return;
@@ -41,7 +49,7 @@ function onGyroOrientation(event) {
   const gammaDelta = ((event.gamma - gyroLast.gamma + 540) % 360) - 180;
   gyroLast.beta = event.beta; gyroLast.gamma = event.gamma;
   const angle = window.screen && window.screen.orientation ? window.screen.orientation.angle : (window.orientation || 0);
-  const sensitivity = getSetting('gyroSensitivity') || 1;
+  const sensitivity = touchLookFactor(getSetting('gyroSensitivity') || 1);
   CORE.gyroScreenLookDelta(betaDelta, gammaDelta, angle, sensitivity * 7, gyroDelta);
   touchState.lookX += gyroDelta.yaw;
   touchState.lookY += gyroDelta.pitch;
@@ -124,8 +132,7 @@ function touchGameplayEnabled() {
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) {
         joyId = null;
-        joyBase.classList.remove('on');
-        joyBase.classList.remove('sprint');
+        joyBase.classList.remove('on', 'sprint', 'crawl');
         touchState.moveX = 0; touchState.moveZ = 0;
         joyStick.style.transform = 'translate(0,0)';
       }
@@ -170,7 +177,7 @@ function touchGameplayEnabled() {
     lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY;
   }, { passive: false });
   function lookMove(t) {
-    const factor = getSetting('touchSensitivity') || 1;
+    const factor = touchLookFactor(getSetting('touchSensitivity') || 1);
     const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
       ? CORE.touchLookDelta(t.clientX, lastLX, factor)
       : (t.clientX - lastLX) * factor;
@@ -183,7 +190,7 @@ function touchGameplayEnabled() {
   }
   function fireLookMove(t) {
     if (!getSetting('fireLook')) { lastFX = t.clientX; lastFY = t.clientY; return; }
-    const factor = getSetting('touchSensitivity') || 1;
+    const factor = touchLookFactor(getSetting('touchSensitivity') || 1);
     const dx = (typeof CORE !== 'undefined' && typeof CORE.touchLookDelta === 'function')
       ? CORE.touchLookDelta(t.clientX, lastFX, factor)
       : (t.clientX - lastFX) * factor;

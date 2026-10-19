@@ -9931,3 +9931,29 @@ test('v160 performance optimization: ballistic enemy raycast spatial culling and
   assert.strictEqual(CORE.blastTargetDistance(NaN, 0, 0), 0);
 });
 
+test('v161 mobile UI polish: optical ADS & scope look sensitivity scaling, touch action availability, and empty control pointer-events', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.TOUCH_ADS_SENSITIVITY_MUL, 0.65);
+  assert.strictEqual(CORE.TOUCH_SCOPED_SENSITIVITY_MUL, 0.40);
+  assert.strictEqual(CORE.TOUCH_STEADY_SENSITIVITY_MUL, 0.25);
+
+  // 2. Optical look sensitivity scaling
+  assert.strictEqual(CORE.touchLookSensitivity(1.0, false, false, false), 1.0);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, false, false) - 0.65) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, true, false) - 0.40) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.0, true, true, true) - 0.25) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(1.5, true, false, false) - (1.5 * 0.65)) < 1e-4);
+  assert.ok(Math.abs(CORE.touchLookSensitivity(2.0, true, true, false) - (2.0 * 0.40)) < 1e-4);
+  assert.strictEqual(CORE.touchLookSensitivity(null, false, false, false), 1.0);
+  assert.strictEqual(CORE.touchLookSensitivity(-2, false, false, false), 1.0);
+
+  // 3. Action availability validation
+  assert.strictEqual(CORE.isTouchActionAvailable('ready'), true);
+  assert.strictEqual(CORE.isTouchActionAvailable('urgent'), true);
+  assert.strictEqual(CORE.isTouchActionAvailable('active'), true);
+  assert.strictEqual(CORE.isTouchActionAvailable('empty'), false);
+  assert.strictEqual(CORE.isTouchActionAvailable('locked'), false);
+  assert.strictEqual(CORE.isTouchActionAvailable('cooldown'), false);
+});
+
+

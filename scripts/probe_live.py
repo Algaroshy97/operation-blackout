@@ -4952,7 +4952,32 @@ def main() -> int:
         }""")
         checks.append(("performance-optimization-v160-rules", perf_v160_check))
 
-        # 111) Clean console throughout gameplay.
+        # 111) Mobile optical look sensitivity scaling, touch action availability, and empty control pointer-events (v161 mobile UI polish).
+        mobile_v161_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const mulAdsOk = CORE.TOUCH_ADS_SENSITIVITY_MUL === 0.65;
+            const mulScpOk = CORE.TOUCH_SCOPED_SENSITIVITY_MUL === 0.40;
+            const mulStdOk = CORE.TOUCH_STEADY_SENSITIVITY_MUL === 0.25;
+
+            const sensNorm = Math.abs(CORE.touchLookSensitivity(1.0, false, false, false) - 1.0) < 1e-4;
+            const sensAds = Math.abs(CORE.touchLookSensitivity(1.0, true, false, false) - 0.65) < 1e-4;
+            const sensScp = Math.abs(CORE.touchLookSensitivity(1.0, true, true, false) - 0.40) < 1e-4;
+            const sensStd = Math.abs(CORE.touchLookSensitivity(1.0, true, true, true) - 0.25) < 1e-4;
+            const sensCustom = Math.abs(CORE.touchLookSensitivity(1.5, true, false, false) - (1.5 * 0.65)) < 1e-4;
+
+            const availReady = CORE.isTouchActionAvailable('ready') === true;
+            const availUrgent = CORE.isTouchActionAvailable('urgent') === true;
+            const availEmpty = CORE.isTouchActionAvailable('empty') === false;
+            const availLocked = CORE.isTouchActionAvailable('locked') === false;
+            const availCd = CORE.isTouchActionAvailable('cooldown') === false;
+
+            return mulAdsOk && mulScpOk && mulStdOk && sensNorm && sensAds && sensScp && sensStd && sensCustom &&
+                   availReady && availUrgent && availEmpty && availLocked && availCd;
+        }""")
+        checks.append(("mobile-optical-sensitivity-and-action-rules", mobile_v161_check))
+
+        # 112) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.
