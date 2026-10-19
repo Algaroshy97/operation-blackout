@@ -34,7 +34,7 @@ Your run is **checkpointed after every wave**, so closing the tab does not cost 
 
 Hostiles escalate by *behaviour*, not just by count: they fire on the move from wave 5, flank from wave 8, fire in bursts from wave 10, and start throwing grenades to flush you out of cover from wave 12.
 
-New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
+New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **breachers** (wave 7) charge with pump shotguns that shred you inside 12 m and do nothing beyond it, so keep them at range or drop them on the way in; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
 
 A live frag or semtex close enough to hurt you shows an arrow and icon on screen pointing at it, turning red and blinking as the fuse runs down. Rounds that miss you crack past and draw a grey arc toward the shooter; sustained near misses suppress you, darkening and blurring the edges of the screen (no blur with reduced camera motion). Enemy sounds are positional, duller with distance, and muffled when a wall is between you and them.
 

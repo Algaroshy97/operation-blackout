@@ -1041,6 +1041,7 @@ const CORE = (function () {
   //   4 scout      wave 3    fast, fragile, always flanks — punishes tunnel vision
   //   2 tank       wave 4    slow, heavy, huge health pool
   //   5 grenadier  wave 6    lobs frags from range — has to be pushed or avoided
+  //   6 breacher   wave 7    charges with a shotgun — lethal close, harmless far
   //   3 shielded   wave 9    frontal plate, must be flanked
   // Weights rather than nested thresholds, so adding a kind cannot silently
   // starve an existing one.
@@ -1050,6 +1051,7 @@ const CORE = (function () {
     { kind: 4, wave: 3, weight: 0.45, name: 'Scout' },
     { kind: 2, wave: 4, weight: 0.3,  name: 'Tank' },
     { kind: 5, wave: 6, weight: 0.35, name: 'Grenadier' },
+    { kind: 6, wave: 7, weight: 0.4,  name: 'Breacher' },
     { kind: 3, wave: 9, weight: 0.5,  name: 'Shielded advancer' }
   ];
   // Every ground kind must hold a stop distance. player.pos sits at eye height, so
@@ -1075,6 +1077,7 @@ const CORE = (function () {
       : kind === 3 ? 2.0
       : kind === 4 ? cfg.chaseSpeed * 1.35
       : kind === 5 ? 2.6
+      : kind === 6 ? cfg.speed * 1.2
       : cfg.speed);
     else if (state === 'strafe') speed = cfg.rangedSpeed;
     else speed = cfg.speed * 0.5;
@@ -3445,7 +3448,8 @@ const CORE = (function () {
     2: 3.2,   // tank
     3: 2.2,   // shielded advancer
     4: 0.55,  // scout
-    5: 1.2    // grenadier
+    5: 1.2,   // grenadier
+    6: 1.5    // breacher
   };
 
   const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
@@ -6108,7 +6112,7 @@ const CORE = (function () {
 
   function isEnemyFlanker(kind, waveFlanking, rand) {
     if (kind === 4) return true;
-    if (kind === 3 || kind === 5) return false;
+    if (kind === 3 || kind === 5 || kind === 6) return false;
     const r = _isNum(rand) ? _clamp01(rand) : 0.5;
     return !!waveFlanking && r < 0.45;
   }
@@ -6642,8 +6646,8 @@ const CORE = (function () {
   }
 
   function enemyHasHelmet(kind) {
-    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5;
-    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier';
+    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5 || kind === 6;
+    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier' || kind === 'breacher';
   }
 
   function headshotVfxParams(hasHelmet) {
@@ -7087,6 +7091,31 @@ const CORE = (function () {
     return _isNum(ammo) && _isNum(reserve) && ammo <= 0 && reserve <= 0;
   }
 
+  // Breacher (enemy kind 6): charges and fires a shotgun only inside its range.
+  // Each blast is BREACHER_PELLETS independent pellets whose hit chance falls with
+  // distance, so it is deadly at a doorway and a nuisance at 10 m: the answer is
+  // to keep it at range or kill it on the way in.
+  const BREACHER_RANGE = 12;
+  const BREACHER_ROF = 1.6;
+  const BREACHER_PELLETS = 8;
+  const BREACHER_PELLET_SHARE = 0.6;   // of the rifleman's per-round damage
+
+  function breacherPelletHitChance(dist) {
+    const d = _isNum(dist) ? Math.max(0, dist) : BREACHER_RANGE;
+    if (d >= BREACHER_RANGE) return 0;
+    return Math.max(0.05, Math.min(0.9, 0.9 - (d - 3) * 0.08));
+  }
+  function canBreacherFire(dist, hasLos, isPlayerDead) {
+    return !isPlayerDead && !!hasLos && _isNum(dist) && dist < BREACHER_RANGE;
+  }
+  // rolls: an array (or array-like) of BREACHER_PELLETS values in [0,1)
+  function breacherPelletHits(dist, rolls) {
+    const p = breacherPelletHitChance(dist);
+    let n = 0;
+    for (let i = 0; i < BREACHER_PELLETS; i++) if (rolls && _isNum(rolls[i]) && rolls[i] < p) n++;
+    return n;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -7440,7 +7469,9 @@ const CORE = (function () {
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
     PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
     LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
-    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm
+    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
+    BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
+    breacherPelletHitChance, canBreacherFire, breacherPelletHits
   };
 
 

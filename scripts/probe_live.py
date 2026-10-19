@@ -5178,6 +5178,32 @@ def main() -> int:
         checks.append(("sidearm-quick-draw-on-dry-gun", pst["quick"]))
         checks.append(("sidearm-survives-wall-buy-and-is-not-a-deploy-pick", pst["kept"] and not pst["pistolCard"]))
 
+        # 113h) Breacher: fires inside its range with line of sight, never beyond it.
+        br = page.evaluate("""() => {
+            const savedPos = player.pos.clone(), savedDead = player.dead;
+            const real = window.damagePlayer;
+            const blastsAt = function (d) {
+                spawnEnemy(6, -38, 10 - d);
+                const en = enemies[enemies.length - 1];
+                en.state = 'chase'; en.stateT = 1;
+                let n = 0, last = 0;
+                window.damagePlayer = function () {};
+                for (let f = 0; f < 300; f++) {
+                    player.pos.set(-38, CFG.player.height, 10); player.dead = false;
+                    en.pos.set(-38, 0, 10 - d); en.parts.group.position.copy(en.pos);
+                    gameT += 1 / 60; updateEnemies(1 / 60);
+                    if (en.lastShotT && en.lastShotT !== last) { n++; last = en.lastShotT; }
+                }
+                en.dead = true; scene.remove(en.parts.group); enemies.splice(enemies.indexOf(en), 1);
+                return n;
+            };
+            const near = blastsAt(5), far = blastsAt(18);
+            window.damagePlayer = real;
+            player.pos.copy(savedPos); player.dead = savedDead;
+            return { near: near, far: far };
+        }""")
+        checks.append(("breacher-fires-close-not-far", br["near"] >= 2 and br["far"] == 0))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops

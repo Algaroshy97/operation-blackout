@@ -5639,6 +5639,7 @@ const CORE = (function () {
     { kind: 4, wave: 3, weight: 0.45, name: 'Scout' },
     { kind: 2, wave: 4, weight: 0.3,  name: 'Tank' },
     { kind: 5, wave: 6, weight: 0.35, name: 'Grenadier' },
+    { kind: 6, wave: 7, weight: 0.4,  name: 'Breacher' },
     { kind: 3, wave: 9, weight: 0.5,  name: 'Shielded advancer' }
   ];
   const ENEMY_STOP_DIST = { 0: 1.9, 1: 1.9, 2: 2.6, 3: 1.9, 4: 1.9, 5: 2.4 };
@@ -5657,6 +5658,7 @@ const CORE = (function () {
       : kind === 3 ? 2.0
       : kind === 4 ? cfg.chaseSpeed * 1.35
       : kind === 5 ? 2.6
+      : kind === 6 ? cfg.speed * 1.2
       : cfg.speed);
     else if (state === 'strafe') speed = cfg.rangedSpeed;
     else speed = cfg.speed * 0.5;
@@ -7582,7 +7584,8 @@ const CORE = (function () {
     2: 3.2,   // tank
     3: 2.2,   // shielded advancer
     4: 0.55,  // scout
-    5: 1.2    // grenadier
+    5: 1.2,   // grenadier
+    6: 1.5    // breacher
   };
 
   const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
@@ -10061,7 +10064,7 @@ const CORE = (function () {
 
   function isEnemyFlanker(kind, waveFlanking, rand) {
     if (kind === 4) return true;
-    if (kind === 3 || kind === 5) return false;
+    if (kind === 3 || kind === 5 || kind === 6) return false;
     const r = _isNum(rand) ? _clamp01(rand) : 0.5;
     return !!waveFlanking && r < 0.45;
   }
@@ -10579,8 +10582,8 @@ const CORE = (function () {
   }
 
   function enemyHasHelmet(kind) {
-    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5;
-    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier';
+    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5 || kind === 6;
+    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier' || kind === 'breacher';
   }
 
   function headshotVfxParams(hasHelmet) {
@@ -10978,6 +10981,26 @@ const CORE = (function () {
     return _isNum(ammo) && _isNum(reserve) && ammo <= 0 && reserve <= 0;
   }
 
+  const BREACHER_RANGE = 12;
+  const BREACHER_ROF = 1.6;
+  const BREACHER_PELLETS = 8;
+  const BREACHER_PELLET_SHARE = 0.6;   // of the rifleman's per-round damage
+
+  function breacherPelletHitChance(dist) {
+    const d = _isNum(dist) ? Math.max(0, dist) : BREACHER_RANGE;
+    if (d >= BREACHER_RANGE) return 0;
+    return Math.max(0.05, Math.min(0.9, 0.9 - (d - 3) * 0.08));
+  }
+  function canBreacherFire(dist, hasLos, isPlayerDead) {
+    return !isPlayerDead && !!hasLos && _isNum(dist) && dist < BREACHER_RANGE;
+  }
+  function breacherPelletHits(dist, rolls) {
+    const p = breacherPelletHitChance(dist);
+    let n = 0;
+    for (let i = 0; i < BREACHER_PELLETS; i++) if (rolls && _isNum(rolls[i]) && rolls[i] < p) n++;
+    return n;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -11331,7 +11354,9 @@ const CORE = (function () {
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
     PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
     LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
-    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm
+    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
+    BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
+    breacherPelletHitChance, canBreacherFire, breacherPelletHits
   };
 
 
@@ -15019,7 +15044,8 @@ const SOLDIER_KITS = [
   { name: 'tank', cloth: sdMat(0x585858, TEX.camo.map), pants: sdMat(0x3a3a3c, TEX.camo.map), vest: SDM.plate, helmet: sdMat(0x18191b, null, 0.55, 0.4) },
   { name: 'shielded', cloth: sdMat(0x7890c0, TEX.camo.map), pants: sdMat(0x3c4a66, TEX.camo.map), vest: sdMat(0x2a3448), helmet: sdMat(0x3a5480, null, 0.6, 0.3) },
   { name: 'scout', cloth: sdMat(0xa8d888, TEX.camo.map), pants: sdMat(0x5a7a44, TEX.camo.map), vest: sdMat(0x33422a), helmet: null, cap: sdMat(0x4a6a34) },
-  { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) }
+  { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) },
+  { name: 'breacher', cloth: sdMat(0x3a3a40, TEX.camo.map), pants: sdMat(0x26262a, TEX.camo.map), vest: sdMat(0x7a1e1a), helmet: sdMat(0x1c1c20, null, 0.6, 0.3) }
 ];
 const SDM_SHIELD = sdMat(0x2a3446, TEX.paint.map, 0.5, 0.55);
 const SDM_SHIELD_GLASS = sdMat(0x0a1420, null, 0.05, 0.9, { transparent: true, opacity: 0.65 });
@@ -15224,6 +15250,14 @@ function buildSoldierTemplate(kind) {
     const knife = sdJoint(root.getObjectByName('haR'), 'knife', 0, -0.07, 0.04);
     sdPiece(knife, sdBoxG(0.012, 0.035, 0.2), SDM.blade, 0, 0, 0.1);
     sdPiece(knife, sdBoxG(0.025, 0.04, 0.09), SDM.gun, 0, 0, -0.03);
+  } else if (kind === 6) {
+    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);                      // receiver
+    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);   // barrel
+    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0); // tube
+    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);               // pump
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);               // stock
+    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);   // shells
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);    // grip
   } else {
     const lmg = heavy;
     sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);                    // receiver
@@ -15315,7 +15349,7 @@ function animateSoldier(en, dt, dist) {
   J.hips.position.y = 0.97 - cr * 0.4 - Math.abs(Math.cos(ph)) * 0.035 * moveK * (1 + run) + 0.015 * moveK;
   J.hips.rotation.z = Math.sin(ph) * 0.05 * moveK;
   J.hips.rotation.y = Math.sin(ph) * 0.12 * moveK * fwdK;
-  const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe');
+  const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe') || (en.kind === 6 && dist < CORE.BREACHER_RANGE + 4);
   const pitch = Math.atan2(player.pos.y - (en.pos.y + 1.45), Math.max(0.5, dist));
   let lean = 0.08 * moveK + run * 0.2 + cr * 0.25 + ((en.kind === 0 || en.kind === 4) && en.state === 'chase' ? 0.15 : 0);
   if (en.kind === 3) lean += 0.12;   // shoulder into the shield
@@ -15789,7 +15823,7 @@ function spawnEnemy(kind, x, z, opts) {
     hitBody: parts.hitBody,
     hitHead: parts.hitHead
   };
-  const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a };
+  const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a, 6: 0xb83a30 };
   if (KIND_TINT[kind] !== undefined && !parts.soldier) {
     const tint = new THREE.Color(KIND_TINT[kind]);
     parts.group.traverse(function (o) {
@@ -16152,6 +16186,12 @@ function updateEnemies(dt) {
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
+    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, player.dead)) {
+      if (hasLOS(en)) {
+        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
+        breacherShoot(en, dist);
+      } else en.nextShot = gameT + 0.4;
+    }
     if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
       if (hasLOS(en)) {
         if (waveBehaviours.burstFire) {
@@ -16324,6 +16364,37 @@ function enemyShoot(en, dist) {
       noteNearMiss(hitDeg);
     }, travelDelay);
   }
+}
+
+const _breacherRolls = new Float32Array(8);
+function breacherShoot(en, dist) {
+  if (en.blindT > 0) return;
+  en.lastShotT = gameT;
+  playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
+  const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
+  if (en.parts.soldier && en.parts.J.gun) {
+    en.parts.J.gun.localToWorld(from.set(0, 0.02, 0.56));
+    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), 'AR', false);
+  }
+  for (let i = 0; i < 3; i++) {
+    const to = _eshotTo.copy(player.pos);
+    to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
+    spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+  }
+  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random();
+  const hits = CORE.breacherPelletHits(dist, _breacherRolls);
+  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
+  const firedInRun = runId;
+  const ox = from.x, oy = from.y, oz = from.z;
+  const hitDeg = dirToDeg(en);
+  setTimeout(function () {
+    if (runId !== firedInRun) return;
+    if (player.dead || !started || paused) return;
+    if (CORE.segmentBlocked(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+    if (CORE.smokeBlocks(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+    if (hits > 0) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+    else noteNearMiss(hitDeg);
+  }, Math.min(120, dist * 6));
 }
 
 function dirToDeg(en) {
@@ -20073,7 +20144,7 @@ function pushKillfeed(html) {
   while (hud.killfeed.childElementCount > KILLFEED_MAX) hud.killfeed.removeChild(hud.killfeed.firstElementChild);
   setTimeout(function () { if (li.parentNode) li.remove(); }, 4200);
 }
-const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
+const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a', 6: '#e0503a' };
 const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {

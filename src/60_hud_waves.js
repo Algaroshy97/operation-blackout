@@ -472,7 +472,7 @@ function pushKillfeed(html) {
 // row award an escalating bonus (x2, x3, ... capped at x5); the window resets
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
 // Minimap colours, one per archetype, so a glance tells you what is coming.
-const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
+const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a', 6: '#e0503a' };
 const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {

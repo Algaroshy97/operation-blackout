@@ -4,7 +4,7 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
-## v164 — New weapons: M870 pump shotgun, M249 SAW, M1911 sidearm
+## v164 — New weapons: M870 pump shotgun, M249 SAW, M1911 sidearm, and the breacher enemy
 
 - **M870 Express** (index 4, `type: 'AR'`, `cls: 'SG'`):
   - 8 pellets × 16 damage in a fixed cone (`CORE.pelletConeSpread`, ADS ×`PELLET_ADS_TIGHTEN` 0.75). `fireShot()` now traces each pellet through the same round path (`traceRound()`), skips magnetism per pellet, and counts one shot once for accuracy.
@@ -25,6 +25,11 @@ not proof of deployment status, device support or measured frame-rate improvemen
   - The trigger on a gun with no mag and no reserve quick-draws it (`CORE.shouldQuickDrawSidearm`, `SIDEARM_QUICK_DRAW` head start).
   - Never a deploy pick, gunsmith entry, secondary unlock or wall-buy replacement.
   - Viewmodel `vmBuildPST` (walnut grip, sliding slide).
+- **Breacher** (enemy kind 6, wave 7, weight 0.4):
+  - 1.5× health and a helmet; charges at 1.2× walk speed and never flanks.
+  - Fires a pump shotgun only inside `BREACHER_RANGE` 12 m with line of sight, every ~`BREACHER_ROF` 1.6 s. Its 8 pellets hit independently with a chance that falls with range (`CORE.breacherPelletHitChance`, `breacherPelletHits`). Measured at wave 1: about 34 damage per blast at 4 m, about 17 at 9 m, nothing past 12 m.
+  - Same cover and smoke re-check at impact as a rifle round; a blast that lands nothing suppresses.
+  - Dark kit with a red vest, a soldier shotgun model, and its own minimap and touch-mesh colours.
 - Shared changes:
   - `CORE.weaponClassFireSound` picks `shotgun`/`lmg`/`pistol` and falls back to the type sound.
   - New sounds: `pump`, `shell_in`, `sizzle`.
@@ -32,7 +37,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
   - Deploy cards show SHOTGUN / LIGHT MACHINE GUN and pellet damage.
   - The touch SWAP label shows the class.
 - Add regression tests in `tests/test_core.js`, plus probe checks 113e–g covering shotgun range falloff and shell reload, LMG heat/glow/cooling, and the sidearm slot, quick draw and wall-buy safety.
-- Local test verification: 501 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 200/200 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`). Checkpoint/resume verified with the shotgun and LMG as picks. The release artifact is 1,983,505 bytes.
+- Local test verification: 502 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 201/201 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`; probe checks 113e–h). Checkpoint/resume verified with the shotgun and LMG as picks. The release artifact is 1,987,467 bytes.
 
 ## v163 — Build comment stripping, grenade HUD warnings, near-miss suppression, wall occlusion, and an adaptive score
 

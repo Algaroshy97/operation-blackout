@@ -10098,3 +10098,27 @@ test('sidearm: a completely dry gun quick-draws it; reserve left still reloads',
   assert.strictEqual(CORE.touchSwapLabel(3, [0, 1, -1, 2], list, false, false, false), 'AR');
   assert.strictEqual(CORE.weaponClassFireSound('PST', 'SMG', false), 'pistol');
 });
+
+
+test('breacher: wave 7 shotgun archetype, lethal close and harmless past its range', () => {
+  assert.ok(!kindsAt(6).has(6), 'no breachers before wave 7');
+  assert.ok(kindsAt(7).has(6), 'breachers from wave 7');
+  assert.ok(CORE.enemyBaseHealth(6, 100) > CORE.enemyBaseHealth(1, 100), 'tougher than a rifleman');
+  assert.strictEqual(CORE.isEnemyFlanker(6, true, 0), false, 'charges, never flanks');
+  assert.strictEqual(CORE.enemyHasHelmet(6), true);
+  assert.ok(CORE.enemyMoveSpeed(6, 'chase', 20, 44, 1) > CORE.enemyMoveSpeed(1, 'chase', 60, 44, 1), 'charges faster than a rifleman walks');
+  // hit chance falls with range and is zero at the edge
+  assert.ok(CORE.breacherPelletHitChance(3) > CORE.breacherPelletHitChance(8));
+  assert.strictEqual(CORE.breacherPelletHitChance(CORE.BREACHER_RANGE), 0);
+  assert.strictEqual(CORE.canBreacherFire(CORE.BREACHER_RANGE + 1, true, false), false);
+  assert.strictEqual(CORE.canBreacherFire(5, false, false), false, 'needs line of sight');
+  assert.strictEqual(CORE.canBreacherFire(5, true, true), false);
+  assert.strictEqual(CORE.canBreacherFire(5, true, false), true);
+  // pellets: rolls under the chance hit
+  const all = new Array(CORE.BREACHER_PELLETS).fill(0);
+  const none = new Array(CORE.BREACHER_PELLETS).fill(0.999);
+  assert.strictEqual(CORE.breacherPelletHits(3, all), CORE.BREACHER_PELLETS);
+  assert.strictEqual(CORE.breacherPelletHits(3, none), 0);
+  assert.strictEqual(CORE.breacherPelletHits(20, all), 0, 'out of range: nothing lands');
+  assert.strictEqual(CORE.breacherPelletHits(3, null), 0);
+});

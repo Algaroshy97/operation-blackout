@@ -14,7 +14,7 @@ no new binary assets.
 
 | # | Milestone | Size | Depends on |
 |---|-----------|------|------------|
-| 1 | ✅ New weapons: shotgun, LMG, sidearm (enemy breacher still open) | M | — |
+| 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
 | 2 | Game modes: TDM, FFA, Domination, Gun Game | L | 1 (Gun Game ladder) |
 | 3 | Second map: Snowy Compound | L | 2 (per-map spawns) |
 | 4 | Survival climax + wave objectives | M | 3 (per-map points) |
@@ -54,7 +54,7 @@ and have core tests for pellet spread and falloff, LMG heat and quick-swap.
 - The LMG reload drops and swaps the ammo box rather than animating the feed cover.
 - The pistol needs no checkpoint entry: like the marksman rifle, it is re-synced on resume.
 
-Still open: the shotgun **breacher** enemy from wave 7.
+The shotgun **breacher** enemy (wave 7) shipped too: it charges, never flanks, and its pellets only land inside 12 m.
 
 ---
 
