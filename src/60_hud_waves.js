@@ -836,7 +836,10 @@ function unlockSecondary() {
   // The player's deploy-time pick, not an arbitrary roster neighbour.
   let gi = (typeof pendingSecondary !== 'undefined' && pendingSecondary >= 0)
     ? pendingSecondary : (weaponsOwned[0] + 1) % CFG.weapons.length;
-  if (gi === weaponsOwned[0]) gi = (gi + 1) % CFG.weapons.length;
+  // never the primary, and never the sidearm, which is already carried
+  for (let k = 0; k < CFG.weapons.length && (gi === weaponsOwned[0] || CFG.weapons[gi].sidearm); k++) {
+    gi = (gi + 1) % CFG.weapons.length;
+  }
   weaponsOwned[1] = gi;
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.

@@ -10081,3 +10081,20 @@ test('LMG heat: builds per shot, holds briefly, bleeds off, and scales spread an
   assert.ok(CORE.wallBuyPrice('LMG') > CORE.wallBuyPrice('BR'));
   assert.strictEqual(CORE.weaponClassFireSound('LMG', 'AR', false), 'lmg');
 });
+
+
+test('sidearm: a completely dry gun quick-draws it; reserve left still reloads', () => {
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 0, 3, true), true);
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 30, 0, 3, true), false, 'reserve left: reload instead');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(4, 0, 0, 3, true), false, 'rounds in the mag');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 3, 3, true), false, 'already holding it');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 0, 3, false), false, 'no sidearm carried');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(NaN, 0, 0, 3, true), false);
+  assert.ok(CORE.SIDEARM_QUICK_DRAW > 0 && CORE.SIDEARM_QUICK_DRAW < 1);
+  // touch SWAP names the class for the new guns, the type for the rifle family
+  const list = [{ type: 'AR' }, { type: 'AR', cls: 'SG' }, { type: 'SMG', cls: 'PST' }];
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 1, -1, 2], list, false, false, false), 'SG');
+  assert.strictEqual(CORE.touchSwapLabel(1, [0, 1, -1, 2], list, false, false, false), 'PST');
+  assert.strictEqual(CORE.touchSwapLabel(3, [0, 1, -1, 2], list, false, false, false), 'AR');
+  assert.strictEqual(CORE.weaponClassFireSound('PST', 'SMG', false), 'pistol');
+});

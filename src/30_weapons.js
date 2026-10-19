@@ -3,16 +3,21 @@
 // ---- Weapon state ----
 // indices into CFG.weapons; -1 = empty slot. Slots 0 and 1 are the deploy picks;
 // slot 2 is the marksman rifle, carried on every run (key 3) unless it is
-// already one of the picks.
-const weaponsOwned = [0, -1, -1];
+// already one of the picks; slot 3 is the sidearm, always carried (key 4).
+const weaponsOwned = [0, -1, -1, -1];
 const MARKSMAN_SLOT = 2;
-let curWeapon = 0;              // 0..2 (slot)
+const SIDEARM_SLOT = 3;
+let curWeapon = 0;              // 0..3 (slot)
 let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
+  return -1;
+}
+function sidearmIndex() {
+  for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].sidearm) return i;
   return -1;
 }
 function freshWeaponState(slot) {
@@ -25,6 +30,7 @@ function freshWeaponState(slot) {
 // Keep slot 2 holding the marksman rifle exactly when the picks do not. Called
 // whenever slot 0 or 1 changes (deploy, resume, secondary unlock, wall buy).
 function syncMarksmanSlot() {
+  syncSidearmSlot();
   const sr = marksmanIndex();
   const want = (sr < 0 || weaponsOwned[0] === sr || weaponsOwned[1] === sr) ? -1 : sr;
   if (weaponsOwned[MARKSMAN_SLOT] === want) return;
@@ -35,6 +41,14 @@ function syncMarksmanSlot() {
   } else if (wState.length) {
     freshWeaponState(MARKSMAN_SLOT);
   }
+}
+// The sidearm slot is fixed: it only ever needs filling (first deploy, or a
+// state that lost it), never swapping.
+function syncSidearmSlot() {
+  const pi = sidearmIndex();
+  if (weaponsOwned[SIDEARM_SLOT] === pi) return;
+  weaponsOwned[SIDEARM_SLOT] = pi;
+  if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
 function initWeapons() {
   syncMarksmanSlot();
@@ -206,7 +220,11 @@ function updateWeapons(dt) {
       if (s.ammo === 0 && s.reserve > 0) tryReload();
     }
   } else if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && s.ammo === 0 && !isPlating) {
-    if (fireClockT >= s.nextShot) {
+    if (CORE.shouldQuickDrawSidearm(s.ammo, s.reserve, curWeapon, SIDEARM_SLOT, weaponsOwned[SIDEARM_SLOT] >= 0)) {
+      mouse1Down = false;
+      switchWeapon(SIDEARM_SLOT);
+      if (curWeapon === SIDEARM_SLOT) gunSwitchT = CORE.SIDEARM_QUICK_DRAW;
+    } else if (fireClockT >= s.nextShot) {
       if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
@@ -232,6 +250,7 @@ function updateWeapons(dt) {
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
   if (pressed['Digit3']) switchWeapon(MARKSMAN_SLOT);
+  if (pressed['Digit4']) switchWeapon(SIDEARM_SLOT);
 }
 let dryPlayed = false;
 

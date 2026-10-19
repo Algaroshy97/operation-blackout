@@ -30,6 +30,7 @@ const VMAT = {
   lens: vmMat({ color: 0x0b1420, roughness: 0.04, metalness: 1.0, envMapIntensity: 1.6 }),
   glass: vmMat({ color: 0x6a8aa8, roughness: 0.02, metalness: 0.6, transparent: true, opacity: 0.18, depthWrite: false }),
   brass: vmMat({ color: 0xd8a848, roughness: 0.3, metalness: 0.95 }),
+  walnut: vmMat({ color: 0x5a3520, roughness: 0.5, metalness: 0.05, normalMap: TEX.gunNoise.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) }),
   blade: vmMat({ color: 0x9aa0a8, roughness: 0.18, metalness: 1.0, envMapIntensity: 1.2 })
 };
 const VM_DOT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.08, 0.05).multiplyScalar(14), toneMapped: false });
@@ -493,8 +494,40 @@ function vmBuildLMG(g, P, att) {
   }
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
 }
+// M1911: slide (P.bolt, locks back with the existing bolt motion), frame, a
+// magazine in the grip (P.mag) and a two-handed cup grip.
+function vmBuildPST(g, P, att) {
+  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);                     // frame / dust cover
+  const slide = new THREE.Group(); g.add(slide);
+  slide.position.set(0, 0.04, -0.12);
+  vmBox(slide, 0.03, 0.03, 0.21, 0, 0, 0, VMAT.steel);
+  for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(slide, 0.002, 0.022, 0.004, sx * 0.0155, 0, 0.07 + i * 0.006, VMAT.knuckle);
+  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);          // ejection port
+  P.bolt = slide; P.boltRest = -0.12;
+  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);                    // bushing / muzzle
+  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);                 // trigger guard
+  vmBox(g, 0.004, 0.016, 0.005, 0, -0.004, -0.05, VMAT.steel, 0.3);
+  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);           // walnut grip
+  P.mag = new THREE.Group(); g.add(P.mag);
+  P.mag.position.set(0, -0.01, -0.005);
+  vmBox(P.mag, 0.022, 0.1, 0.034, 0, -0.06, 0.012, VMAT.metal, 0.22);
+  vmBox(P.mag, 0.026, 0.01, 0.042, 0, -0.112, 0.024, VMAT.knuckle, 0.22);
+  // sights: dovetail rear notch, blade front
+  vmBox(g, 0.004, 0.01, 0.006, -0.006, 0.06, -0.035, VMAT.metal);
+  vmBox(g, 0.004, 0.01, 0.006, 0.006, 0.06, -0.035, VMAT.metal);
+  vmBox(g, 0.003, 0.01, 0.008, 0, 0.06, -0.215, VMAT.metal);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0012, 6, 4), VM_TRITIUM);
+  dot.position.set(0, 0.064, -0.212); g.add(dot);
+  const muzzleZ = att.barrel === 'suppressor' ? vmMuzzleDevice(g, att, -0.245, 0.04, 0.02) : -0.245;
+  P.handR = vmHand(g, 0, -0.055, 0.0, 1, 0.22);
+  vmForearm(g, 0.02, -0.105, 0.03, 0.1, -0.24, 0.36);
+  P.handL = new THREE.Group(); g.add(P.handL);
+  vmHand(P.handL, -0.02, -0.065, 0.005, -1, 0.3, 0.35);
+  vmForearm(P.handL, -0.035, -0.11, 0.035, -0.13, -0.25, 0.34);
+  return { sightY: 0.064, sightZ: -0.035, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.12, -0.13, -0.34], kick: 0.8 };
+}
 function buildGunModel(g, P, type, att) {
-  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG };
+  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG, PST: vmBuildPST };
   const tune = (builders[type] || vmBuildAR)(g, P, att || {}, false);
   // magazine-less guns name the point a reload reaches for instead
   P.magRest = P.mag ? P.mag.position.clone() : (P.loadPort || null);

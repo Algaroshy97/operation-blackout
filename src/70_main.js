@@ -261,6 +261,7 @@ function buildGunsmith() {
   const wrap = $id('gs-weapons');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
+    if (w.sidearm) return;
     const b = document.createElement('button');
     const unlocked = CORE.weaponUnlocked(i, rank);
     b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
@@ -409,6 +410,7 @@ function buildGunSelect(slot) {
   const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    if (w.sidearm) return;                                       // always carried
     const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
     card.className = 'gun-card' + (unlocked ? '' : ' locked');

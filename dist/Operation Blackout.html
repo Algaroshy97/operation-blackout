@@ -5576,7 +5576,7 @@ const CORE = (function () {
     return Math.round(xp);
   }
 
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4, 1];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -6837,7 +6837,7 @@ const CORE = (function () {
     if (isSwitching) return 'DRAW';
     const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
-      return weaponsList[wid].type;
+      return typeof weaponsList[wid].cls === 'string' ? weaponsList[wid].cls : weaponsList[wid].type;
     }
     return 'SWAP';
   }
@@ -10971,6 +10971,13 @@ const CORE = (function () {
     return 1 + LMG_HEAT_RECOIL * h * h;
   }
 
+  const SIDEARM_QUICK_DRAW = 0.5;   // gunSwitchT head start: about half the raise
+
+  function shouldQuickDrawSidearm(ammo, reserve, curSlot, sidearmSlot, sidearmOwned) {
+    if (!sidearmOwned || curSlot === sidearmSlot) return false;
+    return _isNum(ammo) && _isNum(reserve) && ammo <= 0 && reserve <= 0;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -11323,7 +11330,8 @@ const CORE = (function () {
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
     PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
-    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul
+    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
+    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm
   };
 
 
@@ -11976,7 +11984,8 @@ const CFG = {
     { name: 'SCAR-H', type: 'BR', dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
     { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false },
     { name: 'M870 Express', type: 'AR', cls: 'SG', dmg: 16, pellets: 8, pelletSpread: 0.05, shellReload: true, rpm: 68, mag: 6, reserveMax: 36, reload: 0.5, spread: 0.02, adsSpread: 0.01, recoilV: 0.05, recoilH: 0.014, range: 32, penetration: 0.05, auto: false },
-    { name: 'M249 SAW', type: 'AR', cls: 'LMG', dmg: 24, rpm: 760, mag: 100, reserveMax: 300, reload: 5.4, spread: 0.024, adsSpread: 0.006, recoilV: 0.0105, recoilH: 0.0075, range: 120, auto: true, heatPerShot: 0.016, adsSpeed: 0.72, moveMul: 0.75, stfMul: 1.6 }
+    { name: 'M249 SAW', type: 'AR', cls: 'LMG', dmg: 24, rpm: 760, mag: 100, reserveMax: 300, reload: 5.4, spread: 0.024, adsSpread: 0.006, recoilV: 0.0105, recoilH: 0.0075, range: 120, auto: true, heatPerShot: 0.016, adsSpeed: 0.72, moveMul: 0.75, stfMul: 1.6 },
+    { name: 'M1911', type: 'SMG', cls: 'PST', sidearm: true, dmg: 34, rpm: 420, mag: 8, reserveMax: 56, reload: 1.5, spread: 0.016, adsSpread: 0.005, recoilV: 0.02, recoilH: 0.006, range: 60, auto: false }
   ],
   ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
   grenade: { dmg: 120, radius: 7, fuse: 2.2, count: 2, speed: 9.5, bounce: 0.45, countPerWaves: 1 },
@@ -13676,15 +13685,20 @@ function updateTouchJumpBtn() {
 
 // ============ WEAPONS, VIEWMODEL & SHOOTING ============
 'use strict';
-const weaponsOwned = [0, -1, -1];
+const weaponsOwned = [0, -1, -1, -1];
 const MARKSMAN_SLOT = 2;
-let curWeapon = 0;              // 0..2 (slot)
+const SIDEARM_SLOT = 3;
+let curWeapon = 0;              // 0..3 (slot)
 let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
+  return -1;
+}
+function sidearmIndex() {
+  for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].sidearm) return i;
   return -1;
 }
 function freshWeaponState(slot) {
@@ -13695,6 +13709,7 @@ function freshWeaponState(slot) {
   wState[slot].reserve = wState[slot].eff.reserveMax;
 }
 function syncMarksmanSlot() {
+  syncSidearmSlot();
   const sr = marksmanIndex();
   const want = (sr < 0 || weaponsOwned[0] === sr || weaponsOwned[1] === sr) ? -1 : sr;
   if (weaponsOwned[MARKSMAN_SLOT] === want) return;
@@ -13705,6 +13720,12 @@ function syncMarksmanSlot() {
   } else if (wState.length) {
     freshWeaponState(MARKSMAN_SLOT);
   }
+}
+function syncSidearmSlot() {
+  const pi = sidearmIndex();
+  if (weaponsOwned[SIDEARM_SLOT] === pi) return;
+  weaponsOwned[SIDEARM_SLOT] = pi;
+  if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
 function initWeapons() {
   syncMarksmanSlot();
@@ -13856,7 +13877,11 @@ function updateWeapons(dt) {
       if (s.ammo === 0 && s.reserve > 0) tryReload();
     }
   } else if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && s.ammo === 0 && !isPlating) {
-    if (fireClockT >= s.nextShot) {
+    if (CORE.shouldQuickDrawSidearm(s.ammo, s.reserve, curWeapon, SIDEARM_SLOT, weaponsOwned[SIDEARM_SLOT] >= 0)) {
+      mouse1Down = false;
+      switchWeapon(SIDEARM_SLOT);
+      if (curWeapon === SIDEARM_SLOT) gunSwitchT = CORE.SIDEARM_QUICK_DRAW;
+    } else if (fireClockT >= s.nextShot) {
       if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
@@ -13877,6 +13902,7 @@ function updateWeapons(dt) {
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
   if (pressed['Digit3']) switchWeapon(MARKSMAN_SLOT);
+  if (pressed['Digit4']) switchWeapon(SIDEARM_SLOT);
 }
 let dryPlayed = false;
 
@@ -14343,6 +14369,7 @@ const VMAT = {
   lens: vmMat({ color: 0x0b1420, roughness: 0.04, metalness: 1.0, envMapIntensity: 1.6 }),
   glass: vmMat({ color: 0x6a8aa8, roughness: 0.02, metalness: 0.6, transparent: true, opacity: 0.18, depthWrite: false }),
   brass: vmMat({ color: 0xd8a848, roughness: 0.3, metalness: 0.95 }),
+  walnut: vmMat({ color: 0x5a3520, roughness: 0.5, metalness: 0.05, normalMap: TEX.gunNoise.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) }),
   blade: vmMat({ color: 0x9aa0a8, roughness: 0.18, metalness: 1.0, envMapIntensity: 1.2 })
 };
 const VM_DOT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.08, 0.05).multiplyScalar(14), toneMapped: false });
@@ -14771,8 +14798,37 @@ function vmBuildLMG(g, P, att) {
   }
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
 }
+function vmBuildPST(g, P, att) {
+  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);                     // frame / dust cover
+  const slide = new THREE.Group(); g.add(slide);
+  slide.position.set(0, 0.04, -0.12);
+  vmBox(slide, 0.03, 0.03, 0.21, 0, 0, 0, VMAT.steel);
+  for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(slide, 0.002, 0.022, 0.004, sx * 0.0155, 0, 0.07 + i * 0.006, VMAT.knuckle);
+  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);          // ejection port
+  P.bolt = slide; P.boltRest = -0.12;
+  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);                    // bushing / muzzle
+  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);                 // trigger guard
+  vmBox(g, 0.004, 0.016, 0.005, 0, -0.004, -0.05, VMAT.steel, 0.3);
+  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);           // walnut grip
+  P.mag = new THREE.Group(); g.add(P.mag);
+  P.mag.position.set(0, -0.01, -0.005);
+  vmBox(P.mag, 0.022, 0.1, 0.034, 0, -0.06, 0.012, VMAT.metal, 0.22);
+  vmBox(P.mag, 0.026, 0.01, 0.042, 0, -0.112, 0.024, VMAT.knuckle, 0.22);
+  vmBox(g, 0.004, 0.01, 0.006, -0.006, 0.06, -0.035, VMAT.metal);
+  vmBox(g, 0.004, 0.01, 0.006, 0.006, 0.06, -0.035, VMAT.metal);
+  vmBox(g, 0.003, 0.01, 0.008, 0, 0.06, -0.215, VMAT.metal);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0012, 6, 4), VM_TRITIUM);
+  dot.position.set(0, 0.064, -0.212); g.add(dot);
+  const muzzleZ = att.barrel === 'suppressor' ? vmMuzzleDevice(g, att, -0.245, 0.04, 0.02) : -0.245;
+  P.handR = vmHand(g, 0, -0.055, 0.0, 1, 0.22);
+  vmForearm(g, 0.02, -0.105, 0.03, 0.1, -0.24, 0.36);
+  P.handL = new THREE.Group(); g.add(P.handL);
+  vmHand(P.handL, -0.02, -0.065, 0.005, -1, 0.3, 0.35);
+  vmForearm(P.handL, -0.035, -0.11, 0.035, -0.13, -0.25, 0.34);
+  return { sightY: 0.064, sightZ: -0.035, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.12, -0.13, -0.34], kick: 0.8 };
+}
 function buildGunModel(g, P, type, att) {
-  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG };
+  const builders = { AR: vmBuildAR, SMG: vmBuildSMG, BR: vmBuildBR, SR: vmBuildSR, SG: vmBuildSG, LMG: vmBuildLMG, PST: vmBuildPST };
   const tune = (builders[type] || vmBuildAR)(g, P, att || {}, false);
   P.magRest = P.mag ? P.mag.position.clone() : (P.loadPort || null);
   P.handLRest = P.handL ? P.handL.position.clone() : null;
@@ -17420,6 +17476,7 @@ const SOUND_RECIPES = {
   shell_in:    [['noise', 0.045, 0.22, 1900, 3], ['osc', 'square', 430, 300, 0.03, 0.06]],
   lmg:         [['noise', 0.11, 0.56, 720, 0.6], ['osc', 'square', 155, 55, 0.09, 0.3], ['osc', 'sine', 92, 34, 0.12, 0.2]],
   sizzle:      [['noise', 0.35, 0.12, 5200, 1.2], ['noise', 0.25, 0.08, 2600, 2]],
+  pistol:      [['noise', 0.07, 0.46, 1150, 0.8], ['osc', 'square', 240, 90, 0.06, 0.24], ['osc', 'sine', 120, 50, 0.08, 0.14]],
   scope_in:    [['osc', 'sine', 900, 1300, 0.09, 0.08]],
   scope_out:   [['osc', 'sine', 1300, 800, 0.09, 0.08]],
   slide:       [['noise', 0.25, 0.3, 420, 0.5], ['noise', 0.18, 0.2, 150, 0.4]],
@@ -17527,7 +17584,7 @@ const SOUND_RECIPES = {
 
 const SOUND_VARIED = {
   shot: 1, smg: 1, br: 1, eshot: 1, impact: 1, casing: 1, step: 1, estep: 1, hit: 1, sniper: 1,
-  shotgun: 1, pump: 1, shell_in: 1, lmg: 1, sizzle: 1,
+  shotgun: 1, pump: 1, shell_in: 1, lmg: 1, sizzle: 1, pistol: 1,
   jump: 1, land: 1, melee: 1, bounce: 1, headshot: 1, slide: 1, hurt: 1,
   block: 1, armor_break: 1, kill: 1, kill_headshot: 1, kill_elite: 1, multikill: 1, dry: 1, draw: 1, pin: 1, reload_out: 1, reload_in: 1,
   pickup_ammo: 1, pickup_med: 1,
@@ -19035,7 +19092,7 @@ function purchase(st) {
       showCenterMsg('+ AMMO');
     } else {
       const w = CFG.weapons[st.weapon];
-      if (curWeapon === MARKSMAN_SLOT) curWeapon = weaponsOwned[1] < 0 ? 1 : 0;
+      if (curWeapon >= MARKSMAN_SLOT) curWeapon = weaponsOwned[1] < 0 ? 1 : 0;
       weaponsOwned[curWeapon] = st.weapon;
       wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
       refreshWeaponStats(curWeapon);
@@ -20327,7 +20384,9 @@ function unlockSecondary() {
   if (weaponsOwned[1] >= 0) return false;
   let gi = (typeof pendingSecondary !== 'undefined' && pendingSecondary >= 0)
     ? pendingSecondary : (weaponsOwned[0] + 1) % CFG.weapons.length;
-  if (gi === weaponsOwned[0]) gi = (gi + 1) % CFG.weapons.length;
+  for (let k = 0; k < CFG.weapons.length && (gi === weaponsOwned[0] || CFG.weapons[gi].sidearm); k++) {
+    gi = (gi + 1) % CFG.weapons.length;
+  }
   weaponsOwned[1] = gi;
   wState[1] = { ammo: CFG.weapons[gi].mag, reserve: CFG.weapons[gi].reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
   refreshWeaponStats(1);
@@ -20978,6 +21037,7 @@ function buildGunsmith() {
   const wrap = $id('gs-weapons');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
+    if (w.sidearm) return;
     const b = document.createElement('button');
     const unlocked = CORE.weaponUnlocked(i, rank);
     b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
@@ -21118,6 +21178,7 @@ function buildGunSelect(slot) {
   const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    if (w.sidearm) return;                                       // always carried
     const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
     card.className = 'gun-card' + (unlocked ? '' : ' locked');

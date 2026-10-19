@@ -5150,6 +5150,34 @@ def main() -> int:
         checks.append(("lmg-heat-builds-and-glows", lmg["fired"] >= 30 and lmg["hot"] > 0.4 and lmg["glow"] > 0.2))
         checks.append(("lmg-cools-off-trigger", lmg["cooled"] == 0))
 
+        # 113g) Sidearm: always in slot 4 after deploy, key 4 draws it, a dry gun
+        #       quick-draws it, and a wall buy made while holding it leaves it alone.
+        pst = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), credits: credits, god: godMode };
+            godMode = true;
+            const carried = weaponsOwned[SIDEARM_SLOT] >= 0 && !!CFG.weapons[weaponsOwned[SIDEARM_SLOT]].sidearm && !!wState[SIDEARM_SLOT];
+            gunSwitchT = 1; curWeapon = 0;
+            pressed['Digit4'] = true; updateWeapons(1 / 60); pressed['Digit4'] = false;
+            const key4 = curWeapon === SIDEARM_SLOT;
+            curWeapon = 0; gunSwitchT = 1;
+            const keepAmmo = curS().ammo, keepRes = curS().reserve;
+            curS().ammo = 0; curS().reserve = 0; mouse1Down = true;
+            updateWeapons(1 / 60); mouse1Down = false;
+            const quick = curWeapon === SIDEARM_SLOT && gunSwitchT >= CORE.SIDEARM_QUICK_DRAW;
+            wState[0].ammo = keepAmmo; wState[0].reserve = keepRes;
+            curWeapon = SIDEARM_SLOT; gunSwitchT = 1; credits = 99999;
+            const st = stations.find(function (x) { return x.kind === 'wall' && weaponsOwned.indexOf(x.weapon) < 0; });
+            if (st) purchase(st);
+            const kept = weaponsOwned[SIDEARM_SLOT] === saved.owned[SIDEARM_SLOT] && curWeapon !== SIDEARM_SLOT;
+            const cards = Array.from(document.querySelectorAll('#gun-select .gc-type')).some(function (e) { return e.textContent === 'PISTOL'; });
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; credits = saved.credits; godMode = saved.god; gunSwitchT = 1; buildViewmodel();
+            return { carried: carried, key4: key4, quick: quick, kept: kept && !!st, pistolCard: cards };
+        }""")
+        checks.append(("sidearm-carried-in-slot-4", pst["carried"] and pst["key4"]))
+        checks.append(("sidearm-quick-draw-on-dry-gun", pst["quick"]))
+        checks.append(("sidearm-survives-wall-buy-and-is-not-a-deploy-pick", pst["kept"] and not pst["pistolCard"]))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops

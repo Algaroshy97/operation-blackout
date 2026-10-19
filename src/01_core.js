@@ -968,7 +968,7 @@ const CORE = (function () {
 
   // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
   // available so a new player still has a choice on their first deploy.
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4, 1];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -2491,7 +2491,7 @@ const CORE = (function () {
     if (isSwitching) return 'DRAW';
     const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
-      return weaponsList[wid].type;
+      return typeof weaponsList[wid].cls === 'string' ? weaponsList[wid].cls : weaponsList[wid].type;
     }
     return 'SWAP';
   }
@@ -7077,6 +7077,16 @@ const CORE = (function () {
     return 1 + LMG_HEAT_RECOIL * h * h;
   }
 
+  // Sidearm: the trigger on a completely dry gun (mag and reserve) draws the
+  // pistol instead of clicking. A gun with reserve left still auto-reloads, and
+  // the sidearm itself never swaps away from itself.
+  const SIDEARM_QUICK_DRAW = 0.5;   // gunSwitchT head start: about half the raise
+
+  function shouldQuickDrawSidearm(ammo, reserve, curSlot, sidearmSlot, sidearmOwned) {
+    if (!sidearmOwned || curSlot === sidearmSlot) return false;
+    return _isNum(ammo) && _isNum(reserve) && ammo <= 0 && reserve <= 0;
+  }
+
   function weaponClassFireSound(cls, weaponType, isSuppressed) {
     if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
     if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
@@ -7429,7 +7439,8 @@ const CORE = (function () {
     SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
     OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
     PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
-    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul
+    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
+    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm
   };
 
 
