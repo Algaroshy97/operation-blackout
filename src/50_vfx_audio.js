@@ -804,12 +804,16 @@ function playSound3D(name, x, y, z, maxDist) {
   if (soundThrottled(name)) return;
   const spatial = CORE.spatialAudioParams(dx, dz, player.yaw, maxDist, _spatialAudioOut);
   if (!spatial.audible) return;
+  // Muffle what a wall stands between (ear to a point a little above the source,
+  // so ground-level sounds do not clip the floor).
+  const blocked = spatial.dist > 1.5 && CORE.segmentBlocked(player.pos.x, player.pos.y, player.pos.z,
+    x, y + 0.4, z, colliders, 0.1);
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = spatial.cutoff;
+  lp.frequency.value = CORE.occludedCutoff(spatial.cutoff, blocked);
   lp.Q.value = CORE.AIR_ABSORPTION_Q;
   const g = ctx.createGain();
-  g.gain.value = spatial.vol;
+  g.gain.value = spatial.vol * CORE.occludedGain(blocked);
   g.connect(lp);
   let p = null;
   if (ctx.createStereoPanner) {

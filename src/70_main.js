@@ -101,6 +101,7 @@ function resetGame() {
   runPhase = 'active';
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+  suppression = 0;
   // remove all enemies + pickups + grenades
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;
@@ -808,6 +809,8 @@ function frame(now) {
     _musicState.health = player.health;
     updateMusic(dt, _musicState);
     updateHitArcs();
+    updateGrenadeWarnings();
+    updateSuppression(dt);
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
     // frame: they cost significant CPU overhead on 2D contexts and the

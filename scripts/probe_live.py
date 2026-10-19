@@ -5014,6 +5014,93 @@ def main() -> int:
         }""")
         checks.append(("ballistic-tracer-and-impact-flash-rules", visual_v162_check))
 
+        # 113a) Live-grenade warning: an enemy frag at the player's back lights a
+        #       marker pointing behind; one far away, or the player's own mid-air
+        #       throw, does not.
+        gw = page.evaluate("""() => {
+            const mk = function (x, z, fuse, fromEnemy) {
+                const m = new THREE.Mesh(grenadeGeo, grenadeMat);
+                m.position.set(x, 0.11, z);
+                return { m: m, vel: new THREE.Vector3(), fuse: fuse, blink: m, atRest: !!fromEnemy, stuck: false,
+                         ring: null, restFuse: fuse, fromEnemy: fromEnemy, def: fromEnemy ? null : CORE.LETHALS[0] };
+            };
+            const saved = liveGrenades.splice(0, liveGrenades.length);
+            const savedPos = player.pos.clone(), savedYaw = player.yaw, savedDead = player.dead;
+            player.dead = false;
+            player.pos.set(0, CFG.player.height, 24);
+            player.yaw = 0;
+            const lit = function () {
+                updateGrenadeWarnings();
+                return grenWarns.filter(function (w) { return parseFloat(w.el.style.opacity) > 0; });
+            };
+            liveGrenades.push(mk(0, 27, 0.4, true));
+            const on = lit();
+            const behind = on.length === 1 && /rotate\\(180/.test(on[0].el.style.transform);
+            const hot = on.length === 1 && on[0].el.classList.contains('hot');
+            liveGrenades.length = 0;
+            liveGrenades.push(mk(0, 60, 2, true));
+            liveGrenades.push(mk(1, 24, 2.2, false));
+            const quiet = lit().length;
+            liveGrenades.length = 0;
+            const cleared = lit().length;
+            Array.prototype.push.apply(liveGrenades, saved);
+            player.pos.copy(savedPos); player.yaw = savedYaw; player.dead = savedDead;
+            return { behind: behind, hot: hot, quiet: quiet, cleared: cleared };
+        }""")
+        checks.append(("grenade-warning-points-at-grenade", gw["behind"] and gw["hot"]))
+        checks.append(("grenade-warning-ignores-far-and-own-throw", gw["quiet"] == 0))
+        checks.append(("grenade-warning-clears", gw["cleared"] == 0))
+
+        # 113b) Near misses stack suppression, draw a grey arc and darken the
+        #       screen edges; it bleeds off once the shooting stops.
+        sup = page.evaluate("""() => {
+            const savedDead = player.dead;
+            player.dead = false;
+            suppression = 0;
+            for (let i = 0; i < 5; i++) noteNearMiss(0);
+            const peak = suppression;
+            updateSuppression(1 / 60);
+            const vig = parseFloat(document.getElementById('suppress-vignette').style.opacity);
+            const arcs = document.querySelectorAll('.hit-dir.miss').length;
+            const t0 = gameT;
+            gameT = t0 + 5;
+            for (let i = 0; i < 180; i++) updateSuppression(1 / 60);
+            gameT = t0;
+            const after = suppression;
+            const vigAfter = parseFloat(document.getElementById('suppress-vignette').style.opacity);
+            player.dead = savedDead;
+            return { peak: peak, vig: vig, arcs: arcs, after: after, vigAfter: vigAfter };
+        }""")
+        checks.append(("near-misses-build-suppression", sup["peak"] > 0.9 and sup["vig"] > 0.5 and sup["arcs"] >= 1))
+        checks.append(("suppression-bleeds-off", sup["after"] == 0 and sup["vigAfter"] == 0))
+
+        # 113c) Occlusion: a sound with a wall between it and the player goes
+        #       through the occluded low-pass; the same sound in the open does not.
+        occ = page.evaluate("""() => {
+            const ctx = audioCtx();
+            if (!ctx) return { skipped: true };
+            const box = colliders.find(function (c) {
+                return c.max.y > 3 && c.min.y < 0.5 && (c.max.x - c.min.x) > 3 && (c.max.z - c.min.z) > 0.15;
+            });
+            if (!box) return { skipped: true };
+            const made = [];
+            const orig = ctx.createBiquadFilter;
+            ctx.createBiquadFilter = function () { const f = orig.call(ctx); made.push(f); return f; };
+            const cx = (box.min.x + box.max.x) / 2;
+            const saved = player.pos.clone(), savedDead = player.dead;
+            player.dead = false;
+            player.pos.set(cx, 1.6, box.max.z + 2.5);
+            playSound3D('eshot', cx, 0.2, box.min.z - 2.5);
+            const behindWall = made.length ? made[made.length - 1].frequency.value : -1;
+            playSound3D('eshot', cx, 0.2, box.max.z + 4.0);
+            const open = made.length ? made[made.length - 1].frequency.value : -1;
+            ctx.createBiquadFilter = orig;
+            player.pos.copy(saved); player.dead = savedDead;
+            return { skipped: false, behindWall: behindWall, open: open };
+        }""")
+        checks.append(("occluded-sounds-are-muffled", occ.get("skipped") or
+                       (0 < occ["behindWall"] <= 700 and occ["open"] > 700)))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops

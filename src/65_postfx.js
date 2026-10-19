@@ -48,7 +48,7 @@ function postMat(frag, uniforms) {
   ].join('\n'), { tSrc: { value: null }, dir: { value: new THREE.Vector2() } });
   POST.mats.copy = postMat('uniform sampler2D tSrc; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tSrc, vUv); }', { tSrc: { value: null } });
   POST.mats.composite = postMat([
-    'uniform sampler2D tScene, tBloom1, tBloom2; uniform float bloom, exposure, time, fringe; uniform vec2 res;',
+    'uniform sampler2D tScene, tBloom1, tBloom2; uniform float bloom, exposure, time, fringe, suppress, suppressBlur; uniform vec2 res;',
     'varying vec2 vUv;',
     // three's ACESFilmicToneMapping, verbatim, so both paths share one curve
     'vec3 pfxRRTFit(vec3 v){ vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }',
@@ -63,6 +63,13 @@ function postMat(frag, uniforms) {
     '  float ca = (0.0010 + fringe * 0.010) * r2 * 4.0;',
     '  vec3 c;',
     '  c.r = texture2D(tScene, vUv + d * ca).r; c.g = texture2D(tScene, vUv).g; c.b = texture2D(tScene, vUv - d * ca).b;',
+    // suppression: a four-tap edge blur that widens with the level
+    '  float sp = suppressBlur * smoothstep(0.03, 0.22, r2);',
+    '  if (sp > 0.0) {',
+    '    vec2 o = d * 0.012 * sp;',
+    '    vec3 bl = (texture2D(tScene, vUv + o).rgb + texture2D(tScene, vUv - o).rgb + texture2D(tScene, vUv + vec2(o.y, -o.x)).rgb + texture2D(tScene, vUv - vec2(o.y, -o.x)).rgb) * 0.25;',
+    '    c = mix(c, bl, sp);',
+    '  }',
     '  c += (texture2D(tBloom1, vUv).rgb * 0.55 + texture2D(tBloom2, vUv).rgb * 0.8) * bloom;',
     '  c = pfxAces(c);',
     // grade: cool the shadows, warm the highlights, a touch more saturation and contrast
@@ -71,6 +78,7 @@ function postMat(frag, uniforms) {
     '  c = mix(c, c * vec3(1.04, 1.0, 0.95), smoothstep(0.45, 1.0, l) * 0.5);',
     '  c = mix(vec3(l), c, 1.08);',
     '  c = clamp((c - 0.5) * 1.05 + 0.5, 0.0, 1.0);',
+    '  c = mix(c, vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), suppress * smoothstep(0.02, 0.2, r2) * 0.6);',
     '  c *= mix(0.7, 1.0, 1.0 - smoothstep(0.2, 0.85, r2));',
     '  c = toSRGB(c);',
     '  c += (hash(vUv * res + time) - 0.5) * 0.025;',   // grain, post-encode so it also dithers banding
@@ -78,7 +86,7 @@ function postMat(frag, uniforms) {
     '}'
   ].join('\n'), {
     tScene: { value: null }, tBloom1: { value: null }, tBloom2: { value: null },
-    bloom: { value: 0.7 }, exposure: { value: 0.9 }, time: { value: 0 }, fringe: { value: 0 },
+    bloom: { value: 0.7 }, exposure: { value: 0.9 }, time: { value: 0 }, fringe: { value: 0 }, suppress: { value: 0 }, suppressBlur: { value: 0 },
     res: { value: new THREE.Vector2(1, 1) }
   });
 })();
@@ -185,6 +193,9 @@ function renderFrame(dt) {
     u.exposure.value = renderer.toneMappingExposure;
     u.time.value = (u.time.value + dt * 60) % 1000;
     u.fringe.value = CORE.postFringe(POST.kick, !!getSetting('reducedMotion'));
+    // suppression (60_hud_waves.js): colour drain always, edge blur only with motion allowed
+    u.suppress.value = suppression;
+    u.suppressBlur.value = getSetting('reducedMotion') ? 0 : suppression;
     postPass(POST.mats.composite, null);
   } catch (e) {
     console.warn('post-processing failed, disabling', e);

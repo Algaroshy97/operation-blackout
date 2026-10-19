@@ -6892,6 +6892,66 @@ const CORE = (function () {
     return t === 'SMG' ? IMPACT_FLASH_SCALE_SMG : (t === 'BR' ? IMPACT_FLASH_SCALE_BR : (t === 'SR' ? IMPACT_FLASH_SCALE_SR : IMPACT_FLASH_SCALE_AR));
   }
 
+
+  // ---- Live-grenade proximity warning ----
+  // The fuse blink and the ground ring are both easy to miss: a frag that rolls in
+  // behind you, or under a car, gives no warning at all. The HUD marker shows while
+  // you are inside the blast plus a margin, so stepping clear is the cue to stop.
+  // Only timed payloads warn: a claymore is a placed trap and thermite a fire, and
+  // the player's own throw stays quiet until it lands, or it would flash every toss.
+  const GRENADE_WARN_MARGIN = 1.3;
+  const GRENADE_WARN_FLOOR = 0.2;
+
+  function grenadeWarnUrgency(dist, radius, fuse, fullFuse, mode, ownInFlight) {
+    if (mode !== 'timed' || ownInFlight) return 0;
+    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
+    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    if (typeof fuse !== 'number' || !isFinite(fuse) || fuse <= 0) return 0;
+    const reach = radius * GRENADE_WARN_MARGIN;
+    if (dist >= reach) return 0;
+    const full = typeof fullFuse === 'number' && isFinite(fullFuse) && fullFuse > 0 ? fullFuse : fuse;
+    const close = 1 - dist / reach;
+    const late = 1 - Math.min(1, fuse / full);
+    return Math.max(GRENADE_WARN_FLOOR, Math.min(1, Math.max(close, late)));
+  }
+
+  // ---- Suppression from near misses ----
+  // A near miss already cracks past the player (bulletWhizSound), but nothing on
+  // screen changed, so a crowd that keeps missing read as nobody shooting. Each
+  // near miss stacks a little suppression; it holds briefly after the last one and
+  // then bleeds off, so a sustained burst builds and a stray shot barely registers.
+  const SUPPRESS_PER_MISS = 0.22;
+  const SUPPRESS_HOLD = 0.6;
+  const SUPPRESS_DECAY = 0.9;
+
+  function suppressionAdd(level) {
+    const l = typeof level === 'number' && isFinite(level) ? Math.max(0, level) : 0;
+    return Math.min(1, l + SUPPRESS_PER_MISS);
+  }
+
+  function suppressionDecay(level, dt, sinceLastMiss) {
+    if (typeof level !== 'number' || !isFinite(level) || level <= 0) return 0;
+    if (typeof dt !== 'number' || !isFinite(dt) || dt <= 0) return Math.min(1, level);
+    if (typeof sinceLastMiss === 'number' && sinceLastMiss < SUPPRESS_HOLD) return Math.min(1, level);
+    return Math.max(0, Math.min(1, level) - SUPPRESS_DECAY * dt);
+  }
+
+  // ---- Wall occlusion for positional audio ----
+  // Air absorption already dulls distant sounds, but a shot behind a wall sounded
+  // exactly like one in the open, so hearing someone was no help in finding them.
+  // A blocked source loses most of its top end and some level on top of that.
+  const OCCLUDED_CUTOFF = 700;
+  const OCCLUDED_GAIN = 0.55;
+
+  function occludedCutoff(cutoff, blocked) {
+    const c = typeof cutoff === 'number' && isFinite(cutoff) && cutoff > 0 ? cutoff : AIR_ABSORPTION_MAX_FREQ;
+    return blocked ? Math.min(c, OCCLUDED_CUTOFF) : c;
+  }
+
+  function occludedGain(blocked) {
+    return blocked ? OCCLUDED_GAIN : 1;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7233,7 +7293,10 @@ const CORE = (function () {
     TRACER_CALIBER_SCALE_SMG, TRACER_CALIBER_SCALE_AR, TRACER_CALIBER_SCALE_BR, TRACER_CALIBER_SCALE_SR,
     tracerCaliberScale,
     IMPACT_FLASH_SCALE_SMG, IMPACT_FLASH_SCALE_AR, IMPACT_FLASH_SCALE_BR, IMPACT_FLASH_SCALE_SR,
-    impactFlashCaliberScale
+    impactFlashCaliberScale,
+    GRENADE_WARN_MARGIN, grenadeWarnUrgency,
+    SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
+    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain
   };
 
 

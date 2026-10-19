@@ -10003,3 +10003,45 @@ test('v162 visual polish: ballistic tracer caliber scaling and impact flash sphe
 
 
 
+
+
+test('grenadeWarnUrgency warns inside the blast margin for timed payloads only', () => {
+  const R = 7, reach = R * CORE.GRENADE_WARN_MARGIN;
+  assert.strictEqual(CORE.grenadeWarnUrgency(reach, R, 2, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 0, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(NaN, R, 2, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, Infinity, 2.2, 'timed', false), 0);
+  // claymores, thermite and tacticals never warn; nor does the player's own throw mid-air
+  for (const mode of ['proximity', 'burn', 'tactical']) {
+    assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 1, 2.2, mode, false), 0);
+  }
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 1, 2.2, 'timed', true), 0);
+  const edge = CORE.grenadeWarnUrgency(reach - 0.01, R, 2.2, 2.2, 'timed', false);
+  assert.ok(edge > 0 && Math.abs(edge - 0.2) < 1e-9, 'just inside the edge with a fresh fuse: shown, at the floor');
+  assert.ok(CORE.grenadeWarnUrgency(2, R, 2.2, 2.2, 'timed', false) > CORE.grenadeWarnUrgency(6, R, 2.2, 2.2, 'timed', false));
+  assert.ok(CORE.grenadeWarnUrgency(8, R, 0.3, 2.2, 'timed', false) > CORE.grenadeWarnUrgency(8, R, 2, 2.2, 'timed', false));
+  assert.strictEqual(CORE.grenadeWarnUrgency(0, R, 0.01, 2.2, 'timed', false), 1);
+});
+
+test('suppression stacks per near miss, holds briefly, then bleeds off', () => {
+  let l = CORE.suppressionAdd(0);
+  assert.ok(l > 0.15 && l < 0.3, 'one stray round barely registers');
+  for (let i = 0; i < 10; i++) l = CORE.suppressionAdd(l);
+  assert.strictEqual(l, 1, 'a sustained burst caps at full suppression');
+  assert.strictEqual(CORE.suppressionDecay(1, 0.1, CORE.SUPPRESS_HOLD - 0.01), 1);
+  const d = CORE.suppressionDecay(1, 0.1, CORE.SUPPRESS_HOLD + 0.01);
+  assert.ok(d < 1 && d > 0.85);
+  assert.strictEqual(CORE.suppressionDecay(0.05, 1, 5), 0);
+  assert.strictEqual(CORE.suppressionDecay(NaN, 0.1, 5), 0);
+  assert.strictEqual(CORE.suppressionDecay(0.5, NaN, 5), 0.5);
+  assert.ok(Math.abs(CORE.suppressionAdd(NaN) - CORE.suppressionAdd(0)) < 1e-12);
+});
+
+test('occlusion muffles blocked sources on top of air absorption', () => {
+  assert.strictEqual(CORE.occludedCutoff(6000, false), 6000);
+  assert.strictEqual(CORE.occludedCutoff(6000, true), CORE.OCCLUDED_CUTOFF);
+  assert.strictEqual(CORE.occludedCutoff(400, true), 400, 'never brighter than air absorption already made it');
+  assert.strictEqual(CORE.occludedCutoff(NaN, false), CORE.AIR_ABSORPTION_MAX_FREQ);
+  assert.strictEqual(CORE.occludedGain(false), 1);
+  assert.ok(CORE.occludedGain(true) < 1 && CORE.occludedGain(true) > 0.3);
+});

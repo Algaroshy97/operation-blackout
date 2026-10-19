@@ -777,6 +777,12 @@ function enemyShoot(en, dist) {
       if (runId !== firedInRun) return;
       if (player.dead || !started || paused) return;
       playSound3D(CORE.bulletWhizSound(), missX, missY, missZ, CORE.BULLET_WHIZ_MAX_DIST * 2);
+      // Suppression only from rounds that could actually have reached the player.
+      if (CORE.segmentBlocked(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+      if (CORE.smokeBlocks(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+      noteNearMiss(hitDeg);
     }, travelDelay);
   }
 }
