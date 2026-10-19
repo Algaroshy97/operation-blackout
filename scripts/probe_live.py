@@ -4931,7 +4931,28 @@ def main() -> int:
         }""")
         checks.append(("tactical-combat-balance-v159-rules", combat_v159_check))
 
-        # 110) Clean console throughout gameplay.
+        # 110) Ballistic enemy raycast spatial culling and grenade blast delta distance (v160 performance optimization).
+        perf_v160_check = page.evaluate("""() => {
+            if (typeof CORE === 'undefined') return false;
+
+            const cullingOk = CORE.ENEMY_RAY_BOUNDING_RADIUS === 1.8 &&
+                              CORE.ENEMY_RAY_CENTER_OFFSET_Y === 0.9 &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 0, 0, -10) === true &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 0, 0, 10) === false &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 0, 0, -60) === false &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 15, 0, -10) === false &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 1.5, 0, -10) === true &&
+                              CORE.isEnemyRayCandidate(0, 1.7, 0, 0, 0, -1, 50, 2.5, 0, -10) === false;
+
+            const distOk = Math.abs(CORE.blastTargetDistance(3, 4, 0) - 5.0) < 1e-4 &&
+                           Math.abs(CORE.blastTargetDistance(2, 3, 6) - 7.0) < 1e-4 &&
+                           CORE.blastTargetDistance(0, 0, 0) === 0;
+
+            return cullingOk && distOk;
+        }""")
+        checks.append(("performance-optimization-v160-rules", perf_v160_check))
+
+        # 111) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent graphics UI run competes for software GPU time.

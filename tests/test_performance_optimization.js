@@ -516,6 +516,47 @@ test('v155 performance optimization: ragdoll blast spatial culling, particle squ
   assert.equal(CORE.isAimAssistHeadCandidateCos(NaN, 0.995, 0.99, 0.85), false);
 });
 
+test('v160 performance optimization: ballistic enemy raycast spatial culling and grenade blast delta distance rules', () => {
+  // 1. Constants
+  assert.equal(CORE.ENEMY_RAY_BOUNDING_RADIUS, 1.8);
+  assert.equal(CORE.ENEMY_RAY_CENTER_OFFSET_Y, 0.9);
+
+  // 2. Ballistic ray candidate spatial culling
+  // Ray from (0, 1.7, 0) looking along negative Z (0, 0, -1), max range 50m
+  const fromX = 0, fromY = 1.7, fromZ = 0;
+  const dirX = 0, dirY = 0, dirZ = -1;
+  const maxRange = 50.0;
+
+  // Candidate 1: Direct hit at 10m forward (0, 0, -10)
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -10), true);
+
+  // Candidate 2: Behind shooter (0, 0, 10)
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, 10), false);
+
+  // Candidate 3: Beyond max range (0, 0, -60)
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -60), false);
+
+  // Candidate 4: Far off to the side at 90 degrees (15, 0, -10) -> perpDist is 15 > 1.8
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 15, 0, -10), false);
+
+  // Candidate 5: Grazing sphere within bounding radius at 10m forward (1.5, 0, -10) -> dx=1.5, dy=-0.8, perpDistSq = 2.25 + 0.64 = 2.89 < 3.24
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 1.5, 0, -10), true);
+
+  // Candidate 6: Just outside bounding radius (2.5, 0, -10) -> dx=2.5, perpDistSq = 6.25 + 0.64 = 6.89 > 3.24
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 2.5, 0, -10), false);
+
+  // Candidate 7: Invalid coordinates / NaN handling
+  assert.equal(CORE.isEnemyRayCandidate(NaN, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -10), false);
+  assert.equal(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, 0, 0, 0, -10), false);
+
+  // 3. Grenade blast delta distance reuse
+  assert.ok(Math.abs(CORE.blastTargetDistance(3, 4, 0) - 5.0) < 1e-4);
+  assert.ok(Math.abs(CORE.blastTargetDistance(2, 3, 6) - 7.0) < 1e-4);
+  assert.equal(CORE.blastTargetDistance(0, 0, 0), 0);
+  assert.equal(CORE.blastTargetDistance(NaN, 0, 0), 0);
+});
+
+
 
 
 

@@ -9897,3 +9897,37 @@ test('v159 combat balance: weapon empty reload caliber scaling, enemy scout arch
   assert.ok(Math.abs(CORE.plateApplyDuration(true) - (1.10 * 0.80)) < 1e-4);
   assert.ok(Math.abs(CORE.plateApplyDuration() - 1.10) < 1e-4);
 });
+
+test('v160 performance optimization: ballistic enemy raycast spatial culling and grenade blast delta distance rules', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.ENEMY_RAY_BOUNDING_RADIUS, 1.8);
+  assert.strictEqual(CORE.ENEMY_RAY_CENTER_OFFSET_Y, 0.9);
+
+  // 2. Ballistic ray candidate spatial culling
+  const fromX = 0, fromY = 1.7, fromZ = 0;
+  const dirX = 0, dirY = 0, dirZ = -1;
+  const maxRange = 50.0;
+
+  // Direct hit at 10m forward
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -10), true);
+  // Behind shooter
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, 10), false);
+  // Beyond max range
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -60), false);
+  // Lateral offset far away
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 15, 0, -10), false);
+  // Grazing within bounding radius
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 1.5, 0, -10), true);
+  // Just outside bounding radius
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxRange, 2.5, 0, -10), false);
+  // Invalid inputs
+  assert.strictEqual(CORE.isEnemyRayCandidate(NaN, fromY, fromZ, dirX, dirY, dirZ, maxRange, 0, 0, -10), false);
+  assert.strictEqual(CORE.isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, -5, 0, 0, -10), false);
+
+  // 3. Grenade blast delta distance reuse
+  assert.ok(Math.abs(CORE.blastTargetDistance(3, 4, 0) - 5.0) < 1e-4);
+  assert.ok(Math.abs(CORE.blastTargetDistance(2, 3, 6) - 7.0) < 1e-4);
+  assert.strictEqual(CORE.blastTargetDistance(0, 0, 0), 0);
+  assert.strictEqual(CORE.blastTargetDistance(NaN, 0, 0), 0);
+});
+

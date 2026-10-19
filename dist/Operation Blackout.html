@@ -9373,6 +9373,22 @@ const CORE = (function () {
     return nudgedDir !== baseDir;
   }
 
+  const ENEMY_RAY_BOUNDING_RADIUS = 1.8, ENEMY_RAY_CENTER_OFFSET_Y = 0.9;
+  function isEnemyRayCandidate(fromX, fromY, fromZ, dirX, dirY, dirZ, maxDist, enX, enY, enZ, boundRadius, centerOffsetY) {
+    if (!_isNum(fromX) || !_isNum(fromY) || !_isNum(fromZ) ||
+        !_isNum(dirX) || !_isNum(dirY) || !_isNum(dirZ) ||
+        !_isNum(enX) || !_isNum(enY) || !_isNum(enZ)) return false;
+    const maxD = _isPos(maxDist) ? maxDist : 0;
+    if (maxD <= 0) return false;
+    const r = _isPos(boundRadius) ? boundRadius : ENEMY_RAY_BOUNDING_RADIUS;
+    const cy = _isNum(centerOffsetY) ? centerOffsetY : ENEMY_RAY_CENTER_OFFSET_Y;
+    const dx = enX - fromX, dy = (enY + cy) - fromY, dz = enZ - fromZ;
+    const proj = dx * dirX + dy * dirY + dz * dirZ;
+    if (proj < -r || proj > maxD + r) return false;
+    const perpSq = (dx * dx + dy * dy + dz * dz) - (proj * proj);
+    return perpSq <= r * r;
+  }
+
   const CROSSHAIR_MIN_GAP_OFFSET = 0;
   const CROSSHAIR_MAX_GAP_OFFSET = 24;
 
@@ -10251,92 +10267,56 @@ const CORE = (function () {
   }
 
   function completeReload(ammo, magSize, reserve, out) {
-    const curAmmo = _isNum(ammo) ? Math.max(0, ammo) : 0;
-    const curMag = _isNum(magSize) ? Math.max(0, magSize) : 0;
-    const curReserve = _isNum(reserve) ? Math.max(0, reserve) : 0;
-    const need = Math.max(0, curMag - curAmmo);
-    const take = Math.min(need, curReserve);
-    const res = out || { ammo: 0, reserve: 0, take: 0 };
-    res.ammo = curAmmo + take;
-    res.reserve = curReserve - take;
-    res.take = take;
-    return res;
+    const curAmmo = _isNum(ammo) ? Math.max(0, ammo) : 0, curMag = _isNum(magSize) ? Math.max(0, magSize) : 0, curReserve = _isNum(reserve) ? Math.max(0, reserve) : 0;
+    const take = Math.min(Math.max(0, curMag - curAmmo), curReserve), res = out || { ammo: 0, reserve: 0, take: 0 };
+    res.ammo = curAmmo + take; res.reserve = curReserve - take; res.take = take; return res;
   }
 
   function munitionsAmmoRestore(currentReserve, reserveMax, magSize, ratio) {
-    const r = _isNonNeg(ratio) ? ratio : MUNITIONS_MAG_RATIO;
-    const curRes = _isNum(currentReserve) ? Math.max(0, currentReserve) : 0;
-    const maxRes = _isNum(reserveMax) ? Math.max(0, reserveMax) : curRes;
-    const mag = _isNum(magSize) ? Math.max(0, magSize) : 0;
-    return Math.min(maxRes, curRes + Math.round(mag * r));
+    const r = _isNonNeg(ratio) ? ratio : MUNITIONS_MAG_RATIO, curRes = _isNum(currentReserve) ? Math.max(0, currentReserve) : 0;
+    return Math.min(_isNum(reserveMax) ? Math.max(0, reserveMax) : curRes, curRes + Math.round((_isNum(magSize) ? Math.max(0, magSize) : 0) * r));
   }
 
   function airstrikeDelay(index, baseDelay, stepDelay) {
-    const b = _isNum(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY;
-    const s = _isNum(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY;
-    const i = _isNum(index) ? Math.max(0, index) : 0;
-    return b + i * s;
+    return (_isNum(baseDelay) ? baseDelay : AIRSTRIKE_BASE_DELAY) + (_isNum(index) ? Math.max(0, index) : 0) * (_isNum(stepDelay) ? stepDelay : AIRSTRIKE_STEP_DELAY);
   }
 
   function airstrikeBombCoord(playerX, playerZ, dirX, dirZ, index, leadDist, spacing, jitterX, jitterZ, out) {
-    const px = _isNum(playerX) ? playerX : 0;
-    const pz = _isNum(playerZ) ? playerZ : 0;
-    const dx = _isNum(dirX) ? dirX : 0;
-    const dz = _isNum(dirZ) ? dirZ : 0;
-    const lead = _isNum(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST;
-    const sp = _isNum(spacing) ? spacing : AIRSTRIKE_SPACING;
-    const i = _isNum(index) ? Math.max(0, index) : 0;
-    const jx = _isNum(jitterX) ? jitterX : 0;
-    const jz = _isNum(jitterZ) ? jitterZ : 0;
-    const ox = px + dx * lead;
-    const oz = pz + dz * lead;
+    const px = _isNum(playerX) ? playerX : 0, pz = _isNum(playerZ) ? playerZ : 0, dx = _isNum(dirX) ? dirX : 0, dz = _isNum(dirZ) ? dirZ : 0;
+    const lead = _isNum(leadDist) ? leadDist : AIRSTRIKE_LEAD_DIST, sp = _isNum(spacing) ? spacing : AIRSTRIKE_SPACING, i = _isNum(index) ? Math.max(0, index) : 0;
     const res = out || { x: 0, z: 0 };
-    res.x = ox + dx * i * sp + jx;
-    res.z = oz + dz * i * sp + jz;
+    res.x = px + dx * lead + dx * i * sp + (_isNum(jitterX) ? jitterX : 0);
+    res.z = pz + dz * lead + dz * i * sp + (_isNum(jitterZ) ? jitterZ : 0);
     return res;
   }
 
   function enemyGrenadeSpeed(distance) {
-    const d = _isNum(distance) ? Math.max(0, distance) : 0;
-    return Math.min(ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_MIN_SPEED + d * ENEMY_GRENADE_SPEED_DIST_SCALE);
+    return Math.min(ENEMY_GRENADE_MAX_SPEED, ENEMY_GRENADE_MIN_SPEED + (_isNum(distance) ? Math.max(0, distance) : 0) * ENEMY_GRENADE_SPEED_DIST_SCALE);
   }
 
   function enemyGrenadeFuse(baseFuse, bonus) {
-    const base = _isNum(baseFuse) ? Math.max(0.5, baseFuse) : 2.5;
-    const b = _isNum(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS;
-    return base + b;
+    return (_isNum(baseFuse) ? Math.max(0.5, baseFuse) : 2.5) + (_isNum(bonus) ? bonus : ENEMY_GRENADE_FUSE_BONUS);
   }
 
   function enemyGrenadeCooldown(isGrenadier, currentT, randomVal) {
-    const t = _isNum(currentT) ? currentT : 0;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    if (isGrenadier) {
-      return t + 5.5 + r * 4;
-    }
-    return t + 11 + r * 9;
+    const t = _isNum(currentT) ? currentT : 0, r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
+    return isGrenadier ? (t + 5.5 + r * 4) : (t + 11 + r * 9);
   }
 
   function enemyBurstInterval(burstRemaining, rof, randomVal) {
     if (_isPos(burstRemaining)) return 0.12;
-    const baseRof = _isPos(rof) ? rof : 0.4;
-    const r = _isNum(randomVal) ? _clamp01(randomVal) : 0.5;
-    return baseRof * 1.6 * (0.8 + r * 0.4);
+    return (_isPos(rof) ? rof : 0.4) * 1.6 * (0.8 + (_isNum(randomVal) ? _clamp01(randomVal) : 0.5) * 0.4);
   }
 
   function pickupBobHeight(t, isPower) {
-    const time = _isNum(t) ? t : 0;
-    const baseY = isPower ? 0.55 : 0.3;
-    const amp = isPower ? 0.12 : 0.06;
-    return baseY + Math.sin(time * 3) * amp;
+    return (isPower ? 0.55 : 0.3) + Math.sin((_isNum(t) ? t : 0) * 3) * (isPower ? 0.12 : 0.06);
   }
 
   function isPickupVisible(t, blinkStart, maxLife) {
     const time = _isNum(t) ? t : 0;
-    const life = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
-    if (time > life) return false;
+    if (time > (_isNum(maxLife) ? maxLife : PICKUP_LIFE)) return false;
     const blink = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START;
-    if (time > blink) return (time * 6 % 2) < 1.4;
-    return true;
+    return time <= blink || (time * 6 % 2) < 1.4;
   }
 
   // Smooth pickup despawn fade: pulsing opacity during the blink window instead of
@@ -10346,27 +10326,21 @@ const CORE = (function () {
   //     expiry so the urgency is legible without being harsh.
   //   - At or past maxLife: 0 (invisible).
   function pickupBlinkOpacity(t, blinkStart, maxLife) {
-    const time = _isNum(t) ? t : 0;
-    const life = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
+    const time = _isNum(t) ? t : 0, life = _isNum(maxLife) ? maxLife : PICKUP_LIFE;
     if (time >= life) return 0;
     const blink = _isNum(blinkStart) ? blinkStart : PICKUP_BLINK_START;
     if (time <= blink) return 1;
-    // Ramp up blink frequency linearly from 3 Hz at blinkStart to 7 Hz at maxLife.
-    const progress = (time - blink) / Math.max(0.001, life - blink); // 0→1
-    const freq = 3 + progress * 4;                                   // 3→7 Hz
-    const phase = (time - blink) * freq * Math.PI * 2;
-    const s = Math.sin(phase);
-    // sin² gives a smooth "on-dip-on" pattern; minimum opacity 0.08 so the pickup
-    // never vanishes completely (still visible as a faint ghost, not a pop-out).
+    const progress = (time - blink) / Math.max(0.001, life - blink), freq = 3 + progress * 4;
+    const phase = (time - blink) * freq * Math.PI * 2, s = Math.sin(phase);
     return Math.max(0.08, s * s);
   }
 
   function canCollectPickup(pickupX, pickupZ, playerX, playerZ, radius) {
     if (!_isNum(pickupX) || !_isNum(pickupZ) || !_isNum(playerX) || !_isNum(playerZ)) return false;
-    const rad = _isPos(radius) ? radius : PICKUP_COLLECT_RADIUS;
-    const dx = pickupX - playerX, dz = pickupZ - playerZ;
+    const rad = _isPos(radius) ? radius : PICKUP_COLLECT_RADIUS, dx = pickupX - playerX, dz = pickupZ - playerZ;
     return (dx * dx + dz * dz) < rad * rad;
   }
+
 
   function grenadeBlinkVisible(fuse, armT, requiredArm) {
     if (_isNum(fuse)) {
@@ -10407,22 +10381,10 @@ const CORE = (function () {
   }
 
   // ---- Shell Casings Dynamics & Tactical Viewmodel Kinematics (v98) ----
-  const CASING_MAX = 24;
-  const CASING_LIFETIME = 2.2;
-  const CASING_FADE_DURATION = 0.35;
-  const CASING_FLOOR_Y = 0.02;
-  const CASING_GRAVITY = 12;
-  const CASING_BOUNCE = 0.35;
-  const CASING_FRICTION = 0.5;
-  const CASING_SPIN_DAMP = 0.4;
-  const CASING_REST_SPEED = 0.6;
-  const CASING_SND_GAP = 0.09;
-  const VIEWMODEL_MANTLE_IN_RATE = 8;
-  const VIEWMODEL_MANTLE_OUT_RATE = 5;
+  const CASING_MAX = 24, CASING_LIFETIME = 2.2, CASING_FADE_DURATION = 0.35, CASING_FLOOR_Y = 0.02, CASING_GRAVITY = 12, CASING_BOUNCE = 0.35, CASING_FRICTION = 0.5, CASING_SPIN_DAMP = 0.4, CASING_REST_SPEED = 0.6, CASING_SND_GAP = 0.09, VIEWMODEL_MANTLE_IN_RATE = 8, VIEWMODEL_MANTLE_OUT_RATE = 5;
 
   function casingScale(life, maxLife, fadeDur, caliberScale) {
-    const dur = _isPos(fadeDur) ? fadeDur : CASING_FADE_DURATION;
-    const cal = _isPos(caliberScale) ? caliberScale : 1.0;
+    const dur = _isPos(fadeDur) ? fadeDur : CASING_FADE_DURATION, cal = _isPos(caliberScale) ? caliberScale : 1.0;
     if (!_isPos(life)) return 0.001 * cal;
     if (life >= dur) return cal;
     const t = _clamp01(life / dur);
@@ -10430,191 +10392,106 @@ const CORE = (function () {
   }
 
   function casingEjectVelocity(rightX, rightY, rightZ, randMul, randY, impulseMulOrOut, out) {
-    const hasMul = typeof impulseMulOrOut === 'number';
-    const o = hasMul ? (out || { x: 0, y: 0, z: 0 }) : (impulseMulOrOut || { x: 0, y: 0, z: 0 });
-    const mul = hasMul ? impulseMulOrOut : 1.0;
-    const rMul = _isNum(randMul) ? randMul : 0;
-    const rY = _isNum(randY) ? randY : 0;
-    const speed = (1.6 + rMul) * mul;
-    const rx = _isNum(rightX) ? rightX : 0;
-    const ry = _isNum(rightY) ? rightY : 0;
-    const rz = _isNum(rightZ) ? rightZ : 0;
-    o.x = rx * speed;
-    o.y = ry * speed + 1.4 + rY;
-    o.z = rz * speed;
+    const hasMul = typeof impulseMulOrOut === 'number', o = hasMul ? (out || { x: 0, y: 0, z: 0 }) : (impulseMulOrOut || { x: 0, y: 0, z: 0 });
+    const mul = hasMul ? impulseMulOrOut : 1.0, speed = (1.6 + (_isNum(randMul) ? randMul : 0)) * mul;
+    o.x = (_isNum(rightX) ? rightX : 0) * speed;
+    o.y = (_isNum(rightY) ? rightY : 0) * speed + 1.4 + (_isNum(randY) ? randY : 0);
+    o.z = (_isNum(rightZ) ? rightZ : 0) * speed;
     return o;
   }
 
   function stepCasingPhysics(posX, posY, posZ, vx, vy, vz, spinX, spinY, spinZ, dt, grav, bounce, fric, spinDamp, floorY, restSpd, out) {
     const o = out || { x: posX, y: posY, z: posZ, vx, vy, vz, spinX, spinY, spinZ, rest: false, bounced: false };
-    const delta = _isPos(dt) ? dt : 0;
-    const g = _isNum(grav) ? grav : CASING_GRAVITY;
-    const b = _isNum(bounce) ? bounce : CASING_BOUNCE;
-    const f = _isNum(fric) ? fric : CASING_FRICTION;
-    const sd = _isNum(spinDamp) ? spinDamp : CASING_SPIN_DAMP;
-    const flY = _isNum(floorY) ? floorY : CASING_FLOOR_Y;
-    const rSpd = _isNum(restSpd) ? restSpd : CASING_REST_SPEED;
+    const delta = _isPos(dt) ? dt : 0, g = _isNum(grav) ? grav : CASING_GRAVITY, b = _isNum(bounce) ? bounce : CASING_BOUNCE;
+    const f = _isNum(fric) ? fric : CASING_FRICTION, sd = _isNum(spinDamp) ? spinDamp : CASING_SPIN_DAMP, flY = _isNum(floorY) ? floorY : CASING_FLOOR_Y, rSpd = _isNum(restSpd) ? restSpd : CASING_REST_SPEED;
 
-    let x = _isNum(posX) ? posX : 0;
-    let y = _isNum(posY) ? posY : 0;
-    let z = _isNum(posZ) ? posZ : 0;
-    let velX = _isNum(vx) ? vx : 0;
-    let velY = _isNum(vy) ? vy : 0;
-    let velZ = _isNum(vz) ? vz : 0;
-    let spX = _isNum(spinX) ? spinX : 0;
-    let spY = _isNum(spinY) ? spinY : 0;
-    let spZ = _isNum(spinZ) ? spinZ : 0;
+    let x = _isNum(posX) ? posX : 0, y = _isNum(posY) ? posY : 0, z = _isNum(posZ) ? posZ : 0;
+    let velX = _isNum(vx) ? vx : 0, velY = (_isNum(vy) ? vy : 0) - g * delta, velZ = _isNum(vz) ? vz : 0;
+    let spX = _isNum(spinX) ? spinX : 0, spY = _isNum(spinY) ? spinY : 0, spZ = _isNum(spinZ) ? spinZ : 0;
 
-    velY -= g * delta;
-    x += velX * delta;
-    y += velY * delta;
-    z += velZ * delta;
-
-    let bounced = false;
-    let rest = false;
-
+    x += velX * delta; y += velY * delta; z += velZ * delta;
+    let bounced = false, rest = false;
     if (y <= flY) {
       y = flY;
       if (velY < -0.5) {
-        velY = -velY * b;
-        velX *= f;
-        velZ *= f;
-        spX *= sd;
-        spY *= sd;
-        spZ *= sd;
-        bounced = true;
-        if (Math.abs(velY) < rSpd) {
-          rest = true;
-          velX = 0; velY = 0; velZ = 0;
-          spX = 0; spY = 0; spZ = 0;
-        }
+        velY = -velY * b; velX *= f; velZ *= f; spX *= sd; spY *= sd; spZ *= sd; bounced = true;
+        if (Math.abs(velY) < rSpd) { rest = true; velX = 0; velY = 0; velZ = 0; spX = 0; spY = 0; spZ = 0; }
       } else {
-        rest = true;
-        velX = 0; velY = 0; velZ = 0;
-        spX = 0; spY = 0; spZ = 0;
+        rest = true; velX = 0; velY = 0; velZ = 0; spX = 0; spY = 0; spZ = 0;
       }
     }
-
-    o.x = x; o.y = y; o.z = z;
-    o.vx = velX; o.vy = velY; o.vz = velZ;
-    o.spinX = spX; o.spinY = spY; o.spinZ = spZ;
-    o.bounced = bounced;
-    o.rest = rest;
+    o.x = x; o.y = y; o.z = z; o.vx = velX; o.vy = velY; o.vz = velZ; o.spinX = spX; o.spinY = spY; o.spinZ = spZ; o.bounced = bounced; o.rest = rest;
     return o;
   }
 
   function casingRestRotation(rotX, rotY, rotZ, out) {
     const o = out || { rotX: 0, rotY: 0, rotZ: 0 };
-    const ry = _isNum(rotY) ? rotY : 0;
-    o.rotX = Math.PI * 0.5;
-    o.rotY = ry;
-    o.rotZ = 0;
+    o.rotX = Math.PI * 0.5; o.rotY = _isNum(rotY) ? rotY : 0; o.rotZ = 0;
     return o;
   }
 
+
   function stepMeleeKnifePose(progress, out) {
-    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 };
-    const p = _isNum(progress) ? _clamp01(progress) : 0;
-    const sw = vmSmooth(0.1, 0.45, p);
-    const bump = vmBump(0, 1, p);
-    o.posX = 0.22 - sw * 0.36;
-    o.posY = -0.12 + bump * 0.06;
-    o.posZ = -0.3;
-    o.rotX = -0.2;
-    o.rotY = 0.9 - sw * 1.6;
-    o.rotZ = -0.9 + sw * 0.9;
+    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 }, p = _isNum(progress) ? _clamp01(progress) : 0, sw = vmSmooth(0.1, 0.45, p);
+    o.posX = 0.22 - sw * 0.36; o.posY = -0.12 + vmBump(0, 1, p) * 0.06; o.posZ = -0.3; o.rotX = -0.2; o.rotY = 0.9 - sw * 1.6; o.rotZ = -0.9 + sw * 0.9;
     return o;
   }
 
   function meleeGunDodgeOffsets(progress, out) {
-    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
-    const p = _isNum(progress) ? _clamp01(progress) : 0;
-    const gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
-    o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0;
-    o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0;
-    o.rotZ = gunOut !== 0 ? gunOut * 0.4 : 0;
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 }, p = _isNum(progress) ? _clamp01(progress) : 0, gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
+    o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0; o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0; o.rotZ = gunOut !== 0 ? gunOut * 0.4 : 0;
     return o;
   }
 
   function stepViewmodelMantle(currentMantle, isMantling, dt, inRate, outRate) {
-    const cur = _isNum(currentMantle) ? currentMantle : 0;
-    const delta = _isPos(dt) ? dt : 0;
-    const inR = _isPos(inRate) ? inRate : VIEWMODEL_MANTLE_IN_RATE;
-    const outR = _isPos(outRate) ? outRate : VIEWMODEL_MANTLE_OUT_RATE;
-    if (isMantling) return Math.min(1, cur + delta * inR);
-    return Math.max(0, cur - delta * outR);
+    const cur = _isNum(currentMantle) ? currentMantle : 0, delta = _isPos(dt) ? dt : 0;
+    return isMantling ? Math.min(1, cur + delta * (_isPos(inRate) ? inRate : VIEWMODEL_MANTLE_IN_RATE)) : Math.max(0, cur - delta * (_isPos(outRate) ? outRate : VIEWMODEL_MANTLE_OUT_RATE));
   }
 
   function viewmodelMantleOffsets(mantleAmount, out) {
-    const o = out || { posY: 0, rotX: 0, rotZ: 0 };
-    const m = _isNum(mantleAmount) ? _clamp01(mantleAmount) : 0;
-    o.posY = m !== 0 ? -m * 0.18 : 0;
-    o.rotX = m !== 0 ? -m * 0.3 : 0;
-    o.rotZ = m !== 0 ? m * 0.5 : 0;
+    const o = out || { posY: 0, rotX: 0, rotZ: 0 }, m = _isNum(mantleAmount) ? _clamp01(mantleAmount) : 0;
+    o.posY = m !== 0 ? -m * 0.18 : 0; o.rotX = m !== 0 ? -m * 0.3 : 0; o.rotZ = m !== 0 ? m * 0.5 : 0;
     return o;
   }
 
   function reloadHandOffsets(progress, targetX, targetY, targetZ, restX, restY, restZ, out) {
-    const o = out || { posX: 0, posY: 0, posZ: 0 };
-    const p = _isNum(progress) ? _clamp01(progress) : 0;
-    const hk = vmBump(0.08, 0.72, p);
-    const tx = _isNum(targetX) ? targetX : 0;
-    const tz = _isNum(targetZ) ? targetZ : 0;
-    const rx = _isNum(restX) ? restX : 0;
-    const rz = _isNum(restZ) ? restZ : 0;
-    o.posX = hk !== 0 ? (tx - rx - 0.01) * hk * 0.9 : 0;
+    const o = out || { posX: 0, posY: 0, posZ: 0 }, p = _isNum(progress) ? _clamp01(progress) : 0, hk = vmBump(0.08, 0.72, p);
+    o.posX = hk !== 0 ? ((_isNum(targetX) ? targetX : 0) - (_isNum(restX) ? restX : 0) - 0.01) * hk * 0.9 : 0;
     o.posY = hk !== 0 ? -0.12 * hk : 0;
-    o.posZ = hk !== 0 ? (tz - rz + 0.15) * hk * 0.9 : 0;
+    o.posZ = hk !== 0 ? ((_isNum(targetZ) ? targetZ : 0) - (_isNum(restZ) ? restZ : 0) + 0.15) * hk * 0.9 : 0;
     return o;
   }
 
   function viewmodelLateralSpeed(velX, velZ, yaw) {
-    const vx = _isNum(velX) ? velX : 0;
-    const vz = _isNum(velZ) ? velZ : 0;
     const y = _isNum(yaw) ? yaw : 0;
-    return vx * Math.cos(y) - vz * Math.sin(y);
+    return (_isNum(velX) ? velX : 0) * Math.cos(y) - (_isNum(velZ) ? velZ : 0) * Math.sin(y);
   }
 
   function stepViewmodelTilt(currentTilt, lateralVel, adsAmount, motionScale, dt) {
-    const cur = _isNum(currentTilt) ? currentTilt : 0;
-    const latV = _isNum(lateralVel) ? lateralVel : 0;
-    const ads = _isNum(adsAmount) ? _clamp01(adsAmount) : 0;
-    const motion = _isNum(motionScale) ? motionScale : 1;
-    const delta = _isPos(dt) ? dt : 0;
-    const target = -latV * 0.012 * (1 - ads * 0.7) * motion;
-    const blend = Math.min(1, 8 * delta);
-    return cur + (target - cur) * blend;
+    const cur = _isNum(currentTilt) ? currentTilt : 0, target = -(_isNum(lateralVel) ? lateralVel : 0) * 0.012 * (1 - (_isNum(adsAmount) ? _clamp01(adsAmount) : 0) * 0.7) * (_isNum(motionScale) ? motionScale : 1);
+    return cur + (target - cur) * Math.min(1, 8 * (_isPos(dt) ? dt : 0));
   }
 
   function viewmodelLookInertiaTarget(lookDelta, isPitch, adsAmount, motionScale) {
-    const d = _isNum(lookDelta) ? lookDelta : 0;
-    const sign = isPitch ? -1 : 1;
-    const ads = _isNum(adsAmount) ? _clamp01(adsAmount) : 0;
-    const motion = _isNum(motionScale) ? motionScale : 1;
-    const clamped = Math.max(-0.05, Math.min(0.05, sign * d * 1.6));
-    return clamped * (1 - ads * 0.75) * motion;
+    const clamped = Math.max(-0.05, Math.min(0.05, (isPitch ? -1 : 1) * (_isNum(lookDelta) ? lookDelta : 0) * 1.6));
+    return clamped * (1 - (_isNum(adsAmount) ? _clamp01(adsAmount) : 0) * 0.75) * (_isNum(motionScale) ? motionScale : 1);
   }
 
   // ---- Station Buy Prompt Performance Rules ----
-  const BUY_PROMPT_DEFAULT_COLOR = '#ffd24a';
-  const BUY_PROMPT_DIM_COLOR = 'rgba(255,255,255,.55)';
+  const BUY_PROMPT_DEFAULT_COLOR = '#ffd24a', BUY_PROMPT_DIM_COLOR = 'rgba(255,255,255,.55)';
 
   function buyPromptLabel(label, price, prefix) {
-    const lbl = (typeof label === 'string') ? label : '';
-    const prc = _isPos(price) ? ('  ·  ' + price + ' CR') : '';
-    const pfx = (typeof prefix === 'string') ? prefix : '';
-    return pfx + lbl + prc;
+    return ((typeof prefix === 'string') ? prefix : '') + ((typeof label === 'string') ? label : '') + (_isPos(price) ? ('  ·  ' + price + ' CR') : '');
   }
 
   function buyPromptFillPct(holdT, maxHold) {
-    const t = _isNum(holdT) ? holdT : 0;
-    const maxT = _isPos(maxHold) ? maxHold : 1;
-    return Math.round(Math.min(1, Math.max(0, t / maxT)) * 100);
+    return Math.round(Math.min(1, Math.max(0, (_isNum(holdT) ? holdT : 0) / (_isPos(maxHold) ? maxHold : 1))) * 100);
   }
 
   function buyPromptColor(dim) {
     return dim ? BUY_PROMPT_DIM_COLOR : BUY_PROMPT_DEFAULT_COLOR;
   }
+
 
   function buyPromptChanged(lastState, visible, text, fillPct, dim) {
     if (!lastState) return true;
@@ -11197,30 +11074,17 @@ const CORE = (function () {
   }
 
   function enemyFallbackVelocity(toX, toZ, strafeDir, out) {
-    const tx = _isNum(toX) ? toX : 0;
-    const tz = _isNum(toZ) ? toZ : 0;
-    const sDir = (_isNum(strafeDir) && strafeDir < 0) ? -1 : 1;
-    const vx = -tx * 0.8 - tz * 0.6 * sDir;
-    const vz = -tz * 0.8 + tx * 0.6 * sDir;
-    const l = Math.hypot(vx, vz) || 1;
-    const target = (_isObj(out)) ? out : { x: 0, z: 0 };
-    target.x = vx / l;
-    target.z = vz / l;
-    return target;
+    const tx = _isNum(toX) ? toX : 0, tz = _isNum(toZ) ? toZ : 0, sDir = (_isNum(strafeDir) && strafeDir < 0) ? -1 : 1;
+    const vx = -tx * 0.8 - tz * 0.6 * sDir, vz = -tz * 0.8 + tx * 0.6 * sDir, l = Math.hypot(vx, vz) || 1, target = (_isObj(out)) ? out : { x: 0, z: 0 };
+    target.x = vx / l; target.z = vz / l; return target;
   }
 
   function enemyStrafeVelocity(toX, toZ, strafeDir, out) {
-    const tx = _isNum(toX) ? toX : 0;
-    const tz = _isNum(toZ) ? toZ : 0;
-    const sDir = (_isNum(strafeDir) && strafeDir < 0) ? -1 : 1;
-    const vx = -tz * sDir;
-    const vz = tx * sDir;
-    const l = Math.hypot(vx, vz) || 1;
-    const target = (_isObj(out)) ? out : { x: 0, z: 0 };
-    target.x = vx / l;
-    target.z = vz / l;
-    return target;
+    const tx = _isNum(toX) ? toX : 0, tz = _isNum(toZ) ? toZ : 0, sDir = (_isNum(strafeDir) && strafeDir < 0) ? -1 : 1;
+    const vx = -tz * sDir, vz = tx * sDir, l = Math.hypot(vx, vz) || 1, target = (_isObj(out)) ? out : { x: 0, z: 0 };
+    target.x = vx / l; target.z = vz / l; return target;
   }
+
 
   function enemyStrafeDuration(rand) {
     const r = _isNum(rand) ? _clamp01(rand) : 0.5;
@@ -11252,19 +11116,13 @@ const CORE = (function () {
   }
 
   function relocateFacingAlignment(toX, toZ, fwdX, fwdZ, rad) {
-    const tx = _isNum(toX) ? toX : 0;
-    const tz = _isNum(toZ) ? toZ : 0;
-    const fx = _isNum(fwdX) ? fwdX : 0;
-    const fz = _isNum(fwdZ) ? fwdZ : 0;
-    const r = _isPos(rad) ? rad : 1;
+    const tx = _isNum(toX) ? toX : 0, tz = _isNum(toZ) ? toZ : 0, fx = _isNum(fwdX) ? fwdX : 0, fz = _isNum(fwdZ) ? fwdZ : 0, r = _isPos(rad) ? rad : 1;
     return -(tx * fx + tz * fz) / r;
   }
-
   function relocateCandidateScore(rad, behindAlignment) {
-    const r = _isNum(rad) ? rad : 20;
-    const b = _isNum(behindAlignment) ? behindAlignment : 0;
-    return -Math.abs(r - 20) + b * 5;
+    return -Math.abs((_isNum(rad) ? rad : 20) - 20) + (_isNum(behindAlignment) ? behindAlignment : 0) * 5;
   }
+
 
   function stepSlideSteering(dirX, dirZ, inputX, yaw, dt, steerRate, out) {
     const dx = _isNum(dirX) ? dirX : 0;
@@ -11750,6 +11608,11 @@ const CORE = (function () {
   function isTargetInBlastRadius(dx, dy, dz, maxRadiusSq) {
     const limSq = _isPos(maxRadiusSq) ? maxRadiusSq : 0;
     return limSq > 0 && (dx * dx + dy * dy + dz * dz) < limSq;
+  }
+
+  function blastTargetDistance(dx, dy, dz) {
+    if (!_isNum(dx) || !_isNum(dy) || !_isNum(dz)) return 0;
+    return Math.hypot(dx, dy, dz);
   }
 
   const SOLDIER_RAGDOLL_MOMENTUM_SCALE = 0.55, SOLDIER_RAGDOLL_KNOCK_BASE = 9.0, SOLDIER_RAGDOLL_KNOCK_MIN = 2.0;
@@ -12429,8 +12292,10 @@ const CORE = (function () {
     casingCaliberScale, casingEjectImpulse, slideDustVfxParams,
     TACTICAL_DETONATION_MAX_DIST_BLIND, TACTICAL_DETONATION_MAX_DIST_SMOKE, tacticalDetonationMaxDist,
     EMPTY_RELOAD_TIME_SMG, EMPTY_RELOAD_TIME_AR, EMPTY_RELOAD_TIME_BR, EMPTY_RELOAD_TIME_SR,
-    weaponEmptyReloadMultiplier, ENEMY_RANGED_SCOUT_PENALTY, FAST_HANDS_PLATE_MUL, plateApplyDuration
+    weaponEmptyReloadMultiplier, ENEMY_RANGED_SCOUT_PENALTY, FAST_HANDS_PLATE_MUL, plateApplyDuration,
+    ENEMY_RAY_BOUNDING_RADIUS, ENEMY_RAY_CENTER_OFFSET_Y, isEnemyRayCandidate, blastTargetDistance
   };
+
 
 })();
 
@@ -15467,9 +15332,14 @@ function fireShot(preserveSchedule) {
   // test enemies first (hitboxes + visible meshes)
   _shotTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) {
-    if (enemies[i].dead) continue;
-    if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (typeof CORE !== 'undefined' && typeof CORE.isEnemyRayCandidate === 'function') {
+      if (!CORE.isEnemyRayCandidate(_from.x, _from.y, _from.z, _shootDir.x, _shootDir.y, _shootDir.z, w.range, en.pos.x, en.pos.y, en.pos.z)) continue;
+    }
+    if (en.parts && en.parts.group) _shotTargets.push(en.parts.group);
   }
+
   _worldHitsOut.length = 0;
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true, _worldHitsOut);
   _enemyHitsOut.length = 0;
@@ -15740,9 +15610,17 @@ function updateMarksmanScope(dt) {
   const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true, _rfWorldHitsOut);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
-  for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (typeof CORE !== 'undefined' && typeof CORE.isEnemyRayCandidate === 'function') {
+      if (!CORE.isEnemyRayCandidate(_rfFrom.x, _rfFrom.y, _rfFrom.z, _rfDir.x, _rfDir.y, _rfDir.z, CORE.SCOPE_RANGE_MAX, en.pos.x, en.pos.y, en.pos.z)) continue;
+    }
+    if (en.parts && en.parts.group) _rfTargets.push(en.parts.group);
+  }
   _rfEnemyHitsOut.length = 0;
   const eh = _rfRay.intersectObjects(_rfTargets, true, _rfEnemyHitsOut);
+
   if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
   const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
@@ -20274,8 +20152,11 @@ function explodeGrenade(pos, scale) {
     if (en.dead) continue;
     const dx = en.pos.x - pos.x, dy = en.pos.y - pos.y, dz = en.pos.z - pos.z;
     if (!CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) continue;
-    const d = en.pos.distanceTo(pos);
+    const d = (typeof CORE !== 'undefined' && typeof CORE.blastTargetDistance === 'function')
+      ? CORE.blastTargetDistance(dx, dy, dz)
+      : en.pos.distanceTo(pos);
     _blastTarget.set(en.pos.x, 1.1, en.pos.z);
+
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
       damageEnemy(en, dmg, _blastTarget, false);

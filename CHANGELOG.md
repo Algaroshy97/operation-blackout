@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v160 — Ballistic enemy raycast spatial culling and grenade blast delta distance performance optimization
+
+- Implement ballistic enemy raycast spatial culling (`CORE.isEnemyRayCandidate`, `CORE.ENEMY_RAY_BOUNDING_RADIUS` = 1.8, `CORE.ENEMY_RAY_CENTER_OFFSET_Y` = 0.9): evaluates forward ray projection and squared perpendicular distance against spherical bounding volume to eliminate off-axis, behind-the-camera, and out-of-range enemies with arithmetic before Three.js recursive hierarchy traversal; wired into `fireShot()` and `updateMarksmanScope()` in `src/30_weapons.js`.
+- Implement grenade blast delta distance reuse (`CORE.blastTargetDistance`): reuses precalculated relative displacement deltas via `Math.hypot(dx, dy, dz)` rather than invoking redundant Three.js Vector3 `distanceTo` calls after `CORE.isTargetInBlastRadius`; wired into `explodeGrenade()` in `src/55_grenades.js`.
+- Add unit and regression suites in `tests/test_performance_optimization.js` and `tests/test_core.js`, plus contract check 110 (`performance-optimization-v160-rules`) in `scripts/probe_live.py`.
+- Compact pure core validations and helper functions in `src/01_core.js`, keeping release artifact `dist/Operation Blackout.html` at 2,096,737 bytes (under the 2,097,152-byte budget limit).
+- Local test verification: 491 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). Browser acceptance, commit, push, and deployment remain pending external wrapper execution.
+
 ## v159 — Tactical combat balance: weapon empty reload caliber scaling, enemy scout archetype combat tuning, and fast hands plate insertion agility
 
 - Implement weapon empty reload caliber scaling (`CORE.weaponEmptyReloadMultiplier`, `CORE.effectiveReloadDuration`): scales tactical empty reload duration based on caliber ergonomics — SMG (1.10x), AR (1.15x), BR (1.22x), and SR (1.30x) instead of a flat 1.15x multiplier; wired into `updateWeapons()` in `src/30_weapons.js`.

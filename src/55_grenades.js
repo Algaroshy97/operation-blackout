@@ -765,8 +765,11 @@ function explodeGrenade(pos, scale) {
     if (en.dead) continue;
     const dx = en.pos.x - pos.x, dy = en.pos.y - pos.y, dz = en.pos.z - pos.z;
     if (!CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) continue;
-    const d = en.pos.distanceTo(pos);
+    const d = (typeof CORE !== 'undefined' && typeof CORE.blastTargetDistance === 'function')
+      ? CORE.blastTargetDistance(dx, dy, dz)
+      : en.pos.distanceTo(pos);
     _blastTarget.set(en.pos.x, 1.1, en.pos.z);
+
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
       damageEnemy(en, dmg, _blastTarget, false);

@@ -365,9 +365,14 @@ function fireShot(preserveSchedule) {
   // test enemies first (hitboxes + visible meshes)
   _shotTargets.length = 0;
   for (let i = 0; i < enemies.length; i++) {
-    if (enemies[i].dead) continue;
-    if (enemies[i].parts && enemies[i].parts.group) _shotTargets.push(enemies[i].parts.group);
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (typeof CORE !== 'undefined' && typeof CORE.isEnemyRayCandidate === 'function') {
+      if (!CORE.isEnemyRayCandidate(_from.x, _from.y, _from.z, _shootDir.x, _shootDir.y, _shootDir.z, w.range, en.pos.x, en.pos.y, en.pos.z)) continue;
+    }
+    if (en.parts && en.parts.group) _shotTargets.push(en.parts.group);
   }
+
   _worldHitsOut.length = 0;
   const worldHits = raycaster.intersectObjects(worldRayTargets(_from, _shootDir, w.range), true, _worldHitsOut);
   _enemyHitsOut.length = 0;
@@ -638,9 +643,17 @@ function updateMarksmanScope(dt) {
   const wh = _rfRay.intersectObjects(worldRayTargets(_rfFrom, _rfDir, CORE.SCOPE_RANGE_MAX), true, _rfWorldHitsOut);
   if (wh.length) best = wh[0].distance;
   _rfTargets.length = 0;
-  for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead) _rfTargets.push(enemies[i].parts.group);
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    if (en.dead) continue;
+    if (typeof CORE !== 'undefined' && typeof CORE.isEnemyRayCandidate === 'function') {
+      if (!CORE.isEnemyRayCandidate(_rfFrom.x, _rfFrom.y, _rfFrom.z, _rfDir.x, _rfDir.y, _rfDir.z, CORE.SCOPE_RANGE_MAX, en.pos.x, en.pos.y, en.pos.z)) continue;
+    }
+    if (en.parts && en.parts.group) _rfTargets.push(en.parts.group);
+  }
   _rfEnemyHitsOut.length = 0;
   const eh = _rfRay.intersectObjects(_rfTargets, true, _rfEnemyHitsOut);
+
   if (eh.length && CORE.isHostileTarget(eh[0].distance, best, 0.5)) { best = eh[0].distance; hostile = true; }
   const txt = CORE.rangefinderLabel(best, hostile);
   if (_scopeRangeEl.textContent !== txt) _scopeRangeEl.textContent = txt;
