@@ -135,7 +135,7 @@ function spawnEnemy(kind, x, z, opts) {
   // Visual tell: the shielded unit is steel-blue and slightly larger, so a player
   // knows to flank before they have wasted a magazine on the plate.
   // (The soldiers carry the same tells in their kit colours.)
-  const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a };
+  const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a, 6: 0xb83a30 };
   if (KIND_TINT[kind] !== undefined && !parts.soldier) {
     const tint = new THREE.Color(KIND_TINT[kind]);
     parts.group.traverse(function (o) {
@@ -590,6 +590,13 @@ function updateEnemies(dt) {
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
+    // breacher: a shotgun blast whenever the player is inside its range
+    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, player.dead)) {
+      if (hasLOS(en)) {
+        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
+        breacherShoot(en, dist);
+      } else en.nextShot = gameT + 0.4;
+    }
     // ranged attack (rifleman)
     if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
       if (hasLOS(en)) {
@@ -777,8 +784,48 @@ function enemyShoot(en, dist) {
       if (runId !== firedInRun) return;
       if (player.dead || !started || paused) return;
       playSound3D(CORE.bulletWhizSound(), missX, missY, missZ, CORE.BULLET_WHIZ_MAX_DIST * 2);
+      // Suppression only from rounds that could actually have reached the player.
+      if (CORE.segmentBlocked(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+      if (CORE.smokeBlocks(ox, oy, oz,
+          player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+      noteNearMiss(hitDeg);
     }, travelDelay);
   }
+}
+
+// Breacher blast: pellets resolved as independent hits (CORE.breacherPelletHits),
+// a spray of tracers for the read, and the same cover/smoke re-check at impact as
+// a rifle round. A blast that lands nothing still suppresses.
+const _breacherRolls = new Float32Array(8);
+function breacherShoot(en, dist) {
+  if (en.blindT > 0) return;
+  en.lastShotT = gameT;
+  playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
+  const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
+  if (en.parts.soldier && en.parts.J.gun) {
+    en.parts.J.gun.localToWorld(from.set(0, 0.02, 0.56));
+    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), 'AR', false);
+  }
+  for (let i = 0; i < 3; i++) {
+    const to = _eshotTo.copy(player.pos);
+    to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
+    spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+  }
+  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random();
+  const hits = CORE.breacherPelletHits(dist, _breacherRolls);
+  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
+  const firedInRun = runId;
+  const ox = from.x, oy = from.y, oz = from.z;
+  const hitDeg = dirToDeg(en);
+  setTimeout(function () {
+    if (runId !== firedInRun) return;
+    if (player.dead || !started || paused) return;
+    if (CORE.segmentBlocked(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+    if (CORE.smokeBlocks(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
+    if (hits > 0) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+    else noteNearMiss(hitDeg);
+  }, Math.min(120, dist * 6));
 }
 
 function dirToDeg(en) {

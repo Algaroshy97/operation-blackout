@@ -5270,84 +5270,72 @@ test('stepSlideVignette, slideVignetteStyle, objectiveHud, isScopeOverlayActive,
   assert.strictEqual(CORE.steadyIndicatorChanged(steadyState, false, false, ''), false);
 });
 
-test('stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff, musicPulseBpm, stepMusicPulsePhase, musicPulseEnvelope, musicPulseGain, stationPurchaseSound, playerDownSound, and playerReviveSound govern adaptive music and tactical audio', () => {
+test('adaptive score: intensity smoothing, bus gain, chart, layers and patterns; station and downed audio cues', () => {
   assert.strictEqual(CORE.MUSIC_RISE_RATE, 1.6);
   assert.strictEqual(CORE.MUSIC_FALL_RATE, 0.5);
   assert.strictEqual(CORE.MUSIC_BASE_BUS_GAIN, 0.22);
   assert.strictEqual(CORE.MUSIC_INTENSITY_BUS_SCALE, 0.5);
-  assert.strictEqual(CORE.MUSIC_TENSION_THRESHOLD, 0.25);
-  assert.strictEqual(CORE.MUSIC_TENSION_MAX_GAIN, 0.16);
-  assert.strictEqual(CORE.MUSIC_BASE_CUTOFF, 200);
-  assert.strictEqual(CORE.MUSIC_MAX_CUTOFF_SCALE, 900);
-  assert.strictEqual(CORE.MUSIC_BASE_BPM, 46);
-  assert.strictEqual(CORE.MUSIC_MAX_BPM_SCALE, 86);
-  assert.strictEqual(CORE.MUSIC_PULSE_BASE_GAIN, 0.05);
-  assert.strictEqual(CORE.MUSIC_PULSE_MAX_GAIN_SCALE, 0.5);
-  assert.strictEqual(CORE.MUSIC_PULSE_EXPONENT, 6);
 
-  // stepMusicIntensity:
-  // Rising from 0 toward 1
-  const riseStep = CORE.stepMusicIntensity(0, 1, 0.05);
-  assert.ok(Math.abs(riseStep - (1.6 * 0.05)) < 1e-4);
-  // Falling from 1 toward 0
-  const fallStep = CORE.stepMusicIntensity(1, 0, 0.05);
-  assert.ok(Math.abs(fallStep - (1 - 0.5 * 0.05)) < 1e-4);
-  // Reaches target exactly when dt is large
+  // stepMusicIntensity: rises fast, falls slowly, clamps, survives junk
+  assert.ok(Math.abs(CORE.stepMusicIntensity(0, 1, 0.05) - 0.08) < 1e-4);
+  assert.ok(Math.abs(CORE.stepMusicIntensity(1, 0, 0.05) - 0.975) < 1e-4);
   assert.strictEqual(CORE.stepMusicIntensity(0, 0.8, 10), 0.8);
   assert.strictEqual(CORE.stepMusicIntensity(1, 0.2, 10), 0.2);
-  // Clamps out of range target
   assert.strictEqual(CORE.stepMusicIntensity(0.5, 1.5, 10), 1.0);
   assert.strictEqual(CORE.stepMusicIntensity(0.5, -0.5, 10), 0.0);
-  // Zero-safety on invalid / non-finite inputs
   assert.strictEqual(CORE.stepMusicIntensity('invalid', 'bad', NaN), 0);
 
-  // musicBusGain:
+  // musicBusGain
   assert.ok(Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4);
   assert.ok(Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4);
-  assert.ok(Math.abs(CORE.musicBusGain(0.5, 0.5) - (0.5 * (0.22 + 0.25))) < 1e-4);
   assert.strictEqual(CORE.musicBusGain(0, 1.0), 0);
   assert.strictEqual(CORE.musicBusGain(NaN, 1.0), 0);
 
-  // musicTensionGain:
-  assert.strictEqual(CORE.musicTensionGain(0), 0);
-  assert.strictEqual(CORE.musicTensionGain(0.25), 0);
-  assert.strictEqual(CORE.musicTensionGain(0.2), 0);
-  assert.ok(Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4);
-  assert.ok(Math.abs(CORE.musicTensionGain(0.625) - 0.08) < 1e-4);
-  assert.strictEqual(CORE.musicTensionGain('bad'), 0);
+  // timing and pitch
+  assert.ok(Math.abs(CORE.musicStepSeconds(120) - 0.125) < 1e-12);
+  assert.strictEqual(CORE.musicStepSeconds(NaN), CORE.musicStepSeconds(CORE.MUSIC_BPM));
+  assert.ok(Math.abs(CORE.midiToHz(69) - 440) < 1e-9);
+  assert.ok(Math.abs(CORE.midiToHz(57) - 220) < 1e-9);
 
-  // musicFilterCutoff:
-  assert.strictEqual(CORE.musicFilterCutoff(0), 200);
-  assert.strictEqual(CORE.musicFilterCutoff(1.0), 1100);
-  assert.strictEqual(CORE.musicFilterCutoff(0.5), 650);
-  assert.strictEqual(CORE.musicFilterCutoff('bad'), 200);
+  // chart: two bars per chord, i-VI-iv-V, loops every phrase
+  const per = CORE.MUSIC_BARS_PER_CHORD;
+  assert.deepStrictEqual([0, per, 2 * per, 3 * per].map(b => CORE.musicChordAt(b).name), ['Dm', 'Bb', 'Gm', 'A']);
+  assert.strictEqual(CORE.musicChordAt(CORE.MUSIC_PHRASE_BARS).name, 'Dm');
+  assert.strictEqual(CORE.musicChordAt(-3).name, 'Dm');
+  const stepsPerChord = CORE.MUSIC_STEPS_PER_BAR * per;
+  assert.ok(CORE.musicChordChanges(0) && CORE.musicChordChanges(stepsPerChord));
+  assert.ok(!CORE.musicChordChanges(1) && !CORE.musicChordChanges(CORE.MUSIC_STEPS_PER_BAR));
 
-  // musicPulseBpm:
-  assert.strictEqual(CORE.musicPulseBpm(0), 46);
-  assert.strictEqual(CORE.musicPulseBpm(1.0), 132);
-  assert.strictEqual(CORE.musicPulseBpm(0.5), 89);
-  assert.strictEqual(CORE.musicPulseBpm('bad'), 46);
+  // layers: the pad never drops out; everything else enters in order
+  const calm = CORE.musicLayerGains(0), full = CORE.musicLayerGains(1);
+  assert.ok(calm.pad > 0.4 && full.pad > 0.3, 'pad always present');
+  assert.strictEqual(calm.bass + calm.horn + calm.arp, 0, 'calm is pad and boom only');
+  assert.ok(full.bass === 1 && full.horn === 1 && full.arp === 1 && full.drums === 1);
+  const mid = CORE.musicLayerGains(0.5);
+  assert.ok(mid.bass > mid.horn && mid.horn > mid.arp, 'bass enters before brass before strings');
+  assert.deepStrictEqual(CORE.musicLayerGains(NaN), calm);
 
-  // stepMusicPulsePhase:
-  const phaseStep = CORE.stepMusicPulsePhase(0, 0.5, 60);
-  assert.ok(Math.abs(phaseStep - 0.5) < 1e-4);
-  // Wraps around 1.0
-  const phaseWrap = CORE.stepMusicPulsePhase(0.9, 0.2, 60);
-  assert.ok(Math.abs(phaseWrap - 0.1) < 1e-4);
-  assert.ok(phaseWrap >= 0 && phaseWrap < 1);
-  assert.strictEqual(CORE.stepMusicPulsePhase('bad', 0, 60), 0);
+  // drums: density climbs with intensity, the downbeat always lands
+  const count = (i) => { let n = 0; for (let s = 0; s < 16; s++) { const h = CORE.musicDrumHits(s, i); n += (h.kick > 0) + (h.snare > 0) + (h.hat > 0) + (h.boom > 0); } return n; };
+  assert.ok(count(0) < count(0.3) && count(0.3) < count(0.6) && count(0.6) < count(0.9));
+  for (const i of [0, 0.3, 0.6, 0.9]) assert.ok(CORE.musicDrumHits(0, i).boom > 0);
+  assert.strictEqual(CORE.musicDrumHits(4, 0.3).snare, 0);
+  assert.ok(CORE.musicDrumHits(4, 0.6).snare > 0, 'backbeat from mid intensity');
+  const lastBar = (CORE.MUSIC_PHRASE_BARS - 1) * 16;
+  assert.ok(CORE.musicDrumHits(lastBar + 13, 0.9).tom > 0, 'fill into the next phrase');
+  assert.strictEqual(CORE.musicDrumHits(13, 0.9).tom, 0);
 
-  // musicPulseEnvelope:
-  assert.strictEqual(CORE.musicPulseEnvelope(0), 1.0);
-  assert.strictEqual(CORE.musicPulseEnvelope(1.0), 0.0);
-  assert.ok(Math.abs(CORE.musicPulseEnvelope(0.5) - Math.pow(0.5, 6)) < 1e-4);
-  assert.strictEqual(CORE.musicPulseEnvelope('bad'), 1.0);
-
-  // musicPulseGain:
-  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4);
-  assert.ok(Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4);
-  assert.ok(Math.abs(CORE.musicPulseGain(0.5, 0.5) - (0.5 * (0.05 + 0.25))) < 1e-4);
-  assert.strictEqual(CORE.musicPulseGain(0, 1.0), 0);
+  // bass sits on the chord root (or its octave); arp stays inside the chord
+  for (let n = 0; n < CORE.MUSIC_PHRASE_BARS * 16; n++) {
+    const chord = CORE.musicChordAt(Math.floor(n / 16));
+    for (const i of [0.3, 0.9]) {
+      const b = CORE.musicBassNote(n, i);
+      assert.ok(b === -1 || b === chord.root || b === chord.root + 12);
+    }
+    const a = CORE.musicArpNote(n);
+    assert.ok(chord.notes.some(t => (a - t) % 12 === 0) && a > Math.max(...chord.notes));
+  }
+  assert.ok(CORE.musicBassNote(0, 0.3) >= 0 && CORE.musicBassNote(1, 0.3) === -1);
 
   // stationPurchaseSound:
   assert.strictEqual(CORE.stationPurchaseSound('armory'), 'armory_upgrade');
@@ -10003,3 +9991,134 @@ test('v162 visual polish: ballistic tracer caliber scaling and impact flash sphe
 
 
 
+
+
+test('grenadeWarnUrgency warns inside the blast margin for timed payloads only', () => {
+  const R = 7, reach = R * CORE.GRENADE_WARN_MARGIN;
+  assert.strictEqual(CORE.grenadeWarnUrgency(reach, R, 2, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 0, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(NaN, R, 2, 2.2, 'timed', false), 0);
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, Infinity, 2.2, 'timed', false), 0);
+  // claymores, thermite and tacticals never warn; nor does the player's own throw mid-air
+  for (const mode of ['proximity', 'burn', 'tactical']) {
+    assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 1, 2.2, mode, false), 0);
+  }
+  assert.strictEqual(CORE.grenadeWarnUrgency(1, R, 1, 2.2, 'timed', true), 0);
+  const edge = CORE.grenadeWarnUrgency(reach - 0.01, R, 2.2, 2.2, 'timed', false);
+  assert.ok(edge > 0 && Math.abs(edge - 0.2) < 1e-9, 'just inside the edge with a fresh fuse: shown, at the floor');
+  assert.ok(CORE.grenadeWarnUrgency(2, R, 2.2, 2.2, 'timed', false) > CORE.grenadeWarnUrgency(6, R, 2.2, 2.2, 'timed', false));
+  assert.ok(CORE.grenadeWarnUrgency(8, R, 0.3, 2.2, 'timed', false) > CORE.grenadeWarnUrgency(8, R, 2, 2.2, 'timed', false));
+  assert.strictEqual(CORE.grenadeWarnUrgency(0, R, 0.01, 2.2, 'timed', false), 1);
+});
+
+test('suppression stacks per near miss, holds briefly, then bleeds off', () => {
+  let l = CORE.suppressionAdd(0);
+  assert.ok(l > 0.15 && l < 0.3, 'one stray round barely registers');
+  for (let i = 0; i < 10; i++) l = CORE.suppressionAdd(l);
+  assert.strictEqual(l, 1, 'a sustained burst caps at full suppression');
+  assert.strictEqual(CORE.suppressionDecay(1, 0.1, CORE.SUPPRESS_HOLD - 0.01), 1);
+  const d = CORE.suppressionDecay(1, 0.1, CORE.SUPPRESS_HOLD + 0.01);
+  assert.ok(d < 1 && d > 0.85);
+  assert.strictEqual(CORE.suppressionDecay(0.05, 1, 5), 0);
+  assert.strictEqual(CORE.suppressionDecay(NaN, 0.1, 5), 0);
+  assert.strictEqual(CORE.suppressionDecay(0.5, NaN, 5), 0.5);
+  assert.ok(Math.abs(CORE.suppressionAdd(NaN) - CORE.suppressionAdd(0)) < 1e-12);
+});
+
+test('occlusion muffles blocked sources on top of air absorption', () => {
+  assert.strictEqual(CORE.occludedCutoff(6000, false), 6000);
+  assert.strictEqual(CORE.occludedCutoff(6000, true), CORE.OCCLUDED_CUTOFF);
+  assert.strictEqual(CORE.occludedCutoff(400, true), 400, 'never brighter than air absorption already made it');
+  assert.strictEqual(CORE.occludedCutoff(NaN, false), CORE.AIR_ABSORPTION_MAX_FREQ);
+  assert.strictEqual(CORE.occludedGain(false), 1);
+  assert.ok(CORE.occludedGain(true) < 1 && CORE.occludedGain(true) > 0.3);
+});
+
+
+test('shotgun: pellet cone, shell-by-shell loading, class sounds and price', () => {
+  // ADS tightens the fixed cone; hipfire bloom widens it a little
+  assert.ok(Math.abs(CORE.pelletConeSpread(0.05, 0, false) - 0.05) < 1e-12);
+  assert.ok(Math.abs(CORE.pelletConeSpread(0.05, 0, true) - 0.05 * CORE.PELLET_ADS_TIGHTEN) < 1e-12);
+  assert.ok(CORE.pelletConeSpread(0.05, 0.02, false) > CORE.pelletConeSpread(0.05, 0, false));
+  assert.strictEqual(CORE.pelletConeSpread(NaN, NaN, false), 0);
+  // one shell at a time, done when full or dry
+  let r = CORE.loadShell(0, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [1, 9, true, false]);
+  r = CORE.loadShell(5, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [6, 9, true, true]);
+  r = CORE.loadShell(2, 6, 1);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [3, 0, true, true]);
+  r = CORE.loadShell(6, 6, 10);
+  assert.deepStrictEqual([r.ammo, r.reserve, r.loaded, r.done], [6, 10, false, true]);
+  r = CORE.loadShell(3, 6, 0);
+  assert.strictEqual(r.loaded, false); assert.strictEqual(r.done, true);
+  // class sounds fall back to the type sound for the rifle family
+  assert.strictEqual(CORE.weaponClassFireSound('SG', 'AR', false), 'shotgun');
+  assert.strictEqual(CORE.weaponClassFireSound('SG', 'AR', true), 'shot_suppressed');
+  assert.strictEqual(CORE.weaponClassFireSound(undefined, 'SR', false), CORE.weaponFireSound('SR', false));
+  assert.strictEqual(CORE.weaponClassFireSound('', 'SMG', true), CORE.weaponFireSound('SMG', true));
+  // the cheapest wall buy, and reachable early
+  assert.ok(CORE.wallBuyPrice('SG') < CORE.wallBuyPrice('SMG'));
+  assert.ok(CORE.weaponUnlockRank(4) <= CORE.MAX_RANK);
+});
+
+
+test('LMG heat: builds per shot, holds briefly, bleeds off, and scales spread and kick', () => {
+  let h = 0;
+  for (let i = 0; i < 30; i++) h = CORE.lmgHeatAfterShot(h, 0.016);
+  assert.ok(Math.abs(h - 0.48) < 1e-9);
+  for (let i = 0; i < 100; i++) h = CORE.lmgHeatAfterShot(h, 0.016);
+  assert.strictEqual(h, 1, 'capped');
+  assert.strictEqual(CORE.lmgHeatDecay(0.8, 0.1, CORE.LMG_HEAT_HOLD - 0.01), 0.8, 'holds right after a shot');
+  assert.ok(CORE.lmgHeatDecay(0.8, 0.1, 1) < 0.8);
+  assert.strictEqual(CORE.lmgHeatDecay(0.01, 1, 5), 0);
+  assert.strictEqual(CORE.lmgHeatDecay(NaN, 0.1, 5), 0);
+  // quadratic: the opening of a burst is clean, a held trigger is not
+  assert.strictEqual(CORE.lmgHeatSpreadMul(0), 1);
+  assert.ok(CORE.lmgHeatSpreadMul(0.2) < 1.1);
+  assert.ok(CORE.lmgHeatSpreadMul(1) > 2);
+  assert.ok(CORE.lmgHeatRecoilMul(1) > 1.5 && CORE.lmgHeatRecoilMul(1) < CORE.lmgHeatSpreadMul(1));
+  assert.ok(CORE.wallBuyPrice('LMG') > CORE.wallBuyPrice('BR'));
+  assert.strictEqual(CORE.weaponClassFireSound('LMG', 'AR', false), 'lmg');
+});
+
+
+test('sidearm: a completely dry gun quick-draws it; reserve left still reloads', () => {
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 0, 3, true), true);
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 30, 0, 3, true), false, 'reserve left: reload instead');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(4, 0, 0, 3, true), false, 'rounds in the mag');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 3, 3, true), false, 'already holding it');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(0, 0, 0, 3, false), false, 'no sidearm carried');
+  assert.strictEqual(CORE.shouldQuickDrawSidearm(NaN, 0, 0, 3, true), false);
+  assert.ok(CORE.SIDEARM_QUICK_DRAW > 0 && CORE.SIDEARM_QUICK_DRAW < 1);
+  // touch SWAP names the class for the new guns, the type for the rifle family
+  const list = [{ type: 'AR' }, { type: 'AR', cls: 'SG' }, { type: 'SMG', cls: 'PST' }];
+  assert.strictEqual(CORE.touchSwapLabel(0, [0, 1, -1, 2], list, false, false, false), 'SG');
+  assert.strictEqual(CORE.touchSwapLabel(1, [0, 1, -1, 2], list, false, false, false), 'PST');
+  assert.strictEqual(CORE.touchSwapLabel(3, [0, 1, -1, 2], list, false, false, false), 'AR');
+  assert.strictEqual(CORE.weaponClassFireSound('PST', 'SMG', false), 'pistol');
+});
+
+
+test('breacher: wave 7 shotgun archetype, lethal close and harmless past its range', () => {
+  assert.ok(!kindsAt(6).has(6), 'no breachers before wave 7');
+  assert.ok(kindsAt(7).has(6), 'breachers from wave 7');
+  assert.ok(CORE.enemyBaseHealth(6, 100) > CORE.enemyBaseHealth(1, 100), 'tougher than a rifleman');
+  assert.strictEqual(CORE.isEnemyFlanker(6, true, 0), false, 'charges, never flanks');
+  assert.strictEqual(CORE.enemyHasHelmet(6), true);
+  assert.ok(CORE.enemyMoveSpeed(6, 'chase', 20, 44, 1) > CORE.enemyMoveSpeed(1, 'chase', 60, 44, 1), 'charges faster than a rifleman walks');
+  // hit chance falls with range and is zero at the edge
+  assert.ok(CORE.breacherPelletHitChance(3) > CORE.breacherPelletHitChance(8));
+  assert.strictEqual(CORE.breacherPelletHitChance(CORE.BREACHER_RANGE), 0);
+  assert.strictEqual(CORE.canBreacherFire(CORE.BREACHER_RANGE + 1, true, false), false);
+  assert.strictEqual(CORE.canBreacherFire(5, false, false), false, 'needs line of sight');
+  assert.strictEqual(CORE.canBreacherFire(5, true, true), false);
+  assert.strictEqual(CORE.canBreacherFire(5, true, false), true);
+  // pellets: rolls under the chance hit
+  const all = new Array(CORE.BREACHER_PELLETS).fill(0);
+  const none = new Array(CORE.BREACHER_PELLETS).fill(0.999);
+  assert.strictEqual(CORE.breacherPelletHits(3, all), CORE.BREACHER_PELLETS);
+  assert.strictEqual(CORE.breacherPelletHits(3, none), 0);
+  assert.strictEqual(CORE.breacherPelletHits(20, all), 0, 'out of range: nothing lands');
+  assert.strictEqual(CORE.breacherPelletHits(3, null), 0);
+});

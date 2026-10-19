@@ -101,6 +101,7 @@ function resetGame() {
   runPhase = 'active';
   paused = false;   // never reset into a paused state
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+  suppression = 0;
   // remove all enemies + pickups + grenades
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;
@@ -260,6 +261,7 @@ function buildGunsmith() {
   const wrap = $id('gs-weapons');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
+    if (w.sidearm) return;
     const b = document.createElement('button');
     const unlocked = CORE.weaponUnlocked(i, rank);
     b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
@@ -408,6 +410,7 @@ function buildGunSelect(slot) {
   const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
     if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
+    if (w.sidearm) return;                                       // always carried
     const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
     card.className = 'gun-card' + (unlocked ? '' : ' locked');
@@ -416,8 +419,8 @@ function buildGunSelect(slot) {
     if (unlocked) enableMenuKeyboard(card);
     const scoped = w.type === 'BR' || w.type === 'SR';
     card.innerHTML = '<div class="gc-name">' + w.name.toUpperCase() + '</div>' +
-      '<div class="gc-type">' + ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type] + '</div>' +
-      '<div class="gc-stats">Damage <b>' + w.dmg + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
+      '<div class="gc-type">' + (({ SG: 'SHOTGUN', LMG: 'LIGHT MACHINE GUN', PST: 'PISTOL' })[w.cls] || ({ AR: 'ASSAULT RIFLE', SMG: 'SMG', BR: 'BATTLE RIFLE', SR: 'SNIPER RIFLE' })[w.type]) + '</div>' +
+      '<div class="gc-stats">Damage <b>' + w.dmg + (w.pellets > 1 ? '×' + w.pellets : '') + '</b> · RPM <b>' + w.rpm + '</b><br>Mag <b>' + w.mag + '</b> · ' + (scoped ? 'Scoped ADS' : 'Iron sights') + '<br>' + (w.auto ? 'Full auto' : 'Semi auto') + ' · ' + (scoped ? 'High' : w.type === 'AR' ? 'Mid' : 'Low') + ' recoil</div>' +
       (unlocked ? '' : '<div class="gc-lock">LOCKED · RANK ' + CORE.weaponUnlockRank(i) + '</div>');
     if (unlocked) card.addEventListener('click', function () { pickGun(i); });
     wrap.appendChild(card);
@@ -808,6 +811,8 @@ function frame(now) {
     _musicState.health = player.health;
     updateMusic(dt, _musicState);
     updateHitArcs();
+    updateGrenadeWarnings();
+    updateSuppression(dt);
     updateHudHealth();
     // HUD canvases (minimap + compass) redraw at 20 Hz instead of every
     // frame: they cost significant CPU overhead on 2D contexts and the

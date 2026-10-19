@@ -20,6 +20,8 @@ const STATION_LAYOUT = [
   { kind: 'wall', x:  34, z:  30, weapon: 0 },   // M4
   { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
   { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
+  { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
+  { kind: 'wall', x:  40, z:   4, weapon: 5 },   // M249, east flank, outside the districts
   { kind: 'armory', x: 0, z: -22 },
   { kind: 'plate',  x: 0, z:  20 },
   { kind: 'perk', x: -21, z:  10, perk: 'jugg' },
@@ -221,7 +223,7 @@ function stationOffer(st, out) {
     const s = held >= 0 ? wState[held] : null;
     const reserve = s ? s.reserve : 0;
     const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
-    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.type, reserve, reserveMax, _wallOfferOut);
+    const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.cls || w.type, reserve, reserveMax, _wallOfferOut);
     if (offer.action === 'full') {
       res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
       return res;
@@ -326,10 +328,11 @@ function purchase(st) {
       showCenterMsg('+ AMMO');
     } else {
       // Replace the weapon in the CURRENT slot. Replacing the other one would
-      // silently discard whatever the player was holding. The marksman slot is
-      // not for trading: holding it, the buy lands in slot 1 (or 2 if empty).
+      // silently discard whatever the player was holding. The marksman and
+      // sidearm slots are not for trading: holding either, the buy lands in
+      // slot 1 (or 2 if empty).
       const w = CFG.weapons[st.weapon];
-      if (curWeapon === MARKSMAN_SLOT) curWeapon = weaponsOwned[1] < 0 ? 1 : 0;
+      if (curWeapon >= MARKSMAN_SLOT) curWeapon = weaponsOwned[1] < 0 ? 1 : 0;
       weaponsOwned[curWeapon] = st.weapon;
       wState[curWeapon] = { ammo: w.mag, reserve: w.reserveMax, reloading: false, reloadT: 0, nextShot: 0 };
       refreshWeaponStats(curWeapon);

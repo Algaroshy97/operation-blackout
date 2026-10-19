@@ -297,12 +297,13 @@ const hitArcs = [];
 })();
 let hitArcNext = 0;
 let _activeHitArcCount = 0;
-function showHitArc(screenDeg, isArmor) {
+function showHitArc(screenDeg, isArmor, isMiss) {
   const a = hitArcs[hitArcNext];
   hitArcNext = (hitArcNext + 1) % HIT_ARC_POOL;
   if (a.t < 0) _activeHitArcCount++;
   a.el.style.transform = 'rotate(' + screenDeg + 'deg)';
   a.el.classList.toggle('armor', !!isArmor);
+  a.el.classList.toggle('miss', !!isMiss);
   a.el.style.opacity = '0.9';
   a.lastOp = 0.9;
   a.t = gameT;
@@ -318,7 +319,7 @@ function updateHitArcs() {
     const op = CORE.hitArcOpacity(age, HIT_ARC_LIFE, 0.6, 0.9);
     if (op <= 0) {
       if (a.el.style.opacity !== '0') a.el.style.opacity = '0';
-      a.el.classList.remove('armor');
+      a.el.classList.remove('armor', 'miss');
       a.t = -99;
       a.lastOp = 0;
       if (_activeHitArcCount > 0) _activeHitArcCount--;
@@ -328,6 +329,71 @@ function updateHitArcs() {
         CORE.syncHitArcOpacity(a, op);
       }
     }
+  }
+}
+
+// ---- Suppression ----
+// Near misses (40_enemies.js) that had a clear line to the player: a grey arc
+// toward the shooter and a suppression level that darkens (and, with post-FX,
+// blurs) the screen edges. The whiz itself is bulletWhizSound, already played.
+let suppression = 0, lastNearMissT = -99;
+const suppressVig = $id('suppress-vignette');
+function noteNearMiss(dirDeg) {
+  suppression = CORE.suppressionAdd(suppression);
+  lastNearMissT = gameT;
+  showHitArc(CORE.screenHitAngle(dirDeg, player.yaw), false, true);
+}
+function updateSuppression(dt) {
+  if (player.dead) suppression = 0;
+  suppression = CORE.suppressionDecay(suppression, dt, gameT - lastNearMissT);
+  const op = (suppression * 0.85).toFixed(3);
+  if (suppressVig._op !== op) { suppressVig.style.opacity = op; suppressVig._op = op; }
+}
+
+// ---- Live-grenade warnings ----
+// A pooled marker per nearby live grenade, on the same ring as the hit arcs: an
+// arrow pointing at it and an upright icon that turns red and blinks once the fuse
+// or the distance makes it urgent. Rules live in CORE.grenadeWarnUrgency.
+const GREN_WARN_POOL = 4;
+const grenWarns = [];
+(function buildGrenWarns() {
+  const icon = '<svg viewBox="0 0 20 20"><rect x="8" y="1.5" width="5" height="3" rx="0.6" fill="#ffb020"/>' +
+    '<path d="M13 3h3.2v1.6H13z" fill="#ffb020"/><ellipse cx="10" cy="12" rx="5.6" ry="6.4" fill="#ffb020"/>' +
+    '<path d="M5 10.5h10M5 13.5h10" stroke="#3a2008" stroke-width="1"/></svg>';
+  for (let i = 0; i < GREN_WARN_POOL; i++) {
+    const el = document.createElement('div');
+    el.className = 'gren-warn';
+    el.innerHTML = '<div class="gw"><div class="gw-arrow"></div><div class="gw-icon">' + icon + '</div></div>';
+    hud.hitDir.appendChild(el);
+    grenWarns.push({ el: el, icon: el.querySelector('.gw-icon'), on: false });
+  }
+})();
+function updateGrenadeWarnings() {
+  let n = 0;
+  if (!player.dead) {
+    for (let i = 0; i < liveGrenades.length && n < GREN_WARN_POOL; i++) {
+      const g = liveGrenades[i];
+      const def = g.def || CORE.LETHALS[0];
+      const p = g.m.position;
+      const ownInFlight = !g.fromEnemy && !g.atRest && !g.stuck;
+      const u = CORE.grenadeWarnUrgency(player.pos.distanceTo(p), CFG.grenade.radius,
+        g.fuse, def.fuse, def.mode, ownInFlight);
+      if (u <= 0) continue;
+      const w = grenWarns[n++];
+      const deg = CORE.screenHitAngle(CORE.worldBearing(player.pos.x, player.pos.z, p.x, p.z), player.yaw);
+      w.el.style.transform = 'rotate(' + deg.toFixed(1) + 'deg)';
+      w.icon.style.transform = 'rotate(' + (-deg).toFixed(1) + 'deg) scale(' + (0.85 + 0.3 * u).toFixed(3) + ')';
+      w.el.style.opacity = (0.55 + 0.45 * u).toFixed(3);
+      w.el.classList.toggle('hot', u > 0.6);
+      w.on = true;
+    }
+  }
+  for (let i = n; i < GREN_WARN_POOL; i++) {
+    const w = grenWarns[i];
+    if (!w.on) continue;
+    w.el.style.opacity = '0';
+    w.el.classList.remove('hot');
+    w.on = false;
   }
 }
 
@@ -406,7 +472,7 @@ function pushKillfeed(html) {
 // row award an escalating bonus (x2, x3, ... capped at x5); the window resets
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
 // Minimap colours, one per archetype, so a glance tells you what is coming.
-const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a' };
+const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a', 6: '#e0503a' };
 const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
@@ -770,7 +836,10 @@ function unlockSecondary() {
   // The player's deploy-time pick, not an arbitrary roster neighbour.
   let gi = (typeof pendingSecondary !== 'undefined' && pendingSecondary >= 0)
     ? pendingSecondary : (weaponsOwned[0] + 1) % CFG.weapons.length;
-  if (gi === weaponsOwned[0]) gi = (gi + 1) % CFG.weapons.length;
+  // never the primary, and never the sidearm, which is already carried
+  for (let k = 0; k < CFG.weapons.length && (gi === weaponsOwned[0] || CFG.weapons[gi].sidearm); k++) {
+    gi = (gi + 1) % CFG.weapons.length;
+  }
   weaponsOwned[1] = gi;
   // Build slot-1 state directly — initWeapons() would also reset slot 0's
   // live ammo/reserve, a hidden free refill mid-run.

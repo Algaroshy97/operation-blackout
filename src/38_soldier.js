@@ -41,7 +41,8 @@ const SOLDIER_KITS = [
   { name: 'tank', cloth: sdMat(0x585858, TEX.camo.map), pants: sdMat(0x3a3a3c, TEX.camo.map), vest: SDM.plate, helmet: sdMat(0x18191b, null, 0.55, 0.4) },
   { name: 'shielded', cloth: sdMat(0x7890c0, TEX.camo.map), pants: sdMat(0x3c4a66, TEX.camo.map), vest: sdMat(0x2a3448), helmet: sdMat(0x3a5480, null, 0.6, 0.3) },
   { name: 'scout', cloth: sdMat(0xa8d888, TEX.camo.map), pants: sdMat(0x5a7a44, TEX.camo.map), vest: sdMat(0x33422a), helmet: null, cap: sdMat(0x4a6a34) },
-  { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) }
+  { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) },
+  { name: 'breacher', cloth: sdMat(0x3a3a40, TEX.camo.map), pants: sdMat(0x26262a, TEX.camo.map), vest: sdMat(0x7a1e1a), helmet: sdMat(0x1c1c20, null, 0.6, 0.3) }
 ];
 const SDM_SHIELD = sdMat(0x2a3446, TEX.paint.map, 0.5, 0.55);
 const SDM_SHIELD_GLASS = sdMat(0x0a1420, null, 0.05, 0.9, { transparent: true, opacity: 0.65 });
@@ -268,6 +269,15 @@ function buildSoldierTemplate(kind) {
     const knife = sdJoint(root.getObjectByName('haR'), 'knife', 0, -0.07, 0.04);
     sdPiece(knife, sdBoxG(0.012, 0.035, 0.2), SDM.blade, 0, 0, 0.1);
     sdPiece(knife, sdBoxG(0.025, 0.04, 0.09), SDM.gun, 0, 0, -0.03);
+  } else if (kind === 6) {
+    // breacher: pump shotgun, tube under the barrel, shell carrier on the stock
+    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);                      // receiver
+    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);   // barrel
+    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0); // tube
+    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);               // pump
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);               // stock
+    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);   // shells
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);    // grip
   } else {
     const lmg = heavy;
     sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);                    // receiver
@@ -370,7 +380,7 @@ function animateSoldier(en, dt, dist) {
   J.hips.rotation.y = Math.sin(ph) * 0.12 * moveK * fwdK;
   // ---- upper body ----
   // riflemen shoulder the weapon while trading shots; the tank hip-fires up close
-  const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe');
+  const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe') || (en.kind === 6 && dist < CORE.BREACHER_RANGE + 4);
   const pitch = Math.atan2(player.pos.y - (en.pos.y + 1.45), Math.max(0.5, dist));
   let lean = 0.08 * moveK + run * 0.2 + cr * 0.25 + ((en.kind === 0 || en.kind === 4) && en.state === 'chase' ? 0.15 : 0);
   if (en.kind === 3) lean += 0.12;   // shoulder into the shield

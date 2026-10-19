@@ -968,7 +968,7 @@ const CORE = (function () {
 
   // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
   // available so a new player still has a choice on their first deploy.
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6];
+  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4, 1];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -1041,6 +1041,7 @@ const CORE = (function () {
   //   4 scout      wave 3    fast, fragile, always flanks — punishes tunnel vision
   //   2 tank       wave 4    slow, heavy, huge health pool
   //   5 grenadier  wave 6    lobs frags from range — has to be pushed or avoided
+  //   6 breacher   wave 7    charges with a shotgun — lethal close, harmless far
   //   3 shielded   wave 9    frontal plate, must be flanked
   // Weights rather than nested thresholds, so adding a kind cannot silently
   // starve an existing one.
@@ -1050,6 +1051,7 @@ const CORE = (function () {
     { kind: 4, wave: 3, weight: 0.45, name: 'Scout' },
     { kind: 2, wave: 4, weight: 0.3,  name: 'Tank' },
     { kind: 5, wave: 6, weight: 0.35, name: 'Grenadier' },
+    { kind: 6, wave: 7, weight: 0.4,  name: 'Breacher' },
     { kind: 3, wave: 9, weight: 0.5,  name: 'Shielded advancer' }
   ];
   // Every ground kind must hold a stop distance. player.pos sits at eye height, so
@@ -1075,6 +1077,7 @@ const CORE = (function () {
       : kind === 3 ? 2.0
       : kind === 4 ? cfg.chaseSpeed * 1.35
       : kind === 5 ? 2.6
+      : kind === 6 ? cfg.speed * 1.2
       : cfg.speed);
     else if (state === 'strafe') speed = cfg.rangedSpeed;
     else speed = cfg.speed * 0.5;
@@ -2253,7 +2256,7 @@ const CORE = (function () {
 
   // Wall buys. Priced by class rather than per weapon, so adding a weapon cannot
   // leave a station with an undefined price.
-  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000 };
+  const WALL_BUY_PRICE = { smg: 1000, ar: 1200, br: 1500, sr: 2000, sg: 900, lmg: 1800 };
   const AMMO_REFILL_DIVISOR = 3;
   function wallBuyPrice(type) {
     const p = WALL_BUY_PRICE[String(type || '').toLowerCase()];
@@ -2491,7 +2494,7 @@ const CORE = (function () {
     if (isSwitching) return 'DRAW';
     const wid = weaponsOwned[nextSlot];
     if (Array.isArray(weaponsList) && weaponsList[wid] && typeof weaponsList[wid].type === 'string') {
-      return weaponsList[wid].type;
+      return typeof weaponsList[wid].cls === 'string' ? weaponsList[wid].cls : weaponsList[wid].type;
     }
     return 'SWAP';
   }
@@ -3445,7 +3448,8 @@ const CORE = (function () {
     2: 3.2,   // tank
     3: 2.2,   // shielded advancer
     4: 0.55,  // scout
-    5: 1.2    // grenadier
+    5: 1.2,   // grenadier
+    6: 1.5    // breacher
   };
 
   const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
@@ -5073,15 +5077,6 @@ const CORE = (function () {
   const MUSIC_FALL_RATE = 0.5;
   const MUSIC_BASE_BUS_GAIN = 0.22;
   const MUSIC_INTENSITY_BUS_SCALE = 0.5;
-  const MUSIC_TENSION_THRESHOLD = 0.25;
-  const MUSIC_TENSION_MAX_GAIN = 0.16;
-  const MUSIC_BASE_CUTOFF = 200;
-  const MUSIC_MAX_CUTOFF_SCALE = 900;
-  const MUSIC_BASE_BPM = 46;
-  const MUSIC_MAX_BPM_SCALE = 86;
-  const MUSIC_PULSE_BASE_GAIN = 0.05;
-  const MUSIC_PULSE_MAX_GAIN_SCALE = 0.5;
-  const MUSIC_PULSE_EXPONENT = 6;
 
   function stepMusicIntensity(currentIntensity, targetIntensity, dt, riseRate, fallRate) {
     const cur = (_isNum(currentIntensity)) ? currentIntensity : 0;
@@ -5102,40 +5097,118 @@ const CORE = (function () {
     return vol * (MUSIC_BASE_BUS_GAIN + i * MUSIC_INTENSITY_BUS_SCALE);
   }
 
-  function musicTensionGain(intensity) {
-    const i = (_isNum(intensity)) ? _clamp01(intensity) : 0;
-    if (i <= MUSIC_TENSION_THRESHOLD) return 0;
-    return Math.min(MUSIC_TENSION_MAX_GAIN, ((i - MUSIC_TENSION_THRESHOLD) / (1 - MUSIC_TENSION_THRESHOLD)) * MUSIC_TENSION_MAX_GAIN);
+  // ---- Adaptive score: chart, layers and patterns ----
+  // The old score was a sawtooth drone held on one chord plus a noise "heartbeat"
+  // gated per frame (which crackled at low frame rates). This is a real cue: a
+  // i-VI-iv-V progression in D minor, built in layers that enter with the fight.
+  // Calm is a pad and a distant boom; combat adds bass ostinato, drums, brass
+  // swells and finally a sixteenth-note string arpeggio. Everything here is pure
+  // data and rules; 50_vfx_audio.js turns it into scheduled notes.
+  const MUSIC_BPM = 104;
+  const MUSIC_STEPS_PER_BAR = 16;
+  const MUSIC_BARS_PER_CHORD = 2;
+  const MUSIC_CHART = [
+    { name: 'Dm', root: 38, notes: [50, 53, 57] },
+    { name: 'Bb', root: 34, notes: [46, 50, 53] },
+    { name: 'Gm', root: 31, notes: [43, 46, 50] },
+    { name: 'A',  root: 33, notes: [45, 49, 52] }    // major V: the C# pulls back home
+  ];
+  const MUSIC_PHRASE_BARS = MUSIC_CHART.length * MUSIC_BARS_PER_CHORD;
+  const MUSIC_ARP_SHAPE = [0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 4, 3, 2, 1, 2, 3];
+
+  function musicClamp01(v) {
+    return (typeof v === 'number' && isFinite(v)) ? Math.max(0, Math.min(1, v)) : 0;
+  }
+  function musicSmooth(e0, e1, x) {
+    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  }
+  function musicStepSeconds(bpm) {
+    const b = (typeof bpm === 'number' && isFinite(bpm) && bpm > 0) ? bpm : MUSIC_BPM;
+    return 60 / b / 4;
+  }
+  function midiToHz(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  }
+  function musicChordAt(bar) {
+    const b = (typeof bar === 'number' && isFinite(bar) && bar > 0) ? Math.floor(bar) : 0;
+    return MUSIC_CHART[Math.floor(b / MUSIC_BARS_PER_CHORD) % MUSIC_CHART.length];
+  }
+  function musicChordChanges(step) {
+    const s = (typeof step === 'number' && isFinite(step) && step > 0) ? Math.floor(step) : 0;
+    return s % (MUSIC_STEPS_PER_BAR * MUSIC_BARS_PER_CHORD) === 0;
   }
 
-  function musicFilterCutoff(intensity) {
-    const i = (_isNum(intensity)) ? _clamp01(intensity) : 0;
-    return MUSIC_BASE_CUTOFF + i * MUSIC_MAX_CUTOFF_SCALE;
+  // Layer levels by intensity. The pad never leaves (silence between waves reads
+  // as a bug), but steps back as the rhythm section comes in.
+  function musicLayerGains(intensity) {
+    const i = musicClamp01(intensity);
+    return {
+      pad: 0.55 - 0.2 * i,
+      drums: 0.35 + 0.65 * musicSmooth(0.05, 0.5, i),
+      bass: musicSmooth(0.15, 0.45, i),
+      horn: musicSmooth(0.45, 0.8, i),
+      arp: musicSmooth(0.6, 0.95, i)
+    };
   }
 
-  function musicPulseBpm(intensity) {
-    const i = (_isNum(intensity)) ? _clamp01(intensity) : 0;
-    return MUSIC_BASE_BPM + i * MUSIC_MAX_BPM_SCALE;
+  // Drum hits for one sixteenth step, as velocities 0..1 (0 = silent). Density is
+  // tiered so the groove changes character rather than just getting louder.
+  function musicDrumHits(step, intensity) {
+    const n = (typeof step === 'number' && isFinite(step) && step > 0) ? Math.floor(step) : 0;
+    const i = musicClamp01(intensity);
+    const s = n % MUSIC_STEPS_PER_BAR;
+    const bar = Math.floor(n / MUSIC_STEPS_PER_BAR);
+    const hits = { boom: 0, kick: 0, snare: 0, hat: 0, tom: 0 };
+    // distant taiko on the downbeat, heavier where the chord changes
+    if (s === 0) hits.boom = musicChordChanges(n) ? 0.9 : 0.55;
+    if (i < 0.15) {
+      if (s === 10) hits.boom = 0.35;
+      return hits;
+    }
+    if (s === 0 || s === 8) hits.kick = 0.9;
+    if (s % 4 === 2) hits.hat = 0.35;
+    if (i >= 0.45) {
+      if (s === 4 || s === 12) hits.snare = 0.85;
+      if (s === 7 || s === 10) hits.kick = 0.6;
+      if (s % 2 === 0) hits.hat = s % 4 === 2 ? 0.5 : 0.3;
+    }
+    if (i >= 0.75) {
+      hits.hat = Math.max(hits.hat, s % 2 ? 0.22 : 0.45);
+      if (s === 14) hits.kick = 0.55;
+      // fill into the top of the phrase
+      if (bar % MUSIC_PHRASE_BARS === MUSIC_PHRASE_BARS - 1 && s >= 12) {
+        hits.tom = 0.6 + (s - 12) * 0.1;
+        hits.snare = s === 15 ? 0.9 : 0;
+        hits.hat = 0;
+      }
+    }
+    return hits;
   }
 
-  function stepMusicPulsePhase(phase, dt, bpm) {
-    const p = (_isNum(phase)) ? phase : 0;
-    const d = _isPos(dt) ? dt : 0;
-    const b = _isPos(bpm) ? bpm : MUSIC_BASE_BPM;
-    let next = p + d * (b / 60);
-    next = next - Math.floor(next);
-    return next;
+  // Bass ostinato on the chord root: a driving 3-3-2 figure, filled to straight
+  // eighths with octave jumps once the fight is at full tilt. -1 = rest.
+  function musicBassNote(step, intensity) {
+    const n = (typeof step === 'number' && isFinite(step) && step > 0) ? Math.floor(step) : 0;
+    const i = musicClamp01(intensity);
+    const s = n % MUSIC_STEPS_PER_BAR;
+    const root = musicChordAt(Math.floor(n / MUSIC_STEPS_PER_BAR)).root;
+    if (i >= 0.7) {
+      if (s % 2) return -1;
+      return (s % 4 === 2) ? root + 12 : root;
+    }
+    if (s === 0 || s === 3 || s === 6 || s === 8 || s === 11) return root;
+    if (s === 14) return root + 12;
+    return -1;
   }
 
-  function musicPulseEnvelope(phase) {
-    const p = (_isNum(phase)) ? _clamp01(phase) : 0;
-    return Math.pow(1 - p, MUSIC_PULSE_EXPONENT);
-  }
-
-  function musicPulseGain(envelope, intensity) {
-    const env = (_isNum(envelope)) ? _clamp01(envelope) : 0;
-    const i = (_isNum(intensity)) ? _clamp01(intensity) : 0;
-    return env * (MUSIC_PULSE_BASE_GAIN + i * MUSIC_PULSE_MAX_GAIN_SCALE);
+  // String arpeggio: chord tones climbing through two octaves, every sixteenth.
+  function musicArpNote(step) {
+    const n = (typeof step === 'number' && isFinite(step) && step > 0) ? Math.floor(step) : 0;
+    const chord = musicChordAt(Math.floor(n / MUSIC_STEPS_PER_BAR));
+    const k = MUSIC_ARP_SHAPE[n % MUSIC_ARP_SHAPE.length];
+    const tones = chord.notes.length;
+    return chord.notes[k % tones] + 12 * (1 + Math.floor(k / tones));
   }
 
   // ---- Station purchases & tactical audio cues ----
@@ -6039,7 +6112,7 @@ const CORE = (function () {
 
   function isEnemyFlanker(kind, waveFlanking, rand) {
     if (kind === 4) return true;
-    if (kind === 3 || kind === 5) return false;
+    if (kind === 3 || kind === 5 || kind === 6) return false;
     const r = _isNum(rand) ? _clamp01(rand) : 0.5;
     return !!waveFlanking && r < 0.45;
   }
@@ -6573,8 +6646,8 @@ const CORE = (function () {
   }
 
   function enemyHasHelmet(kind) {
-    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5;
-    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier';
+    if (_isNum(kind)) return kind === 1 || kind === 2 || kind === 3 || kind === 5 || kind === 6;
+    return kind === 'rifleman' || kind === 'tank' || kind === 'shielded' || kind === 'grenadier' || kind === 'breacher';
   }
 
   function headshotVfxParams(hasHelmet) {
@@ -6892,6 +6965,164 @@ const CORE = (function () {
     return t === 'SMG' ? IMPACT_FLASH_SCALE_SMG : (t === 'BR' ? IMPACT_FLASH_SCALE_BR : (t === 'SR' ? IMPACT_FLASH_SCALE_SR : IMPACT_FLASH_SCALE_AR));
   }
 
+
+  // ---- Live-grenade proximity warning ----
+  // The fuse blink and the ground ring are both easy to miss: a frag that rolls in
+  // behind you, or under a car, gives no warning at all. The HUD marker shows while
+  // you are inside the blast plus a margin, so stepping clear is the cue to stop.
+  // Only timed payloads warn: a claymore is a placed trap and thermite a fire, and
+  // the player's own throw stays quiet until it lands, or it would flash every toss.
+  const GRENADE_WARN_MARGIN = 1.3;
+  const GRENADE_WARN_FLOOR = 0.2;
+
+  function grenadeWarnUrgency(dist, radius, fuse, fullFuse, mode, ownInFlight) {
+    if (mode !== 'timed' || ownInFlight) return 0;
+    if (typeof dist !== 'number' || !isFinite(dist) || dist < 0) return 0;
+    if (typeof radius !== 'number' || !isFinite(radius) || radius <= 0) return 0;
+    if (typeof fuse !== 'number' || !isFinite(fuse) || fuse <= 0) return 0;
+    const reach = radius * GRENADE_WARN_MARGIN;
+    if (dist >= reach) return 0;
+    const full = typeof fullFuse === 'number' && isFinite(fullFuse) && fullFuse > 0 ? fullFuse : fuse;
+    const close = 1 - dist / reach;
+    const late = 1 - Math.min(1, fuse / full);
+    return Math.max(GRENADE_WARN_FLOOR, Math.min(1, Math.max(close, late)));
+  }
+
+  // ---- Suppression from near misses ----
+  // A near miss already cracks past the player (bulletWhizSound), but nothing on
+  // screen changed, so a crowd that keeps missing read as nobody shooting. Each
+  // near miss stacks a little suppression; it holds briefly after the last one and
+  // then bleeds off, so a sustained burst builds and a stray shot barely registers.
+  const SUPPRESS_PER_MISS = 0.22;
+  const SUPPRESS_HOLD = 0.6;
+  const SUPPRESS_DECAY = 0.9;
+
+  function suppressionAdd(level) {
+    const l = typeof level === 'number' && isFinite(level) ? Math.max(0, level) : 0;
+    return Math.min(1, l + SUPPRESS_PER_MISS);
+  }
+
+  function suppressionDecay(level, dt, sinceLastMiss) {
+    if (typeof level !== 'number' || !isFinite(level) || level <= 0) return 0;
+    if (typeof dt !== 'number' || !isFinite(dt) || dt <= 0) return Math.min(1, level);
+    if (typeof sinceLastMiss === 'number' && sinceLastMiss < SUPPRESS_HOLD) return Math.min(1, level);
+    return Math.max(0, Math.min(1, level) - SUPPRESS_DECAY * dt);
+  }
+
+  // ---- Wall occlusion for positional audio ----
+  // Air absorption already dulls distant sounds, but a shot behind a wall sounded
+  // exactly like one in the open, so hearing someone was no help in finding them.
+  // A blocked source loses most of its top end and some level on top of that.
+  const OCCLUDED_CUTOFF = 700;
+  const OCCLUDED_GAIN = 0.55;
+
+  function occludedCutoff(cutoff, blocked) {
+    const c = typeof cutoff === 'number' && isFinite(cutoff) && cutoff > 0 ? cutoff : AIR_ABSORPTION_MAX_FREQ;
+    return blocked ? Math.min(c, OCCLUDED_CUTOFF) : c;
+  }
+
+  function occludedGain(blocked) {
+    return blocked ? OCCLUDED_GAIN : 1;
+  }
+
+
+  // ---- Weapon classes beyond the rifle family (M1) ----
+  // New guns keep an existing `type` ('AR'/'SMG'), so the forty-odd type switches
+  // above (falloff, bloom, sounds, casings, tracers...) give them sane rifle or
+  // SMG behaviour, and add a `cls` that drives what is genuinely new about them.
+  // Shotgun: a fixed pellet cone around the aim point. Hipfire bloom still widens
+  // it a little, ADS tightens it, and magnetism is skipped per pellet.
+  const PELLET_ADS_TIGHTEN = 0.75;
+  const PELLET_BLOOM_SHARE = 0.5;
+  const SHOTGUN_PUMP_DELAY_MS = 240;
+
+  function pelletConeSpread(pelletSpread, baseSpread, ads) {
+    const p = _isPos(pelletSpread) ? pelletSpread : 0;
+    const b = _isPos(baseSpread) ? baseSpread : 0;
+    return p * (ads ? PELLET_ADS_TIGHTEN : 1) + b * PELLET_BLOOM_SHARE;
+  }
+
+  // One shell into the tube. `done` once the tube is full or the reserve is dry.
+  function loadShell(ammo, mag, reserve, out) {
+    const o = out || { ammo: 0, reserve: 0, loaded: false, done: false };
+    const a = _isNum(ammo) ? Math.max(0, ammo) : 0;
+    const m = _isPos(mag) ? mag : 0;
+    const r = _isNum(reserve) ? Math.max(0, reserve) : 0;
+    o.loaded = a < m && r > 0;
+    o.ammo = o.loaded ? a + 1 : a;
+    o.reserve = o.loaded ? r - 1 : r;
+    o.done = o.ammo >= m || o.reserve <= 0;
+    return o;
+  }
+
+  // LMG: a barrel that heats with sustained fire. Heat widens the cone and the
+  // kick (quadratically, so the first second of a burst is clean) and bleeds off
+  // once the trigger has been off for a moment. Bursts beat a held trigger.
+  const LMG_HEAT_HOLD = 0.35;
+  const LMG_HEAT_DECAY = 0.5;
+  const LMG_HEAT_SPREAD = 1.4;
+  const LMG_HEAT_RECOIL = 0.7;
+
+  function lmgHeatAfterShot(heat, perShot) {
+    const h = _isNum(heat) ? Math.max(0, heat) : 0;
+    return Math.min(1, h + (_isPos(perShot) ? perShot : 0));
+  }
+  function lmgHeatDecay(heat, dt, sinceShot) {
+    if (!_isNum(heat) || heat <= 0) return 0;
+    if (!_isPos(dt) || (_isNum(sinceShot) && sinceShot < LMG_HEAT_HOLD)) return Math.min(1, heat);
+    return Math.max(0, Math.min(1, heat) - LMG_HEAT_DECAY * dt);
+  }
+  function lmgHeatSpreadMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_SPREAD * h * h;
+  }
+  function lmgHeatRecoilMul(heat) {
+    const h = _isNum(heat) ? _clamp01(heat) : 0;
+    return 1 + LMG_HEAT_RECOIL * h * h;
+  }
+
+  // Sidearm: the trigger on a completely dry gun (mag and reserve) draws the
+  // pistol instead of clicking. A gun with reserve left still auto-reloads, and
+  // the sidearm itself never swaps away from itself.
+  const SIDEARM_QUICK_DRAW = 0.5;   // gunSwitchT head start: about half the raise
+
+  function shouldQuickDrawSidearm(ammo, reserve, curSlot, sidearmSlot, sidearmOwned) {
+    if (!sidearmOwned || curSlot === sidearmSlot) return false;
+    return _isNum(ammo) && _isNum(reserve) && ammo <= 0 && reserve <= 0;
+  }
+
+  // Breacher (enemy kind 6): charges and fires a shotgun only inside its range.
+  // Each blast is BREACHER_PELLETS independent pellets whose hit chance falls with
+  // distance, so it is deadly at a doorway and a nuisance at 10 m: the answer is
+  // to keep it at range or kill it on the way in.
+  const BREACHER_RANGE = 12;
+  const BREACHER_ROF = 1.6;
+  const BREACHER_PELLETS = 8;
+  const BREACHER_PELLET_SHARE = 0.6;   // of the rifleman's per-round damage
+
+  function breacherPelletHitChance(dist) {
+    const d = _isNum(dist) ? Math.max(0, dist) : BREACHER_RANGE;
+    if (d >= BREACHER_RANGE) return 0;
+    return Math.max(0.05, Math.min(0.9, 0.9 - (d - 3) * 0.08));
+  }
+  function canBreacherFire(dist, hasLos, isPlayerDead) {
+    return !isPlayerDead && !!hasLos && _isNum(dist) && dist < BREACHER_RANGE;
+  }
+  // rolls: an array (or array-like) of BREACHER_PELLETS values in [0,1)
+  function breacherPelletHits(dist, rolls) {
+    const p = breacherPelletHitChance(dist);
+    let n = 0;
+    for (let i = 0; i < BREACHER_PELLETS; i++) if (rolls && _isNum(rolls[i]) && rolls[i] < p) n++;
+    return n;
+  }
+
+  function weaponClassFireSound(cls, weaponType, isSuppressed) {
+    if (cls === 'SG') return isSuppressed ? 'shot_suppressed' : 'shotgun';
+    if (cls === 'LMG') return isSuppressed ? 'br_suppressed' : 'lmg';
+    if (cls === 'PST') return isSuppressed ? 'smg_suppressed' : 'pistol';
+    return weaponFireSound(weaponType, isSuppressed);
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7012,10 +7243,9 @@ const CORE = (function () {
     objectiveLabel, objectiveHudChanged, syncObjectiveHudState, isScopeOverlayActive, scopeOverlayChanged,
     syncScopeOverlayState, isSteadyIndicatorVisible, steadyIndicatorLabel, steadyIndicatorChanged,
     syncSteadyIndicatorState, MUSIC_RISE_RATE, MUSIC_FALL_RATE, MUSIC_BASE_BUS_GAIN, MUSIC_INTENSITY_BUS_SCALE,
-    MUSIC_TENSION_THRESHOLD, MUSIC_TENSION_MAX_GAIN, MUSIC_BASE_CUTOFF, MUSIC_MAX_CUTOFF_SCALE,
-    MUSIC_BASE_BPM, MUSIC_MAX_BPM_SCALE, MUSIC_PULSE_BASE_GAIN, MUSIC_PULSE_MAX_GAIN_SCALE,
-    MUSIC_PULSE_EXPONENT, stepMusicIntensity, musicBusGain, musicTensionGain, musicFilterCutoff,
-    musicPulseBpm, stepMusicPulsePhase, musicPulseEnvelope, musicPulseGain, stationPurchaseSound,
+    MUSIC_BPM, MUSIC_STEPS_PER_BAR, MUSIC_BARS_PER_CHORD, MUSIC_PHRASE_BARS, MUSIC_CHART,
+    stepMusicIntensity, musicBusGain, musicStepSeconds, midiToHz, musicChordAt, musicChordChanges,
+    musicLayerGains, musicDrumHits, musicBassNote, musicArpNote, stationPurchaseSound,
     playerDownSound, playerReviveSound, touchUseLabel, touchUseChanged, syncTouchUseState,
     VIEWMODEL_HIP_X, VIEWMODEL_HIP_Y, VIEWMODEL_HIP_Z, VIEWMODEL_ADS_X, VIEWMODEL_ADS_Y, VIEWMODEL_ADS_Z,
     VIEWMODEL_BOB_SCALE, VIEWMODEL_KICK_Z_SCALE, VIEWMODEL_KICK_Y_SCALE, VIEWMODEL_BOLT_REST_Z,
@@ -7233,7 +7463,15 @@ const CORE = (function () {
     TRACER_CALIBER_SCALE_SMG, TRACER_CALIBER_SCALE_AR, TRACER_CALIBER_SCALE_BR, TRACER_CALIBER_SCALE_SR,
     tracerCaliberScale,
     IMPACT_FLASH_SCALE_SMG, IMPACT_FLASH_SCALE_AR, IMPACT_FLASH_SCALE_BR, IMPACT_FLASH_SCALE_SR,
-    impactFlashCaliberScale
+    impactFlashCaliberScale,
+    GRENADE_WARN_MARGIN, grenadeWarnUrgency,
+    SUPPRESS_HOLD, suppressionAdd, suppressionDecay,
+    OCCLUDED_CUTOFF, OCCLUDED_GAIN, occludedCutoff, occludedGain,
+    PELLET_ADS_TIGHTEN, SHOTGUN_PUMP_DELAY_MS, pelletConeSpread, loadShell, weaponClassFireSound,
+    LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
+    SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
+    BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
+    breacherPelletHitChance, canBreacherFire, breacherPelletHits
   };
 
 

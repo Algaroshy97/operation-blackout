@@ -150,6 +150,17 @@
   .hit-dir{position:absolute;opacity:0}
   .hit-dir .arc{position:absolute;top:-116px;left:-14px;width:28px;height:28px;border-top:4px solid #ff3020;border-radius:50%/100% 100% 0 0;transform:rotate(-45deg)}
   .hit-dir.armor .arc{border-top-color:#4fa3d8}
+  .hit-dir.miss .arc{border-top-color:#d8d8d0;border-top-width:2px}
+  #suppress-vignette{top:0;left:0;width:100%;height:100%;opacity:0;z-index:4;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(8,8,10,.55) 85%,rgba(0,0,0,.8) 100%)}
+  .gren-warn{position:absolute;left:0;top:0;opacity:0;pointer-events:none}
+  .gren-warn .gw{position:absolute;left:-19px;top:-172px;width:38px;height:52px;text-align:center}
+  .gren-warn .gw-arrow{width:0;height:0;margin:0 auto 2px;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:10px solid #ffb020}
+  .gren-warn .gw-icon{width:34px;height:34px;margin:0 auto;border-radius:50%;background:rgba(20,10,4,.72);border:2px solid #ffb020;box-shadow:0 0 10px rgba(255,120,20,.55);display:flex;align-items:center;justify-content:center}
+  .gren-warn .gw-icon svg{width:20px;height:20px}
+  .gren-warn.hot .gw-icon{border-color:#ff3a20;animation:gw-blink .32s infinite alternate}
+  .gren-warn.hot .gw-arrow{border-bottom-color:#ff3a20}
+  @keyframes gw-blink{to{background:rgba(160,24,8,.8)}}
+  body.reduced-motion .gren-warn.hot .gw-icon{animation:none;background:rgba(160,24,8,.8)}
   #damage-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 120px 40px rgba(180,0,0,0);transition:box-shadow .2s;z-index:5}
   #critical-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 90px 30px rgba(180,15,15,0);transition:opacity .25s ease-out;z-index:4;pointer-events:none;opacity:0}
   #critical-vignette.active{opacity:1;animation:crit-pulse 1.1s infinite alternate ease-in-out}
@@ -454,6 +465,7 @@
 <div id="steady-ind" class="hud"></div>
 <div id="damage-vignette" class="hud"></div>
 <div id="flash-overlay" class="hud"></div>
+<div id="suppress-vignette" class="hud"></div>
 <div id="hit-dir-container" class="hud"></div>
 <div id="crosshair" class="hud">
   <div class="c-dot"></div><div class="c-line c-v top"></div><div class="c-line c-v bot"></div>

@@ -1804,12 +1804,11 @@ def main() -> int:
             if (typeof CORE === 'undefined' ||
                 typeof CORE.stepMusicIntensity !== 'function' ||
                 typeof CORE.musicBusGain !== 'function' ||
-                typeof CORE.musicTensionGain !== 'function' ||
-                typeof CORE.musicFilterCutoff !== 'function' ||
-                typeof CORE.musicPulseBpm !== 'function' ||
-                typeof CORE.stepMusicPulsePhase !== 'function' ||
-                typeof CORE.musicPulseEnvelope !== 'function' ||
-                typeof CORE.musicPulseGain !== 'function' ||
+                typeof CORE.musicLayerGains !== 'function' ||
+                typeof CORE.musicDrumHits !== 'function' ||
+                typeof CORE.musicBassNote !== 'function' ||
+                typeof CORE.musicArpNote !== 'function' ||
+                typeof CORE.musicChordAt !== 'function' ||
                 typeof CORE.stationPurchaseSound !== 'function' ||
                 typeof CORE.playerDownSound !== 'function' ||
                 typeof CORE.playerReviveSound !== 'function') return false;
@@ -1821,23 +1820,11 @@ def main() -> int:
             const busZero = Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4;
             const busFull = Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4;
 
-            const tensionLow = CORE.musicTensionGain(0.2) === 0;
-            const tensionHigh = Math.abs(CORE.musicTensionGain(1.0) - 0.16) < 1e-4;
-
-            const cutoffLow = CORE.musicFilterCutoff(0) === 200;
-            const cutoffHigh = CORE.musicFilterCutoff(1.0) === 1100;
-
-            const bpmLow = CORE.musicPulseBpm(0) === 46;
-            const bpmHigh = CORE.musicPulseBpm(1.0) === 132;
-
-            const phaseStep = Math.abs(CORE.stepMusicPulsePhase(0, 0.5, 60) - 0.5) < 1e-4;
-            const phaseWrap = Math.abs(CORE.stepMusicPulsePhase(0.9, 0.2, 60) - 0.1) < 1e-4;
-
-            const envPeak = CORE.musicPulseEnvelope(0) === 1.0;
-            const envFloor = CORE.musicPulseEnvelope(1.0) === 0.0;
-
-            const pulseLow = Math.abs(CORE.musicPulseGain(1.0, 0) - 0.05) < 1e-4;
-            const pulseHigh = Math.abs(CORE.musicPulseGain(1.0, 1.0) - 0.55) < 1e-4;
+            const calm = CORE.musicLayerGains(0), full = CORE.musicLayerGains(1);
+            const layersOk = calm.pad > 0.4 && calm.bass === 0 && calm.arp === 0 &&
+                             full.bass === 1 && full.horn === 1 && full.arp === 1;
+            const chordOk = CORE.musicChordAt(0).name === 'Dm';
+            const drumsOk = CORE.musicDrumHits(0, 0).boom > 0 && CORE.musicDrumHits(4, 0.6).snare > 0;
 
             const sndArmory = CORE.stationPurchaseSound('armory') === 'armory_upgrade';
             const sndDoor = CORE.stationPurchaseSound('door') === 'door_unlock';
@@ -1864,10 +1851,7 @@ def main() -> int:
                              SOUND_VARIED.player_revive === 1;
 
             return riseStep && fallStep && fullTarget &&
-                   busZero && busFull && tensionLow && tensionHigh &&
-                   cutoffLow && cutoffHigh && bpmLow && bpmHigh &&
-                   phaseStep && phaseWrap && envPeak && envFloor &&
-                   pulseLow && pulseHigh &&
+                   busZero && busFull && layersOk && chordOk && drumsOk &&
                    sndArmory && sndDoor && sndWeapon && sndAmmo && sndPlate && sndPerk &&
                    sndDown && sndRevive && recipesOk && variedOk;
         }""")
@@ -5013,6 +4997,212 @@ def main() -> int:
                    vfxNorm && vfxSmg && vfxSr;
         }""")
         checks.append(("ballistic-tracer-and-impact-flash-rules", visual_v162_check))
+
+        # 113a) Live-grenade warning: an enemy frag at the player's back lights a
+        #       marker pointing behind; one far away, or the player's own mid-air
+        #       throw, does not.
+        gw = page.evaluate("""() => {
+            const mk = function (x, z, fuse, fromEnemy) {
+                const m = new THREE.Mesh(grenadeGeo, grenadeMat);
+                m.position.set(x, 0.11, z);
+                return { m: m, vel: new THREE.Vector3(), fuse: fuse, blink: m, atRest: !!fromEnemy, stuck: false,
+                         ring: null, restFuse: fuse, fromEnemy: fromEnemy, def: fromEnemy ? null : CORE.LETHALS[0] };
+            };
+            const saved = liveGrenades.splice(0, liveGrenades.length);
+            const savedPos = player.pos.clone(), savedYaw = player.yaw, savedDead = player.dead;
+            player.dead = false;
+            player.pos.set(0, CFG.player.height, 24);
+            player.yaw = 0;
+            const lit = function () {
+                updateGrenadeWarnings();
+                return grenWarns.filter(function (w) { return parseFloat(w.el.style.opacity) > 0; });
+            };
+            liveGrenades.push(mk(0, 27, 0.4, true));
+            const on = lit();
+            const behind = on.length === 1 && /rotate\\(180/.test(on[0].el.style.transform);
+            const hot = on.length === 1 && on[0].el.classList.contains('hot');
+            liveGrenades.length = 0;
+            liveGrenades.push(mk(0, 60, 2, true));
+            liveGrenades.push(mk(1, 24, 2.2, false));
+            const quiet = lit().length;
+            liveGrenades.length = 0;
+            const cleared = lit().length;
+            Array.prototype.push.apply(liveGrenades, saved);
+            player.pos.copy(savedPos); player.yaw = savedYaw; player.dead = savedDead;
+            return { behind: behind, hot: hot, quiet: quiet, cleared: cleared };
+        }""")
+        checks.append(("grenade-warning-points-at-grenade", gw["behind"] and gw["hot"]))
+        checks.append(("grenade-warning-ignores-far-and-own-throw", gw["quiet"] == 0))
+        checks.append(("grenade-warning-clears", gw["cleared"] == 0))
+
+        # 113b) Near misses stack suppression, draw a grey arc and darken the
+        #       screen edges; it bleeds off once the shooting stops.
+        sup = page.evaluate("""() => {
+            const savedDead = player.dead;
+            player.dead = false;
+            suppression = 0;
+            for (let i = 0; i < 5; i++) noteNearMiss(0);
+            const peak = suppression;
+            updateSuppression(1 / 60);
+            const vig = parseFloat(document.getElementById('suppress-vignette').style.opacity);
+            const arcs = document.querySelectorAll('.hit-dir.miss').length;
+            const t0 = gameT;
+            gameT = t0 + 5;
+            for (let i = 0; i < 180; i++) updateSuppression(1 / 60);
+            gameT = t0;
+            const after = suppression;
+            const vigAfter = parseFloat(document.getElementById('suppress-vignette').style.opacity);
+            player.dead = savedDead;
+            return { peak: peak, vig: vig, arcs: arcs, after: after, vigAfter: vigAfter };
+        }""")
+        checks.append(("near-misses-build-suppression", sup["peak"] > 0.9 and sup["vig"] > 0.5 and sup["arcs"] >= 1))
+        checks.append(("suppression-bleeds-off", sup["after"] == 0 and sup["vigAfter"] == 0))
+
+        # 113c) Occlusion: a sound with a wall between it and the player goes
+        #       through the occluded low-pass; the same sound in the open does not.
+        occ = page.evaluate("""() => {
+            const ctx = audioCtx();
+            if (!ctx) return { skipped: true };
+            const box = colliders.find(function (c) {
+                return c.max.y > 3 && c.min.y < 0.5 && (c.max.x - c.min.x) > 3 && (c.max.z - c.min.z) > 0.15;
+            });
+            if (!box) return { skipped: true };
+            const made = [];
+            const orig = ctx.createBiquadFilter;
+            ctx.createBiquadFilter = function () { const f = orig.call(ctx); made.push(f); return f; };
+            const cx = (box.min.x + box.max.x) / 2;
+            const saved = player.pos.clone(), savedDead = player.dead;
+            player.dead = false;
+            player.pos.set(cx, 1.6, box.max.z + 2.5);
+            playSound3D('eshot', cx, 0.2, box.min.z - 2.5);
+            const behindWall = made.length ? made[made.length - 1].frequency.value : -1;
+            playSound3D('eshot', cx, 0.2, box.max.z + 4.0);
+            const open = made.length ? made[made.length - 1].frequency.value : -1;
+            ctx.createBiquadFilter = orig;
+            player.pos.copy(saved); player.dead = savedDead;
+            return { skipped: false, behindWall: behindWall, open: open };
+        }""")
+        checks.append(("occluded-sounds-are-muffled", occ.get("skipped") or
+                       (0 < occ["behindWall"] <= 700 and occ["open"] > 700)))
+
+        # 113d) The score is a live sequencer: once deployed it has built its layer
+        #       graph and scheduled steps ahead on the audio clock.
+        mus = page.evaluate("""() => ({
+            built: MUSIC.built, running: MUSIC.running, steps: MUSIC.step,
+            layers: MUSIC.layers ? Object.keys(MUSIC.layers).sort().join(',') : ''
+        })""")
+        checks.append(("music-sequencer-running", bool(mus["built"]) and bool(mus["running"]) and mus["steps"] > 0
+                       and mus["layers"] == "arp,bass,drums,horn,pad"))
+
+        # 113e) Shotgun: eight pellets that fall off hard with range in a clear lane,
+        #       shell-by-shell reload, and the trigger cancels a reload in progress.
+        sg = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), pos: player.pos.clone(), god: godMode };
+            godMode = true;
+            const PX = -38, PZ = 10;
+            weaponsOwned[0] = 4; curWeapon = 0; wState[0] = null; freshWeaponState(0);
+            const dmgAt = function (d) {
+                spawnEnemy(1, PX, PZ - d);
+                const en = enemies[enemies.length - 1];
+                en.pos.set(PX, 0, PZ - d); en.parts.group.position.copy(en.pos);
+                en.health = 1e6; en.parts.group.updateMatrixWorld(true);
+                let tot = 0;
+                for (let i = 0; i < 12; i++) {
+                    bloom = 0; curS().ammo = 5; curS().nextShot = 0;
+                    player.pos.set(PX, CFG.player.height, PZ);
+                    camera.position.copy(player.pos); camera.lookAt(PX, 1.15, PZ - d); camera.updateMatrixWorld();
+                    const h0 = en.health; fireShot(false); tot += h0 - en.health;
+                }
+                en.dead = true; scene.remove(en.parts.group); enemies.splice(enemies.indexOf(en), 1);
+                return tot / 12;
+            };
+            const near = dmgAt(3), far = dmgAt(20);
+            const per = CORE.effectiveReloadDuration(curW().reload, CORE.perkReloadMul(perks), false, curW().type);
+            curS().ammo = 0; curS().reserve = 10; mouse1Down = false; tryReload();
+            updateWeapons(per + 0.001); const one = curS().ammo;
+            updateWeapons(per + 0.001); const two = curS().ammo;
+            mouse1Down = true; updateWeapons(0.001); const cancelled = !curS().reloading; mouse1Down = false;
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; player.pos.copy(saved.pos); godMode = saved.god; buildViewmodel();
+            return { near: near, far: far, one: one, two: two, cancelled: cancelled };
+        }""")
+        checks.append(("shotgun-pellets-fall-off-with-range", sg["near"] >= 100 and sg["far"] < sg["near"] * 0.4))
+        checks.append(("shotgun-shell-reload-and-trigger-cancel", sg["one"] == 1 and sg["two"] == 2 and sg["cancelled"]))
+
+        # 113f) LMG: a held trigger heats the barrel, which widens the cone and makes
+        #       the shroud glow; it cools once the trigger is released.
+        lmg = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), god: godMode };
+            godMode = true;
+            weaponsOwned[0] = 5; curWeapon = 0; wState[0] = null; freshWeaponState(0); buildViewmodel(); gunSwitchT = 1;
+            mouse1Down = true; player.sprinting = false;
+            for (let f = 0; f < 180; f++) { fireClockT += 1 / 60; updateWeapons(1 / 60); }
+            mouse1Down = false;
+            const hot = curS().heat, fired = 100 - curS().ammo;
+            updateViewmodel(1 / 60);
+            const glow = gunParts.heatMat ? gunParts.heatMat.emissiveIntensity : 0;
+            for (let f = 0; f < 300; f++) { fireClockT += 1 / 60; updateWeapons(1 / 60); }
+            const cooled = curS().heat;
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; godMode = saved.god; buildViewmodel();
+            return { hot: hot, fired: fired, glow: glow, cooled: cooled };
+        }""")
+        checks.append(("lmg-heat-builds-and-glows", lmg["fired"] >= 30 and lmg["hot"] > 0.4 and lmg["glow"] > 0.2))
+        checks.append(("lmg-cools-off-trigger", lmg["cooled"] == 0))
+
+        # 113g) Sidearm: always in slot 4 after deploy, key 4 draws it, a dry gun
+        #       quick-draws it, and a wall buy made while holding it leaves it alone.
+        pst = page.evaluate("""() => {
+            const saved = { owned: weaponsOwned.slice(), cur: curWeapon, ws: wState.slice(), credits: credits, god: godMode };
+            godMode = true;
+            const carried = weaponsOwned[SIDEARM_SLOT] >= 0 && !!CFG.weapons[weaponsOwned[SIDEARM_SLOT]].sidearm && !!wState[SIDEARM_SLOT];
+            gunSwitchT = 1; curWeapon = 0;
+            pressed['Digit4'] = true; updateWeapons(1 / 60); pressed['Digit4'] = false;
+            const key4 = curWeapon === SIDEARM_SLOT;
+            curWeapon = 0; gunSwitchT = 1;
+            const keepAmmo = curS().ammo, keepRes = curS().reserve;
+            curS().ammo = 0; curS().reserve = 0; mouse1Down = true;
+            updateWeapons(1 / 60); mouse1Down = false;
+            const quick = curWeapon === SIDEARM_SLOT && gunSwitchT >= CORE.SIDEARM_QUICK_DRAW;
+            wState[0].ammo = keepAmmo; wState[0].reserve = keepRes;
+            curWeapon = SIDEARM_SLOT; gunSwitchT = 1; credits = 99999;
+            const st = stations.find(function (x) { return x.kind === 'wall' && weaponsOwned.indexOf(x.weapon) < 0; });
+            if (st) purchase(st);
+            const kept = weaponsOwned[SIDEARM_SLOT] === saved.owned[SIDEARM_SLOT] && curWeapon !== SIDEARM_SLOT;
+            const cards = Array.from(document.querySelectorAll('#gun-select .gc-type')).some(function (e) { return e.textContent === 'PISTOL'; });
+            weaponsOwned.length = 0; Array.prototype.push.apply(weaponsOwned, saved.owned);
+            wState = saved.ws; curWeapon = saved.cur; credits = saved.credits; godMode = saved.god; gunSwitchT = 1; buildViewmodel();
+            return { carried: carried, key4: key4, quick: quick, kept: kept && !!st, pistolCard: cards };
+        }""")
+        checks.append(("sidearm-carried-in-slot-4", pst["carried"] and pst["key4"]))
+        checks.append(("sidearm-quick-draw-on-dry-gun", pst["quick"]))
+        checks.append(("sidearm-survives-wall-buy-and-is-not-a-deploy-pick", pst["kept"] and not pst["pistolCard"]))
+
+        # 113h) Breacher: fires inside its range with line of sight, never beyond it.
+        br = page.evaluate("""() => {
+            const savedPos = player.pos.clone(), savedDead = player.dead;
+            const real = window.damagePlayer;
+            const blastsAt = function (d) {
+                spawnEnemy(6, -38, 10 - d);
+                const en = enemies[enemies.length - 1];
+                en.state = 'chase'; en.stateT = 1;
+                let n = 0, last = 0;
+                window.damagePlayer = function () {};
+                for (let f = 0; f < 300; f++) {
+                    player.pos.set(-38, CFG.player.height, 10); player.dead = false;
+                    en.pos.set(-38, 0, 10 - d); en.parts.group.position.copy(en.pos);
+                    gameT += 1 / 60; updateEnemies(1 / 60);
+                    if (en.lastShotT && en.lastShotT !== last) { n++; last = en.lastShotT; }
+                }
+                en.dead = true; scene.remove(en.parts.group); enemies.splice(enemies.indexOf(en), 1);
+                return n;
+            };
+            const near = blastsAt(5), far = blastsAt(18);
+            window.damagePlayer = real;
+            player.pos.copy(savedPos); player.dead = savedDead;
+            return { near: near, far: far };
+        }""")
+        checks.append(("breacher-fires-close-not-far", br["near"] >= 2 and br["far"] == 0))
 
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics

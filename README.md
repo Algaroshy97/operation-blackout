@@ -24,28 +24,31 @@ Graphics settings are saved independently of controls:
 
 Auto preserves conservative touch defaults and existing desktop visuals; explicit choices override touch defaults. Reset restores auto. If browser storage is unavailable, changes still work for the current page but cannot persist. Higher settings cost CPU/GPU time and memory; physical-phone/native-GPU performance has not been verified by the headless tests.
 
-Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3 or wheel switch weapon · P/Esc pause.
+Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3/4 or wheel switch weapon · P/Esc pause.
 
 SETTINGS on the main menu or the pause screen covers mouse sensitivity, invert-Y, field of view, master volume, mute, graphics quality, reduced camera motion, high-contrast enemy markers and the FPS counter. Everything is saved in the browser, along with your best score, best wave and best accuracy.
 
-Pick a difficulty and both weapons at deploy. The SV-98 marksman rifle always rides along in slot 3 (key 3, the wheel, or SWAP on touch), with a mil-dot scope, rangefinder, breath sway you steady with Shift, a working bolt and wall penetration. Then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
+Pick a difficulty and both weapons at deploy. The SV-98 marksman rifle always rides along in slot 3 (key 3, the wheel, or SWAP on touch), with a mil-dot scope, rangefinder, breath sway you steady with Shift, a working bolt and wall penetration. An M1911 pistol is always in slot 4 (key 4): pull the trigger on a gun that is completely out of ammo and it comes up in half the usual time. Beyond the four rifles, the roster has an **M870 pump shotgun** (eight pellets that hit hard close and fall off fast, shells loaded one at a time, and firing cancels the reload; rank 2, or a west-flank wall buy) and an **M249 SAW** (a 100-round box whose barrel heats with sustained fire, widening the spread and kick and making the shroud glow; slow to aim; rank 4, or an east-flank wall buy). Then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
 
 Your run is **checkpointed after every wave**, so closing the tab does not cost you the session — RESUME RUN appears on the main menu.
 
 Hostiles escalate by *behaviour*, not just by count: they fire on the move from wave 5, flank from wave 8, fire in bursts from wave 10, and start throwing grenades to flush you out of cover from wave 12.
 
-New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
+New archetypes arrive across the whole curve, each announced as it shows up: **scouts** (wave 3) are fast, fragile and always flanking; **grenadiers** (wave 6) hold their distance and lob frags to deny your cover; **breachers** (wave 7) charge with pump shotguns that shred you inside 12 m and do nothing beyond it, so keep them at range or drop them on the way in; **shielded advancers** (wave 9) carry a frontal plate that absorbs most of what you put into it — flank them, headshot them, or grenade them.
 
-The soundtrack is synthesised in-browser and follows the fight: a drone between waves, a heartbeat that climbs from 46 to 132 bpm as enemies close in and your health drops. Every one-shot is rendered to a buffer once at deploy rather than re-synthesised per trigger, so firing costs a single buffer playback.
+A live frag or semtex close enough to hurt you shows an arrow and icon on screen pointing at it, turning red and blinking as the fuse runs down. Rounds that miss you crack past and draw a grey arc toward the shooter; sustained near misses suppress you, darkening and blurring the edges of the screen (no blur with reduced camera motion). Enemy sounds are positional, duller with distance, and muffled when a wall is between you and them.
+
+The soundtrack is synthesised in-browser and follows the fight: a D-minor cue at 104 bpm, sequenced on the audio clock. Between waves it is just a string pad and a distant taiko. Bass ostinato and drums come in as enemies close in and your health drops, then brass swells, and at full intensity a sixteenth-note string arpeggio and drum fills. Every one-shot is rendered to a buffer once at deploy rather than re-synthesised per trigger, so firing costs a single buffer playback.
 
 ## Repository layout
 
 - `dist/Operation Blackout.html` — the shippable, self-contained game (all assets embedded as base64; works from `file://`)
-- `src/` — modular source: pure core logic, config/world, player, touch input, weapons, enemies/AI, VFX/audio, grenades, HUD/waves, main loop
+- `src/` — modular source: pure core logic, settings, procedural textures, config/world, player, touch input, weapons and viewmodels, procedural soldiers and ragdolls, enemies/AI, particles, VFX/audio and the adaptive score, grenades, stations and scorestreaks, HUD/waves, post-processing, main loop
 - `src/01_core.js` — engine-free gameplay rules (distances, sub-stepping, ballistics, wave scaling, AI navigation). No THREE, no DOM, so it runs unchanged in the browser build *and* under `node --test`.
 - `vendor/` — three.js **r186** + GLTFLoader, bundled to a single IIFE (MIT). See `vendor/README.md` to regenerate.
-- `scripts/build.py` — assembles head + vendor + src into the single file
+- `scripts/build.py` — assembles head + vendor + src into the single file, dropping full-line `//` comments from the shipped copy (the `src/` files keep them) to stay inside the 2 MiB budget
 - `scripts/probe_live.py` — drives the built file in headless Chromium and probes live gameplay state
+- `ROADMAP.md` — what is planned next, milestone by milestone
 
 The `src/` tree is the readable code; the `dist/` file is what you run.
 
@@ -111,7 +114,9 @@ runs on explicitly identified devices and settings.
 
 ## Project status
 
-See [CHANGELOG.md](CHANGELOG.md) for recent commit-backed changes and
+See [CHANGELOG.md](CHANGELOG.md) for recent commit-backed changes,
+[ROADMAP.md](ROADMAP.md) for the forward plan (new weapons, game modes, a second map,
+Survival objectives, feel and AI, retention), and
 [AUDIT_AND_ROADMAP.md](AUDIT_AND_ROADMAP.md) for the findings register and planning
 history. Historical audit notes and commit labels are not a current hardware
 playability guarantee.

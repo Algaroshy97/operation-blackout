@@ -4,6 +4,55 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v164 — New weapons: M870 pump shotgun, M249 SAW, M1911 sidearm, and the breacher enemy
+
+- **M870 Express** (index 4, `type: 'AR'`, `cls: 'SG'`):
+  - 8 pellets × 16 damage in a fixed cone (`CORE.pelletConeSpread`, ADS ×`PELLET_ADS_TIGHTEN` 0.75). `fireShot()` now traces each pellet through the same round path (`traceRound()`), skips magnetism per pellet, and counts one shot once for accuracy.
+  - Measured in a clear lane: about 125 damage at 3 m, about 70 at 6 m, falling off hard past 15 m.
+  - Shell-by-shell reload (`CORE.loadShell`) that the trigger cancels.
+  - Pump sound and fore-end/hand animation after each shot.
+  - Viewmodel `vmBuildSG`: tube magazine, rib, bead and notch, or a red dot.
+  - Rank 2; west-flank wall buy at 900.
+- **M249 SAW** (index 5, `cls: 'LMG'`):
+  - 100-round box at 760 rpm.
+  - Barrel heat (`CORE.lmgHeatAfterShot`, `lmgHeatDecay`, `lmgHeatSpreadMul`, `lmgHeatRecoilMul`). It scales spread and kick quadratically, holds `LMG_HEAT_HOLD` 0.35 s after the last shot, then bleeds off. Every slot cools.
+  - The shroud glows from a per-build emissive material, which `disposeGunModel()` now frees, and the gun sizzles when hot.
+  - `adsSpeed` 0.72, `moveMul` 0.75, and a new `stfMul` 1.6 for sprint-to-fire.
+  - Viewmodel `vmBuildLMG` with a side-hung ammo box that the reload drops.
+  - Rank 4; east-flank wall buy at 1800.
+- **M1911** (index 6, `cls: 'PST'`, `sidearm: true`):
+  - Always carried in the new `SIDEARM_SLOT` 3 (key 4; the wheel and touch SWAP cycle through it).
+  - The trigger on a gun with no mag and no reserve quick-draws it (`CORE.shouldQuickDrawSidearm`, `SIDEARM_QUICK_DRAW` head start).
+  - Never a deploy pick, gunsmith entry, secondary unlock or wall-buy replacement.
+  - Viewmodel `vmBuildPST` (walnut grip, sliding slide).
+- **Breacher** (enemy kind 6, wave 7, weight 0.4):
+  - 1.5× health and a helmet; charges at 1.2× walk speed and never flanks.
+  - Fires a pump shotgun only inside `BREACHER_RANGE` 12 m with line of sight, every ~`BREACHER_ROF` 1.6 s. Its 8 pellets hit independently with a chance that falls with range (`CORE.breacherPelletHitChance`, `breacherPelletHits`). Measured at wave 1: about 34 damage per blast at 4 m, about 17 at 9 m, nothing past 12 m.
+  - Same cover and smoke re-check at impact as a rifle round; a blast that lands nothing suppresses.
+  - Dark kit with a red vest, a soldier shotgun model, and its own minimap and touch-mesh colours.
+- Shared changes:
+  - `CORE.weaponClassFireSound` picks `shotgun`/`lmg`/`pistol` and falls back to the type sound.
+  - New sounds: `pump`, `shell_in`, `sizzle`.
+  - Wall-buy prices by class (`sg` 900, `lmg` 1800).
+  - Deploy cards show SHOTGUN / LIGHT MACHINE GUN and pellet damage.
+  - The touch SWAP label shows the class.
+- Add regression tests in `tests/test_core.js`, plus probe checks 113e–g covering shotgun range falloff and shell reload, LMG heat/glow/cooling, and the sidearm slot, quick draw and wall-buy safety.
+- Local test verification: 502 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 201/201 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`; probe checks 113e–h). Checkpoint/resume verified with the shotgun and LMG as picks. The release artifact is 1,987,467 bytes.
+
+## v163 — Build comment stripping, grenade HUD warnings, near-miss suppression, wall occlusion, and an adaptive score
+
+- Build headroom: `scripts/build.py` now drops full-line `//` comments from the shipped file (`strip_line_comments`). Each module keeps its banner line, which `tests/test_release_build.py` checks. The `src/` modules keep every comment. With this release's features included, the artifact goes from 2,096,877 to 1,968,167 bytes, 128,985 under the 2,097,152-byte budget.
+- Live-grenade HUD warning (`CORE.grenadeWarnUrgency`, `CORE.GRENADE_WARN_MARGIN` = 1.3): each timed frag/semtex within its blast radius plus margin gets an arrow and icon on the hit-direction ring. It turns red and blinks as the fuse runs down or distance closes. Claymores, thermite, tacticals and the player's own mid-air throw stay quiet. Wired into `updateGrenadeWarnings()` in `src/60_hud_waves.js`.
+- Near-miss suppression (`CORE.suppressionAdd`, `CORE.suppressionDecay`, `CORE.SUPPRESS_HOLD` = 0.6 s). It applies to misses that already play `bulletWhizSound` and have a clear line to the player. Each one draws a grey arc toward the shooter and stacks suppression, which holds and then bleeds off. A `#suppress-vignette` darkens the edges on every quality level. With post-FX, the composite pass also desaturates and blurs them; the blur is off under reduced motion.
+- Wall occlusion for positional audio (`CORE.occludedCutoff`, `CORE.occludedGain`, `CORE.OCCLUDED_CUTOFF` = 700 Hz, `CORE.OCCLUDED_GAIN` = 0.55). `playSound3D()` checks the segment from the player to the source; a blocked sound is capped below air absorption's cutoff and played quieter.
+- Adaptive score:
+  - Replaces the sawtooth drone and the per-frame noise pulse, which crackled at low frame rates, with a look-ahead sequencer on the audio clock in `src/50_vfx_audio.js`.
+  - The music is an i–VI–iv–V cue in D minor at 104 bpm. Layers are a pad, bass ostinato, drums, brass swells and a sixteenth-note arpeggio. They follow `CORE.combatIntensity` via `setTargetAtTime`, through a generated-impulse reverb and a compressor.
+  - Pure rules: `CORE.musicLayerGains`, `musicDrumHits`, `musicBassNote`, `musicArpNote`, `musicChordAt`, `musicChordChanges`, `musicStepSeconds`, `midiToHz`. The tension/filter/pulse helpers are removed.
+- Add `ROADMAP.md` (six milestones: weapons, game modes, a second map, Survival objectives and extraction, feel and AI, retention).
+- Add regression tests in `tests/test_core.js`, plus probe checks 113a–d: `grenade-warning-*`, `near-misses-build-suppression`, `suppression-bleeds-off`, `occluded-sounds-are-muffled`, `music-sequencer-running`. The adaptive-music contract check is updated for the new rules.
+- Local test verification: 498 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 193/193 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`).
+
 ## v162 — Ballistic tracer caliber scaling and impact flash sphere dimensions
 
 - Implement ballistic tracer caliber dimensions and thickness scaling (`CORE.tracerCaliberScale`, `CORE.tracerThicknessScale`, `CORE.TRACER_CALIBER_SCALE_SMG` = 0.80, `CORE.TRACER_CALIBER_SCALE_AR` = 1.00, `CORE.TRACER_CALIBER_SCALE_BR` = 1.30, `CORE.TRACER_CALIBER_SCALE_SR` = 1.75): scales ballistic tracer geometry thickness based on caliber ergonomics (SMG 0.80x, AR 1.00x, BR 1.30x, SR 1.75x) for both initial mesh sizing and lifecycle thickness decay; wired into `spawnTracer()` and `updateVfx()` in `src/50_vfx_audio.js`, player firing in `src/30_weapons.js`, enemy shooting in `src/40_enemies.js` via `CORE.enemyWeaponType()`, and sentry turret fire in `src/58_streaks.js`.

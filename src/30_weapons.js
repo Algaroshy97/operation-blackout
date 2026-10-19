@@ -3,16 +3,21 @@
 // ---- Weapon state ----
 // indices into CFG.weapons; -1 = empty slot. Slots 0 and 1 are the deploy picks;
 // slot 2 is the marksman rifle, carried on every run (key 3) unless it is
-// already one of the picks.
-const weaponsOwned = [0, -1, -1];
+// already one of the picks; slot 3 is the sidearm, always carried (key 4).
+const weaponsOwned = [0, -1, -1, -1];
 const MARKSMAN_SLOT = 2;
-let curWeapon = 0;              // 0..2 (slot)
+const SIDEARM_SLOT = 3;
+let curWeapon = 0;              // 0..3 (slot)
 let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
+  return -1;
+}
+function sidearmIndex() {
+  for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].sidearm) return i;
   return -1;
 }
 function freshWeaponState(slot) {
@@ -25,6 +30,7 @@ function freshWeaponState(slot) {
 // Keep slot 2 holding the marksman rifle exactly when the picks do not. Called
 // whenever slot 0 or 1 changes (deploy, resume, secondary unlock, wall buy).
 function syncMarksmanSlot() {
+  syncSidearmSlot();
   const sr = marksmanIndex();
   const want = (sr < 0 || weaponsOwned[0] === sr || weaponsOwned[1] === sr) ? -1 : sr;
   if (weaponsOwned[MARKSMAN_SLOT] === want) return;
@@ -35,6 +41,14 @@ function syncMarksmanSlot() {
   } else if (wState.length) {
     freshWeaponState(MARKSMAN_SLOT);
   }
+}
+// The sidearm slot is fixed: it only ever needs filling (first deploy, or a
+// state that lost it), never swapping.
+function syncSidearmSlot() {
+  const pi = sidearmIndex();
+  if (weaponsOwned[SIDEARM_SLOT] === pi) return;
+  weaponsOwned[SIDEARM_SLOT] = pi;
+  if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
 function initWeapons() {
   syncMarksmanSlot();
@@ -129,6 +143,7 @@ function switchWeapon(slot) {
 }
 
 const _reloadOut = { ammo: 0, reserve: 0, take: 0 };
+const _shellOut = { ammo: 0, reserve: 0, loaded: false, done: false };
 
 function tryReload() {
   const s = curS(), w = curW();
@@ -149,8 +164,26 @@ function tryReload() {
 function updateWeapons(dt) {
   const s = curS(); if (!s) return;
   const w = curW();
+  // A shotgun reload is shell by shell, and pulling the trigger with anything in
+  // the tube stops it so the next frame can fire.
+  if (w.shellReload && s.reloading && mouse1Down && s.ammo > 0) { s.reloading = false; s.reloadPaused = false; updateHudAmmo(); }
   const wasReloading = s.reloading;
-  if (s.reloading) {
+  if (s.reloading && w.shellReload) {
+    s.reloadT += dt;
+    const perShell = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), false, w.type);
+    while (s.reloading && s.reloadT >= perShell) {
+      s.reloadT -= perShell;
+      CORE.loadShell(s.ammo, w.mag, s.reserve, _shellOut);
+      s.ammo = _shellOut.ammo; s.reserve = _shellOut.reserve;
+      if (_shellOut.loaded) playSound('shell_in');
+      if (_shellOut.done) {
+        s.reloading = false; s.reloadPaused = false;
+        if (s.emptyReload) { playSound('pump'); s.emptyReload = false; }
+      }
+      updateHudAmmo();
+    }
+    s.nextShot = CORE.shotScheduleAfterInactive();
+  } else if (s.reloading) {
     s.reloadT += dt;
     const reloadDur = CORE.effectiveReloadDuration(w.reload, CORE.perkReloadMul(perks), s.emptyReload, w ? w.type : '');
     if (CORE.isReloadComplete(s.reloadT, reloadDur)) {
@@ -174,7 +207,7 @@ function updateWeapons(dt) {
     if (player.sprinting) {
       const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
       const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
-      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands);
+      const stf = CORE.weaponSprintToFireTime(w ? w.type : '', wasTac, hasFastHands) * (w && w.stfMul > 0 ? w.stfMul : 1);
       player.sprinting = false;
       player.tacT = 0;
       s.nextShot = Math.max(s.nextShot, fireClockT + stf);
@@ -187,13 +220,22 @@ function updateWeapons(dt) {
       if (s.ammo === 0 && s.reserve > 0) tryReload();
     }
   } else if (mouse1Down && !wasReloading && !s.reloading && !player.dead && started && !paused && gunSwitchT >= 1 && s.ammo === 0 && !isPlating) {
-    if (fireClockT >= s.nextShot) {
+    if (CORE.shouldQuickDrawSidearm(s.ammo, s.reserve, curWeapon, SIDEARM_SLOT, weaponsOwned[SIDEARM_SLOT] >= 0)) {
+      mouse1Down = false;
+      switchWeapon(SIDEARM_SLOT);
+      if (curWeapon === SIDEARM_SLOT) gunSwitchT = CORE.SIDEARM_QUICK_DRAW;
+    } else if (fireClockT >= s.nextShot) {
       if (!dryPlayed) { playSound(CORE.dryFireSound(w ? w.type : '')); dryPlayed = true; }
       if (s.reserve > 0) tryReload();
     }
   } else {
     dryPlayed = false;
     s.nextShot = CORE.shotScheduleAfterInactive();
+  }
+  // LMG barrels cool off the trigger, held or not
+  for (let i = 0; i < wState.length; i++) {
+    const ws = wState[i];
+    if (ws && ws.heat > 0) ws.heat = CORE.lmgHeatDecay(ws.heat, dt, fireClockT - (ws.lastShotClock || 0));
   }
   // Bloom recovers off the trigger, at the CURRENT stance's rate — using the
   // hipfire number while scoped would recover an ADS bloom far too fast.
@@ -208,6 +250,7 @@ function updateWeapons(dt) {
   if (pressed['Digit1']) switchWeapon(0);
   if (pressed['Digit2']) switchWeapon(1);
   if (pressed['Digit3']) switchWeapon(MARKSMAN_SLOT);
+  if (pressed['Digit4']) switchWeapon(SIDEARM_SLOT);
 }
 let dryPlayed = false;
 
@@ -349,16 +392,45 @@ function fireShot(preserveSchedule) {
   bp.cap *= CORE.perkBloomMul(perks);
   const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
+  const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround, stanceSpread);
+    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
+  // A shotgun traces every pellet through the same path as a rifle round, inside
+  // a fixed cone; one shot counts once for accuracy however many pellets connect.
+  const pellets = w.pellets > 1 ? w.pellets : 1;
+  const cone = pellets > 1 ? CORE.pelletConeSpread(w.pelletSpread, spreadNow, ads) : spreadNow;
+  let anyHit = false, lastHit = null;
+  for (let p = 0; p < pellets; p++) {
+    const r = traceRound(w, cone, pellets === 1);
+    if (r.enemy) anyHit = true;
+    lastHit = r.hit;
+  }
+  if (anyHit) shotsHit++;
+  const hit = lastHit;
+  // shell casing eject
+  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  if (w.cls === 'SG') {
+    const pumpRun = runId;
+    setTimeout(function () {
+      if (runId === pumpRun && started && !paused && !player.dead) playSound('pump');
+    }, CORE.SHOTGUN_PUMP_DELAY_MS);
+  }
+  finishShot(s, w, hit);
+}
+
+// One round (or one pellet) from the camera: spread, optional magnetism, the
+// enemy/world raycasts with penetration, damage, impacts and the tracer. Returns
+// the hit (or null) and whether it was an enemy.
+const _roundOut = { hit: null, enemy: false };
+function traceRound(w, spreadNow, magnetize) {
   // direction with random cone
   _shootDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   CORE.ballisticSpreadVector(_shootDir.x, _shootDir.y, _shootDir.z, spreadNow, Math.random(), Math.random(), Math.random(), _spreadOut);
   _shootDir.set(_spreadOut.x, _spreadOut.y, _spreadOut.z);
   // bullet magnetism (small snap onto enemy center-mass)
-  _shootDir.copy(magnetizeBullet(_shootDir, _from));
+  if (magnetize) _shootDir.copy(magnetizeBullet(_shootDir, _from));
   raycaster.set(_from, _shootDir);
   raycaster.far = w.range;
 
@@ -397,7 +469,6 @@ function fireShot(preserveSchedule) {
   if (!isEnemy && worldHits.length) hit = worldHits[0];
 
   if (hit && isEnemy) {
-    shotsHit++;
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
@@ -411,8 +482,12 @@ function fireShot(preserveSchedule) {
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
-  // shell casing eject
-  spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
+  _roundOut.hit = hit; _roundOut.enemy = isEnemy;
+  return _roundOut;
+}
+
+// Everything that happens once per trigger pull, after the round(s) are traced.
+function finishShot(s, w, hit) {
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') {
     adsAmount = CORE.sniperUnscopeAds(adsAmount);
@@ -434,11 +509,17 @@ function fireShot(preserveSchedule) {
     (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, _recoilOut);
   const stanceMul = CORE.stanceRecoilMultiplier(!!player.crouching, !!player.sliding, !player.onGround);
   CORE.effectiveRecoilKick(w.recoilV, w.recoilH, _recoilOut.x, _recoilOut.y, stanceMul, _kickOut);
+  if (w.heatPerShot) {
+    _kickOut.pitchKick *= CORE.lmgHeatRecoilMul(s.heat);
+    s.heat = CORE.lmgHeatAfterShot(s.heat, w.heatPerShot);
+    s.lastShotClock = fireClockT;
+    if (s.heat > 0.8) playSound('sizzle');
+  }
   player.recoilP += _kickOut.pitchKick;
   const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);
-  playSound(CORE.weaponFireSound(w ? w.type : '', isSuppressed));
+  playSound(CORE.weaponClassFireSound(w ? w.cls : '', w ? w.type : '', isSuppressed));
   const lowSnd = CORE.lowAmmoSound(s.ammo, w ? w.type : '');
   if (lowSnd) playSound(lowSnd);
   const emptySnd = CORE.chamberEmptySound(s.ammo, w ? w.type : '');
@@ -528,7 +609,7 @@ function buildViewmodel() {
   gunGroup = new THREE.Group();
   const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
-  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].type, getLoadout(gi));
+  vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
   muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });
