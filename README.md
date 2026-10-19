@@ -24,11 +24,11 @@ Graphics settings are saved independently of controls:
 
 Auto preserves conservative touch defaults and existing desktop visuals; explicit choices override touch defaults. Reset restores auto. If browser storage is unavailable, changes still work for the current page but cannot persist. Higher settings cost CPU/GPU time and memory; physical-phone/native-GPU performance has not been verified by the headless tests.
 
-Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3 or wheel switch weapon · P/Esc pause.
+Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3/4 or wheel switch weapon · P/Esc pause.
 
 SETTINGS on the main menu or the pause screen covers mouse sensitivity, invert-Y, field of view, master volume, mute, graphics quality, reduced camera motion, high-contrast enemy markers and the FPS counter. Everything is saved in the browser, along with your best score, best wave and best accuracy.
 
-Pick a difficulty and both weapons at deploy. The SV-98 marksman rifle always rides along in slot 3 (key 3, the wheel, or SWAP on touch), with a mil-dot scope, rangefinder, breath sway you steady with Shift, a working bolt and wall penetration. Then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
+Pick a difficulty and both weapons at deploy. The SV-98 marksman rifle always rides along in slot 3 (key 3, the wheel, or SWAP on touch), with a mil-dot scope, rangefinder, breath sway you steady with Shift, a working bolt and wall penetration. An M1911 pistol is always in slot 4 (key 4): pull the trigger on a gun that is completely out of ammo and it comes up in half the usual time. Beyond the four rifles, the roster has an **M870 pump shotgun** (eight pellets that hit hard close and fall off fast, shells loaded one at a time, and firing cancels the reload; rank 2, or a west-flank wall buy) and an **M249 SAW** (a 100-round box whose barrel heats with sustained fire, widening the spread and kick and making the shroud glow; slow to aim; rank 4, or an east-flank wall buy). Then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
 
 Your run is **checkpointed after every wave**, so closing the tab does not cost you the session — RESUME RUN appears on the main menu.
 

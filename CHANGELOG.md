@@ -4,6 +4,36 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v164 — New weapons: M870 pump shotgun, M249 SAW, M1911 sidearm
+
+- **M870 Express** (index 4, `type: 'AR'`, `cls: 'SG'`):
+  - 8 pellets × 16 damage in a fixed cone (`CORE.pelletConeSpread`, ADS ×`PELLET_ADS_TIGHTEN` 0.75). `fireShot()` now traces each pellet through the same round path (`traceRound()`), skips magnetism per pellet, and counts one shot once for accuracy.
+  - Measured in a clear lane: about 125 damage at 3 m, about 70 at 6 m, falling off hard past 15 m.
+  - Shell-by-shell reload (`CORE.loadShell`) that the trigger cancels.
+  - Pump sound and fore-end/hand animation after each shot.
+  - Viewmodel `vmBuildSG`: tube magazine, rib, bead and notch, or a red dot.
+  - Rank 2; west-flank wall buy at 900.
+- **M249 SAW** (index 5, `cls: 'LMG'`):
+  - 100-round box at 760 rpm.
+  - Barrel heat (`CORE.lmgHeatAfterShot`, `lmgHeatDecay`, `lmgHeatSpreadMul`, `lmgHeatRecoilMul`). It scales spread and kick quadratically, holds `LMG_HEAT_HOLD` 0.35 s after the last shot, then bleeds off. Every slot cools.
+  - The shroud glows from a per-build emissive material, which `disposeGunModel()` now frees, and the gun sizzles when hot.
+  - `adsSpeed` 0.72, `moveMul` 0.75, and a new `stfMul` 1.6 for sprint-to-fire.
+  - Viewmodel `vmBuildLMG` with a side-hung ammo box that the reload drops.
+  - Rank 4; east-flank wall buy at 1800.
+- **M1911** (index 6, `cls: 'PST'`, `sidearm: true`):
+  - Always carried in the new `SIDEARM_SLOT` 3 (key 4; the wheel and touch SWAP cycle through it).
+  - The trigger on a gun with no mag and no reserve quick-draws it (`CORE.shouldQuickDrawSidearm`, `SIDEARM_QUICK_DRAW` head start).
+  - Never a deploy pick, gunsmith entry, secondary unlock or wall-buy replacement.
+  - Viewmodel `vmBuildPST` (walnut grip, sliding slide).
+- Shared changes:
+  - `CORE.weaponClassFireSound` picks `shotgun`/`lmg`/`pistol` and falls back to the type sound.
+  - New sounds: `pump`, `shell_in`, `sizzle`.
+  - Wall-buy prices by class (`sg` 900, `lmg` 1800).
+  - Deploy cards show SHOTGUN / LIGHT MACHINE GUN and pellet damage.
+  - The touch SWAP label shows the class.
+- Add regression tests in `tests/test_core.js`, plus probe checks 113e–g covering shotgun range falloff and shell reload, LMG heat/glow/cooling, and the sidearm slot, quick draw and wall-buy safety.
+- Local test verification: 501 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`), and 200/200 browser acceptance checks passing locally in headless Chromium (`scripts/probe_live.py`). Checkpoint/resume verified with the shotgun and LMG as picks. The release artifact is 1,983,505 bytes.
+
 ## v163 — Build comment stripping, grenade HUD warnings, near-miss suppression, wall occlusion, and an adaptive score
 
 - Build headroom: `scripts/build.py` now drops full-line `//` comments from the shipped file (`strip_line_comments`). Each module keeps its banner line, which `tests/test_release_build.py` checks. The `src/` modules keep every comment. With this release's features included, the artifact goes from 2,096,877 to 1,968,167 bytes, 128,985 under the 2,097,152-byte budget.
