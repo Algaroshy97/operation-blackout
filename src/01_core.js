@@ -7123,6 +7123,60 @@ const CORE = (function () {
     return weaponFireSound(weaponType, isSuppressed);
   }
 
+  function isHostile(actorA, actorB) {
+    if (!actorA || !actorB || actorA === actorB) return false;
+    if (actorA.dead || actorB.dead) return false;
+    const isPlayerA = !!(actorA.isPlayer || actorA.team === 'friendly' || (actorA.kind === undefined && actorB.kind !== undefined));
+    const isPlayerB = !!(actorB.isPlayer || actorB.team === 'friendly' || (actorB.kind === undefined && actorA.kind !== undefined));
+    const teamA = actorA.team || (isPlayerA ? 'friendly' : 'enemy');
+    const teamB = actorB.team || (isPlayerB ? 'friendly' : 'enemy');
+    return teamA !== teamB;
+  }
+
+  function pickNearestHostile(actor, candidates, maxRange) {
+    if (!actor || !Array.isArray(candidates) || candidates.length === 0) return null;
+    let best = null, bestDistSq = Infinity;
+    const ax = (actor.pos && _isNum(actor.pos.x)) ? actor.pos.x : 0;
+    const az = (actor.pos && _isNum(actor.pos.z)) ? actor.pos.z : 0;
+    const maxDistSq = (_isNum(maxRange) && maxRange > 0) ? (maxRange * maxRange) : Infinity;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (!c || c === actor || c.dead) continue;
+      if (!isHostile(actor, c)) continue;
+      const cx = (c.pos && _isNum(c.pos.x)) ? c.pos.x : 0;
+      const cz = (c.pos && _isNum(c.pos.z)) ? c.pos.z : 0;
+      const dx = ax - cx, dz = az - cz;
+      const dSq = dx * dx + dz * dz;
+      if (dSq <= maxDistSq && dSq < bestDistSq) {
+        bestDistSq = dSq;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  function modeScoreboardData(modeId, stats) {
+    const s = stats || {};
+    return {
+      mode: modeId || 'survival',
+      wave: _isNum(s.wave) ? s.wave : 0,
+      score: _isNum(s.score) ? s.score : 0,
+      kills: _isNum(s.kills) ? s.kills : 0,
+      headshots: _isNum(s.headshots) ? s.headshots : 0,
+      credits: _isNum(s.credits) ? s.credits : 0
+    };
+  }
+
+  function isModeOver(modeId, state) {
+    const s = state || {};
+    if (s.gameEnded) return true;
+    if (modeId === 'survival' || !modeId) {
+      return !!(s.playerDead && !s.playerDowned);
+    }
+    return false;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7471,7 +7525,8 @@ const CORE = (function () {
     LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
-    breacherPelletHitChance, canBreacherFire, breacherPelletHits
+    breacherPelletHitChance, canBreacherFire, breacherPelletHits,
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
   };
 
 

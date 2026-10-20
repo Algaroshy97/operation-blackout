@@ -10122,3 +10122,56 @@ test('breacher: wave 7 shotgun archetype, lethal close and harmless past its ran
   assert.strictEqual(CORE.breacherPelletHits(20, all), 0, 'out of range: nothing lands');
   assert.strictEqual(CORE.breacherPelletHits(3, null), 0);
 });
+
+
+test('modes and teams: hostility rules, nearest hostile selection, and scoreboard data', () => {
+  // 1. isHostile rules
+  assert.strictEqual(typeof CORE.isHostile, 'function');
+  const allyA = { team: 'friendly', dead: false };
+  const allyB = { team: 'friendly', dead: false };
+  const enemyA = { team: 'enemy', dead: false };
+  const enemyB = { team: 'enemy', dead: false };
+  const deadEnemy = { team: 'enemy', dead: true };
+
+  assert.strictEqual(CORE.isHostile(allyA, allyA), false, 'self is never hostile');
+  assert.strictEqual(CORE.isHostile(allyA, allyB), false, 'teammates are friendly');
+  assert.strictEqual(CORE.isHostile(enemyA, enemyB), false, 'enemy teammates are friendly');
+  assert.strictEqual(CORE.isHostile(allyA, enemyA), true, 'different teams are hostile');
+  assert.strictEqual(CORE.isHostile(enemyA, allyA), true, 'hostility is symmetric');
+  assert.strictEqual(CORE.isHostile(allyA, deadEnemy), false, 'dead actors cannot be hostile');
+  assert.strictEqual(CORE.isHostile(null, enemyA), false);
+
+  // Default team resolution when team property is omitted
+  assert.strictEqual(CORE.isHostile({ isPlayer: true, dead: false }, { dead: false }), true);
+  assert.strictEqual(CORE.isHostile({ isPlayer: true, dead: false }, { isPlayer: true, dead: false }), false);
+
+  // 2. pickNearestHostile
+  assert.strictEqual(typeof CORE.pickNearestHostile, 'function');
+  const me = { team: 'enemy', pos: { x: 0, z: 0 }, dead: false };
+  const allyNear = { team: 'enemy', pos: { x: 2, z: 0 }, dead: false };
+  const enemyNear = { team: 'friendly', pos: { x: 10, z: 0 }, dead: false };
+  const enemyFar = { team: 'friendly', pos: { x: 30, z: 0 }, dead: false };
+  const deadNear = { team: 'friendly', pos: { x: 1, z: 0 }, dead: true };
+
+  assert.strictEqual(CORE.pickNearestHostile(me, [allyNear, deadNear, enemyFar, enemyNear]), enemyNear);
+  assert.strictEqual(CORE.pickNearestHostile(me, [enemyFar], 20), null, 'out of range');
+  assert.strictEqual(CORE.pickNearestHostile(me, [enemyNear], 20), enemyNear, 'within range');
+  assert.strictEqual(CORE.pickNearestHostile(me, [allyNear]), null);
+
+  // 3. Scoreboard & isModeOver
+  assert.strictEqual(typeof CORE.modeScoreboardData, 'function');
+  assert.strictEqual(typeof CORE.isModeOver, 'function');
+  const sb = CORE.modeScoreboardData('survival', { wave: 4, score: 9000, kills: 30, headshots: 12, credits: 2100 });
+  assert.strictEqual(sb.mode, 'survival');
+  assert.strictEqual(sb.wave, 4);
+  assert.strictEqual(sb.score, 9000);
+  assert.strictEqual(sb.kills, 30);
+  assert.strictEqual(sb.headshots, 12);
+  assert.strictEqual(sb.credits, 2100);
+
+  assert.strictEqual(CORE.isModeOver('survival', { gameEnded: false, playerDead: false, playerDowned: false }), false);
+  assert.strictEqual(CORE.isModeOver('survival', { gameEnded: true, playerDead: false, playerDowned: false }), true);
+  assert.strictEqual(CORE.isModeOver('survival', { gameEnded: false, playerDead: true, playerDowned: false }), true);
+  assert.strictEqual(CORE.isModeOver('survival', { gameEnded: false, playerDead: true, playerDowned: true }), false);
+});
+
