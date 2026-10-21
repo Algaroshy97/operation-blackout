@@ -14,6 +14,11 @@ class Vector3 {
   copy(v) { return this.set(v.x, v.y, v.z); }
   lengthSq() { return this.x ** 2 + this.y ** 2 + this.z ** 2; }
   normalize() { const l = Math.sqrt(this.lengthSq()) || 1; return this.set(this.x / l, this.y / l, this.z / l); }
+  applyQuaternion() { return this; }
+  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
 }
 
 class Mesh {
@@ -1003,3 +1008,165 @@ test('damageEnemy and damagePlayer apply damage regardless of dead attacker stat
   c.damagePlayer(30, 0, 'bullet', deadEnemyAttacker);
   assert.equal(c.player.health, 70, 'player must take damage from opposing enemy even if enemy died while round was in flight');
 });
+
+test('friendly fire enforcement with production weapon callers and omitted attacker', () => {
+  const c = createCombatContext();
+
+  const friendlyBot = {
+    team: 'friendly',
+    pos: new Vector3(5, 0, 5),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  // 1. Production player bullet caller signature (src/30_weapons.js:475) omits attacker:
+  // damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR');
+  c.damageEnemy(friendlyBot, 40, friendlyBot.pos, false, false, 'AR');
+  assert.strictEqual(friendlyBot.health, 100, 'production bullet call without explicit attacker must NOT damage friendly bot when friendly fire disabled');
+
+  // 2. Production player melee caller signature (src/30_weapons.js:566) omits attacker:
+  // damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
+  c.damageEnemy(friendlyBot, 35, friendlyBot.pos, false);
+  assert.strictEqual(friendlyBot.health, 100, 'production melee call without explicit attacker must NOT damage friendly bot');
+
+  // 3. Explicit attacker caller with player
+  c.damageEnemy(friendlyBot, 40, friendlyBot.pos, false, false, 'AR', c.player);
+  assert.strictEqual(friendlyBot.health, 100, 'explicit player attacker must NOT damage friendly bot');
+
+  // 4. Hostile enemy must take damage from production caller signatures
+  const enemyVictim = {
+    team: 'enemy',
+    pos: new Vector3(10, 0, 10),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  c.damageEnemy(enemyVictim, 40, enemyVictim.pos, false, false, 'AR');
+  assert.strictEqual(enemyVictim.health, 60, 'hostile enemy must take damage from production bullet call');
+});
+
+test('attack-triggered spawn protection cancellation for players and bots', () => {
+  const c = createCombatContext();
+
+  // 1. Bot ranged attack (enemyShoot) clears spawn protection
+  const shooterBot = {
+    team: 'enemy',
+    pos: new Vector3(0, 0, 0),
+    health: 100,
+    dead: false,
+    blindT: 0,
+    spawnProtectionT: 2.0,
+    parts: c.dummyParts()
+  };
+  const target = {
+    team: 'friendly',
+    pos: new Vector3(0, 0, 10),
+    health: 100,
+    dead: false,
+    isPlayer: true
+  };
+  c.enemyShoot(shooterBot, 10, target);
+  assert.strictEqual(shooterBot.spawnProtectionT, 0, 'enemyShoot must immediately cancel spawn protection on firing');
+
+  // 2. Bot shotgun attack (breacherShoot) clears spawn protection
+  const breacherBot = {
+    team: 'enemy',
+    pos: new Vector3(0, 0, 0),
+    health: 100,
+    dead: false,
+    blindT: 0,
+    spawnProtectionT: 2.0,
+    parts: c.dummyParts()
+  };
+  c.breacherShoot(breacherBot, 8, target);
+  assert.strictEqual(breacherBot.spawnProtectionT, 0, 'breacherShoot must immediately cancel spawn protection on firing');
+
+  // 3. Bot melee attack clears spawn protection
+  const runnerBot = c.spawnEnemy(0, 0, 1.5);
+  runnerBot.spawnProtectionT = 2.0;
+  runnerBot.state = 'chase';
+  runnerBot.attackReadyT = 0;
+  c.player.pos.set(0, 1.7, 0);
+  c.updateEnemies(0.016);
+  assert.strictEqual(runnerBot.spawnProtectionT, 0, 'bot melee initiation must cancel spawn protection');
+
+  // 4. Player gun attack (fireShot) and melee (doMelee)
+  const THREE = c.THREE;
+  const wepContext = vm.createContext({
+    CORE,
+    THREE,
+    Math: Object.create(Math),
+    CFG: Object.assign({}, c.CFG, {
+      weapons: [{ type: 'AR', rpm: 600, range: 100, spread: 0.02, adsSpread: 0.01, pellets: 1, dmg: 30, mag: 30, reserveMax: 120, recoilV: 0.01, recoilH: 0.005 }],
+      assist: { bulletAngle: 0.05 },
+      ai: { attackRange: 2.1, headshotMul: 1.8 }
+    }),
+    player: {
+      pos: new Vector3(0, 1.7, 0),
+      vel: new Vector3(),
+      yaw: 0,
+      pitch: 0,
+      dead: false,
+      crouching: false,
+      sliding: false,
+      sprinting: false,
+      tacT: 0,
+      onGround: true,
+      spawnProtectionT: 2.0,
+      team: 'friendly',
+      isPlayer: true,
+      recoilP: 0
+    },
+    enemies: [],
+    colliders: [],
+    camera: {
+      position: new Vector3(0, 1.7, 0),
+      quaternion: { set: noop },
+      getWorldPosition: (v) => v.set(0, 1.7, 0)
+    },
+    gunGroup: null,
+    wState: [{ ammo: 30, nextShot: 0, heat: 0 }],
+    getLoadout: () => null,
+    keys: {},
+    curWeapon: 0,
+    curW: () => ({ rpm: 600, range: 100, spread: 0.02, adsSpread: 0.01, type: 'AR', pellets: 1, dmg: 30, recoilV: 0.01, recoilH: 0.005 }),
+    curS: () => wepContext.wState[0],
+    shotsFired: 0,
+    shotsHit: 0,
+    fireClockT: 0,
+    gameT: 10,
+    adsDown: () => false,
+    perks: [],
+    bloom: 0,
+    hSpeedForSpread: 0,
+    spawnCasing: noop,
+    spawnTracer: noop,
+    playSound: noop,
+    flashMuzzleLight: noop,
+    kickViewmodel: noop,
+    updateHudAmmo: noop,
+    vmTune: {},
+    muzzleFlash: false,
+    started: true,
+    paused: false,
+    runId: 1,
+    worldRayTargets: () => []
+  });
+  const wepText = source('30_weapons.js');
+  vm.runInContext(wepText, wepContext);
+  wepContext.freshWeaponState(0);
+
+  // Player fireShot clears player spawn protection
+  assert.strictEqual(wepContext.player.spawnProtectionT, 2.0);
+  wepContext.fireShot(false);
+  assert.strictEqual(wepContext.player.spawnProtectionT, 0, 'fireShot must cancel player spawn protection');
+
+  // Player doMelee clears player spawn protection
+  wepContext.player.spawnProtectionT = 2.0;
+  wepContext.doMelee();
+  assert.strictEqual(wepContext.player.spawnProtectionT, 0, 'doMelee must cancel player spawn protection');
+});
+

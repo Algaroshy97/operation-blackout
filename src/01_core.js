@@ -7232,7 +7232,8 @@ const CORE = (function () {
   function scoreSpawnPoint(point, hostiles, colliders, opts) {
     if (!point) return -Infinity;
     const px = Array.isArray(point) ? point[0] : (point.x || 0);
-    const pz = Array.isArray(point) ? point[1] : (point.z || 0);
+    const py = Array.isArray(point) ? (point.length >= 3 ? point[1] : 0) : (_isNum(point.y) ? point.y : 0);
+    const pz = Array.isArray(point) ? (point.length >= 3 ? point[2] : point[1]) : (point.z || 0);
     const options = opts || {};
     const sweetSpot = _isNum(options.sweetSpot) ? options.sweetSpot : 25;
     const minSafeDist = _isNum(options.minSafeDist) ? options.minSafeDist : 10;
@@ -7262,7 +7263,11 @@ const CORE = (function () {
       if (dot > 0.25 && dist < maxSafeDist) {
         let blocked = false;
         if (Array.isArray(colliders) && colliders.length > 0) {
-          blocked = segmentBlocked(hx, hz, px, pz, colliders);
+          const hy = h.isPlayer
+            ? ((h.pos && _isNum(h.pos.y)) ? h.pos.y : 1.6)
+            : enemyEyeHeight((h.pos && _isNum(h.pos.y)) ? h.pos.y : 0, h.kind);
+          const spawnEyeY = py + 1.5;
+          blocked = segmentBlocked(hx, hy, hz, px, spawnEyeY, pz, colliders, 0.25);
         }
         if (!blocked) {
           const directness = Math.max(0, dot);

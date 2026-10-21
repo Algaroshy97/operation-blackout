@@ -364,6 +364,7 @@ function throwGrenade(customSpeed, def, wasCooked) {
     if (tacticalCount <= 0) return;
   } else if (grenades.count <= 0) return;
   if (grenades.cd > 0 || player.dead) return;
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = CORE.GRENADE_COOLDOWN;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;

@@ -112,10 +112,10 @@ short TDM match end to end.
   - Friendly bot support in `buildSoldier(kind, team)` and `makeEnemyMesh(kind, team)`, with friendly blips on minimap (`CORE.minimapActorColor`).
   - Friendly fire damage immunity across bullets, melee, and grenades (`CORE.isFriendlyFire`).
   - Spawn-point scoring in core (`CORE.scoreSpawnPoint`, `CORE.pickBestSpawnPoint`) evaluating distance and hostile facing sight lines with obstacle occlusion.
-  - Respawn timers (3 s) and spawn protection (2 s) with damage immunity and attack break-off.
+  - Respawn timers (3 s) and spawn protection (2 s) with damage immunity and attack-triggered break-off for players and bots.
   - Mode respawn queue lifecycle in `src/35_modes.js` (`queueModeRespawn`, `updateModeRespawns`, `clearModeRespawns`), with Survival wave spawning preserved and respawn queue cleared on reset.
 - Next dependency: match HUD (score bar, Tab scoreboard for actor K/D, kill feed, match timer, end-of-match screen) and mode picker on deploy screen, followed by TDM, FFA, Domination, and Gun Game mode rules.
-- Evidence gaps: match HUD integration, multi-mode matches, and browser acceptance probe coverage for match modes.
+- Evidence gaps: bounded browser acceptance coverage for Survival deployment, between-wave save/resume, settled-victory/endless checkpoints, and friendly rendering/team interactions (full live probe timed out after 420 seconds without log output; bounded Chromium smoke check loaded shipped artifact without immediate page errors, but assetsReady remained false, leaving gameplay and checkpoint integration unverified); match HUD integration, multi-mode matches, and browser acceptance probe coverage for match modes.
 
 ---
 

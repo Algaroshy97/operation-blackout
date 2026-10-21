@@ -379,6 +379,7 @@ const _rfEnemyHitsOut = [];
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   shotsFired++;
   s.ammo--;
   const interval = CORE.weaponFireInterval(w.rpm);
@@ -472,7 +473,7 @@ function traceRound(w, spreadNow, magnetize) {
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
-    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR');
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR', player);
     if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
       spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object, null, w ? w.type : 'AR');
       if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
@@ -538,6 +539,7 @@ function finishShot(s, w, hit) {
 // are filtered by a forward cone rather than taken nearest-first, so the swing
 // goes where the player is looking.
 function doMelee() {
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   meleeT = CORE.MELEE_COOLDOWN;
   meleeSwing = 1;
   const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
@@ -563,7 +565,7 @@ function doMelee() {
   const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);
-  damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
+  damageEnemy(en, meleeDmg, _meleePoint, isBackstab, false, 'MELEE', player);
   CORE.meleeSlashNormal(player.yaw, _meleeNormOut);
   if (typeof fxMeleeSlash === 'function') fxMeleeSlash(_meleePoint, _meleeNormOut, isBackstab);
 }

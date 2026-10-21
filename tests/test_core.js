@@ -10237,3 +10237,33 @@ test('friendly bots and respawn lifecycle: spawn scoring, respawn timers, protec
   assert.deepStrictEqual(best, behindPoint, 'pickBestSpawnPoint selects the point safely away from hostile sight lines');
 });
 
+test('scoreSpawnPoint evaluates cover occlusion with nonempty colliders without TypeError', () => {
+  const hostile = { pos: { x: 0, y: 0, z: 0 }, yaw: 0, dead: false };
+  // Facing along +z (yaw = 0)
+  const spawnOccluded = [-5, 20]; // behind the wall at x=-5
+  const spawnExposed = [5, 20];   // exposed on the right at x=5 (no wall)
+
+  // Real collider data matching arena colliders: solid wall covering x: -10 to 0, z: 8 to 12
+  const colliders = [
+    {
+      min: { x: -10, y: 0, z: 8 },
+      max: { x: 0, y: 4, z: 12 },
+      mat: 'concrete'
+    }
+  ];
+
+  // 1. Calling scoreSpawnPoint with facing hostile and nonempty colliders MUST NOT throw TypeError
+  const scoreOccluded = CORE.scoreSpawnPoint(spawnOccluded, [hostile], colliders);
+  assert.strictEqual(typeof scoreOccluded, 'number');
+  assert.ok(isFinite(scoreOccluded));
+
+  // 2. Unobstructed spawn point gets sightLinePenalty, occluded spawn point does not get sightLinePenalty
+  const scoreUnblocked = CORE.scoreSpawnPoint(spawnOccluded, [hostile], []);
+  assert.ok(scoreOccluded > scoreUnblocked, 'occluded spawn behind cover must score higher than unoccluded spawn');
+
+  // 3. pickBestSpawnPoint selects the covered spawn point over exposed point when both are in front of hostile
+  const bestPoint = CORE.pickBestSpawnPoint([spawnExposed, spawnOccluded], [hostile], colliders);
+  assert.deepStrictEqual(bestPoint, spawnOccluded, 'must pick occluded spawn point protected by cover');
+});
+
+

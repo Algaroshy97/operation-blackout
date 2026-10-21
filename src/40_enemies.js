@@ -217,14 +217,14 @@ const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
-  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || (en && en.friendlyFire === true);
-  if (attacker) {
+  const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (sourceActor) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
-      ? CORE.isFriendlyFire(attacker, en)
-      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
+      ? CORE.isFriendlyFire(sourceActor, en)
+      : (((sourceActor.team || (sourceActor.isPlayer ? 'friendly' : (sourceActor.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
     if (isAlly && !allowFriendlyFire) return;
   }
-  const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
   // Remember where this shot came from and what it struck. If it turns out to be
@@ -672,10 +672,12 @@ function updateEnemies(dt) {
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       en.swinging = CORE.enemyMeleeWindup(Math.random());
+      en.spawnProtectionT = 0;
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
+        en.spawnProtectionT = 0;
         // swing lands — only if still in reach and target alive
         if (CORE.withinReach(dist, vertGapToTarget(en, target), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !target.dead) {
           if (target === player || (target && target.isPlayer)) {
@@ -790,6 +792,7 @@ const _enemyGrenadeVelOut = { x: 0, y: 0, z: 0 };
 function throwEnemyGrenade(en, target) {
   const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
+  en.spawnProtectionT = 0;
   en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
@@ -824,6 +827,7 @@ const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  en.spawnProtectionT = 0;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
@@ -916,6 +920,7 @@ const _breacherRolls = new Float32Array(8);
 function breacherShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;
+  en.spawnProtectionT = 0;
   en.lastShotT = gameT;
   playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
