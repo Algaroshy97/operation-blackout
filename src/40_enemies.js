@@ -193,8 +193,13 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
-function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
+function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
+  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
+    ? CORE.isHostile(sourceActor, en)
+    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
   en._lastHitNode = isHead ? 'head' : 'chest';
@@ -211,31 +216,34 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
   // would otherwise have absorbed.
-  const lethal = typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
-  showHitmarker(isHead, tier);
-  addCredits(CORE.creditsForDamage(isKill, isHead));
-  addFieldCharge(lethal ? dmg : dmg * shield);
+  if (isPlayerSource && isHostileTarget) {
+    const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
+    showHitmarker(isHead, tier);
+    addCredits(CORE.creditsForDamage(isKill, isHead));
+    addFieldCharge(lethal ? dmg : dmg * shield);
+  }
   spawnBlood(point, isHead, weaponType);
   if (point) {
-    _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
+    const fromPos = (sourceActor && sourceActor.pos) ? sourceActor.pos : (typeof player !== 'undefined' ? player.pos : null);
+    if (fromPos) _hitDir.set(point.x - fromPos.x, 0, point.z - fromPos.z).normalize();
     if (isHead && CORE.enemyHasHelmet(en.kind)) {
       if (typeof fxHeadshotSparks === 'function') fxHeadshotSparks(point, _hitDir);
       if (typeof flashLight === 'function') flashLight(point, 0xffd080, 0.8, 3.0, 0.04);
       playSound3D(CORE.helmetHitSound(true), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     }
-    if (en.parts.soldier) {
+    if (en.parts && en.parts.soldier && typeof soldierHitReact === 'function') {
       // flinch: the torso (or head) springs away from the round
       soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
     }
   }
-  if (isKill) killEnemy(en, isHead);
+  if (isKill) killEnemy(en, isHead, sourceActor);
   else {
     // flinch + alert
     en.stateT = 0;
@@ -245,7 +253,11 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
 
 const _killImpulseOut = { force: 0, y: 0 };
 
-function killEnemy(en, isHead) {
+function killEnemy(en, isHead, killer) {
+  const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
+  const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget;
   en.dead = true; en.deathT = 0;
   // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
   // rather than firing it across the arena.
@@ -257,21 +269,23 @@ function killEnemy(en, isHead) {
     z: (en._lastHitDirZ || 0) * impulse.force,
     spread: 0.3
   });
-  const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
-  addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
-    en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
-  if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
-  registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
-  kills++;
-  if (isHead) headshots++;
-  // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
-  // dropped a magazine would waste the drop.
-  if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
-  else dropPickup(en.pos);
-  registerStreakKill();
-  playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
+  if (isQualifyingKill) {
+    const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
+    addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
+      en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
+    if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
+    registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
+    kills++;
+    if (isHead) headshots++;
+    // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
+    // dropped a magazine would waste the drop.
+    if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
+    else dropPickup(en.pos);
+    registerStreakKill();
+    playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
+  }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, player);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 
 // Horizontal distance from an enemy to the player.
@@ -293,8 +307,27 @@ let flowT = 0, flowCellX = -9999, flowCellZ = -9999;
 let _flowGrid = null;
 const FLOW_INTERVAL = 0.25;
 const _flowDir = { x: 0, z: 0 };
+// Bot targets need their own flood distances, never mutations of the player's
+// shared field. Reuse static walkability and cache by target cell and grid.
+const _targetFlows = new WeakMap();
+function flowFieldForTarget(target) {
+  const cx = Math.floor((target.pos.x - navGrid.originX) / navGrid.cell);
+  const cz = Math.floor((target.pos.z - navGrid.originZ) / navGrid.cell);
+  let cached = _targetFlows.get(target);
+  if (!cached || cached.grid !== navGrid) {
+    cached = { grid: navGrid, cx: NaN, cz: NaN, field: Object.assign({}, navGrid, {
+      dist: new Int32Array(navGrid.dist.length), queue: new Int32Array(navGrid.queue.length)
+    }) };
+    _targetFlows.set(target, cached);
+  }
+  if (cached.cx !== cx || cached.cz !== cz) {
+    CORE.computeFlowField(cached.field, target.pos.x, target.pos.z);
+    cached.cx = cx; cached.cz = cz;
+  }
+  return cached.field;
+}
 function updateFlowField(dt) {
-  if (!navGrid) return;
+  if (!navGrid || typeof player === 'undefined' || !player || !player.pos) return;
   flowT -= dt;
   const cx = Math.floor((player.pos.x - navGrid.originX) / navGrid.cell);
   const cz = Math.floor((player.pos.z - navGrid.originZ) / navGrid.cell);
@@ -322,6 +355,7 @@ const _toPlayerDirOut = { x: 0, z: 0 };
 function moveEnemy(en, dt, dist) {
   const cfg = CFG.ai;
   const target = en.target || player;
+  const isTargetPlayer = !!(target && (target === player || target.isPlayer));
   const d = typeof dist === 'number' && isFinite(dist) ? dist : CORE.horizDist(en.pos.x, en.pos.z, target.pos.x, target.pos.z);
   CORE.enemyToPlayerDir(target.pos.x - en.pos.x, target.pos.z - en.pos.z, d, _toPlayerDirOut);
   const toPlayer = _toPlayerDirOut;
@@ -330,7 +364,9 @@ function moveEnemy(en, dt, dist) {
   if (en.state === 'chase') {
     // Straight-line seek wedges on every wall corner in this arena; route instead.
     // Close in, steer directly so the final approach does not snap to cell centres.
-    const routed = d > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
+    // Retain the shared player field; route other actors toward their own target.
+    const field = d > 3 && navGrid ? (isTargetPlayer ? navGrid : flowFieldForTarget(target)) : null;
+    const routed = field ? CORE.flowDirAt(field, en.pos.x, en.pos.z, _flowDir) : null;
     if (routed) { mvx = routed.x; mvz = routed.z; }
     // Flankers (wave 8+) bias sideways until they are close, so a pack stops
     // arriving as one clump down a single corridor.
@@ -620,7 +656,7 @@ function updateEnemies(dt) {
             }
           } else if (typeof damageEnemy === 'function') {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
-            damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE');
+            damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           }
         }
@@ -734,8 +770,8 @@ function throwEnemyGrenade(en, target) {
   CORE.enemyGrenadeVelocity(dx, dz, d, speed, CORE.ENEMY_GRENADE_ARC_Y, Math.random(), Math.random(), CORE.ENEMY_GRENADE_JITTER, _enemyGrenadeVelOut);
   const fuse = CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS);
   const rec = typeof getLiveGrenadeRecord === 'function'
-    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true)
-    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true };
+    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true, en)
+    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true, owner: en };
   liveGrenades.push(rec);
   scene.add(m);
   playSound3D(CORE.enemyGrenadeThrowSound(), en.pos.x, en.pos.y, en.pos.z);
@@ -809,7 +845,7 @@ function enemyShoot(en, dist, target) {
     const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
-      if (tgt.dead || (isTargetPlayer && (!started || paused))) return;
+      if (tgt.dead || !started || paused) return;
       // Re-check cover at IMPACT, not only at the trigger pull. The shot is
       // delayed by up to 300 ms for feel, and a sprinting player covers ~2.7 m in
       // that time — enough to climb the stairs and get behind the second-floor
@@ -822,7 +858,7 @@ function enemyShoot(en, dist, target) {
       if (isTargetPlayer) {
         damagePlayer(dmg, hitDeg, 'bullet');
       } else if (typeof damageEnemy === 'function') {
-        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite));
+        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
       }
     }, travelDelay);
   } else if (isTargetPlayer) {
@@ -869,12 +905,12 @@ function breacherShoot(en, dist, target) {
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   setTimeout(function () {
     if (runId !== firedInRun) return;
-    if (tgt.dead || (isTargetPlayer && (!started || paused))) return;
+    if (tgt.dead || !started || paused) return;
     if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
       if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet');
-      else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG');
+      else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);
     }

@@ -51,7 +51,7 @@ function releaseBlastRing(ring) {
 
 // ---- Live grenade pooling (zero per-throw object/Vector3 allocation) ----
 const _grenadePool = [];
-function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy) {
+function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy, owner) {
   const g = _grenadePool.length > 0 ? _grenadePool.pop() : {
     m: null,
     vel: new THREE.Vector3(),
@@ -82,6 +82,7 @@ function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fro
   g.faceZ = typeof faceZ === 'number' ? faceZ : 0;
   g.grounded = 0;
   g.fromEnemy = !!fromEnemy;
+  g.owner = owner || null;
   return g;
 }
 
@@ -97,6 +98,7 @@ function releaseLiveGrenadeRecord(g) {
     g.m = null;
   }
   g.blink = null;
+  g.owner = null;
   g.def = null;
   g.atRest = false;
   g.stuck = false;
@@ -530,10 +532,10 @@ function detonate(g, i, def) {
   } else if (def.mode === 'burn') {
     // Thermite trades burst damage for area denial: a smaller bang, then ground
     // that stays lethal for six seconds.
-    explodeGrenade(p, 0.45);
+    explodeGrenade(p, 0.45, g.owner);
     addBurnPatch(p.x, p.z, def);
   } else {
-    explodeGrenade(p);
+    explodeGrenade(p, undefined, g.owner);
   }
   releaseLiveGrenadeRecord(g);
   liveGrenades.splice(i, 1);
@@ -730,7 +732,7 @@ function refreshGrenadeTargets() {
   }
 }
 
-function explodeGrenade(pos, scale) {
+function explodeGrenade(pos, scale, owner) {
   const dmgScale = scale === undefined ? 1 : scale;
   playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
@@ -772,7 +774,7 @@ function explodeGrenade(pos, scale) {
 
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
-      damageEnemy(en, dmg, _blastTarget, false);
+      damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
     }
   }
   // player self-damage (half, encourages careful use; solid cover blocks it)

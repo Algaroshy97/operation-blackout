@@ -135,6 +135,18 @@ def main() -> int:
         page.evaluate("() => window.fpsGameTelemetry.disable()")
         checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 60)))
 
+        # Observe the real UI deployment before destructive combat probes can
+        # end the run. Reviving player flags later does not restart the score.
+        mus = page.evaluate("""() => ({
+            built: MUSIC.built, running: MUSIC.running, steps: MUSIC.step,
+            layers: MUSIC.layers ? Object.keys(MUSIC.layers).sort().join(',') : ''
+        })""")
+        checks.append(("music-sequencer-running", bool(mus["built"]) and bool(mus["running"]) and mus["steps"] > 0
+                       and mus["layers"] == "arp,bass,drums,horn,pad"))
+
+        music_advances = wait_until(page, f"() => MUSIC.running && MUSIC.step > {mus['steps']}", 5)
+        checks.append(("music-sequencer-advances", music_advances))
+
         # 4) Enemies move and are grounded near y=0.
         s1 = page.evaluate("() => enemies.map(e => [e.pos.x, e.pos.y, e.pos.z])")
         page.wait_for_timeout(2000)
@@ -5084,15 +5096,6 @@ def main() -> int:
         }""")
         checks.append(("occluded-sounds-are-muffled", occ.get("skipped") or
                        (0 < occ["behindWall"] <= 700 and occ["open"] > 700)))
-
-        # 113d) The score is a live sequencer: once deployed it has built its layer
-        #       graph and scheduled steps ahead on the audio clock.
-        mus = page.evaluate("""() => ({
-            built: MUSIC.built, running: MUSIC.running, steps: MUSIC.step,
-            layers: MUSIC.layers ? Object.keys(MUSIC.layers).sort().join(',') : ''
-        })""")
-        checks.append(("music-sequencer-running", bool(mus["built"]) and bool(mus["running"]) and mus["steps"] > 0
-                       and mus["layers"] == "arp,bass,drums,horn,pad"))
 
         # 113e) Shotgun: eight pellets that fall off hard with range in a clear lane,
         #       shell-by-shell reload, and the trigger cancels a reload in progress.

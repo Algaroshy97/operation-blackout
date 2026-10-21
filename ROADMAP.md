@@ -101,6 +101,12 @@ short TDM match end to end.
 **Status (partial increment):**
 - Foundation landed: `MODES` registry in `src/35_modes.js` (`setup`, `onKill`, `onDeath`, `update`, `scoreboard`, `isOver`), with Survival registered behind this interface and its wave logic preserved unchanged.
 - Team-aware AI landed behind Survival: actors carry `team` (`player.team = 'friendly'`, `en.team = 'enemy'`), `CORE.isHostile` and `CORE.pickNearestHostile` govern target priority, and enemy LOS, movement, ranged fire, shotgun blast, grenades, and melee target the nearest hostile actor rather than assuming the player.
+- Bot combat & navigation prerequisites completed:
+  - Target-aware chase navigation routes toward selected bot hostile targets, retaining the shared player flow field only for player-targeted actors.
+  - Attacker identity propagation through `damageEnemy` and `killEnemy` across melee, rifleman fire, and breacher shotgun blasts. Mode `onKill` hook receives verified killer actor identity.
+  - Player rewards (kills, headshots, score, credits, streaks) and hitmarkers isolated exclusively to qualifying player kills against hostile targets; bot-to-bot kills and friendly-fire deaths do not modify player stats.
+  - Delayed projectile and pellet impact callbacks (`enemyShoot`, `breacherShoot`) gate on paused/unstarted gameplay state consistently across player and non-player targets.
+  - Execution-level regression test coverage in `tests/test_modes_and_teams.js` verifying bot-to-bot active combat, navigation vectors, pause impact gating, and kill attribution.
 - Next dependency: friendly bots (team tints & IFF), spawn scoring & respawn timers, match HUD (scoreboard, match timer, score bar), followed by TDM, FFA, Domination, and Gun Game mode implementations.
 - Evidence gaps: friendly bot visual rendering, respawn protection/scoring, multi-mode matches, and browser acceptance probe coverage for match modes.
 
