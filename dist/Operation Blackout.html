@@ -11090,8 +11090,11 @@ const CORE = (function () {
 
   function isFriendlyFire(attacker, target) {
     if (!attacker || !target || attacker === target) return false;
-    if (attacker.dead || target.dead) return false;
-    return !isHostile(attacker, target);
+    const isPlayerA = !!(attacker.isPlayer || attacker.team === 'friendly' || (attacker.kind === undefined && target.kind !== undefined));
+    const isPlayerB = !!(target.isPlayer || target.team === 'friendly' || (target.kind === undefined && attacker.kind !== undefined));
+    const teamA = attacker.team || (isPlayerA ? 'friendly' : 'enemy');
+    const teamB = target.team || (isPlayerB ? 'friendly' : 'enemy');
+    return teamA === teamB;
   }
 
   function teamKitColor(team) {
@@ -13245,7 +13248,13 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
-  if (attacker && typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function' && !CORE.isHostile(attacker, player)) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
+  if (attacker) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, player)
+      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;
@@ -16204,13 +16213,16 @@ const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (attacker) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, en)
+      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
-  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
-    ? CORE.isHostile(sourceActor, en)
-    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
-  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
-  if (sourceActor && !isHostileTarget && !allowFriendlyFire) return;
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
   en._lastHitNode = isHead ? 'head' : 'chest';
   if (point) {
     const hx = point.x - en.pos.x, hz = point.z - en.pos.z;

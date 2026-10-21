@@ -440,7 +440,13 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
-  if (attacker && typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function' && !CORE.isHostile(attacker, player)) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
+  if (attacker) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, player)
+      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;

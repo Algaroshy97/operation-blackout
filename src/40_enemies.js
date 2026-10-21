@@ -217,13 +217,16 @@ const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (attacker) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, en)
+      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
-  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
-    ? CORE.isHostile(sourceActor, en)
-    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
-  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
-  if (sourceActor && !isHostileTarget && !allowFriendlyFire) return;
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
   en._lastHitNode = isHead ? 'head' : 'chest';

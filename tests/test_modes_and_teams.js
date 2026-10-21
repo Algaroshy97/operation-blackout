@@ -371,6 +371,8 @@ function createCombatContext(overrides = {}) {
     dirToDeg: () => 0,
     meleeHits: [],
     damagePlayer: noop,
+    showDamageFx: noop,
+    updateHudHealth: noop,
     spawnBlood: noop,
     showHitmarker: noop,
     addCredits: noop,
@@ -960,4 +962,44 @@ test('mode respawn queue and timer lifecycle in 35_modes.js', () => {
   assert.equal(c.modeRespawnQueue.length, 1);
   c.MODES.survival.setup();
   assert.equal(c.modeRespawnQueue.length, 0, 'Survival setup must clear pending respawns');
+});
+
+test('damageEnemy and damagePlayer apply damage regardless of dead attacker status or omitted attacker', () => {
+  const c = createCombatContext();
+
+  const enemyVictim = {
+    team: 'enemy',
+    pos: new Vector3(10, 0, 10),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  // 1. When player is dead, damageEnemy with no attacker passed (environment, sentry, or probe check 8) must still deal damage
+  c.player.dead = true;
+  c.damageEnemy(enemyVictim, 40, enemyVictim.pos, false);
+  assert.equal(enemyVictim.health, 60, 'enemy must take damage when attacker is omitted even if player is dead');
+
+  // 2. When player is dead, damageEnemy with player as attacker must still deal damage to hostiles (posthumous bullet/grenade)
+  c.damageEnemy(enemyVictim, 40, enemyVictim.pos, false, false, 'AR', c.player);
+  assert.equal(enemyVictim.health, 20, 'enemy must take damage from hostile player even if player is dead');
+
+  // 3. When hostile bot dies, its shot in flight must still damage living enemy
+  const hostileDeadAttacker = { team: 'friendly', dead: true, pos: new Vector3(0, 0, 0) };
+  c.damageEnemy(enemyVictim, 25, enemyVictim.pos, false, false, 'AR', hostileDeadAttacker);
+  assert.equal(enemyVictim.dead, true, 'lethal damage from dead hostile attacker must kill enemy');
+
+  // 4. Same for damagePlayer: enemy dies, its projectile in flight hits living player
+  const playerText = source('20_player.js');
+  const dmgPlayerSlice = playerText.slice(playerText.indexOf('function damagePlayer('));
+  const endFn = dmgPlayerSlice.indexOf('\n}\n');
+  vm.runInContext(dmgPlayerSlice.slice(0, endFn + 3), c);
+  c.player.dead = false;
+  c.player.health = 100;
+  c.player.armor = 0;
+  c.godMode = false;
+  const deadEnemyAttacker = { team: 'enemy', dead: true, pos: new Vector3(5, 0, 0) };
+  c.damagePlayer(30, 0, 'bullet', deadEnemyAttacker);
+  assert.equal(c.player.health, 70, 'player must take damage from opposing enemy even if enemy died while round was in flight');
 });

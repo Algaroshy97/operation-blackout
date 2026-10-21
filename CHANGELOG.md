@@ -24,8 +24,13 @@ not proof of deployment status, device support or measured frame-rate improvemen
   - `CORE.stepRespawnTimer`, `CORE.canRespawn`, `CORE.stepSpawnProtection`, and `CORE.isSpawnProtected` manage timer and protection states.
   - Mode respawn queue framework in `src/35_modes.js` (`queueModeRespawn`, `clearModeRespawns`, `updateModeRespawns`) manages actor respawn scheduling and spawn relocation; Survival mode preserves wave-based spawning and clears respawn queues on setup.
   - Spawn protection grants temporary damage immunity upon spawn; attacking (shooting/melee) breaks protection early.
-- Add regression test suites in `tests/test_core.js` and `tests/test_modes_and_teams.js` covering friendly bot visual kits and IFF markers, friendly fire immunity across players, bots, and grenades, spawn protection damage gating and timer decay, hostile sightline spawn scoring avoidance, and mode respawn queues.
-- Local test verification: 521 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). The release artifact is 2,007,015 bytes (90,137 bytes under the 2 MiB budget limit). Browser acceptance probe and PR creation remain pending external wrapper execution.
+- Fix friendly fire and hostility gating in `damageEnemy` (`src/40_enemies.js`), `damagePlayer` (`src/20_player.js`), and `CORE.isFriendlyFire` (`src/01_core.js`):
+  - In `CORE.isFriendlyFire(attacker, target)`, check direct team matching (`teamA === teamB`) rather than checking `!isHostile(attacker, target)`, which previously caused dead actors to be erroneously treated as friendly-fire immune.
+  - In `damageEnemy`, check friendly-fire negation only when an explicit allied `attacker` is provided; evaluate hostility directly via team alignment (`en.team !== sourceTeam`) so omitting `attacker` or passing a dead player/source does not cancel damage.
+  - In `damagePlayer`, check friendly fire only when an allied `attacker` is provided, preventing incoming enemy projectiles fired before an enemy's death from being falsely negated.
+  - Resolves live probe Check 8 failures where `damageEnemy(en, 200, ...)` with omitted attacker failed to damage enemies when player was dead, restoring ragdoll spawning (`corpses-capped`) and AI list clearance (`dead-leave-the-ai-list`).
+- Add regression test suites in `tests/test_core.js` and `tests/test_modes_and_teams.js` covering friendly bot visual kits and IFF markers, friendly fire immunity across players, bots, and grenades, spawn protection damage gating and timer decay, hostile sightline spawn scoring avoidance, mode respawn queues, and damage application regardless of dead attacker status or omitted attacker.
+- Local test verification: 522 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). The release artifact is 2,007,926 bytes (89,226 bytes under the 2 MiB budget limit). Browser acceptance probe and PR creation remain pending external wrapper execution.
 
 ## v165 — Game modes foundation: MODES registry and team-aware AI targeting
 

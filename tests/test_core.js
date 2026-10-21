@@ -10198,11 +10198,15 @@ test('friendly bots and respawn lifecycle: spawn scoring, respawn timers, protec
   const playerActor = { team: 'friendly', dead: false, isPlayer: true };
   const friendlyBot = { team: 'friendly', dead: false };
   const enemyBot = { team: 'enemy', dead: false };
+  const deadFriendlyBot = { team: 'friendly', dead: true };
+  const deadEnemyBot = { team: 'enemy', dead: true };
 
   assert.strictEqual(CORE.isFriendlyFire(playerActor, friendlyBot), true, 'allies trigger friendly fire flag');
   assert.strictEqual(CORE.isFriendlyFire(playerActor, enemyBot), false, 'opposing teams are not friendly fire');
   assert.strictEqual(CORE.isFriendlyFire(friendlyBot, friendlyBot), false, 'self is not friendly fire');
   assert.strictEqual(CORE.isFriendlyFire(null, friendlyBot), false);
+  assert.strictEqual(CORE.isFriendlyFire(deadFriendlyBot, friendlyBot), true, 'dead ally projectile triggers friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(deadEnemyBot, playerActor), false, 'dead enemy projectile is never friendly fire');
 
   assert.strictEqual(CORE.minimapActorColor(friendlyBot), '#4da6ff', 'friendly blip color');
   assert.strictEqual(CORE.minimapActorColor(enemyBot), '#ff4030', 'enemy blip color fallback');

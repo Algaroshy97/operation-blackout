@@ -7205,8 +7205,11 @@ const CORE = (function () {
 
   function isFriendlyFire(attacker, target) {
     if (!attacker || !target || attacker === target) return false;
-    if (attacker.dead || target.dead) return false;
-    return !isHostile(attacker, target);
+    const isPlayerA = !!(attacker.isPlayer || attacker.team === 'friendly' || (attacker.kind === undefined && target.kind !== undefined));
+    const isPlayerB = !!(target.isPlayer || target.team === 'friendly' || (target.kind === undefined && attacker.kind !== undefined));
+    const teamA = attacker.team || (isPlayerA ? 'friendly' : 'enemy');
+    const teamB = target.team || (isPlayerB ? 'friendly' : 'enemy');
+    return teamA === teamB;
   }
 
   function teamKitColor(team) {
