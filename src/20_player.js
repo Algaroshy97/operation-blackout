@@ -54,6 +54,7 @@ addEventListener('mousemove', function (e) {
 
 // ---- Player state ----
 const player = {
+  team: 'friendly', isPlayer: true,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,

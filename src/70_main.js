@@ -40,6 +40,8 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, null);
   // A second lethal hit while already down comes straight here, so the bleed-out
   // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
   // stays on screen behind the death screen until the next deploy.
@@ -100,6 +102,8 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   paused = false;   // never reset into a paused state
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
   // remove all enemies + pickups + grenades
@@ -788,7 +792,9 @@ function frame(now) {
     updatePlayer(dt);
     updateWeapons(dt);
     updateEnemies(dt);
-    updateWaves(dt);
+    const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
+    else updateWaves(dt);
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);

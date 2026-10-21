@@ -11008,6 +11008,60 @@ const CORE = (function () {
     return weaponFireSound(weaponType, isSuppressed);
   }
 
+  function isHostile(actorA, actorB) {
+    if (!actorA || !actorB || actorA === actorB) return false;
+    if (actorA.dead || actorB.dead) return false;
+    const isPlayerA = !!(actorA.isPlayer || actorA.team === 'friendly' || (actorA.kind === undefined && actorB.kind !== undefined));
+    const isPlayerB = !!(actorB.isPlayer || actorB.team === 'friendly' || (actorB.kind === undefined && actorA.kind !== undefined));
+    const teamA = actorA.team || (isPlayerA ? 'friendly' : 'enemy');
+    const teamB = actorB.team || (isPlayerB ? 'friendly' : 'enemy');
+    return teamA !== teamB;
+  }
+
+  function pickNearestHostile(actor, candidates, maxRange) {
+    if (!actor || !Array.isArray(candidates) || candidates.length === 0) return null;
+    let best = null, bestDistSq = Infinity;
+    const ax = (actor.pos && _isNum(actor.pos.x)) ? actor.pos.x : 0;
+    const az = (actor.pos && _isNum(actor.pos.z)) ? actor.pos.z : 0;
+    const maxDistSq = (_isNum(maxRange) && maxRange > 0) ? (maxRange * maxRange) : Infinity;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (!c || c === actor || c.dead) continue;
+      if (!isHostile(actor, c)) continue;
+      const cx = (c.pos && _isNum(c.pos.x)) ? c.pos.x : 0;
+      const cz = (c.pos && _isNum(c.pos.z)) ? c.pos.z : 0;
+      const dx = ax - cx, dz = az - cz;
+      const dSq = dx * dx + dz * dz;
+      if (dSq <= maxDistSq && dSq < bestDistSq) {
+        bestDistSq = dSq;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  function modeScoreboardData(modeId, stats) {
+    const s = stats || {};
+    return {
+      mode: modeId || 'survival',
+      wave: _isNum(s.wave) ? s.wave : 0,
+      score: _isNum(s.score) ? s.score : 0,
+      kills: _isNum(s.kills) ? s.kills : 0,
+      headshots: _isNum(s.headshots) ? s.headshots : 0,
+      credits: _isNum(s.credits) ? s.credits : 0
+    };
+  }
+
+  function isModeOver(modeId, state) {
+    const s = state || {};
+    if (s.gameEnded) return true;
+    if (modeId === 'survival' || !modeId) {
+      return !!(s.playerDead && !s.playerDowned);
+    }
+    return false;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -11356,7 +11410,8 @@ const CORE = (function () {
     LMG_HEAT_HOLD, lmgHeatAfterShot, lmgHeatDecay, lmgHeatSpreadMul, lmgHeatRecoilMul,
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
-    breacherPelletHitChance, canBreacherFire, breacherPelletHits
+    breacherPelletHitChance, canBreacherFire, breacherPelletHits,
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
   };
 
 
@@ -12743,6 +12798,7 @@ addEventListener('mousemove', function (e) {
 });
 
 const player = {
+  team: 'friendly', isPlayer: true,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -15014,6 +15070,61 @@ function muzzleWorldPos(out) {
   return out.copy(_mzV).applyMatrix4(camera.matrixWorld);
 }
 
+// ============ GAME MODES REGISTRY & FRAMEWORK ============
+'use strict';
+
+var MODES = Object.create(null);
+var activeModeId = 'survival';
+
+function registerMode(id, def) {
+  if (id && def) MODES[id] = def;
+}
+
+function getActiveMode() {
+  return MODES[activeModeId] || MODES.survival;
+}
+
+function setActiveMode(id) {
+  if (MODES[id]) activeModeId = id;
+}
+
+MODES.survival = {
+  id: 'survival',
+  name: 'Survival',
+  setup: function () {
+    if (typeof waveNum !== 'undefined') waveNum = 0;
+    if (typeof waveQueue !== 'undefined') waveQueue = 0;
+    if (typeof waveActive !== 'undefined') waveActive = false;
+    if (typeof betweenWaveT !== 'undefined') {
+      betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) ? CFG.wave.startDelay : 3;
+    }
+    if (typeof gameEnded !== 'undefined') gameEnded = false;
+  },
+  onKill: function (victim, isHead, killer) {
+  },
+  onDeath: function (victim, killer) {
+  },
+  update: function (dt) {
+    if (typeof updateWaves === 'function') updateWaves(dt);
+  },
+  scoreboard: function () {
+    return CORE.modeScoreboardData('survival', {
+      wave: typeof waveNum !== 'undefined' ? waveNum : 0,
+      score: typeof score !== 'undefined' ? score : 0,
+      kills: typeof kills !== 'undefined' ? kills : 0,
+      headshots: typeof headshots !== 'undefined' ? headshots : 0,
+      credits: typeof credits !== 'undefined' ? credits : 0
+    });
+  },
+  isOver: function () {
+    return CORE.isModeOver('survival', {
+      gameEnded: typeof gameEnded !== 'undefined' ? !!gameEnded : false,
+      playerDead: (typeof player !== 'undefined' && player) ? !!player.dead : false,
+      playerDowned: (typeof player !== 'undefined' && player) ? !!player.downed : false
+    });
+  }
+};
+
 // ============ SOLDIER RIG: MODEL, PROCEDURAL ANIMATION, VERLET RAGDOLL ============
 'use strict';
 
@@ -15798,6 +15909,7 @@ function spawnEnemy(kind, x, z, opts) {
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
+    team: spawnOpts.team || 'enemy',
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     elite: isElite,
     kind: kind,
@@ -15871,8 +15983,13 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
-function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
+function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
+  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
+    ? CORE.isHostile(sourceActor, en)
+    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
   en._lastHitNode = isHead ? 'head' : 'chest';
   if (point) {
     const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
@@ -15887,28 +16004,31 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
-  const lethal = typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
-  showHitmarker(isHead, tier);
-  addCredits(CORE.creditsForDamage(isKill, isHead));
-  addFieldCharge(lethal ? dmg : dmg * shield);
+  if (isPlayerSource && isHostileTarget) {
+    const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
+    showHitmarker(isHead, tier);
+    addCredits(CORE.creditsForDamage(isKill, isHead));
+    addFieldCharge(lethal ? dmg : dmg * shield);
+  }
   spawnBlood(point, isHead, weaponType);
   if (point) {
-    _hitDir.set(point.x - player.pos.x, 0, point.z - player.pos.z).normalize();
+    const fromPos = (sourceActor && sourceActor.pos) ? sourceActor.pos : (typeof player !== 'undefined' ? player.pos : null);
+    if (fromPos) _hitDir.set(point.x - fromPos.x, 0, point.z - fromPos.z).normalize();
     if (isHead && CORE.enemyHasHelmet(en.kind)) {
       if (typeof fxHeadshotSparks === 'function') fxHeadshotSparks(point, _hitDir);
       if (typeof flashLight === 'function') flashLight(point, 0xffd080, 0.8, 3.0, 0.04);
       playSound3D(CORE.helmetHitSound(true), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
     }
-    if (en.parts.soldier) {
+    if (en.parts && en.parts.soldier && typeof soldierHitReact === 'function') {
       soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
     }
   }
-  if (isKill) killEnemy(en, isHead);
+  if (isKill) killEnemy(en, isHead, sourceActor);
   else {
     en.stateT = 0;
     if (en.state === 'idle' || en.state === 'patrol') en.state = 'chase';
@@ -15917,7 +16037,11 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType) {
 
 const _killImpulseOut = { force: 0, y: 0 };
 
-function killEnemy(en, isHead) {
+function killEnemy(en, isHead, killer) {
+  const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
+  const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget;
   en.dead = true; en.deathT = 0;
   const impulse = CORE.enemyKillImpulse(en._lastHitForce, isHead, Math.random(), _killImpulseOut);
   spawnRagdoll(en, {
@@ -15927,17 +16051,21 @@ function killEnemy(en, isHead) {
     z: (en._lastHitDirZ || 0) * impulse.force,
     spread: 0.3
   });
-  const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
-  addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
-    en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
-  if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
-  registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
-  kills++;
-  if (isHead) headshots++;
-  if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
-  else dropPickup(en.pos);
-  registerStreakKill();
-  playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
+  if (isQualifyingKill) {
+    const eliteMul = en.elite ? CORE.ELITE.scoreMul : 1;
+    addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
+      en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
+    if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
+    registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
+    kills++;
+    if (isHead) headshots++;
+    if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
+    else dropPickup(en.pos);
+    registerStreakKill();
+    playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
+  }
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 
 function distToPlayer(en) {
@@ -15952,8 +16080,25 @@ let flowT = 0, flowCellX = -9999, flowCellZ = -9999;
 let _flowGrid = null;
 const FLOW_INTERVAL = 0.25;
 const _flowDir = { x: 0, z: 0 };
+const _targetFlows = new WeakMap();
+function flowFieldForTarget(target) {
+  const cx = Math.floor((target.pos.x - navGrid.originX) / navGrid.cell);
+  const cz = Math.floor((target.pos.z - navGrid.originZ) / navGrid.cell);
+  let cached = _targetFlows.get(target);
+  if (!cached || cached.grid !== navGrid) {
+    cached = { grid: navGrid, cx: NaN, cz: NaN, field: Object.assign({}, navGrid, {
+      dist: new Int32Array(navGrid.dist.length), queue: new Int32Array(navGrid.queue.length)
+    }) };
+    _targetFlows.set(target, cached);
+  }
+  if (cached.cx !== cx || cached.cz !== cz) {
+    CORE.computeFlowField(cached.field, target.pos.x, target.pos.z);
+    cached.cx = cx; cached.cz = cz;
+  }
+  return cached.field;
+}
 function updateFlowField(dt) {
-  if (!navGrid) return;
+  if (!navGrid || typeof player === 'undefined' || !player || !player.pos) return;
   flowT -= dt;
   const cx = Math.floor((player.pos.x - navGrid.originX) / navGrid.cell);
   const cz = Math.floor((player.pos.z - navGrid.originZ) / navGrid.cell);
@@ -15975,13 +16120,16 @@ const _toPlayerDirOut = { x: 0, z: 0 };
 
 function moveEnemy(en, dt, dist) {
   const cfg = CFG.ai;
-  const d = typeof dist === 'number' && isFinite(dist) ? dist : CORE.horizDist(en.pos.x, en.pos.z, player.pos.x, player.pos.z);
-  CORE.enemyToPlayerDir(player.pos.x - en.pos.x, player.pos.z - en.pos.z, d, _toPlayerDirOut);
+  const target = en.target || player;
+  const isTargetPlayer = !!(target && (target === player || target.isPlayer));
+  const d = typeof dist === 'number' && isFinite(dist) ? dist : CORE.horizDist(en.pos.x, en.pos.z, target.pos.x, target.pos.z);
+  CORE.enemyToPlayerDir(target.pos.x - en.pos.x, target.pos.z - en.pos.z, d, _toPlayerDirOut);
   const toPlayer = _toPlayerDirOut;
   const speed = CORE.enemyMoveSpeed(en.kind, en.state, d, cfg.rangedRange, en.speedMul, cfg);
   let mvx = toPlayer.x, mvz = toPlayer.z;
   if (en.state === 'chase') {
-    const routed = d > 3 && navGrid ? CORE.flowDirAt(navGrid, en.pos.x, en.pos.z, _flowDir) : null;
+    const field = d > 3 && navGrid ? (isTargetPlayer ? navGrid : flowFieldForTarget(target)) : null;
+    const routed = field ? CORE.flowDirAt(field, en.pos.x, en.pos.z, _flowDir) : null;
     if (routed) { mvx = routed.x; mvz = routed.z; }
     if (en.flanker) {
       en.flankT -= dt;
@@ -16029,15 +16177,18 @@ const losRay = new THREE.Raycaster();
 const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
 let losFrame = 0;   // round-robin: each enemy checks LOS at most every 3 frames
-function hasLOS(en) {
+function hasLOS(en, target) {
+  const tgt = target || en.target || player;
   if (en._losSkip === undefined) en._losSkip = 0;
   if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
   if (en._losTick === losFrame) return en._losCache;
   en._losTick = losFrame;
   _losFrom.set(en.pos.x, CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y), en.pos.z);
-  _losTo.copy(player.pos);
-  _losTo.x = CORE.enemyLosTargetCoord(player.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
-  _losTo.z = CORE.enemyLosTargetCoord(player.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.copy(tgt.pos);
+  const tgtEyeY = (tgt === player || (tgt && tgt.isPlayer)) ? tgt.pos.y : (tgt.pos.y + (typeof E_DIM !== 'undefined' ? E_DIM.pelvisH : 0.95) + 0.55);
+  _losTo.y = tgtEyeY;
+  _losTo.x = CORE.enemyLosTargetCoord(tgt.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.z = CORE.enemyLosTargetCoord(tgt.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
   const blocked = CORE.segmentBlocked(
     _losFrom.x, _losFrom.y, _losFrom.z,
     _losTo.x, _losTo.y, _losTo.z, colliders, 0.25)
@@ -16102,6 +16253,37 @@ function updateStatusEffects(dt) {
   }
 }
 
+function findNearestHostileActor(en) {
+  if (!en) return null;
+  const candidates = [];
+  if (typeof player !== 'undefined' && player && !player.dead && (CORE.isHostile(en, player) || (!en.team && !player.team))) {
+    candidates.push(player);
+  }
+  if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+    for (let i = 0; i < enemies.length; i++) {
+      const o = enemies[i];
+      if (o && o !== en && !o.dead && CORE.isHostile(en, o)) candidates.push(o);
+    }
+  }
+  return CORE.pickNearestHostile(en, candidates);
+}
+
+function findHostileTarget(en) {
+  if (typeof findNearestHostileActor === 'function') return findNearestHostileActor(en);
+  return (typeof player !== 'undefined' && player && !player.dead) ? player : null;
+}
+
+function distToTarget(en, target) {
+  if (!target || target === player) return distToPlayer(en);
+  return CORE.horizDist(en.pos.x, en.pos.z, target.pos.x, target.pos.z);
+}
+
+function vertGapToTarget(en, target) {
+  if (!target || target === player) return vertGapToPlayer(en);
+  const eyeH = (target.isPlayer) ? (typeof eyeHeight === 'function' ? eyeHeight() : 1.8) : 0;
+  return (target.pos.y - eyeH) - en.pos.y;
+}
+
 function updateEnemies(dt) {
   updateStatusEffects(dt);
   losFrame++;
@@ -16114,15 +16296,17 @@ function updateEnemies(dt) {
       enemies.splice(i, 1);
       continue;
     }
-    const playerGone = player.dead;
+    const target = findHostileTarget(en);
+    en.target = target;
+    const targetGone = !target || target.dead;
     en.stateT += dt;
-    const dist = distToPlayer(en);
-    if (playerGone) {
+    const dist = target ? distToTarget(en, target) : distToPlayer(en);
+    if (targetGone) {
       if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
       animateEnemy(en, dt, dist);
       continue;
     }
-    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en, target), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
@@ -16155,30 +16339,36 @@ function updateEnemies(dt) {
         en.stepT = CORE.enemyFootstepInterval(en.speedMul);
       }
     }
-    const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
+    const dx = target.pos.x - en.pos.x, dz = target.pos.z - en.pos.z;
     en.yaw = Math.atan2(dx, dz);
     const stopDist = CORE.enemyStopDistance(en.kind);
-    if (CORE.withinReach(dist, vertGapToPlayer(en), stopDist)) {
-      if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, player.pos.x, player.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
+    if (CORE.withinReach(dist, vertGapToTarget(en, target), stopDist)) {
+      if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, target.pos.x, target.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
         en.pos.x += _pushoutOut.pushX;
         en.pos.z += _pushoutOut.pushZ;
       }
     }
     const canMelee = CORE.canEnemyMelee(en.kind);
     const reach = CORE.enemyMeleeReach(en.kind, CFG.ai.attackRange);
-    if (canMelee && CORE.withinReach(dist, vertGapToPlayer(en), reach)
+    if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       en.swinging = CORE.enemyMeleeWindup(Math.random());
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
-        if (CORE.withinReach(dist, vertGapToPlayer(en), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !player.dead) {
-          if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
+        if (CORE.withinReach(dist, vertGapToTarget(en, target), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !target.dead) {
+          if (target === player || (target && target.isPlayer)) {
+            if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
+              const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+              damagePlayer(meleeDmg, dirToDeg(en), 'melee');
+              playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
+              meleeHits.push(gameT);
+            }
+          } else if (typeof damageEnemy === 'function') {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
-            damagePlayer(meleeDmg, dirToDeg(en), 'melee');
+            damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
-            meleeHits.push(gameT);
           }
         }
         en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;                        // cooldown marker
@@ -16186,14 +16376,14 @@ function updateEnemies(dt) {
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
-    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, player.dead)) {
-      if (hasLOS(en)) {
+    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+      if (hasLOS(en, target)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
-        breacherShoot(en, dist);
+        breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
     if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
-      if (hasLOS(en)) {
+      if (hasLOS(en, target)) {
         if (waveBehaviours.burstFire) {
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
@@ -16201,20 +16391,20 @@ function updateEnemies(dt) {
         } else {
           en.nextShot = CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random());
         }
-        enemyShoot(en, dist);
+        enemyShoot(en, dist, target);
       } else {
         en.nextShot = gameT + CORE.RIFLEMAN_LOS_RETRY_DELAY;
         en.burst = 0;
       }
     }
-    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, player.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
-      throwEnemyGrenade(en);
+      throwEnemyGrenade(en, target);
     }
-    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, player.dead) &&
+    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
-      if (!hasLOS(en)) throwEnemyGrenade(en);   // only when the player IS in cover
+      if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
     }
     animateEnemy(en, dt, dist);
   }
@@ -16261,25 +16451,26 @@ function relocateStuckEnemy(en) {
 }
 
 const _enemyGrenadeVelOut = { x: 0, y: 0, z: 0 };
-function throwEnemyGrenade(en) {
+function throwEnemyGrenade(en, target) {
+  const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
   en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1; m.add(blink);
   m.position.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  const dx = player.pos.x - en.pos.x, dz = player.pos.z - en.pos.z;
+  const dx = tgt.pos.x - en.pos.x, dz = tgt.pos.z - en.pos.z;
   const d = Math.hypot(dx, dz) || 1;
   const speed = CORE.enemyGrenadeSpeed(d);
   CORE.enemyGrenadeVelocity(dx, dz, d, speed, CORE.ENEMY_GRENADE_ARC_Y, Math.random(), Math.random(), CORE.ENEMY_GRENADE_JITTER, _enemyGrenadeVelOut);
   const fuse = CORE.enemyGrenadeFuse(CFG.grenade.fuse, CORE.ENEMY_GRENADE_FUSE_BONUS);
   const rec = typeof getLiveGrenadeRecord === 'function'
-    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true)
-    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true };
+    ? getLiveGrenadeRecord(m, _enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z, fuse, blink, null, 0, 0, true, en)
+    : { m: m, vel: new THREE.Vector3(_enemyGrenadeVelOut.x, _enemyGrenadeVelOut.y, _enemyGrenadeVelOut.z), fuse: fuse, blink: blink, atRest: false, ring: null, restFuse: CFG.grenade.fuse, fromEnemy: true, owner: en };
   liveGrenades.push(rec);
   scene.add(m);
   playSound3D(CORE.enemyGrenadeThrowSound(), en.pos.x, en.pos.y, en.pos.z);
-  pushKillfeed('<span class="xp">INCOMING GRENADE</span>');
+  if (tgt === player || (tgt && tgt.isPlayer)) pushKillfeed('<span class="xp">INCOMING GRENADE</span>');
 }
 
 let _shieldMsgT = -99;
@@ -16293,15 +16484,16 @@ const _eshotFrom = new THREE.Vector3();
 const _eshotTo = new THREE.Vector3();
 const _eshotDir = new THREE.Vector3();
 const _bulletMissOffset = { x: 0, y: 0, z: 0 };
-function enemyShoot(en, dist) {
+function enemyShoot(en, dist, target) {
+  const tgt = target || en.target || player;
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
-  _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+  _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize();
   if (en.parts && en.parts.soldier && en.parts.J && en.parts.J.gun) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
-    _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize();
+    _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize();
   }
   if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, CORE.enemyWeaponType(en.kind, en.elite));
   if (typeof flashLight === 'function') {
@@ -16312,17 +16504,19 @@ function enemyShoot(en, dist) {
     ? waveSpecial.accBonus : 0;
   const baseAcc = CORE.enemyAccuracy(CFG.ai.rangedAccuracy, CFG.ai.accPerWave, waveNum, CFG.ai.accMax, accBonus);
   const distAcc = CORE.enemyDistanceAccuracy(baseAcc, dist, CORE.ENEMY_ACCURACY_FALLOFF_DIST, CFG.ai.rangedRange, CORE.ENEMY_ACCURACY_MIN_FACTOR);
-  const evaMul = CORE.enemyTargetEvasionMultiplier(
+  const isTargetPlayer = (tgt === player || (tgt && tgt.isPlayer));
+  const evaMul = isTargetPlayer ? CORE.enemyTargetEvasionMultiplier(
     !!player.sprinting,
     player.tacT > 0,
     !!player.sliding,
     !!player.crouching,
     !player.onGround
-  );
+  ) : 1;
   const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul);
   const isHit = Math.random() < acc;
-  const to = _eshotTo.copy(player.pos);
-  to.y = CORE.enemyAimTargetY(player.pos.y, CORE.ENEMY_SHOT_CHEST_Y_OFFSET);
+  const to = _eshotTo.copy(tgt.pos);
+  const chestOffsetY = isTargetPlayer ? CORE.ENEMY_SHOT_CHEST_Y_OFFSET : 0.95;
+  to.y = CORE.enemyAimTargetY(tgt.pos.y, chestOffsetY);
   if (!isHit) {
     CORE.bulletNearMissOffset(
       (Math.random() - 0.5) * 2,
@@ -16339,19 +16533,23 @@ function enemyShoot(en, dist) {
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
-  const hitDeg = dirToDeg(en);
+  const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
     const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
-      if (player.dead || !started || paused) return;
+      if (tgt.dead || !started || paused) return;
       if (CORE.segmentBlocked(ox, oy, oz,
-          player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
+          tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
       if (CORE.smokeBlocks(ox, oy, oz,
-          player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
-      damagePlayer(dmg, hitDeg, 'bullet');
+          tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
+      if (isTargetPlayer) {
+        damagePlayer(dmg, hitDeg, 'bullet');
+      } else if (typeof damageEnemy === 'function') {
+        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
+      }
     }, travelDelay);
-  } else {
+  } else if (isTargetPlayer) {
     const missX = to.x, missY = to.y, missZ = to.z;
     setTimeout(function () {
       if (runId !== firedInRun) return;
@@ -16367,17 +16565,18 @@ function enemyShoot(en, dist) {
 }
 
 const _breacherRolls = new Float32Array(8);
-function breacherShoot(en, dist) {
+function breacherShoot(en, dist, target) {
+  const tgt = target || en.target || player;
   if (en.blindT > 0) return;
   en.lastShotT = gameT;
   playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
   if (en.parts.soldier && en.parts.J.gun) {
     en.parts.J.gun.localToWorld(from.set(0, 0.02, 0.56));
-    fxMuzzle(from, _eshotDir.set(player.pos.x - from.x, player.pos.y - from.y, player.pos.z - from.z).normalize(), 'AR', false);
+    fxMuzzle(from, _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize(), 'AR', false);
   }
   for (let i = 0; i < 3; i++) {
-    const to = _eshotTo.copy(player.pos);
+    const to = _eshotTo.copy(tgt.pos);
     to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
     spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
   }
@@ -16386,14 +16585,19 @@ function breacherShoot(en, dist) {
   const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
-  const hitDeg = dirToDeg(en);
+  const isTargetPlayer = (tgt === player || (tgt && tgt.isPlayer));
+  const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   setTimeout(function () {
     if (runId !== firedInRun) return;
-    if (player.dead || !started || paused) return;
-    if (CORE.segmentBlocked(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, colliders, 0.25)) return;
-    if (CORE.smokeBlocks(ox, oy, oz, player.pos.x, player.pos.y, player.pos.z, smokeVolumes())) return;
-    if (hits > 0) damagePlayer(perPellet * hits, hitDeg, 'bullet');
-    else noteNearMiss(hitDeg);
+    if (tgt.dead || !started || paused) return;
+    if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
+    if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
+    if (hits > 0) {
+      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+      else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
+    } else if (isTargetPlayer) {
+      noteNearMiss(hitDeg);
+    }
   }, Math.min(120, dist * 6));
 }
 
@@ -18081,7 +18285,7 @@ function releaseBlastRing(ring) {
 }
 
 const _grenadePool = [];
-function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy) {
+function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fromEnemy, owner) {
   const g = _grenadePool.length > 0 ? _grenadePool.pop() : {
     m: null,
     vel: new THREE.Vector3(),
@@ -18112,6 +18316,7 @@ function getLiveGrenadeRecord(m, vx, vy, vz, fuse, blink, def, faceX, faceZ, fro
   g.faceZ = typeof faceZ === 'number' ? faceZ : 0;
   g.grounded = 0;
   g.fromEnemy = !!fromEnemy;
+  g.owner = owner || null;
   return g;
 }
 
@@ -18127,6 +18332,7 @@ function releaseLiveGrenadeRecord(g) {
     g.m = null;
   }
   g.blink = null;
+  g.owner = null;
   g.def = null;
   g.atRest = false;
   g.stuck = false;
@@ -18524,10 +18730,10 @@ function detonate(g, i, def) {
   if (def.mode === 'tactical') {
     applyTactical(def, p);
   } else if (def.mode === 'burn') {
-    explodeGrenade(p, 0.45);
+    explodeGrenade(p, 0.45, g.owner);
     addBurnPatch(p.x, p.z, def);
   } else {
-    explodeGrenade(p);
+    explodeGrenade(p, undefined, g.owner);
   }
   releaseLiveGrenadeRecord(g);
   liveGrenades.splice(i, 1);
@@ -18713,7 +18919,7 @@ function refreshGrenadeTargets() {
   }
 }
 
-function explodeGrenade(pos, scale) {
+function explodeGrenade(pos, scale, owner) {
   const dmgScale = scale === undefined ? 1 : scale;
   playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
@@ -18751,7 +18957,7 @@ function explodeGrenade(pos, scale) {
 
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
-      damageEnemy(en, dmg, _blastTarget, false);
+      damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
     }
   }
   const pd = playerDistToBlast;
@@ -20898,6 +21104,8 @@ function resumeGame() {
 }
 function killPlayer() {
   player.dead = true;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, null);
   if (typeof clearDowned === 'function') clearDowned();
   stopMusic();
   mouse1Down = false;
@@ -20954,6 +21162,8 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   paused = false;   // never reset into a paused state
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
@@ -21591,7 +21801,9 @@ function frame(now) {
     updatePlayer(dt);
     updateWeapons(dt);
     updateEnemies(dt);
-    updateWaves(dt);
+    const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
+    else updateWaves(dt);
     updateVfx(dt);
     updateGrenades(dt);
     updatePickups(dt);

@@ -4,6 +4,35 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v165 — Game modes foundation: MODES registry and team-aware AI targeting
+
+- Observe the live music sequencer immediately after real UI deployment, before destructive combat probes can end the run; retain the existing running/layer/step assertions and additionally require the audio-clock scheduler to advance. A browser regression covers real deployment, scheduler progress, and death stopping playback without flag-only revival restarting it.
+
+- Implement game modes registry and lifecycle interface in new module `src/35_modes.js`:
+  - `MODES` registry with `registerMode(id, def)`, `getActiveMode()`, and `setActiveMode(id)` (default `'survival'`).
+  - Standardized mode contract: `setup`, `onKill`, `onDeath`, `update`, `scoreboard`, and `isOver`.
+  - Registered `survival` mode behind this interface (`MODES.survival`), delegating frame wave management to `updateWaves(dt)`, tracking resets via `setup()`, and preserving existing wave logic, scorestreaks, powerups, and checkpoints without modification.
+  - Wired active mode lifecycle into `resetGame()`, `killPlayer()`, and the frame simulation tick in `src/70_main.js`, and `killEnemy()` in `src/40_enemies.js`.
+- Implement team-aware actor hostility and threat selection rules in `src/01_core.js`:
+  - `CORE.isHostile(actorA, actorB)`: mutual hostility across different teams; self and dead actors are never hostile; friendly teammates are non-hostile (friendly fire off); defaults player to `'friendly'` and enemies to `'enemy'`.
+  - `CORE.pickNearestHostile(actor, candidates, maxRange)`: filters alive opposing-team actors, excludes teammates, and selects the nearest hostile candidate within range.
+  - `CORE.modeScoreboardData(modeId, stats)`: formats and sanitizes scoreboard data across modes.
+  - `CORE.isModeOver(modeId, state)`: evaluates game-over and death/downed rules per mode.
+- Implement team-aware enemy AI targeting in `src/40_enemies.js`:
+  - Every actor carries a `team` property (`player.team = 'friendly'` in `src/20_player.js`, `en.team = opts.team || 'enemy'` in `src/40_enemies.js`).
+  - `findNearestHostileActor(en)` and `findHostileTarget(en)` dynamically evaluate all alive actors to acquire the closest hostile threat.
+  - `hasLOS(en, target)`, `moveEnemy(en, dt, dist)`, `distToTarget(en, target)`, `vertGapToTarget(en, target)`, `enemyShoot(en, dist, target)`, `breacherShoot(en, dist, target)`, `throwEnemyGrenade(en, target)`, and melee resolve against the acquired hostile target.
+  - Chase navigation in `moveEnemy(en, dt, dist)` respects selected hostile bot targets and retains the shared player flow field only for player-targeted actors.
+  - Propagate attacking actor identity through `damageEnemy` and `killEnemy` across melee, rifleman fire, and breacher shotgun blast paths; pass verified killer actor to active mode `onKill` hook.
+  - Restrict player rewards (kills, headshots, score, credits, streaks) and hitmarkers to qualifying hostile player kills, isolating bot-to-bot kills and friendly-fire deaths from player progression.
+  - Gate delayed projectile and pellet impact callbacks (`enemyShoot`, `breacherShoot`) on paused and unstarted gameplay state across all targets.
+  - In Survival mode, player remains the sole hostile target: all combat kinetics, cover checks, grenade arcs, and pushout mechanics operate identically to prior releases.
+- Add test suites in `tests/test_modes_and_teams.js` and `tests/test_core.js` covering mode registry contracts, team hostility, threat prioritization over closer allies, target re-acquisition upon kill, target-aware navigation vectors, active bot-to-bot combat engagement, paused delayed impact gating, and kill attribution isolation (enemy-kills-friendly, friendly-kills-enemy, player-kills-enemy, and player-kills-friendly).
+- Propagate grenade owner identity from bot throw through pooled projectile lifetime, detonation, and blast damage to the mode kill hook; bot blast kills no longer award player progression. Clear ownership on recycling and retain default player grenade rewards and existing blast damage behavior.
+- Route bot-targeted chase around obstacles using cached target-cell flood distances with shared static walkability, without overwriting the player flow field or changing target acquisition. Full AI regressions cover both bot teams reaching a hostile behind a wall without teleport recovery.
+- Follow-up regression verification: `node --test tests/*.js` passes 516/516 tests, including real grenade fuse/physics/detonation attribution, pooled ownership reset, player rewards, and 20-second obstacle-navigation simulations. Both blockers were reproduced by failing regressions before the production fixes. No build, browser probe, commit, push, or deployment was performed for this follow-up.
+- Earlier local test verification: 511 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). The release artifact is 1,996,283 bytes (100,869 bytes under the 2 MiB budget). Browser acceptance probe and PR creation remain pending external wrapper execution.
+
 ## v164 — New weapons: M870 pump shotgun, M249 SAW, M1911 sidearm, and the breacher enemy
 
 - **M870 Express** (index 4, `type: 'AR'`, `cls: 'SG'`):
