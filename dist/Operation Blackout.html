@@ -13254,10 +13254,10 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
-  if (attacker) {
+  if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
       ? CORE.isFriendlyFire(attacker, player)
-      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly')));
+      : (((attacker.team || (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly'));
     if (isAlly && !allowFriendlyFire) return;
   }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
@@ -19217,7 +19217,7 @@ function explodeGrenade(pos, scale, owner) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-      damagePlayer(selfDmg, blastDeg, 'blast');
+      damagePlayer(selfDmg, blastDeg, 'blast', owner);
     }
   }
   const sk = CORE.explosionShotKick(playerDistToBlast, CORE.EXPLOSION_KICK_MAX_DIST, CORE.EXPLOSION_SHOT_KICK_MAX);

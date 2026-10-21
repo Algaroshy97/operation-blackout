@@ -441,10 +441,10 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
-  if (attacker) {
+  if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
       ? CORE.isFriendlyFire(attacker, player)
-      : (((attacker.team || (attacker.isPlayer ? 'friendly' : (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly')));
+      : (((attacker.team || (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly'));
     if (isAlly && !allowFriendlyFire) return;
   }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);

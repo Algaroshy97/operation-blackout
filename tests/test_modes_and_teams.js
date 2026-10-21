@@ -845,7 +845,16 @@ test('friendly fire immunity: players, bots, and grenades do not damage teammate
     dead: false,
     parts: c.dummyParts()
   };
-  c.enemies = [friendlyInBlast];
+  const hostileInBlast = {
+    team: 'enemy',
+    pos: new Vector3(0, 0, 2),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  c.enemies.length = 0;
+  c.enemies.push(friendlyInBlast, hostileInBlast);
   c.colliders = [];
   c.player.pos.set(50, 0, 50); // player far away
   c.throwEnemyGrenade(c.player, friendlyInBlast);
@@ -853,6 +862,68 @@ test('friendly fire immunity: players, bots, and grenades do not damage teammate
   c.liveGrenades[0].fuse = 0.01;
   c.updateGrenades(0.02);
   assert.equal(friendlyInBlast.health, 100, 'friendly bot in friendly grenade blast must take 0 damage');
+  assert.ok(hostileInBlast.health < 100, 'hostile bot in grenade blast must take damage');
+
+  // 6. Grenade blast from friendly bot does not damage player
+  const playerText = source('20_player.js');
+  const dmgPlayerSlice = playerText.slice(playerText.indexOf('function damagePlayer('));
+  const endFn = dmgPlayerSlice.indexOf('\n}\n');
+  vm.runInContext(dmgPlayerSlice.slice(0, endFn + 3), c);
+  c.godMode = false;
+  c.player.pos.set(0, 0, 0);
+  c.player.health = 100;
+  c.player.armor = 0;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, friendlyInBlast);
+  assert.equal(c.player.health, 100, 'player must not take damage from friendly bot grenade');
+});
+
+test('grenade owner propagation into player friendly-fire guard: allied, hostile, and self-owned explosions', () => {
+  const c = createCombatContext();
+  loadGrenadeLifecycle(c);
+
+  const playerText = source('20_player.js');
+  const dmgPlayerSlice = playerText.slice(playerText.indexOf('function damagePlayer('));
+  const endFn = dmgPlayerSlice.indexOf('\n}\n');
+  vm.runInContext(dmgPlayerSlice.slice(0, endFn + 3), c);
+
+  c.player.dead = false;
+  c.player.armor = 0;
+  c.godMode = false;
+
+  const friendlyBot = { team: 'friendly', isPlayer: false, pos: new Vector3(0, 0, 0), dead: false };
+  const hostileBot = { team: 'enemy', isPlayer: false, pos: new Vector3(0, 0, 0), dead: false };
+
+  // 1. Allied grenade explosion at player position: player must be immune when friendly fire is disabled
+  c.player.pos.set(0, 0, 0);
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, friendlyBot);
+  assert.equal(c.player.health, 100, 'player must take 0 damage from friendly bot grenade explosion');
+
+  // 2. Hostile grenade explosion at player position: player must take damage
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, hostileBot);
+  assert.ok(c.player.health < 100, 'player must take damage from hostile bot grenade explosion');
+
+  // 3. Self-owned explosion (owner === player): intentional self-damage must be preserved
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, c.player);
+  assert.ok(c.player.health < 100, 'player must take intentional self-damage from player-owned grenade explosion');
+
+  // 4. Self-owned explosion (owner with isPlayer: true): intentional self-damage must be preserved
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, { isPlayer: true, team: 'friendly' });
+  assert.ok(c.player.health < 100, 'player must take intentional self-damage from isPlayer grenade owner');
+
+  // 5. Unowned/default explosion (owner is undefined): self-damage preserved
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1);
+  assert.ok(c.player.health < 100, 'player must take self-damage from unowned grenade explosion');
+
+  // 6. When friendlyFire is enabled in CFG, allied grenade damages player
+  c.CFG.friendlyFire = true;
+  c.player.health = 100;
+  c.explodeGrenade(new Vector3(0, 0, 0), 1, friendlyBot);
+  assert.ok(c.player.health < 100, 'player must take damage from friendly bot grenade when friendly fire is enabled');
 });
 
 test('spawn protection and respawn scoring integration: damage immunity and hostile sightline avoidance', () => {
