@@ -2735,6 +2735,209 @@ test('regression [P2]: saved gameMode restores into activeModeId and survives re
   assert.ok(survBtn && survBtn.className.includes('on'), 'Survival button must have on class when saved mode is survival');
 });
 
+test('regression [P0]: corpse and live-rig resource ownership isolates lifecycles across respawn, budget retirement, and repeated cycles', () => {
+  const c = createRealRigContext();
+
+  // Test Case 1: Simple body with cloned-tint material (kind 3 shielded hostile)
+  // Death -> respawn before corpse retirement -> corpse retirement releases OLD private resources exactly once
+  // Shared template resources stay alive, live actor meshes/hitboxes remain in scene intact.
+  const parts1 = c.makeEnemyMesh(3, 'enemy');
+  const tint = new c.THREE.Color(0x4a6fa5);
+  parts1.group.traverse(o => {
+    if (o.isMesh && o !== parts1.hitBody && o !== parts1.hitHead && o.material) {
+      o.material = o.material.clone();
+      o.material.color.lerp(tint, 0.55);
+      o.userData.clonedTint = true;
+    }
+  });
+
+  const oldGeos1 = new Set();
+  let oldGeoDisposes1 = 0;
+  const oldMats1 = new Set();
+  let oldMatDisposes1 = 0;
+  parts1.group.traverse(o => {
+    if (o.geometry) oldGeos1.add(o.geometry);
+    if (o.userData && o.userData.clonedTint && o.material) oldMats1.add(o.material);
+  });
+  assert.strictEqual(oldGeos1.size, 12, 'simple bot must have 12 unique geometries');
+  assert.ok(oldMats1.size > 0, 'tinted bot must have cloned materials');
+  for (const g of oldGeos1) g.addEventListener('dispose', () => oldGeoDisposes1++);
+  for (const m of oldMats1) m.addEventListener('dispose', () => oldMatDisposes1++);
+
+  const bot1 = {
+    kind: 3, team: 'enemy', maxHealth: 100, health: 100, dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10), vel: new c.THREE.Vector3(),
+    parts: parts1, hitBody: parts1.hitBody, hitHead: parts1.hitHead
+  };
+  c.scene.add(parts1.group);
+
+  // Bot dies -> ragdoll spawned
+  c.spawnRagdoll(bot1, { node: 'chest', x: 0, y: 1, z: 2 });
+  bot1.dead = true;
+
+  // Respawn before corpse retirement
+  c.defaultOnRespawn(bot1, [5, 15]);
+  assert.strictEqual(bot1.dead, false, 'bot must be alive after respawn');
+  const liveParts1 = bot1.parts;
+  assert.notStrictEqual(liveParts1, parts1, 'respawned bot must have a new rig, not the old rig');
+  assert.strictEqual(liveParts1.group.parent, c.scene, 'new live rig must be in scene');
+
+  const liveGeos1 = new Set();
+  let liveGeoDisposes1 = 0;
+  const liveMats1 = new Set();
+  let liveMatDisposes1 = 0;
+  liveParts1.group.traverse(o => {
+    if (o.geometry) liveGeos1.add(o.geometry);
+    if (o.userData && o.userData.clonedTint && o.material) liveMats1.add(o.material);
+  });
+  for (const g of liveGeos1) g.addEventListener('dispose', () => liveGeoDisposes1++);
+  for (const m of liveMats1) m.addEventListener('dispose', () => liveMatDisposes1++);
+
+  // Verify that live and old resources do NOT overlap
+  for (const g of liveGeos1) {
+    assert.strictEqual(oldGeos1.has(g), false, 'live geometry must not be part of old geometries');
+  }
+
+  // Now corpse retires via resetRagdolls (or budget)
+  c.resetRagdolls();
+
+  // OLD private resources must be released exactly once
+  assert.strictEqual(oldGeoDisposes1, oldGeos1.size, 'all 12 old geometries must be disposed exactly once on corpse retirement');
+  assert.strictEqual(oldMatDisposes1, oldMats1.size, 'all old cloned materials must be disposed on corpse retirement');
+
+  // NEW live resources must NOT be disposed, reparented, or removed
+  assert.strictEqual(liveGeoDisposes1, 0, 'new live geometries must NOT be disposed');
+  assert.strictEqual(liveMatDisposes1, 0, 'new live materials must NOT be disposed');
+  assert.strictEqual(liveParts1.group.parent, c.scene, 'live rig must remain in scene');
+  assert.ok(liveParts1.hitBody && liveParts1.hitBody.parent, 'live hitBody must remain in rig');
+  assert.ok(liveParts1.hitHead && liveParts1.hitHead.parent, 'live hitHead must remain in rig');
+
+  // Test Case 2: Detailed soldier bot
+  // Skeletons are privately owned per-clone; template geometries and materials are shared
+  const sd = c.buildSoldier(1, 'enemy');
+  const oldSkeletons = (sd.group.userData.skeletons || []).slice();
+  assert.ok(oldSkeletons.length > 0, 'detailed soldier must have per-clone skeletons');
+  let oldSkeletonDisposes = 0;
+  for (const sk of oldSkeletons) {
+    const origDispose = sk.dispose;
+    sk.dispose = function () {
+      oldSkeletonDisposes++;
+      return origDispose.apply(this, arguments);
+    };
+  }
+  const detailedBot = {
+    kind: 1, team: 'enemy', maxHealth: 100, health: 100, dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10), vel: new c.THREE.Vector3(),
+    parts: {
+      group: sd.group, body: sd.group, J: sd.J,
+      hitBody: sd.hitBody, hitHead: sd.hitHead, hitLegs: sd.hitLegs,
+      soldier: true, gun: sd.gun, iff: sd.iff
+    }
+  };
+  c.scene.add(detailedBot.parts.group);
+
+  // Template buffer geometries must NOT be disposed
+  const templateGeos = new Set();
+  let templateGeoDisposes = 0;
+  detailedBot.parts.group.traverse(o => { if (o.isSkinnedMesh && o.geometry) templateGeos.add(o.geometry); });
+  for (const g of templateGeos) g.addEventListener('dispose', () => templateGeoDisposes++);
+
+  c.spawnRagdoll(detailedBot, { node: 'chest', x: 0, y: 1, z: 2 });
+  detailedBot.dead = true;
+
+  c.defaultOnRespawn(detailedBot, [5, 15]);
+  const liveDetailedParts = detailedBot.parts;
+  const liveSkeletons = (liveDetailedParts.group.userData.skeletons || []).slice();
+  let liveSkeletonDisposes = 0;
+  for (const sk of liveSkeletons) {
+    const origDispose = sk.dispose;
+    sk.dispose = function () {
+      liveSkeletonDisposes++;
+      return origDispose.apply(this, arguments);
+    };
+  }
+
+  c.resetRagdolls();
+
+  assert.strictEqual(oldSkeletonDisposes, oldSkeletons.length, 'old per-clone skeletons must be disposed exactly once');
+  assert.strictEqual(templateGeoDisposes, 0, 'shared template geometries must NOT be disposed');
+  assert.strictEqual(liveSkeletonDisposes, 0, 'new live skeletons must NOT be disposed');
+  assert.strictEqual(liveDetailedParts.group.parent, c.scene, 'live detailed rig must remain in scene');
+
+  // Test Case 3: Corpse retirement BEFORE respawn
+  // Bot dies -> corpse settles and is retired -> then bot respawns
+  const parts3 = c.makeEnemyMesh(1, 'enemy');
+  const bot3 = {
+    kind: 1, team: 'enemy', maxHealth: 100, health: 100, dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10), vel: new c.THREE.Vector3(),
+    parts: parts3, hitBody: parts3.hitBody, hitHead: parts3.hitHead
+  };
+  c.scene.add(parts3.group);
+  const geos3 = new Set();
+  let geo3Disposes = 0;
+  parts3.group.traverse(o => { if (o.geometry) geos3.add(o.geometry); });
+  for (const g of geos3) g.addEventListener('dispose', () => geo3Disposes++);
+
+  c.spawnRagdoll(bot3, { node: 'chest', x: 0, y: 1, z: 2 });
+  bot3.dead = true;
+
+  // Corpse retires BEFORE bot respawns
+  c.resetRagdolls();
+  assert.strictEqual(geo3Disposes, geos3.size, 'old corpse geometries must be disposed when corpse retires before respawn');
+
+  // Bot now respawns
+  c.defaultOnRespawn(bot3, [10, 10]);
+  assert.strictEqual(bot3.dead, false);
+  assert.ok(bot3.parts && bot3.parts.group, 'respawned bot must have rebuilt rig even after early corpse retirement');
+  assert.strictEqual(bot3.parts.group.parent, c.scene, 'rebuilt rig must be added to scene');
+  let meshesInScene3 = 0;
+  bot3.parts.group.traverse(o => {
+    if (o.isMesh) {
+      meshesInScene3++;
+      assert.strictEqual(geos3.has(o.geometry), false, 'mesh must not use disposed old geometry');
+    }
+  });
+  assert.ok(meshesInScene3 > 0, 'respawned rig must contain meshes');
+
+  // Test Case 4: Repeated death and respawn cycles (5 cycles)
+  // Low-quality resource counts must remain strictly bounded without monotonic leaks
+  const cyclicBot = {
+    kind: 1, team: 'enemy', maxHealth: 100, health: 100, dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10), vel: new c.THREE.Vector3(),
+    parts: c.makeEnemyMesh(1, 'enemy')
+  };
+  cyclicBot.hitBody = cyclicBot.parts.hitBody;
+  cyclicBot.hitHead = cyclicBot.parts.hitHead;
+  c.scene.add(cyclicBot.parts.group);
+
+  let totalOldGeosCollected = 0;
+  let totalOldGeosDisposed = 0;
+
+  for (let cycle = 0; cycle < 5; cycle++) {
+    const cycleGeos = new Set();
+    cyclicBot.parts.group.traverse(o => { if (o.geometry) cycleGeos.add(o.geometry); });
+    totalOldGeosCollected += cycleGeos.size;
+    for (const g of cycleGeos) g.addEventListener('dispose', () => totalOldGeosDisposed++);
+
+    c.spawnRagdoll(cyclicBot, { node: 'chest', x: 0, y: 1, z: 2 });
+    cyclicBot.dead = true;
+
+    c.defaultOnRespawn(cyclicBot, [cycle * 2, 0]);
+    assert.strictEqual(cyclicBot.dead, false);
+    assert.strictEqual(cyclicBot.parts.group.parent, c.scene);
+
+    c.resetRagdolls();
+  }
+
+  assert.strictEqual(totalOldGeosDisposed, totalOldGeosCollected, 'all old cycle geometries must be disposed exactly once');
+  assert.strictEqual(cyclicBot.parts.group.parent, c.scene, 'cyclic bot live rig must be in scene after 5 cycles');
+});
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { createRealRigContext };
+}
+
+
 
 
 

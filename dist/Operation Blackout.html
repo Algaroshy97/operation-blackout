@@ -15340,24 +15340,27 @@ function rebuildEnemyRig(actor) {
   let hasRagdoll = false;
   if (typeof ragdolls !== 'undefined' && Array.isArray(ragdolls)) {
     for (let i = 0; i < ragdolls.length; i++) {
-      if (ragdolls[i] && ragdolls[i].en === actor) {
-        ragdolls[i].en = null;
-        hasRagdoll = true;
-      }
-      if (ragdolls[i] && ragdolls[i].sd && ragdolls[i].sd.en === actor) {
-        ragdolls[i].sd.en = null;
+      const rd = ragdolls[i];
+      if (rd && (rd.en === actor || (rd.sd && rd.sd.en === actor))) {
+        if (!rd.retiredParts && actor.parts) {
+          rd.retiredParts = actor.parts;
+        }
+        rd.en = null;
+        if (rd.sd) rd.sd.en = null;
         hasRagdoll = true;
       }
     }
   }
-  const isSoldier = !!(actor.parts && actor.parts.soldier);
+  const isSoldier = (actor.soldier !== undefined) ? !!actor.soldier : !!(actor.parts && actor.parts.soldier);
+  actor.soldier = isSoldier;
   const isEmptied = isSoldier && (
     !actor.parts.group ||
     actor.parts.group.children.length === 0 ||
     !actor.hitBody ||
     !actor.parts.group.getObjectByName('hitBody')
   );
-  if (!hasRagdoll && !isEmptied) {
+  const wasRagdolled = !!(actor.parts && (actor.parts._ragdolled || actor.parts._geometryDisposed));
+  if (!hasRagdoll && !isEmptied && !wasRagdolled) {
     return;
   }
   if (actor.parts && actor.parts.group && actor.parts.group.parent) {
@@ -15397,7 +15400,12 @@ function rebuildEnemyRig(actor) {
         newParts.group.traverse(function (o) {
           if (o.isMesh && o !== newParts.hitBody && o !== newParts.hitHead && o.material) {
             o.material = o.material.clone();
-            if (o.material.color) o.material.color.copy(tint);
+            if (o.material.color && typeof o.material.color.lerp === 'function') {
+              o.material.color.lerp(tint, 0.55);
+            } else if (o.material.color) {
+              o.material.color.copy(tint);
+            }
+            o.userData.clonedTint = true;
           }
         });
       }
@@ -16536,10 +16544,12 @@ function makeEnemyMesh(kind, team) {
       if (m.material && typeof m.material.clone === 'function') {
         m.material = m.material.clone();
         if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+        m.userData.clonedTint = true;
       }
     }
     const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
     const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.userData.clonedTint = true;
     iff.name = 'iffMarker';
     iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
     body.add(iff);
@@ -16663,15 +16673,33 @@ function spawnEnemy(kind, x, z, opts) {
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
-  if (en.parts.soldier) {
-    const sk = en.parts.group.userData.skeletons || [];
-    for (let i = 0; i < sk.length; i++) sk[i].dispose();
+  const p = en.parts ? en.parts : en;
+  if (!p || !p.group || p._geometryDisposed) return;
+  p._geometryDisposed = true;
+  if (p.soldier) {
+    const sk = (p.group.userData && p.group.userData.skeletons) || [];
+    for (let i = 0; i < sk.length; i++) {
+      if (sk[i] && !sk[i]._disposed) {
+        sk[i]._disposed = true;
+        if (typeof sk[i].dispose === 'function') sk[i].dispose();
+      }
+    }
     return;
   }
-  en.parts.group.traverse(function (o) {
-    if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
+  const disposedMats = new Set();
+  p.group.traverse(function (o) {
+    if (o.userData && o.userData.clonedTint && o.material && !disposedMats.has(o.material)) {
+      disposedMats.add(o.material);
+      if (typeof o.material.dispose === 'function') o.material.dispose();
+    }
   });
-  en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  const disposedGeos = new Set();
+  p.group.traverse(function (o) {
+    if (o.geometry && !disposedGeos.has(o.geometry)) {
+      disposedGeos.add(o.geometry);
+      if (typeof o.geometry.dispose === 'function') o.geometry.dispose();
+    }
+  });
 }
 
 function shieldMultiplier(en, point) {
@@ -17374,6 +17402,7 @@ function noteBlast(pos) {
   sdRagdollBlast(pos, CFG.grenade.radius, 40);   // and shove the bodies already down
 }
 function spawnSoldierRagdoll(en) {
+  if (en && en.parts) en.parts._ragdolled = true;
   en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
   const blast = gameT - lastBlast.t < 0.05;
   let R;
@@ -17386,7 +17415,7 @@ function spawnSoldierRagdoll(en) {
     const hy = en._lastHitNode === 'head' ? 1.65 : 1.2;
     R = sdStartRagdoll(en, _rdShotDir, speed, _rdV.set(en.pos.x, en.pos.y + hy, en.pos.z), null);
   }
-  const entry = { en: en, rag: R, sd: R, t: 0, sunk: 0 };
+  const entry = { en: en, retiredParts: (en && en.parts) ? en.parts : null, rag: R, sd: R, t: 0, sunk: 0 };
   ragdolls.push(entry);
   while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
   return entry;
@@ -17398,7 +17427,8 @@ function applyRagdollBudget() {
 }
 function spawnRagdoll(en, impulse) {
   applyRagdollBudget();
-  if (!RAGDOLL_MAX) { removeRagdoll({ en: en }); return; }
+  if (en && en.parts) en.parts._ragdolled = true;
+  if (!RAGDOLL_MAX) { removeRagdoll({ en: en, retiredParts: (en && en.parts) ? en.parts : null }); return; }
   if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
@@ -17417,7 +17447,9 @@ function spawnRagdoll(en, impulse) {
   en.parts.group.traverse(function (o) { if (o.isBone && o.name === 'root' && !root) root = o; });
 
   const entry = {
-    en: en, rag: rag,
+    en: en,
+    retiredParts: (en && en.parts) ? en.parts : null,
+    rag: rag,
     bones: bones, root: root,
     useBones: boneCount >= 4 && !!root,
     box: en.parts.torso ? en.parts : null,
@@ -17527,17 +17559,23 @@ function updateRagdolls(dt) {
 }
 
 function removeRagdoll(e) {
-  if (e.sd) scene.remove(e.sd.container);
+  if (!e) return;
+  if (e.sd && e.sd.container && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(e.sd.container);
+  const rp = e.retiredParts || (e.en && (e.en.dead || e.en.dead === undefined) ? e.en.parts : null);
   if (e.boxParts) {
     for (let k = 0; k < e.boxParts.length; k++) {
       const obj = e.boxParts[k].obj;
-      scene.remove(obj);
-      if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+      if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(obj);
+      if (rp && rp.group) rp.group.add(obj);
     }
   }
-  if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) {
-    scene.remove(e.en.parts.group);
-    disposeEnemyGeometry(e.en);
+  if (rp && rp.group) {
+    if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(rp.group);
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
+  } else if (rp) {
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
   }
 }
 

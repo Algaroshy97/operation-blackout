@@ -6,10 +6,13 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## v170 — Bot rig reconstruction upon respawn, restart idempotency, match completion freeze, Survival resume mode restoration, sentry hostility targeting, and spawn point candidate scoring
 
-- Rebuild live rig upon bot respawn and protect living actors from corpse retirement in `src/35_modes.js` and `src/45_ragdoll.js`:
-  - Fixed soldier bot respawn re-adding an emptied group after its 14 skinned meshes, bones, and hitBody were reparented to the ragdoll container on death.
-  - Implemented `rebuildEnemyRig(actor)` in `src/35_modes.js` called from `defaultOnRespawn(actor, pt)`: detaches living actor from any active ragdolls, completely reconstructs the live rig via `buildSoldier` / `makeEnemyMesh`, restores all 17 meshes (including 14 skinned meshes), and re-wires `hitBody`, `hitHead`, and `hitLegs`.
-  - Added guard in `removeRagdoll(e)` in `src/45_ragdoll.js` preventing removal or disposal of the actor group when the associated enemy actor is alive (`!e.en.dead`).
+- Rebuild live rig upon bot respawn and isolate corpse vs live-rig resource ownership in `src/35_modes.js`, `src/40_enemies.js`, and `src/45_ragdoll.js`:
+  - Fixed corpse resource abandonment on respawn: ragdolls snapshot their own retired parts (`retiredParts`), ensuring retiring corpses cleanly dispose old private box geometries (12/12) and cloned-tint materials exactly once upon retirement or reset.
+  - Skeletons and bone textures of detailed soldier corpses are freed on retirement while preserving shared template geometries and materials.
+  - Newly rebuilt live actor rigs, hitboxes, geometries, and skeletons remain untouched and active in the scene across corpse retirement and match resets.
+  - Both lifecycles isolated across death -> respawn before corpse retirement, corpse retirement before respawn, and repeated cycles without monotonic GPU geometry leaks.
+  - Implemented `rebuildEnemyRig(actor)` in `src/35_modes.js` called from `defaultOnRespawn(actor, pt)`: transfers retired rig ownership snapshot to active ragdolls, completely reconstructs live rigs via `buildSoldier` / `makeEnemyMesh`, restores meshes and hitboxes, and wires `hitBody`, `hitHead`, and `hitLegs`.
+  - Added enduring Node regression in `tests/test_modes_and_teams.js` and browser WebGL renderer probe in `tests/test_corpse_lifecycle_probe.py`.
 - Eliminate duplicate bot initialization and ensure idempotent match setup in `src/70_main.js` and `src/35_modes.js`:
   - Removed duplicate `activeMode.setup()` invocation from `restartMatch()`, resolving the issue where `resetGame()` and `restartMatch()` each spawned 11 bots (22 total active bots vs 12 scoreboard participants).
   - Made `MODES.tdm.setup()` idempotent: cleans up and disposes existing roster bots and meshes if invoked repeatedly, maintaining exact team counts and actor identity correspondence across restarts.

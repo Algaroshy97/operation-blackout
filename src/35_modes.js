@@ -66,24 +66,27 @@ function rebuildEnemyRig(actor) {
   let hasRagdoll = false;
   if (typeof ragdolls !== 'undefined' && Array.isArray(ragdolls)) {
     for (let i = 0; i < ragdolls.length; i++) {
-      if (ragdolls[i] && ragdolls[i].en === actor) {
-        ragdolls[i].en = null;
-        hasRagdoll = true;
-      }
-      if (ragdolls[i] && ragdolls[i].sd && ragdolls[i].sd.en === actor) {
-        ragdolls[i].sd.en = null;
+      const rd = ragdolls[i];
+      if (rd && (rd.en === actor || (rd.sd && rd.sd.en === actor))) {
+        if (!rd.retiredParts && actor.parts) {
+          rd.retiredParts = actor.parts;
+        }
+        rd.en = null;
+        if (rd.sd) rd.sd.en = null;
         hasRagdoll = true;
       }
     }
   }
-  const isSoldier = !!(actor.parts && actor.parts.soldier);
+  const isSoldier = (actor.soldier !== undefined) ? !!actor.soldier : !!(actor.parts && actor.parts.soldier);
+  actor.soldier = isSoldier;
   const isEmptied = isSoldier && (
     !actor.parts.group ||
     actor.parts.group.children.length === 0 ||
     !actor.hitBody ||
     !actor.parts.group.getObjectByName('hitBody')
   );
-  if (!hasRagdoll && !isEmptied) {
+  const wasRagdolled = !!(actor.parts && (actor.parts._ragdolled || actor.parts._geometryDisposed));
+  if (!hasRagdoll && !isEmptied && !wasRagdolled) {
     return;
   }
   if (actor.parts && actor.parts.group && actor.parts.group.parent) {
@@ -123,7 +126,12 @@ function rebuildEnemyRig(actor) {
         newParts.group.traverse(function (o) {
           if (o.isMesh && o !== newParts.hitBody && o !== newParts.hitHead && o.material) {
             o.material = o.material.clone();
-            if (o.material.color) o.material.color.copy(tint);
+            if (o.material.color && typeof o.material.color.lerp === 'function') {
+              o.material.color.lerp(tint, 0.55);
+            } else if (o.material.color) {
+              o.material.color.copy(tint);
+            }
+            o.userData.clonedTint = true;
           }
         });
       }

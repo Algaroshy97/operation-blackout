@@ -122,7 +122,13 @@ short TDM match end to end.
   - Authoritative player death and kill attribution: hostile damage through down and finishing/bleedout attributes the killer, increments enemy score, records player deaths and killer kills, queues respawns, deduplicates repeated hits, and stops respawns on match-ending score limits. Attacker-absent and self deaths award no spurious credit.
   - Stable match roster (`MODES.tdm.roster`) preserves all participants through death and respawn on the scoreboard without losing or duplicating rows when dead bots are dropped from `enemies`.
   - Pause safety: match timer, respawn queue, and spawn protection do not elapse while paused.
-- Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules).
+  - Corpse vs. live-rig resource ownership repair:
+    - Retiring corpses snapshot their own retired parts (`retiredParts`), ensuring all privately owned simple box geometries (12/12) and cloned-tint materials are disposed exactly once when corpses retire or reset.
+    - Skeletons and bone textures of detailed soldier corpses are freed on retirement while leaving shared template geometries and materials alive.
+    - Newly rebuilt live actor rigs, hitboxes, geometries, and skeletons remain untouched and active in the scene across corpse retirement and match resets.
+    - Full lifecycle isolation across death -> respawn before corpse retirement, corpse retirement before respawn, and repeated cycles with zero monotonic GPU geometry leak.
+    - Enduring Node regression in `tests/test_modes_and_teams.js` and real WebGL browser lifecycle probe in `tests/test_corpse_lifecycle_probe.py`.
+- Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules). Milestone 2 remains in progress until all modes and acceptance are delivered.
 - Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, friendly victory, restart lifecycle, hostile-to-player death attribution and respawn, enemy victory with defeat screen, and settings restoration. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
 
 ---

@@ -42,10 +42,12 @@ function makeEnemyMesh(kind, team) {
       if (m.material && typeof m.material.clone === 'function') {
         m.material = m.material.clone();
         if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+        m.userData.clonedTint = true;
       }
     }
     const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
     const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.userData.clonedTint = true;
     iff.name = 'iffMarker';
     iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
     body.add(iff);
@@ -190,18 +192,36 @@ function spawnEnemy(kind, x, z, opts) {
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
+  const p = en.parts ? en.parts : en;
+  if (!p || !p.group || p._geometryDisposed) return;
+  p._geometryDisposed = true;
   // Soldier geometry is shared by every clone of its template; only the per-clone
   // skeleton (its bone texture) is freed.
-  if (en.parts.soldier) {
-    const sk = en.parts.group.userData.skeletons || [];
-    for (let i = 0; i < sk.length; i++) sk[i].dispose();
+  if (p.soldier) {
+    const sk = (p.group.userData && p.group.userData.skeletons) || [];
+    for (let i = 0; i < sk.length; i++) {
+      if (sk[i] && !sk[i]._disposed) {
+        sk[i]._disposed = true;
+        if (typeof sk[i].dispose === 'function') sk[i].dispose();
+      }
+    }
     return;
   }
   // Tinted shielded units own cloned materials; everything else shares them.
-  en.parts.group.traverse(function (o) {
-    if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
+  const disposedMats = new Set();
+  p.group.traverse(function (o) {
+    if (o.userData && o.userData.clonedTint && o.material && !disposedMats.has(o.material)) {
+      disposedMats.add(o.material);
+      if (typeof o.material.dispose === 'function') o.material.dispose();
+    }
   });
-  en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  const disposedGeos = new Set();
+  p.group.traverse(function (o) {
+    if (o.geometry && !disposedGeos.has(o.geometry)) {
+      disposedGeos.add(o.geometry);
+      if (typeof o.geometry.dispose === 'function') o.geometry.dispose();
+    }
+  });
 }
 
 // Shielded advancers (kind 3) carry a frontal plate: shots into the front arc are
