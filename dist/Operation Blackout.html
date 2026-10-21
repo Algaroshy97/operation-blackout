@@ -11062,6 +11062,129 @@ const CORE = (function () {
     return false;
   }
 
+  const RESPAWN_DELAY = 3.0;
+  const SPAWN_PROTECTION_DURATION = 2.0;
+  const FRIENDLY_IFF_COLOR = 0x38b6ff;
+  const FRIENDLY_KIT_TINT = 0x3880c8;
+  const MINIMAP_FRIENDLY_COLOR = '#4da6ff';
+
+  function stepRespawnTimer(timer, dt) {
+    const t = _isNum(timer) ? timer : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, t - d);
+  }
+
+  function canRespawn(timer) {
+    return (_isNum(timer) ? timer : 0) <= 0;
+  }
+
+  function stepSpawnProtection(protectionT, dt) {
+    const p = _isNum(protectionT) ? protectionT : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, p - d);
+  }
+
+  function isSpawnProtected(protectionT) {
+    return (_isNum(protectionT) ? protectionT : 0) > 0;
+  }
+
+  function isFriendlyFire(attacker, target) {
+    if (!attacker || !target || attacker === target) return false;
+    if (attacker.dead || target.dead) return false;
+    return !isHostile(attacker, target);
+  }
+
+  function teamKitColor(team) {
+    return (team === 'friendly') ? FRIENDLY_KIT_TINT : null;
+  }
+
+  function teamIffColor(team) {
+    return (team === 'friendly') ? FRIENDLY_IFF_COLOR : null;
+  }
+
+  function minimapActorColor(actor) {
+    if (!actor) return '#ff4030';
+    if (actor.team === 'friendly' || actor.isPlayer) return MINIMAP_FRIENDLY_COLOR;
+    if (typeof MM_KIND_COLOR !== 'undefined' && actor.kind !== undefined && MM_KIND_COLOR[actor.kind]) {
+      return MM_KIND_COLOR[actor.kind];
+    }
+    return '#ff4030';
+  }
+
+  function scoreSpawnPoint(point, hostiles, colliders, opts) {
+    if (!point) return -Infinity;
+    const px = Array.isArray(point) ? point[0] : (point.x || 0);
+    const pz = Array.isArray(point) ? point[1] : (point.z || 0);
+    const options = opts || {};
+    const sweetSpot = _isNum(options.sweetSpot) ? options.sweetSpot : 25;
+    const minSafeDist = _isNum(options.minSafeDist) ? options.minSafeDist : 10;
+    const maxSafeDist = _isNum(options.maxSafeDist) ? options.maxSafeDist : 60;
+
+    if (!Array.isArray(hostiles) || hostiles.length === 0) return 100;
+
+    let minHostileDist = Infinity;
+    let sightLinePenalty = 0;
+    let activeHostiles = 0;
+
+    for (let i = 0; i < hostiles.length; i++) {
+      const h = hostiles[i];
+      if (!h || h.dead) continue;
+      activeHostiles++;
+      const hx = (h.pos && _isNum(h.pos.x)) ? h.pos.x : 0;
+      const hz = (h.pos && _isNum(h.pos.z)) ? h.pos.z : 0;
+      const dx = px - hx, dz = pz - hz;
+      const dist = Math.hypot(dx, dz) || 0.001;
+      if (dist < minHostileDist) minHostileDist = dist;
+
+      const hyaw = _isNum(h.yaw) ? h.yaw : 0;
+      const dirX = Math.sin(hyaw), dirZ = Math.cos(hyaw);
+      const toSpawnX = dx / dist, toSpawnZ = dz / dist;
+      const dot = dirX * toSpawnX + dirZ * toSpawnZ;
+
+      if (dot > 0.25 && dist < maxSafeDist) {
+        let blocked = false;
+        if (Array.isArray(colliders) && colliders.length > 0) {
+          blocked = segmentBlocked(hx, hz, px, pz, colliders);
+        }
+        if (!blocked) {
+          const directness = Math.max(0, dot);
+          const proxFactor = Math.max(0.1, 1 - (dist / maxSafeDist));
+          sightLinePenalty += directness * proxFactor * 100;
+        }
+      }
+    }
+
+    if (activeHostiles === 0) return 100;
+
+    let proxScore = 0;
+    if (minHostileDist < minSafeDist) {
+      proxScore = -200 * (1 - (minHostileDist / minSafeDist));
+    } else {
+      proxScore = 50 - Math.abs(minHostileDist - sweetSpot) * 1.5;
+    }
+
+    return proxScore - sightLinePenalty;
+  }
+
+  function pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts) {
+    if (!Array.isArray(spawnPoints) || spawnPoints.length === 0) return null;
+    if (spawnPoints.length === 1) return spawnPoints[0];
+
+    let bestPoint = spawnPoints[0];
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < spawnPoints.length; i++) {
+      const pt = spawnPoints[i];
+      const score = scoreSpawnPoint(pt, hostiles, colliders, opts);
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -11411,7 +11534,10 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
+    stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
   };
 
 
@@ -12799,6 +12925,7 @@ addEventListener('mousemove', function (e) {
 
 const player = {
   team: 'friendly', isPlayer: true,
+  spawnProtectionT: 0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -12880,6 +13007,11 @@ const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
+  if (player.spawnProtectionT > 0) {
+    player.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+      ? CORE.stepSpawnProtection(player.spawnProtectionT, dt)
+      : Math.max(0, player.spawnProtectionT - dt);
+  }
   applyTouchInput();
   const sens = CORE.lookSensitivity(getSetting('sensitivity'), adsAmount);
   const invertY = getSetting('invertY') ? -1 : 1;
@@ -13110,8 +13242,10 @@ function updatePlayer(dt) {
   if (player.pos.y < -5) { player.pos.set(0, CFG.player.height, 24); player.vel.set(0, 0, 0); }
 }
 
-function damagePlayer(amount, dirDeg, damageType) {
+function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
+  if (player.spawnProtectionT > 0) return;
+  if (attacker && typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function' && !CORE.isHostile(attacker, player)) return;
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;
@@ -15088,10 +15222,48 @@ function setActiveMode(id) {
   if (MODES[id]) activeModeId = id;
 }
 
+var modeRespawnQueue = [];
+
+function queueModeRespawn(actor, timer) {
+  if (actor) {
+    modeRespawnQueue.push({
+      actor: actor,
+      timer: (typeof timer === 'number') ? timer : (typeof CORE !== 'undefined' ? CORE.RESPAWN_DELAY : 3.0)
+    });
+  }
+}
+
+function clearModeRespawns() {
+  modeRespawnQueue.length = 0;
+}
+
+function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
+  if (modeRespawnQueue.length === 0) return;
+  for (let i = modeRespawnQueue.length - 1; i >= 0; i--) {
+    const entry = modeRespawnQueue[i];
+    entry.timer = (typeof CORE !== 'undefined' && typeof CORE.stepRespawnTimer === 'function')
+      ? CORE.stepRespawnTimer(entry.timer, dt)
+      : Math.max(0, entry.timer - dt);
+    const ready = (typeof CORE !== 'undefined' && typeof CORE.canRespawn === 'function')
+      ? CORE.canRespawn(entry.timer)
+      : (entry.timer <= 0);
+    if (ready) {
+      modeRespawnQueue.splice(i, 1);
+      const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
+        ? CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders)
+        : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
+      if (typeof onRespawn === 'function') {
+        onRespawn(entry.actor, pt);
+      }
+    }
+  }
+}
+
 MODES.survival = {
   id: 'survival',
   name: 'Survival',
   setup: function () {
+    clearModeRespawns();
     if (typeof waveNum !== 'undefined') waveNum = 0;
     if (typeof waveQueue !== 'undefined') waveQueue = 0;
     if (typeof waveActive !== 'undefined') waveActive = false;
@@ -15157,6 +15329,15 @@ const SOLDIER_KITS = [
   { name: 'scout', cloth: sdMat(0xa8d888, TEX.camo.map), pants: sdMat(0x5a7a44, TEX.camo.map), vest: sdMat(0x33422a), helmet: null, cap: sdMat(0x4a6a34) },
   { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) },
   { name: 'breacher', cloth: sdMat(0x3a3a40, TEX.camo.map), pants: sdMat(0x26262a, TEX.camo.map), vest: sdMat(0x7a1e1a), helmet: sdMat(0x1c1c20, null, 0.6, 0.3) }
+];
+const SOLDIER_FRIENDLY_KITS = [
+  { name: 'runner', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: null, cap: sdMat(0x24364c) },
+  { name: 'rifleman', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: sdMat(0x24364c, null, 0.7) },
+  { name: 'tank', cloth: sdMat(0x3e5270, TEX.camo.map), pants: sdMat(0x253448, TEX.camo.map), vest: SDM.plate, helmet: sdMat(0x1a2636, null, 0.55, 0.4) },
+  { name: 'shielded', cloth: sdMat(0x5074a8, TEX.camo.map), pants: sdMat(0x2c4263, TEX.camo.map), vest: sdMat(0x223550), helmet: sdMat(0x2d466b, null, 0.6, 0.3) },
+  { name: 'scout', cloth: sdMat(0x5a82b8, TEX.camo.map), pants: sdMat(0x334d70, TEX.camo.map), vest: sdMat(0x253b59), helmet: null, cap: sdMat(0x2d466b) },
+  { name: 'grenadier', cloth: sdMat(0x527299, TEX.camo.map), pants: sdMat(0x30445e, TEX.camo.map), vest: sdMat(0x223347), helmet: sdMat(0x2a405c, null, 0.8) },
+  { name: 'breacher', cloth: sdMat(0x334860, TEX.camo.map), pants: sdMat(0x202e40, TEX.camo.map), vest: sdMat(0x182433), helmet: sdMat(0x1c2838, null, 0.6, 0.3) }
 ];
 const SDM_SHIELD = sdMat(0x2a3446, TEX.paint.map, 0.5, 0.55);
 const SDM_SHIELD_GLASS = sdMat(0x0a1420, null, 0.05, 0.9, { transparent: true, opacity: 0.65 });
@@ -15263,8 +15444,10 @@ function sdCloneRig(template) {
   return clone;
 }
 
-function buildSoldierTemplate(kind) {
-  const K = SOLDIER_KITS[kind];
+function buildSoldierTemplate(kind, team) {
+  const isFriendly = (team === 'friendly');
+  const kitList = isFriendly ? SOLDIER_FRIENDLY_KITS : SOLDIER_KITS;
+  const K = kitList[kind] || SOLDIER_KITS[kind];
   const heavy = kind === 2;
   const root = new THREE.Group(); root.name = 'root';
   const hips = sdJoint(root, 'hips', 0, 0.97, 0);
@@ -15393,18 +15576,32 @@ function buildSoldierTemplate(kind) {
   const hitBody = sdPiece(spine, sdBoxG(0.5, 0.56, 0.38), hbMat, 0, 0.26, 0); hitBody.name = 'hitBody'; hitBody.userData.keep = true;
   const hitLegs = sdPiece(hips, sdBoxG(0.44, 0.9, 0.34), hbMat, 0, -0.46, 0.02); hitLegs.name = 'hitLegs'; hitLegs.userData.keep = true;
   const mh = new THREE.Object3D(); mh.name = 'mHead'; mh.position.set(0, 0.1, 0.01); head.add(mh);
+  if (isFriendly) {
+    const iffMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, 0.72, 1.0).multiplyScalar(2.2) });
+    const iff = sdPiece(head, new THREE.OctahedronGeometry(0.045, 0), iffMat, 0, 0.34, 0);
+    iff.name = 'iffMarker';
+    iff.userData.keep = true;
+    iff.userData.iff = true;
+  }
   sdSkinRig(root);
   root.traverse(function (o) { if (o.isMesh && !o.userData.keep) { o.castShadow = true; o.receiveShadow = true; } });
   return root;
 }
-const SOLDIER_TEMPLATES = [];
+const SOLDIER_TEMPLATES = {};
 const RIG_JOINTS = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'haL', 'shR', 'elR', 'haR', 'hipL', 'knL', 'anL', 'hipR', 'knR', 'anR', 'gun'];
-function buildSoldier(kind) {
-  if (!SOLDIER_TEMPLATES[kind]) SOLDIER_TEMPLATES[kind] = buildSoldierTemplate(kind);
-  const root = sdCloneRig(SOLDIER_TEMPLATES[kind]);
+function buildSoldier(kind, team) {
+  const tKey = (team === 'friendly') ? (kind + '_friendly') : (kind + '_enemy');
+  if (!SOLDIER_TEMPLATES[tKey]) SOLDIER_TEMPLATES[tKey] = buildSoldierTemplate(kind, team);
+  const root = sdCloneRig(SOLDIER_TEMPLATES[tKey]);
   const J = {};
   root.traverse(function (o) { if (o.name) J[o.name] = o; });
-  return { group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs, gun: (kind === 0 || kind === 4) ? J.knife : J.gun };
+  const iff = root.getObjectByName('iffMarker') || null;
+  return {
+    group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs,
+    gun: (kind === 0 || kind === 4) ? J.knife : J.gun,
+    team: team || 'enemy',
+    iff: iff
+  };
 }
 
 function sdSpring(s, k, c, dt) {
@@ -15841,10 +16038,11 @@ const E_DIM = {
   armH: 0.68, armR: 0.06
 };
 
-function makeEnemyMesh(kind) {
+function makeEnemyMesh(kind, team) {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), kind === 1 ? EMAT.cloth2 : EMAT.cloth);
+  const isFriendly = (team === 'friendly');
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), isFriendly ? EMAT.cloth2 : (kind === 1 ? EMAT.cloth2 : EMAT.cloth));
   torso.position.y = E_DIM.pelvisH + E_DIM.bodyH / 2;
   const vest = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.36), EMAT.vest);
   vest.position.y = E_DIM.pelvisH + 0.42;
@@ -15852,6 +16050,21 @@ function makeEnemyMesh(kind) {
   head.position.y = E_DIM.pelvisH + E_DIM.bodyH + E_DIM.headS / 2 + 0.03;
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.3), EMAT.helmet);
   helmet.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.26;
+  if (isFriendly) {
+    const friendlyTint = new THREE.Color(0x3880c8);
+    for (const m of [torso, vest, helmet]) {
+      if (m.material && typeof m.material.clone === 'function') {
+        m.material = m.material.clone();
+        if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+      }
+    }
+    const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+    const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.name = 'iffMarker';
+    iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
+    body.add(iff);
+    g.userData.iff = iff;
+  }
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), EMAT.eye);
   eyeL.position.set(-0.06, E_DIM.pelvisH + E_DIM.bodyH + 0.07, -E_DIM.headS / 2 - 0.005);
   const eyeR = eyeL.clone(); eyeR.position.x = 0.06;
@@ -15893,11 +16106,12 @@ function spawnEnemy(kind, x, z, opts) {
   const detail = typeof graphicsAtBoot === 'function'
     ? graphicsAtBoot(IS_TOUCH).enemyDetailed
     : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  const spawnTeam = spawnOpts.team || 'enemy';
   if (detail) {
-    const sd = buildSoldier(kind);
-    parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
+    const sd = (typeof buildSoldier === 'function') ? buildSoldier(kind, spawnTeam) : null;
+    parts = sd ? { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true, iff: sd.iff } : makeEnemyMesh(kind, spawnTeam);
   } else {
-    parts = makeEnemyMesh(kind);
+    parts = makeEnemyMesh(kind, spawnTeam);
   }
   const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
@@ -15905,11 +16119,15 @@ function spawnEnemy(kind, x, z, opts) {
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, CFG.wave.victoryWave, diff().hp, specialHp, isElite);
+  const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
-    team: spawnOpts.team || 'enemy',
+    team: spawnTeam,
+    spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
+      ? spawnOpts.spawnProtection
+      : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     elite: isElite,
     kind: kind,
@@ -15958,7 +16176,7 @@ function spawnEnemy(kind, x, z, opts) {
   });
   parts.group.position.set(x, 0, z);
   parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
-  scene.add(parts.group);
+  if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') scene.add(parts.group);
   enemies.push(en);
   return en;
 }
@@ -15985,11 +16203,14 @@ const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  if (en.spawnProtectionT > 0) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
     ? CORE.isHostile(sourceActor, en)
     : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (sourceActor && !isHostileTarget && !allowFriendlyFire) return;
   en._lastHitNode = isHead ? 'head' : 'chest';
   if (point) {
     const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
@@ -16295,6 +16516,11 @@ function updateEnemies(dt) {
     if (en.dead) {
       enemies.splice(i, 1);
       continue;
+    }
+    if (en.spawnProtectionT > 0) {
+      en.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+        ? CORE.stepSpawnProtection(en.spawnProtectionT, dt)
+        : Math.max(0, en.spawnProtectionT - dt);
     }
     const target = findHostileTarget(en);
     en.target = target;
@@ -20839,7 +21065,9 @@ function drawMinimap() {
     if (e.dead) continue;
     CORE.minimapBlipOffset(e.pos.x, e.pos.z, px, pz, scale, _mmBlipOut);
     if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, maxEnemyDistSq)) continue;
-    mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
+    mmCtx.fillStyle = (typeof CORE !== 'undefined' && typeof CORE.minimapActorColor === 'function')
+      ? CORE.minimapActorColor(e)
+      : (MM_KIND_COLOR[e.kind] || '#ff4030');
     const rad = CORE.minimapEnemyRadius(e.kind);
     mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7); mmCtx.fill();
     if (e.elite) {

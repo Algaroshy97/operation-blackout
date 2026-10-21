@@ -107,8 +107,15 @@ short TDM match end to end.
   - Player rewards (kills, headshots, score, credits, streaks) and hitmarkers isolated exclusively to qualifying player kills against hostile targets; bot-to-bot kills and friendly-fire deaths do not modify player stats.
   - Delayed projectile and pellet impact callbacks (`enemyShoot`, `breacherShoot`) gate on paused/unstarted gameplay state consistently across player and non-player targets.
   - Execution-level regression test coverage in `tests/test_modes_and_teams.js` verifying bot-to-bot active combat, navigation vectors, pause impact gating, and kill attribution.
-- Next dependency: friendly bots (team tints & IFF), spawn scoring & respawn timers, match HUD (scoreboard, match timer, score bar), followed by TDM, FFA, Domination, and Gun Game mode implementations.
-- Evidence gaps: friendly bot visual rendering, respawn protection/scoring, multi-mode matches, and browser acceptance probe coverage for match modes.
+- Friendly bots & respawn framework landed:
+  - Friendly soldier kits (`SOLDIER_FRIENDLY_KITS`) with distinct blue/navy camouflage uniforms and overhead IFF marker mesh (`iffMarker`, cyan/blue `0x38b6ff`) tracking head kinematics.
+  - Friendly bot support in `buildSoldier(kind, team)` and `makeEnemyMesh(kind, team)`, with friendly blips on minimap (`CORE.minimapActorColor`).
+  - Friendly fire damage immunity across bullets, melee, and grenades (`CORE.isFriendlyFire`).
+  - Spawn-point scoring in core (`CORE.scoreSpawnPoint`, `CORE.pickBestSpawnPoint`) evaluating distance and hostile facing sight lines with obstacle occlusion.
+  - Respawn timers (3 s) and spawn protection (2 s) with damage immunity and attack break-off.
+  - Mode respawn queue lifecycle in `src/35_modes.js` (`queueModeRespawn`, `updateModeRespawns`, `clearModeRespawns`), with Survival wave spawning preserved and respawn queue cleared on reset.
+- Next dependency: match HUD (score bar, Tab scoreboard for actor K/D, kill feed, match timer, end-of-match screen) and mode picker on deploy screen, followed by TDM, FFA, Domination, and Gun Game mode rules.
+- Evidence gaps: match HUD integration, multi-mode matches, and browser acceptance probe coverage for match modes.
 
 ---
 

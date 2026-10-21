@@ -44,6 +44,15 @@ const SOLDIER_KITS = [
   { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) },
   { name: 'breacher', cloth: sdMat(0x3a3a40, TEX.camo.map), pants: sdMat(0x26262a, TEX.camo.map), vest: sdMat(0x7a1e1a), helmet: sdMat(0x1c1c20, null, 0.6, 0.3) }
 ];
+const SOLDIER_FRIENDLY_KITS = [
+  { name: 'runner', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: null, cap: sdMat(0x24364c) },
+  { name: 'rifleman', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: sdMat(0x24364c, null, 0.7) },
+  { name: 'tank', cloth: sdMat(0x3e5270, TEX.camo.map), pants: sdMat(0x253448, TEX.camo.map), vest: SDM.plate, helmet: sdMat(0x1a2636, null, 0.55, 0.4) },
+  { name: 'shielded', cloth: sdMat(0x5074a8, TEX.camo.map), pants: sdMat(0x2c4263, TEX.camo.map), vest: sdMat(0x223550), helmet: sdMat(0x2d466b, null, 0.6, 0.3) },
+  { name: 'scout', cloth: sdMat(0x5a82b8, TEX.camo.map), pants: sdMat(0x334d70, TEX.camo.map), vest: sdMat(0x253b59), helmet: null, cap: sdMat(0x2d466b) },
+  { name: 'grenadier', cloth: sdMat(0x527299, TEX.camo.map), pants: sdMat(0x30445e, TEX.camo.map), vest: sdMat(0x223347), helmet: sdMat(0x2a405c, null, 0.8) },
+  { name: 'breacher', cloth: sdMat(0x334860, TEX.camo.map), pants: sdMat(0x202e40, TEX.camo.map), vest: sdMat(0x182433), helmet: sdMat(0x1c2838, null, 0.6, 0.3) }
+];
 const SDM_SHIELD = sdMat(0x2a3446, TEX.paint.map, 0.5, 0.55);
 const SDM_SHIELD_GLASS = sdMat(0x0a1420, null, 0.05, 0.9, { transparent: true, opacity: 0.65 });
 
@@ -159,8 +168,10 @@ function sdCloneRig(template) {
 }
 
 // ---- the model (faces +z; character-left is +x) ----
-function buildSoldierTemplate(kind) {
-  const K = SOLDIER_KITS[kind];
+function buildSoldierTemplate(kind, team) {
+  const isFriendly = (team === 'friendly');
+  const kitList = isFriendly ? SOLDIER_FRIENDLY_KITS : SOLDIER_KITS;
+  const K = kitList[kind] || SOLDIER_KITS[kind];
   const heavy = kind === 2;
   const root = new THREE.Group(); root.name = 'root';
   const hips = sdJoint(root, 'hips', 0, 0.97, 0);
@@ -304,18 +315,32 @@ function buildSoldierTemplate(kind) {
   const hitBody = sdPiece(spine, sdBoxG(0.5, 0.56, 0.38), hbMat, 0, 0.26, 0); hitBody.name = 'hitBody'; hitBody.userData.keep = true;
   const hitLegs = sdPiece(hips, sdBoxG(0.44, 0.9, 0.34), hbMat, 0, -0.46, 0.02); hitLegs.name = 'hitLegs'; hitLegs.userData.keep = true;
   const mh = new THREE.Object3D(); mh.name = 'mHead'; mh.position.set(0, 0.1, 0.01); head.add(mh);
+  if (isFriendly) {
+    const iffMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, 0.72, 1.0).multiplyScalar(2.2) });
+    const iff = sdPiece(head, new THREE.OctahedronGeometry(0.045, 0), iffMat, 0, 0.34, 0);
+    iff.name = 'iffMarker';
+    iff.userData.keep = true;
+    iff.userData.iff = true;
+  }
   sdSkinRig(root);
   root.traverse(function (o) { if (o.isMesh && !o.userData.keep) { o.castShadow = true; o.receiveShadow = true; } });
   return root;
 }
-const SOLDIER_TEMPLATES = [];
+const SOLDIER_TEMPLATES = {};
 const RIG_JOINTS = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'haL', 'shR', 'elR', 'haR', 'hipL', 'knL', 'anL', 'hipR', 'knR', 'anR', 'gun'];
-function buildSoldier(kind) {
-  if (!SOLDIER_TEMPLATES[kind]) SOLDIER_TEMPLATES[kind] = buildSoldierTemplate(kind);
-  const root = sdCloneRig(SOLDIER_TEMPLATES[kind]);
+function buildSoldier(kind, team) {
+  const tKey = (team === 'friendly') ? (kind + '_friendly') : (kind + '_enemy');
+  if (!SOLDIER_TEMPLATES[tKey]) SOLDIER_TEMPLATES[tKey] = buildSoldierTemplate(kind, team);
+  const root = sdCloneRig(SOLDIER_TEMPLATES[tKey]);
   const J = {};
   root.traverse(function (o) { if (o.name) J[o.name] = o; });
-  return { group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs, gun: (kind === 0 || kind === 4) ? J.knife : J.gun };
+  const iff = root.getObjectByName('iffMarker') || null;
+  return {
+    group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs,
+    gun: (kind === 0 || kind === 4) ? J.knife : J.gun,
+    team: team || 'enemy',
+    iff: iff
+  };
 }
 
 // ---- procedural animation ----

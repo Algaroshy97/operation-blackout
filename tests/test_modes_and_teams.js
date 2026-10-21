@@ -20,10 +20,19 @@ class Mesh {
   constructor() {
     this.position = new Vector3();
     this.rotation = { x: 0, y: 0, z: 0 };
+    this.scale = new Vector3(1, 1, 1);
     this.children = [];
     this.userData = {};
   }
   add(child) { this.children.push(child); }
+  clone() {
+    const m = new Mesh();
+    m.position.copy(this.position);
+    m.rotation = Object.assign({}, this.rotation);
+    m.scale.copy(this.scale);
+    m.userData = Object.assign({}, this.userData);
+    return m;
+  }
   traverse(fn) {
     fn(this);
     for (const c of this.children) if (c && c.traverse) c.traverse(fn);
@@ -608,7 +617,7 @@ test('kill attribution and reward isolation: enemy-kills-friendly, friendly-kill
   reportedKill = null;
   const scoreBefore = c.score;
   const creditsBefore = c.credits;
-  const friendlyVictim2 = { team: 'friendly', pos: new Vector3(2, 0, 0), dead: false, health: 10, kind: 0, parts: c.dummyParts() };
+  const friendlyVictim2 = { team: 'friendly', pos: new Vector3(2, 0, 0), dead: false, health: 10, kind: 0, parts: c.dummyParts(), friendlyFire: true };
   c.damageEnemy(friendlyVictim2, 50, friendlyVictim2.pos, false, false, 'MELEE', c.player);
 
   assert.equal(friendlyVictim2.dead, true, 'friendly victim 2 must be dead');
@@ -765,4 +774,190 @@ test('active bot-to-bot combat execution: full target acquisition, engagement, a
   assert.equal(reportedKill.killer, enemyRunner, 'killer in hook must be enemyRunner');
   assert.equal(c.kills, 0, 'player kills must not increment when bots kill each other');
   assert.equal(c.score, 0, 'player score must not increment when bots kill each other');
+});
+
+test('friendly fire immunity: players, bots, and grenades do not damage teammates', () => {
+  const c = createCombatContext({
+    kills: 0,
+    score: 0,
+    credits: 0
+  });
+
+  const friendlyBotA = {
+    team: 'friendly',
+    pos: new Vector3(5, 0, 0),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  const friendlyBotB = {
+    team: 'friendly',
+    pos: new Vector3(8, 0, 0),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  const enemyBot = {
+    team: 'enemy',
+    pos: new Vector3(15, 0, 0),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  // 1. Player shoots friendly bot: must be immune (friendly fire off)
+  c.damageEnemy(friendlyBotA, 40, friendlyBotA.pos, false, false, 'AR', c.player);
+  assert.equal(friendlyBotA.health, 100, 'friendly bot must not take damage from player (friendly fire is off)');
+  assert.equal(c.kills, 0, 'player kills must not change on friendly hit');
+  assert.equal(c.credits, 0, 'player credits must not change on friendly hit');
+
+  // 2. Friendly bot shoots friendly bot: must be immune
+  c.damageEnemy(friendlyBotB, 30, friendlyBotB.pos, false, false, 'AR', friendlyBotA);
+  assert.equal(friendlyBotB.health, 100, 'friendly bot must not take damage from friendly ally bot');
+
+  // 3. Enemy shoots friendly bot: takes full damage
+  c.damageEnemy(friendlyBotA, 35, friendlyBotA.pos, false, false, 'AR', enemyBot);
+  assert.equal(friendlyBotA.health, 65, 'friendly bot must take normal damage from enemy bot');
+
+  // 4. Player shoots enemy bot: enemy takes damage
+  c.damageEnemy(enemyBot, 45, enemyBot.pos, false, false, 'AR', c.player);
+  assert.equal(enemyBot.health, 55, 'enemy bot must take normal damage from player');
+
+  // 5. Grenade blast from friendly owner does not damage friendly bots
+  loadGrenadeLifecycle(c);
+  const friendlyInBlast = {
+    team: 'friendly',
+    pos: new Vector3(0, 0, 2),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  c.enemies = [friendlyInBlast];
+  c.colliders = [];
+  c.player.pos.set(50, 0, 50); // player far away
+  c.throwEnemyGrenade(c.player, friendlyInBlast);
+  c.liveGrenades[0].m.position.set(0, 0, 0);
+  c.liveGrenades[0].fuse = 0.01;
+  c.updateGrenades(0.02);
+  assert.equal(friendlyInBlast.health, 100, 'friendly bot in friendly grenade blast must take 0 damage');
+});
+
+test('spawn protection and respawn scoring integration: damage immunity and hostile sightline avoidance', () => {
+  const c = createCombatContext();
+
+  const protectedTarget = {
+    team: 'friendly',
+    pos: new Vector3(0, 0, 0),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    spawnProtectionT: 2.0,
+    parts: c.dummyParts()
+  };
+
+  const enemyAttacker = {
+    team: 'enemy',
+    pos: new Vector3(5, 0, 0),
+    dead: false
+  };
+
+  // 1. Target with active spawn protection is immune to enemy fire
+  c.damageEnemy(protectedTarget, 50, protectedTarget.pos, false, false, 'AR', enemyAttacker);
+  assert.equal(protectedTarget.health, 100, 'target with spawn protection must take 0 damage');
+
+  // 2. Dissipate spawn protection
+  protectedTarget.spawnProtectionT = 0;
+  c.damageEnemy(protectedTarget, 50, protectedTarget.pos, false, false, 'AR', enemyAttacker);
+  assert.equal(protectedTarget.health, 50, 'target without spawn protection must take normal damage');
+
+  // 3. Respawn scoring away from hostile sight lines
+  const enemyFacingNorth = { pos: { x: 0, z: 0 }, yaw: 0, dead: false };
+  const inSightNorth = [0, 20];
+  const outOfSightSouth = [0, -20];
+  const scoredNorth = CORE.scoreSpawnPoint(inSightNorth, [enemyFacingNorth]);
+  const scoredSouth = CORE.scoreSpawnPoint(outOfSightSouth, [enemyFacingNorth]);
+  assert.ok(scoredSouth > scoredNorth, 'out of sight spawn point must score higher than point in direct hostile sight line');
+
+  const picked = CORE.pickBestSpawnPoint([inSightNorth, outOfSightSouth], [enemyFacingNorth]);
+  assert.deepStrictEqual(picked, outOfSightSouth, 'pickBestSpawnPoint chooses point away from hostile sight line');
+});
+
+test('friendly bot visual kits and IFF marker: spawnEnemy and makeEnemyMesh team integration', () => {
+  const c = createCombatContext();
+
+  // 1. makeEnemyMesh with team = 'friendly'
+  const friendlyParts = c.makeEnemyMesh(1, 'friendly');
+  assert.ok(friendlyParts.group.userData.iff, 'friendly bot mesh must have IFF marker');
+  assert.equal(friendlyParts.group.userData.iff.name, 'iffMarker');
+
+  // 2. makeEnemyMesh with team = 'enemy'
+  const enemyParts = c.makeEnemyMesh(1, 'enemy');
+  assert.equal(enemyParts.group.userData.iff, undefined, 'enemy bot mesh must NOT have IFF marker');
+
+  // 3. spawnEnemy with team = 'friendly'
+  const friendlyBot = c.spawnEnemy(1, 10, 20, { team: 'friendly' });
+  assert.equal(friendlyBot.team, 'friendly');
+  assert.equal(CORE.minimapActorColor(friendlyBot), '#4da6ff');
+  assert.ok(friendlyBot.parts.group.userData.iff, 'friendly bot spawned must have IFF marker');
+
+  // 4. spawnEnemy default (team = 'enemy')
+  const defaultEnemy = c.spawnEnemy(1, -10, -20);
+  assert.equal(defaultEnemy.team, 'enemy');
+  assert.equal(CORE.minimapActorColor(defaultEnemy), '#ff4030');
+  assert.equal(defaultEnemy.parts.group.userData.iff, undefined);
+});
+
+test('mode respawn queue and timer lifecycle in 35_modes.js', () => {
+  const modesSrc = source('35_modes.js');
+  const c = vm.createContext({
+    CORE,
+    player: { dead: false, downed: false },
+    gameEnded: false,
+    waveNum: 0,
+    waveQueue: 0,
+    waveActive: false,
+    betweenWaveT: 0,
+    score: 0,
+    kills: 0,
+    headshots: 0,
+    credits: 0,
+    CFG: { wave: { startDelay: 3 } },
+    updateWaves: noop
+  });
+  vm.runInContext(modesSrc, c);
+
+  assert.equal(typeof c.queueModeRespawn, 'function');
+  assert.equal(typeof c.clearModeRespawns, 'function');
+  assert.equal(typeof c.updateModeRespawns, 'function');
+
+  const deadActor = { id: 'bot1', dead: true, pos: new Vector3(0, 0, 0) };
+  c.queueModeRespawn(deadActor, 3.0);
+  assert.equal(c.modeRespawnQueue.length, 1);
+  assert.equal(c.modeRespawnQueue[0].timer, 3.0);
+
+  // Step 1 second: timer decrements to 2.0, actor does not respawn yet
+  let respawned = null;
+  c.updateModeRespawns(1.0, [[10, 10]], [], [], (actor, pt) => { respawned = { actor, pt }; });
+  assert.equal(c.modeRespawnQueue.length, 1);
+  assert.equal(c.modeRespawnQueue[0].timer, 2.0);
+  assert.equal(respawned, null);
+
+  // Step remaining 2 seconds: actor respawns and queue clears
+  c.updateModeRespawns(2.0, [[10, 10]], [], [], (actor, pt) => { respawned = { actor, pt }; });
+  assert.equal(c.modeRespawnQueue.length, 0);
+  assert.ok(respawned);
+  assert.equal(respawned.actor, deadActor);
+  assert.deepStrictEqual(respawned.pt, [10, 10]);
+
+  // Survival setup clears any pending respawns
+  c.queueModeRespawn(deadActor, 3.0);
+  assert.equal(c.modeRespawnQueue.length, 1);
+  c.MODES.survival.setup();
+  assert.equal(c.modeRespawnQueue.length, 0, 'Survival setup must clear pending respawns');
 });

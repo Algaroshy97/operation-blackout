@@ -55,6 +55,7 @@ addEventListener('mousemove', function (e) {
 // ---- Player state ----
 const player = {
   team: 'friendly', isPlayer: true,
+  spawnProtectionT: 0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -157,6 +158,11 @@ const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
+  if (player.spawnProtectionT > 0) {
+    player.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+      ? CORE.stepSpawnProtection(player.spawnProtectionT, dt)
+      : Math.max(0, player.spawnProtectionT - dt);
+  }
   // mobile: joystick axes -> keys/look accumulators
   applyTouchInput();
   // look
@@ -431,8 +437,10 @@ function updatePlayer(dt) {
 }
 
 // damage entry point (called by enemies/projectiles)
-function damagePlayer(amount, dirDeg, damageType) {
+function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
+  if (player.spawnProtectionT > 0) return;
+  if (attacker && typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function' && !CORE.isHostile(attacker, player)) return;
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;

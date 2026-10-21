@@ -4,6 +4,29 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v166 — Friendly bot visual kits, IFF markers, friendly fire immunity, and respawn lifecycle
+
+- Implement friendly bot visuals, kit tints, and IFF marker integration in `src/38_soldier.js` and `src/40_enemies.js`:
+  - `SOLDIER_FRIENDLY_KITS` provides tactical blue/navy camouflage uniforms across soldier archetypes.
+  - `buildSoldier(kind, team)` supports team selection (`'friendly'` vs `'enemy'`), caching skinned templates per team key (`kind + '_' + team`).
+  - Friendly soldiers spawn with an articulated, high-visibility cyan/blue IFF diamond marker (`iffMarker`, `0x38b6ff`) mounted above the head joint (`head`), tracking head kinematics and surviving rig cloning.
+  - In low-detail/touch mode (`makeEnemyMesh`), friendly units receive team-tinted armor materials and an IFF indicator.
+  - Minimap rendering in `src/60_hud_waves.js` maps friendly bot blips to friendly blue (`#4da6ff`) via `CORE.minimapActorColor(actor)` while preserving archetype colors for enemy hostiles.
+- Implement friendly-fire damage negation in `src/40_enemies.js` and `src/20_player.js`:
+  - `CORE.isFriendlyFire(attacker, target)` detects non-hostile interactions between allied actors.
+  - `damageEnemy` checks target hostility and negates friendly fire by default, ensuring teammates cannot be damaged by allied bullets, melee, or explosions unless explicitly allowed.
+  - `damagePlayer` prevents damage from allied sources.
+  - Friendly grenade detonations (`src/55_grenades.js`) do not inflict blast damage on friendly bots.
+- Implement tactical spawn-point scoring and respawn protection lifecycle in `src/01_core.js` and `src/35_modes.js`:
+  - `CORE.RESPAWN_DELAY = 3.0` (3 s respawn timer) and `CORE.SPAWN_PROTECTION_DURATION = 2.0` (2 s spawn protection).
+  - `CORE.scoreSpawnPoint(point, hostiles, colliders, opts)` evaluates spawn point safety away from hostile sight lines: penalizes close proximity (< 10 m), evaluates hostile yaw and forward field-of-view, applies heavy line-of-sight penalties for unobstructed hostiles facing candidate points, and scores points behind cover or outside hostile sight lines higher.
+  - `CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts)` selects the optimal spawn location from candidates.
+  - `CORE.stepRespawnTimer`, `CORE.canRespawn`, `CORE.stepSpawnProtection`, and `CORE.isSpawnProtected` manage timer and protection states.
+  - Mode respawn queue framework in `src/35_modes.js` (`queueModeRespawn`, `clearModeRespawns`, `updateModeRespawns`) manages actor respawn scheduling and spawn relocation; Survival mode preserves wave-based spawning and clears respawn queues on setup.
+  - Spawn protection grants temporary damage immunity upon spawn; attacking (shooting/melee) breaks protection early.
+- Add regression test suites in `tests/test_core.js` and `tests/test_modes_and_teams.js` covering friendly bot visual kits and IFF markers, friendly fire immunity across players, bots, and grenades, spawn protection damage gating and timer decay, hostile sightline spawn scoring avoidance, and mode respawn queues.
+- Local test verification: 521 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). The release artifact is 2,007,015 bytes (90,137 bytes under the 2 MiB budget limit). Browser acceptance probe and PR creation remain pending external wrapper execution.
+
 ## v165 — Game modes foundation: MODES registry and team-aware AI targeting
 
 - Observe the live music sequencer immediately after real UI deployment, before destructive combat probes can end the run; retain the existing running/layer/step assertions and additionally require the audio-clock scheduler to advance. A browser regression covers real deployment, scheduler progress, and death stopping playback without flag-only revival restarting it.

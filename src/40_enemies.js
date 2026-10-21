@@ -24,10 +24,11 @@ const E_DIM = {
   armH: 0.68, armR: 0.06
 };
 
-function makeEnemyMesh(kind) {
+function makeEnemyMesh(kind, team) {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), kind === 1 ? EMAT.cloth2 : EMAT.cloth);
+  const isFriendly = (team === 'friendly');
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), isFriendly ? EMAT.cloth2 : (kind === 1 ? EMAT.cloth2 : EMAT.cloth));
   torso.position.y = E_DIM.pelvisH + E_DIM.bodyH / 2;
   const vest = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.36), EMAT.vest);
   vest.position.y = E_DIM.pelvisH + 0.42;
@@ -35,6 +36,21 @@ function makeEnemyMesh(kind) {
   head.position.y = E_DIM.pelvisH + E_DIM.bodyH + E_DIM.headS / 2 + 0.03;
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.3), EMAT.helmet);
   helmet.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.26;
+  if (isFriendly) {
+    const friendlyTint = new THREE.Color(0x3880c8);
+    for (const m of [torso, vest, helmet]) {
+      if (m.material && typeof m.material.clone === 'function') {
+        m.material = m.material.clone();
+        if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+      }
+    }
+    const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+    const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.name = 'iffMarker';
+    iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
+    body.add(iff);
+    g.userData.iff = iff;
+  }
   // eyes (glow, creepy at dusk)
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), EMAT.eye);
   eyeL.position.set(-0.06, E_DIM.pelvisH + E_DIM.bodyH + 0.07, -E_DIM.headS / 2 - 0.005);
@@ -84,11 +100,12 @@ function spawnEnemy(kind, x, z, opts) {
   const detail = typeof graphicsAtBoot === 'function'
     ? graphicsAtBoot(IS_TOUCH).enemyDetailed
     : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  const spawnTeam = spawnOpts.team || 'enemy';
   if (detail) {
-    const sd = buildSoldier(kind);
-    parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
+    const sd = (typeof buildSoldier === 'function') ? buildSoldier(kind, spawnTeam) : null;
+    parts = sd ? { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true, iff: sd.iff } : makeEnemyMesh(kind, spawnTeam);
   } else {
-    parts = makeEnemyMesh(kind);
+    parts = makeEnemyMesh(kind, spawnTeam);
   }
   const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
@@ -96,11 +113,15 @@ function spawnEnemy(kind, x, z, opts) {
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, CFG.wave.victoryWave, diff().hp, specialHp, isElite);
+  const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
-    team: spawnOpts.team || 'enemy',
+    team: spawnTeam,
+    spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
+      ? spawnOpts.spawnProtection
+      : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     elite: isElite,
     kind: kind,
@@ -162,7 +183,7 @@ function spawnEnemy(kind, x, z, opts) {
   // Place the mesh immediately; otherwise it renders and raycasts at the world origin for its first frame.
   parts.group.position.set(x, 0, z);
   parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
-  scene.add(parts.group);
+  if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') scene.add(parts.group);
   enemies.push(en);
   return en;
 }
@@ -195,11 +216,14 @@ const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  if (en.spawnProtectionT > 0) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
     ? CORE.isHostile(sourceActor, en)
     : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (sourceActor && !isHostileTarget && !allowFriendlyFire) return;
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
   en._lastHitNode = isHead ? 'head' : 'chest';
@@ -560,6 +584,11 @@ function updateEnemies(dt) {
       // AI list immediately so nothing pathfinds, shoots or collides on its behalf.
       enemies.splice(i, 1);
       continue;
+    }
+    if (en.spawnProtectionT > 0) {
+      en.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+        ? CORE.stepSpawnProtection(en.spawnProtectionT, dt)
+        : Math.max(0, en.spawnProtectionT - dt);
     }
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);

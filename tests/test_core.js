@@ -10175,3 +10175,61 @@ test('modes and teams: hostility rules, nearest hostile selection, and scoreboar
   assert.strictEqual(CORE.isModeOver('survival', { gameEnded: false, playerDead: true, playerDowned: true }), false);
 });
 
+test('friendly bots and respawn lifecycle: spawn scoring, respawn timers, protection, and team IFF rules', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.RESPAWN_DELAY, 3.0, '3s respawn delay');
+  assert.strictEqual(CORE.SPAWN_PROTECTION_DURATION, 2.0, '2s spawn protection');
+
+  // 2. Respawn timer stepping
+  assert.strictEqual(CORE.stepRespawnTimer(3.0, 1.0), 2.0);
+  assert.strictEqual(CORE.stepRespawnTimer(0.5, 1.0), 0);
+  assert.strictEqual(CORE.canRespawn(0), true);
+  assert.strictEqual(CORE.canRespawn(-0.1), true);
+  assert.strictEqual(CORE.canRespawn(0.5), false);
+
+  // 3. Spawn protection stepping
+  assert.strictEqual(CORE.stepSpawnProtection(2.0, 0.5), 1.5);
+  assert.strictEqual(CORE.stepSpawnProtection(0.2, 0.5), 0);
+  assert.strictEqual(CORE.isSpawnProtected(1.5), true);
+  assert.strictEqual(CORE.isSpawnProtected(0), false);
+  assert.strictEqual(CORE.isSpawnProtected(-0.1), false);
+
+  // 4. Team friendly fire and colors
+  const playerActor = { team: 'friendly', dead: false, isPlayer: true };
+  const friendlyBot = { team: 'friendly', dead: false };
+  const enemyBot = { team: 'enemy', dead: false };
+
+  assert.strictEqual(CORE.isFriendlyFire(playerActor, friendlyBot), true, 'allies trigger friendly fire flag');
+  assert.strictEqual(CORE.isFriendlyFire(playerActor, enemyBot), false, 'opposing teams are not friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(friendlyBot, friendlyBot), false, 'self is not friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(null, friendlyBot), false);
+
+  assert.strictEqual(CORE.minimapActorColor(friendlyBot), '#4da6ff', 'friendly blip color');
+  assert.strictEqual(CORE.minimapActorColor(enemyBot), '#ff4030', 'enemy blip color fallback');
+
+  // 5. Spawn point scoring away from hostile sight lines
+  assert.strictEqual(typeof CORE.scoreSpawnPoint, 'function');
+  assert.strictEqual(typeof CORE.pickBestSpawnPoint, 'function');
+
+  // Enemy at (0, 0) looking along +z (yaw = 0)
+  const enemy = { pos: { x: 0, z: 0 }, yaw: 0, dead: false };
+  // Spawn in front of enemy at (0, 15) vs spawn behind enemy at (0, -15)
+  const inFrontPoint = [0, 15];
+  const behindPoint = [0, -15];
+
+  const scoreFront = CORE.scoreSpawnPoint(inFrontPoint, [enemy]);
+  const scoreBehind = CORE.scoreSpawnPoint(behindPoint, [enemy]);
+  assert.ok(scoreBehind > scoreFront, 'spawn point behind hostile sight lines scores higher than point in direct line of sight');
+
+  // Spawn point dangerously close to enemy (e.g. 3m) vs safe distance (25m)
+  const dangerPoint = [0, 3];
+  const safePoint = [25, 0];
+  const scoreDanger = CORE.scoreSpawnPoint(dangerPoint, [enemy]);
+  const scoreSafe = CORE.scoreSpawnPoint(safePoint, [enemy]);
+  assert.ok(scoreSafe > scoreDanger, 'safe distance scores higher than dangerous close proximity');
+
+  // Pick best spawn point among candidates
+  const best = CORE.pickBestSpawnPoint([dangerPoint, inFrontPoint, behindPoint], [enemy]);
+  assert.deepStrictEqual(best, behindPoint, 'pickBestSpawnPoint selects the point safely away from hostile sight lines');
+});
+

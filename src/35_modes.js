@@ -16,11 +16,49 @@ function setActiveMode(id) {
   if (MODES[id]) activeModeId = id;
 }
 
+var modeRespawnQueue = [];
+
+function queueModeRespawn(actor, timer) {
+  if (actor) {
+    modeRespawnQueue.push({
+      actor: actor,
+      timer: (typeof timer === 'number') ? timer : (typeof CORE !== 'undefined' ? CORE.RESPAWN_DELAY : 3.0)
+    });
+  }
+}
+
+function clearModeRespawns() {
+  modeRespawnQueue.length = 0;
+}
+
+function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
+  if (modeRespawnQueue.length === 0) return;
+  for (let i = modeRespawnQueue.length - 1; i >= 0; i--) {
+    const entry = modeRespawnQueue[i];
+    entry.timer = (typeof CORE !== 'undefined' && typeof CORE.stepRespawnTimer === 'function')
+      ? CORE.stepRespawnTimer(entry.timer, dt)
+      : Math.max(0, entry.timer - dt);
+    const ready = (typeof CORE !== 'undefined' && typeof CORE.canRespawn === 'function')
+      ? CORE.canRespawn(entry.timer)
+      : (entry.timer <= 0);
+    if (ready) {
+      modeRespawnQueue.splice(i, 1);
+      const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
+        ? CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders)
+        : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
+      if (typeof onRespawn === 'function') {
+        onRespawn(entry.actor, pt);
+      }
+    }
+  }
+}
+
 // Survival mode implementation: wraps wave management and survival lifecycle behind the MODES contract
 MODES.survival = {
   id: 'survival',
   name: 'Survival',
   setup: function () {
+    clearModeRespawns();
     if (typeof waveNum !== 'undefined') waveNum = 0;
     if (typeof waveQueue !== 'undefined') waveQueue = 0;
     if (typeof waveActive !== 'undefined') waveActive = false;

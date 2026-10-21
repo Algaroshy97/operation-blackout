@@ -7177,6 +7177,129 @@ const CORE = (function () {
     return false;
   }
 
+  const RESPAWN_DELAY = 3.0;
+  const SPAWN_PROTECTION_DURATION = 2.0;
+  const FRIENDLY_IFF_COLOR = 0x38b6ff;
+  const FRIENDLY_KIT_TINT = 0x3880c8;
+  const MINIMAP_FRIENDLY_COLOR = '#4da6ff';
+
+  function stepRespawnTimer(timer, dt) {
+    const t = _isNum(timer) ? timer : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, t - d);
+  }
+
+  function canRespawn(timer) {
+    return (_isNum(timer) ? timer : 0) <= 0;
+  }
+
+  function stepSpawnProtection(protectionT, dt) {
+    const p = _isNum(protectionT) ? protectionT : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, p - d);
+  }
+
+  function isSpawnProtected(protectionT) {
+    return (_isNum(protectionT) ? protectionT : 0) > 0;
+  }
+
+  function isFriendlyFire(attacker, target) {
+    if (!attacker || !target || attacker === target) return false;
+    if (attacker.dead || target.dead) return false;
+    return !isHostile(attacker, target);
+  }
+
+  function teamKitColor(team) {
+    return (team === 'friendly') ? FRIENDLY_KIT_TINT : null;
+  }
+
+  function teamIffColor(team) {
+    return (team === 'friendly') ? FRIENDLY_IFF_COLOR : null;
+  }
+
+  function minimapActorColor(actor) {
+    if (!actor) return '#ff4030';
+    if (actor.team === 'friendly' || actor.isPlayer) return MINIMAP_FRIENDLY_COLOR;
+    if (typeof MM_KIND_COLOR !== 'undefined' && actor.kind !== undefined && MM_KIND_COLOR[actor.kind]) {
+      return MM_KIND_COLOR[actor.kind];
+    }
+    return '#ff4030';
+  }
+
+  function scoreSpawnPoint(point, hostiles, colliders, opts) {
+    if (!point) return -Infinity;
+    const px = Array.isArray(point) ? point[0] : (point.x || 0);
+    const pz = Array.isArray(point) ? point[1] : (point.z || 0);
+    const options = opts || {};
+    const sweetSpot = _isNum(options.sweetSpot) ? options.sweetSpot : 25;
+    const minSafeDist = _isNum(options.minSafeDist) ? options.minSafeDist : 10;
+    const maxSafeDist = _isNum(options.maxSafeDist) ? options.maxSafeDist : 60;
+
+    if (!Array.isArray(hostiles) || hostiles.length === 0) return 100;
+
+    let minHostileDist = Infinity;
+    let sightLinePenalty = 0;
+    let activeHostiles = 0;
+
+    for (let i = 0; i < hostiles.length; i++) {
+      const h = hostiles[i];
+      if (!h || h.dead) continue;
+      activeHostiles++;
+      const hx = (h.pos && _isNum(h.pos.x)) ? h.pos.x : 0;
+      const hz = (h.pos && _isNum(h.pos.z)) ? h.pos.z : 0;
+      const dx = px - hx, dz = pz - hz;
+      const dist = Math.hypot(dx, dz) || 0.001;
+      if (dist < minHostileDist) minHostileDist = dist;
+
+      const hyaw = _isNum(h.yaw) ? h.yaw : 0;
+      const dirX = Math.sin(hyaw), dirZ = Math.cos(hyaw);
+      const toSpawnX = dx / dist, toSpawnZ = dz / dist;
+      const dot = dirX * toSpawnX + dirZ * toSpawnZ;
+
+      if (dot > 0.25 && dist < maxSafeDist) {
+        let blocked = false;
+        if (Array.isArray(colliders) && colliders.length > 0) {
+          blocked = segmentBlocked(hx, hz, px, pz, colliders);
+        }
+        if (!blocked) {
+          const directness = Math.max(0, dot);
+          const proxFactor = Math.max(0.1, 1 - (dist / maxSafeDist));
+          sightLinePenalty += directness * proxFactor * 100;
+        }
+      }
+    }
+
+    if (activeHostiles === 0) return 100;
+
+    let proxScore = 0;
+    if (minHostileDist < minSafeDist) {
+      proxScore = -200 * (1 - (minHostileDist / minSafeDist));
+    } else {
+      proxScore = 50 - Math.abs(minHostileDist - sweetSpot) * 1.5;
+    }
+
+    return proxScore - sightLinePenalty;
+  }
+
+  function pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts) {
+    if (!Array.isArray(spawnPoints) || spawnPoints.length === 0) return null;
+    if (spawnPoints.length === 1) return spawnPoints[0];
+
+    let bestPoint = spawnPoints[0];
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < spawnPoints.length; i++) {
+      const pt = spawnPoints[i];
+      const score = scoreSpawnPoint(pt, hostiles, colliders, opts);
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
@@ -7526,7 +7649,10 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
+    stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
   };
 
 
