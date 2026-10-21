@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v172 — Survival mode posthumous combat damage and probe corpse lifecycle repair
+
+- Scope match settlement freeze to TDM match completion in `src/40_enemies.js`, `src/20_player.js`, and `src/70_main.js`:
+  - Fixed regression where `activeMode.isOver()` evaluated to true in Survival mode whenever `player.dead` was true (via `CORE.isModeOver('survival', ...)`), incorrectly gating `damageEnemy` and freezing combat simulation loops.
+  - The settlement freeze in `damageEnemy`, `damagePlayer`, and `frame()` now specifically checks for settled matches (`gameEnded || (activeMode && activeMode.id === 'tdm' && activeMode.isOver())`), preserving posthumous damage in Survival mode (such as delayed rounds, grenades, sentries, and probe check 8 assertions).
+  - Dead enemies in Survival mode continue to correctly take damage, trigger ragdoll creation capped at `RAGDOLL_MAX`, and get cleaned up from the active enemies roster by `updateEnemies()`.
+  - Added enduring regression tests in `tests/test_modes_and_teams.js` verifying combat damage applies and corpses cap/clean up with `player.dead = true` in Survival mode, while retaining strict combat freeze upon TDM match settlement and `gameEnded`.
+
 ## v171 — Match end-screen restart audio lifecycle regression repair and audio settings gating
 
 - Match end-screen restart audio lifecycle repair in `src/70_main.js`:

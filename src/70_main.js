@@ -1120,7 +1120,7 @@ function frame(now) {
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
     if (!isSettled) {
       updatePlayer(dt);
       updateWeapons(dt);

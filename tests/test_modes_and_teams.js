@@ -410,6 +410,7 @@ function createCombatContext(overrides = {}) {
     MODES: {
       survival: {
         id: 'survival',
+        isOver: () => CORE.isModeOver('survival', { gameEnded: c.gameEnded, playerDead: !!(c.player && c.player.dead), playerDowned: !!(c.player && c.player.downed) }),
         onKill: noop
       }
     },
@@ -3060,6 +3061,91 @@ test('regression [P1]: actual showMatchEndScreen and restartMatch lifecycle rest
   assert.strictEqual(c.enemies.length, 11, 'repeated restarts must not duplicate bots');
   assert.strictEqual(c.enemies.filter(e => e.team === 'friendly').length, 5);
   assert.strictEqual(c.enemies.filter(e => e.team === 'enemy').length, 6);
+});
+
+test('regression [P0]: combat damage and probe corpse lifecycle apply in Survival when player is dead and freeze only when match is settled', () => {
+  const c = createRealRigContext();
+  c.player.pos = new c.THREE.Vector3(0, 1.7, 0);
+  c.player.dead = true;
+  c.player.downed = false;
+  c.player.health = 0;
+  c.godMode = true;
+
+  c.showHitmarker = noop;
+  c.addCredits = noop;
+  c.addFieldCharge = noop;
+  c.spawnBlood = noop;
+  c.playSound = noop;
+  c.playSound3D = noop;
+  c.addScore = noop;
+  c.registerKillT = noop;
+  c.registerStreakKill = noop;
+  c.dropPowerUp = noop;
+  c.dropPickup = noop;
+  c.kills = 0;
+  c.headshots = 0;
+  c.navGrid = null;
+  c.updateStatusEffects = noop;
+  c.updateEnemyShadowBudget = noop;
+  c.losFrame = 0;
+
+  // 1. Survival mode with player dead: probe check 8 lifecycle (spawn 12 bots, damage each, updateEnemies)
+  const step = 1 / 60;
+  vm.runInContext(`
+    for (const e of enemies) e.dead = true;
+    enemies.length = 0;
+    resetRagdolls();
+    godMode = true;
+    player.pos.set(0, CFG.player.height, 24);
+    for (let i = 0; i < 12; i++) {
+      spawnEnemy(1, -8 + i * 1.4, 30);
+      const en = enemies[enemies.length - 1];
+      en.pos.set(-8 + i * 1.4, 0, 30);
+      en.parts.group.position.copy(en.pos);
+      en.health = 1;
+      damageEnemy(en, 200, new THREE.Vector3(en.pos.x, 1.2, en.pos.z + 0.3), false);
+    }
+  `, c);
+
+  const enemies = vm.runInContext('enemies', c);
+  assert.strictEqual(enemies.length, 12, '12 enemies must be spawned');
+  for (let i = 0; i < 12; i++) {
+    assert.strictEqual(enemies[i].dead, true, `enemy ${i} must be dead after damageEnemy even with player.dead=true`);
+  }
+
+  c.updateEnemies(step);
+  const spawned = c.ragdollCount();
+  const aiListCleared = vm.runInContext('enemies.length', c);
+  const ragdollMax = vm.runInContext('RAGDOLL_MAX', c);
+  assert.strictEqual(spawned, ragdollMax, 'ragdoll corpses must be capped at RAGDOLL_MAX');
+  assert.strictEqual(aiListCleared, 0, 'all dead enemies must leave the AI list in updateEnemies');
+
+  // 2. TDM match settlement: damage is rejected when match is settled/ended, but allowed while match is active
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.MODES.tdm.targetScore = 75;
+  c.MODES.tdm.friendlyScore = 10;
+  c.player.dead = false;
+
+  const tdmEnemies = vm.runInContext('enemies', c);
+  const tdmHostile = tdmEnemies.find(e => e.team === 'enemy');
+  tdmHostile.spawnProtectionT = 0;
+  const hpBefore = tdmHostile.health;
+  c.damageEnemy(tdmHostile, 20, tdmHostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(tdmHostile.health, hpBefore - 20, 'damage applies while TDM match is active');
+
+  // When TDM is over (targetScore reached)
+  c.MODES.tdm.friendlyScore = 75;
+  assert.strictEqual(c.MODES.tdm.isOver(), true, 'TDM mode must be over when target score reached');
+  c.damageEnemy(tdmHostile, 20, tdmHostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(tdmHostile.health, hpBefore - 20, 'late damage must be rejected once TDM match is over');
+
+  // When gameEnded is true
+  c.setActiveMode('survival');
+  c.gameEnded = true;
+  const survEnemy = { team: 'enemy', pos: new c.THREE.Vector3(0, 0, 0), health: 100, dead: false, parts: { group: { position: { copy: noop } } } };
+  c.damageEnemy(survEnemy, 20, survEnemy.pos, false);
+  assert.strictEqual(survEnemy.health, 100, 'damage must be rejected when gameEnded is true');
 });
 
 if (typeof module !== 'undefined' && module.exports) {

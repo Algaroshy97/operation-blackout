@@ -13303,7 +13303,8 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
   if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -16713,7 +16714,8 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {
@@ -22907,7 +22909,7 @@ function frame(now) {
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
     if (!isSettled) {
       updatePlayer(dt);
       updateWeapons(dt);
