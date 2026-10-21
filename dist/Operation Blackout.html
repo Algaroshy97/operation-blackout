@@ -11679,6 +11679,14 @@ function applySetting(key) {
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;
+    case 'gameMode':
+      if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
+        break;
+      }
+      if (typeof setActiveMode === 'function' && (SETTINGS.gameMode === 'tdm' || SETTINGS.gameMode === 'survival')) {
+        setActiveMode(SETTINGS.gameMode);
+      }
+      break;
   }
 }
 function applyAllSettings() {
@@ -13294,6 +13302,8 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
   if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -15266,7 +15276,9 @@ function muzzleWorldPos(out) {
 'use strict';
 
 var MODES = Object.create(null);
-var activeModeId = 'survival';
+var activeModeId = (typeof getSetting === 'function' && (getSetting('gameMode') === 'tdm' || getSetting('gameMode') === 'survival'))
+  ? getSetting('gameMode')
+  : 'survival';
 
 function registerMode(id, def) {
   if (id && def) MODES[id] = def;
@@ -15323,6 +15335,104 @@ function clearModeRespawns() {
   modeRespawnQueue.length = 0;
 }
 
+function rebuildEnemyRig(actor) {
+  if (!actor) return;
+  let hasRagdoll = false;
+  if (typeof ragdolls !== 'undefined' && Array.isArray(ragdolls)) {
+    for (let i = 0; i < ragdolls.length; i++) {
+      if (ragdolls[i] && ragdolls[i].en === actor) {
+        ragdolls[i].en = null;
+        hasRagdoll = true;
+      }
+      if (ragdolls[i] && ragdolls[i].sd && ragdolls[i].sd.en === actor) {
+        ragdolls[i].sd.en = null;
+        hasRagdoll = true;
+      }
+    }
+  }
+  const isSoldier = !!(actor.parts && actor.parts.soldier);
+  const isEmptied = isSoldier && (
+    !actor.parts.group ||
+    actor.parts.group.children.length === 0 ||
+    !actor.hitBody ||
+    !actor.parts.group.getObjectByName('hitBody')
+  );
+  if (!hasRagdoll && !isEmptied) {
+    return;
+  }
+  if (actor.parts && actor.parts.group && actor.parts.group.parent) {
+    actor.parts.group.parent.remove(actor.parts.group);
+  }
+  const kind = (actor.kind !== undefined) ? actor.kind : 0;
+  const team = actor.team || 'enemy';
+  let newParts = null;
+  if (isSoldier && typeof buildSoldier === 'function') {
+    const sd = buildSoldier(kind, team);
+    if (sd) {
+      newParts = {
+        group: sd.group,
+        body: sd.group,
+        J: sd.J,
+        hitBody: sd.hitBody,
+        hitHead: sd.hitHead,
+        hitLegs: sd.hitLegs,
+        soldier: true,
+        iff: sd.iff,
+        gun: sd.gun
+      };
+    }
+  }
+  if (!newParts && typeof makeEnemyMesh === 'function') {
+    newParts = makeEnemyMesh(kind, team);
+  }
+  if (newParts) {
+    const scale = (typeof CORE !== 'undefined' && typeof CORE.enemyScale === 'function') ? CORE.enemyScale(kind) : 1;
+    if (newParts.group && newParts.group.scale && typeof newParts.group.scale.set === 'function') {
+      newParts.group.scale.set(scale, scale, scale);
+    }
+    const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a, 6: 0xb83a30 };
+    if (KIND_TINT[kind] !== undefined && !newParts.soldier && newParts.group) {
+      if (typeof THREE !== 'undefined' && THREE.Color) {
+        const tint = new THREE.Color(KIND_TINT[kind]);
+        newParts.group.traverse(function (o) {
+          if (o.isMesh && o !== newParts.hitBody && o !== newParts.hitHead && o.material) {
+            o.material = o.material.clone();
+            if (o.material.color) o.material.color.copy(tint);
+          }
+        });
+      }
+    }
+    actor.parts = newParts;
+    actor.hitBody = newParts.hitBody;
+    actor.hitHead = newParts.hitHead;
+    if (newParts.hitBody) newParts.hitBody.userData = { enemyRef: actor, isHead: false };
+    if (newParts.hitHead) newParts.hitHead.userData = { enemyRef: actor, isHead: true };
+    if (newParts.hitLegs) newParts.hitLegs.userData = { enemyRef: actor, isHead: false, isLegs: true };
+  }
+}
+
+function getHostilesForActor(actor, candidateList, livePlayer) {
+  const actorTeam = (actor && actor.team) ? actor.team : (actor && actor.isPlayer ? 'friendly' : 'enemy');
+  const result = [];
+  const p = livePlayer !== undefined ? livePlayer : (typeof player !== 'undefined' ? player : null);
+  if (p && !p.dead && p !== actor) {
+    const pTeam = p.team || 'friendly';
+    if (pTeam !== actorTeam) {
+      result.push(p);
+    }
+  }
+  const list = candidateList || (typeof enemies !== 'undefined' ? enemies : []);
+  for (let j = 0; j < list.length; j++) {
+    const act = list[j];
+    if (!act || act.dead || act === actor || act === p) continue;
+    const actTeam = act.team || (act.isPlayer ? 'friendly' : 'enemy');
+    if (actTeam !== actorTeam) {
+      result.push(act);
+    }
+  }
+  return result;
+}
+
 function defaultOnRespawn(actor, pt) {
   if (!actor) return;
   const duration = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
@@ -15359,6 +15469,7 @@ function defaultOnRespawn(actor, pt) {
     actor.attackT = 0;
     actor.target = null;
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
+    rebuildEnemyRig(actor);
     if (actor.parts && actor.parts.group) {
       if (actor.pos && actor.parts.group.position && typeof actor.parts.group.position.copy === 'function') {
         actor.parts.group.position.copy(actor.pos);
@@ -15392,8 +15503,9 @@ function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
       : (entry.timer <= 0);
     if (ready) {
       modeRespawnQueue.splice(i, 1);
+      const actorHostiles = getHostilesForActor(entry.actor, hostiles);
       const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
-        ? CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders)
+        ? CORE.pickBestSpawnPoint(spawnPoints, actorHostiles, colliders)
         : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
       cb(entry.actor, pt);
     }
@@ -15465,6 +15577,31 @@ MODES.tdm = {
   roster: [],
   setup: function () {
     clearModeRespawns();
+    this._ended = false;
+    this._settled = false;
+    if (Array.isArray(this.roster)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        const act = this.roster[i];
+        if (act && !act.isPlayer) {
+          if (act.parts && act.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(act.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+        }
+      }
+    }
+    if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const en = enemies[i];
+        if (en && (en.team === 'friendly' || (this.roster && this.roster.includes(en)))) {
+          if (en.parts && en.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(en.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(en);
+          enemies.splice(i, 1);
+        }
+      }
+    }
     this.roster = [];
     if (typeof getSetting === 'function') {
       const sl = getSetting('tdmScoreLimit');
@@ -15529,6 +15666,7 @@ MODES.tdm = {
     updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
     if (victim) victim.deaths = (victim.deaths || 0) + 1;
     const p = (typeof player !== 'undefined') ? player : null;
     const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
@@ -15630,6 +15768,9 @@ MODES.tdm = {
     return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
   },
   endMatch: function () {
+    if (this._ended) return;
+    this._ended = true;
+    this._settled = true;
     if (typeof gameEnded !== 'undefined') gameEnded = true;
     clearModeRespawns();
     if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
@@ -16543,6 +16684,8 @@ const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {
@@ -17389,10 +17532,10 @@ function removeRagdoll(e) {
     for (let k = 0; k < e.boxParts.length; k++) {
       const obj = e.boxParts[k].obj;
       scene.remove(obj);
-      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+      if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
     }
   }
-  if (e.en && e.en.parts && e.en.parts.group) {
+  if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) {
     scene.remove(e.en.parts.group);
     disposeEnemyGeometry(e.en);
   }
@@ -20356,7 +20499,9 @@ function deploySentry() {
   g.position.set(x, 0, z);
   g.castShadow = true;
   scene.add(g);
-  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0 });
+  const ownerActor = (typeof player !== 'undefined') ? player : null;
+  const ownerTeam = (ownerActor && ownerActor.team) ? ownerActor.team : 'friendly';
+  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0, owner: ownerActor, team: ownerTeam });
   showCenterMsg('SENTRY DEPLOYED');
 }
 
@@ -20370,10 +20515,16 @@ function updateSentries(dt) {
     s.cd = _sentryTimerOut.cd;
     if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     let best = null, bestDSq = maxRangeSq;
+    const sentryOwner = s.owner || (typeof player !== 'undefined' ? player : null);
+    const sentryTeam = s.team || (sentryOwner && sentryOwner.team) || 'friendly';
     _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       if (en.dead) continue;
+      const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+        ? CORE.isFriendlyFire(sentryOwner, en)
+        : (en.team === sentryTeam);
+      if (isAlly) continue;
       const dx = en.pos.x - s.m.position.x, dz = en.pos.z - s.m.position.z;
       const dSq = dx * dx + dz * dz;
       if (!CORE.isSentryTargetInRange(dx, dz, bestDSq)) continue;
@@ -20398,7 +20549,7 @@ function updateSentries(dt) {
     }
     spawnTracer(_sentryMuzzle, _sentryTo, null, 'BR');
     _sentryHitPoint.copy(_sentryTo);
-    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
+    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false, false, 'SENTRY', sentryOwner);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }
@@ -22117,7 +22268,13 @@ function buildModePickerRow() {
     { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
     { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
   ];
-  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : (getSetting('gameMode') || 'survival');
+  const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
+  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
+    if (typeof setActiveMode === 'function') setActiveMode(validSaved);
+    else activeModeId = validSaved;
+  }
+  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : validSaved;
   availableModes.forEach(function (m) {
     const b = document.createElement('div');
     b.className = 'diff-btn mode-btn' + (m.id === curMode ? ' on' : '');
@@ -22322,6 +22479,9 @@ function startGame() {
 function resumeRun() {
   const cp = loadCheckpoint();
   if (!cp || !assetsReady) return;
+  if (typeof setActiveMode === 'function') setActiveMode('survival');
+  else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
+  if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -22562,8 +22722,6 @@ function restartMatch() {
   gameEnded = false;
   started = true;
   resetGame();
-  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
   if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
     try { canvas.requestPointerLock(); } catch (e) {}
   }
@@ -22702,19 +22860,24 @@ function frame(now) {
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
-    updatePlayer(dt);
-    updateWeapons(dt);
-    updateEnemies(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    if (!isSettled) {
+      updatePlayer(dt);
+      updateWeapons(dt);
+      updateEnemies(dt);
+    }
     if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
     else updateWaves(dt);
     updateVfx(dt);
-    updateGrenades(dt);
-    updatePickups(dt);
-    updateAmmoRelief(dt);
-    updateStations(dt);
-    updateDowned(dt);
-    updateStreaks(dt);
+    if (!isSettled) {
+      updateGrenades(dt);
+      updatePickups(dt);
+      updateAmmoRelief(dt);
+      updateStations(dt);
+      updateDowned(dt);
+      updateStreaks(dt);
+    }
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);

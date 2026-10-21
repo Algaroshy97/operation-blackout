@@ -483,7 +483,13 @@ function buildModePickerRow() {
     { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
     { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
   ];
-  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : (getSetting('gameMode') || 'survival');
+  const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
+  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
+    if (typeof setActiveMode === 'function') setActiveMode(validSaved);
+    else activeModeId = validSaved;
+  }
+  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : validSaved;
   availableModes.forEach(function (m) {
     const b = document.createElement('div');
     b.className = 'diff-btn mode-btn' + (m.id === curMode ? ' on' : '');
@@ -695,6 +701,9 @@ function startGame() {
 function resumeRun() {
   const cp = loadCheckpoint();
   if (!cp || !assetsReady) return;
+  if (typeof setActiveMode === 'function') setActiveMode('survival');
+  else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
+  if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -951,8 +960,6 @@ function restartMatch() {
   gameEnded = false;
   started = true;
   resetGame();
-  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
   if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
     try { canvas.requestPointerLock(); } catch (e) {}
   }
@@ -1104,19 +1111,24 @@ function frame(now) {
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
-    updatePlayer(dt);
-    updateWeapons(dt);
-    updateEnemies(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    if (!isSettled) {
+      updatePlayer(dt);
+      updateWeapons(dt);
+      updateEnemies(dt);
+    }
     if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
     else updateWaves(dt);
     updateVfx(dt);
-    updateGrenades(dt);
-    updatePickups(dt);
-    updateAmmoRelief(dt);
-    updateStations(dt);
-    updateDowned(dt);
-    updateStreaks(dt);
+    if (!isSettled) {
+      updateGrenades(dt);
+      updatePickups(dt);
+      updateAmmoRelief(dt);
+      updateStations(dt);
+      updateDowned(dt);
+      updateStreaks(dt);
+    }
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);

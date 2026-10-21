@@ -217,6 +217,8 @@ const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {

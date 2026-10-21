@@ -452,6 +452,8 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) return;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
   if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')

@@ -4,6 +4,32 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v170 — Bot rig reconstruction upon respawn, restart idempotency, match completion freeze, Survival resume mode restoration, sentry hostility targeting, and spawn point candidate scoring
+
+- Rebuild live rig upon bot respawn and protect living actors from corpse retirement in `src/35_modes.js` and `src/45_ragdoll.js`:
+  - Fixed soldier bot respawn re-adding an emptied group after its 14 skinned meshes, bones, and hitBody were reparented to the ragdoll container on death.
+  - Implemented `rebuildEnemyRig(actor)` in `src/35_modes.js` called from `defaultOnRespawn(actor, pt)`: detaches living actor from any active ragdolls, completely reconstructs the live rig via `buildSoldier` / `makeEnemyMesh`, restores all 17 meshes (including 14 skinned meshes), and re-wires `hitBody`, `hitHead`, and `hitLegs`.
+  - Added guard in `removeRagdoll(e)` in `src/45_ragdoll.js` preventing removal or disposal of the actor group when the associated enemy actor is alive (`!e.en.dead`).
+- Eliminate duplicate bot initialization and ensure idempotent match setup in `src/70_main.js` and `src/35_modes.js`:
+  - Removed duplicate `activeMode.setup()` invocation from `restartMatch()`, resolving the issue where `resetGame()` and `restartMatch()` each spawned 11 bots (22 total active bots vs 12 scoreboard participants).
+  - Made `MODES.tdm.setup()` idempotent: cleans up and disposes existing roster bots and meshes if invoked repeatedly, maintaining exact team counts and actor identity correspondence across restarts.
+- Freeze match combat and reject late damage and kill callbacks post-settlement in `src/20_player.js`, `src/35_modes.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Match completion now immediately halts combat updates (`updatePlayer`, `updateWeapons`, `updateEnemies`, `updateGrenades`) in `updateFrame()`.
+  - Added settlement guards across `damageEnemy`, `damagePlayer`, `MODES.tdm.onKill`, and `MODES.tdm.endMatch` (`_settled`, `_ended`, `gameEnded`, `activeMode.isOver()`), preventing delayed projectiles, grenades, or bot attacks from altering scores, K/D, or outcome after a settled victory/defeat.
+- Authoritatively restore Survival mode upon resuming runs across menu mode selections in `src/70_main.js`:
+  - `resumeRun()` explicitly sets mode to `'survival'` via `setActiveMode('survival')` and synchronizes `setSetting('gameMode', 'survival')` before calling `resetGame()`, preventing checkpoints from running under TDM mode with frozen waves and 11 bots.
+  - Added regression test covering victory and endless checkpoints resumed after switching menu selection to TDM.
+- Filter sentry targeting by owner team hostility in `src/58_streaks.js`:
+  - Sentry deployment stores `owner` and `team` on the sentry object.
+  - `updateSentries()` filters target candidates using `CORE.isFriendlyFire` / actor team, preventing friendly teammates from monopolizing sentry aim and allowing hostile targets to be fired upon immediately.
+- Candidate scoring for respawns isolates opponents and includes live player in `src/35_modes.js`:
+  - Implemented `getHostilesForActor(actor, candidateList, livePlayer)` for per-entry candidate evaluation in `pickBestSpawnPoint()`.
+  - Excludes friendly teammates so friendly proximity does not repel spawns; includes the live player when hostile to ensure player sightlines and proximity are accurately scored.
+- Persist and restore saved `gameMode` setting into `activeModeId` in `src/02_settings.js`, `src/35_modes.js`, and `src/70_main.js`:
+  - `activeModeId` initializes from validated `getSetting('gameMode')`.
+  - Added `'gameMode'` handler to `applySetting()` with safety guard preventing mid-match mode switching.
+  - Mode picker row synchronizes saved setting properly across page reloads and deployments.
+
 ## v169 — Authoritative TDM player death attribution, stable scoreboard roster, pause safety, and bidirectional E2E match lifecycle
 
 - Authoritative player death and kill attribution in `src/20_player.js`, `src/40_enemies.js`, `src/57_stations.js`, `src/70_main.js`, and `src/35_modes.js`:

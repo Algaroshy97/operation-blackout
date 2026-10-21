@@ -1708,11 +1708,29 @@ function createFullMatchContext(overrides = {}) {
           click: function () {
             if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
             if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+          },
+          appendChild: function (child) {
+            this.children = this.children || [];
+            this.children.push(child);
+            if (child && child.id) docElements.set(child.id, child);
           }
         });
       }
       return docElements.get(id);
     },
+    createElement: tag => ({
+      tagName: tag,
+      id: '',
+      className: '',
+      innerHTML: '',
+      textContent: '',
+      style: { display: '' },
+      classList: { add: noop, remove: noop, contains: () => false },
+      addEventListener: noop,
+      removeEventListener: noop,
+      appendChild: noop,
+      setAttribute: noop
+    }),
     querySelectorAll: () => [],
     body: { classList: { remove: noop, add: noop, contains: () => false } },
     addEventListener: noop,
@@ -1733,6 +1751,7 @@ function createFullMatchContext(overrides = {}) {
   const c = vm.createContext(Object.assign({
     CORE,
     IS_TOUCH: false,
+    assetsReady: true,
     Math: Object.create(Math),
     performance: { now: () => Date.now() },
     THREE: {
@@ -1803,6 +1822,34 @@ function createFullMatchContext(overrides = {}) {
     ],
     perks: [],
     godMode: false,
+    startMusic: noop,
+    stopMusic: noop,
+    runDifficulty: 'regular',
+    endlessMode: false,
+    runPhase: 'active',
+    weaponsOwned: [0, -1],
+    wState: [{}, {}],
+    initWeapons: noop,
+    refreshWeaponStats: noop,
+    openDistrict: noop,
+    equippedLethal: 'frag',
+    equippedTactical: 'smoke',
+    tacticalCount: 2,
+    fieldCharge: 0,
+    streakBank: [],
+    streakKills: 0,
+    curWeapon: 0,
+    buildViewmodel: noop,
+    showWaveBanner: noop,
+    updateWaves: dt => {
+      if (c.betweenWaveT > 0) {
+        c.betweenWaveT -= dt;
+        if (c.betweenWaveT <= 0) c.waveActive = true;
+      }
+    },
+    waveActive: false,
+    betweenWaveT: 3,
+    plates: 0,
     gameT: 0,
     kills: 0,
     headshots: 0,
@@ -1814,8 +1861,8 @@ function createFullMatchContext(overrides = {}) {
     runStreaksEarned: 0,
     settlementSnapshot: null,
     captureRunState: () => ({}),
-    saveCheckpoint: noop,
-    clearCheckpoint: noop,
+    saveCheckpoint: cp => { c._checkpoint = cp; },
+    clearCheckpoint: () => { c._checkpoint = null; },
     recordRun: () => ({}),
     spawnRagdoll: noop,
     disposeEnemyGeometry: noop,
@@ -1855,8 +1902,13 @@ function createFullMatchContext(overrides = {}) {
     DISTRICT_BARRIERS: {},
     doorMeshes: {},
     doorColliders: {},
-    loadCheckpoint: () => null,
-    hud: {},
+    loadCheckpoint: () => c._checkpoint || null,
+    hud: {
+      waveNum: { textContent: '' },
+      scoreVal: { textContent: '' },
+      credits: { textContent: '' }
+    },
+    grenades: { count: 2, cd: 0 },
     powerUntil: { double: -99, instakill: -99 },
     runId: 0,
     STEADY_MAX: 5,
@@ -1880,7 +1932,8 @@ function createFullMatchContext(overrides = {}) {
       score: { kill: 100, headshot: 50 },
       wave: { startDelay: 3 },
       ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
-      grenade: { radius: 6, dmg: 120 }
+      grenade: { radius: 6, dmg: 120 },
+      weapons: [{ mag: 30, reserveMax: 90 }]
     },
     dummyParts
   }, overrides));
@@ -1892,6 +1945,7 @@ function createFullMatchContext(overrides = {}) {
   const mainSrc = source('70_main.js');
   const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
   vm.runInContext(mainSlice, c);
+  vm.runInContext('assetsReady = true;', c);
 
   c.player = vm.runInContext('player', c);
   c.enemies = vm.runInContext('enemies', c);
@@ -2208,6 +2262,479 @@ test('reset attribution across respawn, restart, and mode switch', () => {
   assert.strictEqual(p.lastAttacker, null, 'survival setup must reset player lastAttacker');
   assert.strictEqual(p.downedBy, null, 'survival setup must reset player downedBy');
 });
+
+function createRealRigContext() {
+  const ctx = {
+    console, Math, Float32Array,
+    TEX: { camo: { map: null, normalMap: null }, paint: { map: null }, bloodSplat: null },
+    runDifficulty: 'regular',
+    endlessMode: false,
+    runPhase: 'active',
+    weaponsOwned: [0, -1],
+    wState: [{}, {}],
+    initWeapons: noop,
+    refreshWeaponStats: noop,
+    openDistrict: noop,
+    equippedLethal: 'frag',
+    equippedTactical: 'smoke',
+    tacticalCount: 2,
+    fieldCharge: 0,
+    streakBank: [],
+    streakKills: 0,
+    curWeapon: 0,
+    buildViewmodel: noop,
+    showWaveBanner: noop,
+    updateWaves: dt => {
+      if (c.betweenWaveT > 0) {
+        c.betweenWaveT -= dt;
+        if (c.betweenWaveT <= 0) c.waveActive = true;
+      }
+    },
+    waveActive: false,
+    betweenWaveT: 3,
+    plates: 0,
+    gameT: 0,
+    IS_TOUCH: false,
+    SETTINGS: {},
+    CFG: {
+      grenade: { radius: 6 },
+      player: { height: 1.7 },
+      score: { kill: 100, headshot: 50 },
+      wave: { startDelay: 3 },
+      ai: { maxHealth: 100 }
+    },
+    player: { pos: { x: 0, y: 1.7, z: 0 }, team: 'friendly' },
+    colliders: [],
+    enemies: [],
+    CORE: CORE,
+    diff: () => ({ hp: 1 }),
+    eyeHeight: () => 1.7
+  };
+  ctx.window = ctx;
+  ctx.self = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../vendor/three-bundle.min.js'), 'utf8'), ctx);
+  ctx.scene = new ctx.THREE.Scene();
+  vm.runInContext(source('01_core.js'), ctx);
+  vm.runInContext(source('38_soldier.js'), ctx);
+  vm.runInContext(source('40_enemies.js'), ctx);
+  vm.runInContext(source('45_ragdoll.js'), ctx);
+  vm.runInContext(source('35_modes.js'), ctx);
+  return ctx;
+}
+
+test('regression [P1]: bot respawn rebuilds live rig and isolates from ragdoll retirement for detailed and simple models', () => {
+  const c = createRealRigContext();
+
+  // 1. Detailed soldier model
+  const sd = c.buildSoldier(1, 'enemy');
+  const detailedBot = {
+    kind: 1,
+    team: 'enemy',
+    maxHealth: 100,
+    health: 100,
+    dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10),
+    vel: new c.THREE.Vector3(0, 0, 0),
+    parts: {
+      group: sd.group, body: sd.group, J: sd.J,
+      hitBody: sd.hitBody, hitHead: sd.hitHead, hitLegs: sd.hitLegs,
+      soldier: true, gun: sd.gun, iff: sd.iff
+    }
+  };
+  detailedBot.hitBody = sd.hitBody;
+  detailedBot.hitHead = sd.hitHead;
+  detailedBot.hitBody.userData = { enemyRef: detailedBot, isHead: false };
+  detailedBot.hitHead.userData = { enemyRef: detailedBot, isHead: true };
+  c.scene.add(detailedBot.parts.group);
+
+  let detailedMeshesBefore = 0;
+  let detailedSkinnedBefore = 0;
+  detailedBot.parts.group.traverse(o => {
+    if (o.isMesh) detailedMeshesBefore++;
+    if (o.isSkinnedMesh) detailedSkinnedBefore++;
+  });
+  assert.strictEqual(detailedMeshesBefore, 17, 'detailed soldier must start with 17 meshes');
+  assert.strictEqual(detailedSkinnedBefore, 14, 'detailed soldier must start with 14 skinned meshes');
+  assert.strictEqual(detailedBot.parts.group.getObjectByName('hitBody') !== undefined, true, 'hitBody must be under group before death');
+
+  // Trigger death and ragdoll
+  c.spawnRagdoll(detailedBot, { node: 'chest', x: 0, y: 1, z: 2 });
+  detailedBot.dead = true;
+  let detailedMeshesAfterDeath = 0;
+  detailedBot.parts.group.traverse(o => { if (o.isMesh) detailedMeshesAfterDeath++; });
+  assert.strictEqual(detailedMeshesAfterDeath, 0, 'bones and skinned meshes reparented to corpse container leaving 0 in group');
+  assert.strictEqual(detailedBot.parts.group.getObjectByName('hitBody') !== undefined, false, 'hitBody no longer under group during death');
+
+  // Respawn detailed bot
+  c.defaultOnRespawn(detailedBot, [5, 15]);
+  assert.strictEqual(detailedBot.dead, false, 'bot.dead must be cleared on respawn');
+
+  let detailedMeshesAfterRespawn = 0;
+  let detailedSkinnedAfterRespawn = 0;
+  detailedBot.parts.group.traverse(o => {
+    if (o.isMesh) detailedMeshesAfterRespawn++;
+    if (o.isSkinnedMesh) detailedSkinnedAfterRespawn++;
+  });
+  assert.strictEqual(detailedMeshesAfterRespawn, 17, 'respawned bot must have live rig rebuilt with 17 meshes');
+  assert.strictEqual(detailedSkinnedAfterRespawn, 14, 'respawned bot must have 14 skinned meshes');
+  assert.strictEqual(detailedBot.parts.group.getObjectByName('hitBody') !== undefined, true, 'hitBody must be restored under group');
+  assert.strictEqual(detailedBot.hitBody.userData.enemyRef, detailedBot, 'hitBody userData must point to respawned bot');
+  assert.strictEqual(detailedBot.parts.group.parent, c.scene, 'rebuilt rig must be in scene');
+
+  // Subsequent corpse cleanup must NOT remove or dispose the respawned bot's group
+  c.resetRagdolls();
+  assert.strictEqual(detailedBot.parts.group.parent, c.scene, 'corpse retirement must NOT remove live respawned bot from scene');
+  let meshesAfterCorpseCleanup = 0;
+  detailedBot.parts.group.traverse(o => { if (o.isMesh) meshesAfterCorpseCleanup++; });
+  assert.strictEqual(meshesAfterCorpseCleanup, 17, 'corpse retirement must leave respawned bot meshes intact');
+
+  // 2. Simple box-man model
+  const simpleParts = c.makeEnemyMesh(1, 'enemy');
+  const simpleBot = {
+    kind: 1,
+    team: 'enemy',
+    maxHealth: 100,
+    health: 100,
+    dead: false,
+    pos: new c.THREE.Vector3(0, 0, 10),
+    vel: new c.THREE.Vector3(0, 0, 0),
+    parts: simpleParts
+  };
+  simpleBot.hitBody = simpleParts.hitBody;
+  simpleBot.hitHead = simpleParts.hitHead;
+  simpleBot.hitBody.userData = { enemyRef: simpleBot, isHead: false };
+  simpleBot.hitHead.userData = { enemyRef: simpleBot, isHead: true };
+  c.scene.add(simpleBot.parts.group);
+
+  let simpleMeshesBefore = 0;
+  simpleBot.parts.group.traverse(o => { if (o.isMesh) simpleMeshesBefore++; });
+  assert.ok(simpleMeshesBefore > 0);
+
+  c.spawnRagdoll(simpleBot, { node: 'chest', x: 0, y: 1, z: 2 });
+  simpleBot.dead = true;
+
+  c.defaultOnRespawn(simpleBot, [-5, 20]);
+  assert.strictEqual(simpleBot.dead, false);
+
+  let simpleMeshesAfterRespawn = 0;
+  simpleBot.parts.group.traverse(o => { if (o.isMesh) simpleMeshesAfterRespawn++; });
+  assert.strictEqual(simpleMeshesAfterRespawn, simpleMeshesBefore, 'simple bot must restore all meshes after respawn');
+  assert.strictEqual(simpleBot.parts.group.parent, c.scene, 'simple bot rig must be in scene');
+
+  c.resetRagdolls();
+  assert.strictEqual(simpleBot.parts.group.parent, c.scene, 'simple bot rig must remain in scene after corpse cleanup');
+});
+
+test('regression [P1]: restartMatch initializes TDM once and is idempotent without duplicate bots or roster desync', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  // First restart
+  c.restartMatch();
+  assert.strictEqual(c.enemies.length, 11, 'enemies roster must contain exactly 11 bots after first restart');
+  const friendlyCount1 = c.enemies.filter(e => e.team === 'friendly').length;
+  const enemyCount1 = c.enemies.filter(e => e.team === 'enemy').length;
+  assert.strictEqual(friendlyCount1, 5, 'must have exactly 5 friendly bots');
+  assert.strictEqual(enemyCount1, 6, 'must have exactly 6 enemy bots');
+
+  const sb1 = c.MODES.tdm.scoreboard();
+  assert.strictEqual(sb1.friendlyTeam.members.length, 6, 'scoreboard must have 6 friendly members');
+  assert.strictEqual(sb1.enemyTeam.members.length, 6, 'scoreboard must have 6 enemy members');
+
+  // Repeated restarts must NOT duplicate bots (Chromium reproduced 22 active bots)
+  c.restartMatch();
+  c.restartMatch();
+  assert.strictEqual(c.enemies.length, 11, 'enemies roster must remain exactly 11 bots after repeated restarts');
+  const friendlyCountRepeated = c.enemies.filter(e => e.team === 'friendly').length;
+  const enemyCountRepeated = c.enemies.filter(e => e.team === 'enemy').length;
+  assert.strictEqual(friendlyCountRepeated, 5, 'must maintain exactly 5 friendly bots after repeated restarts');
+  assert.strictEqual(enemyCountRepeated, 6, 'must maintain exactly 6 enemy bots after repeated restarts');
+
+  // Actor identity correspondence: every bot in enemies must exist in scoreboard roster
+  const sbRepeated = c.MODES.tdm.scoreboard();
+  assert.strictEqual(sbRepeated.friendlyTeam.members.length, 6);
+  assert.strictEqual(sbRepeated.enemyTeam.members.length, 6);
+  for (const bot of c.enemies) {
+    const list = (bot.team === 'friendly') ? sbRepeated.friendlyTeam.members : sbRepeated.enemyTeam.members;
+    assert.ok(list.some(m => m.id === bot.id), 'bot ' + bot.id + ' must correspond to scoreboard roster row');
+  }
+});
+
+test('regression [P1]: match completion freezes match combat and rejects late damage/kill callbacks after settlement', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.MODES.tdm.targetScore = 1;
+
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  const ally = c.enemies.find(e => e.team === 'friendly');
+  hostile.spawnProtectionT = 0;
+  ally.spawnProtectionT = 0;
+  c.player.spawnProtectionT = 0;
+
+  // Player scores the winning kill (1-0 VICTORY)
+  c.damageEnemy(hostile, 200, hostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 1, 'friendly score must reach 1');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'enemy score must be 0');
+  assert.strictEqual(c.gameEnded, true, 'gameEnded must be true after match victory');
+
+  const titleEl = c.$id('match-end-title');
+  assert.strictEqual(titleEl.textContent, 'VICTORY', 'end screen title must be VICTORY');
+
+  // Subsequent frame updates must freeze combat systems
+  if (typeof c.updateFrame === 'function') {
+    c.updateFrame(100);
+    c.updateFrame(200);
+  }
+
+  // Late delayed impact: another hostile attacks ally and player after settlement
+  const anotherHostile = c.enemies.find(e => e.team === 'enemy' && !e.dead);
+  c.damagePlayer(500, 0, 'blast', anotherHostile);
+  assert.strictEqual(c.player.dead, false, 'late damage to player after settlement must be rejected');
+
+  c.damageEnemy(ally, 500, ally.pos, false, false, 'AR', anotherHostile);
+  assert.strictEqual(ally.dead, false, 'late damage to ally after settlement must be rejected');
+
+  // Direct late call to onKill must be rejected
+  c.MODES.tdm.onKill(ally, false, anotherHostile);
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'late onKill must NOT increment enemy score');
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 1, 'friendly score must remain 1');
+  assert.strictEqual(titleEl.textContent, 'VICTORY', 'end screen title must NOT change to DRAW or DEFEAT');
+});
+
+test('regression [P1]: resumeRun selects Survival before resetGame across menu mode switch, including victory and endless checkpoints', () => {
+  const c = createFullMatchContext();
+
+  // 1. Regular Survival wave 3 checkpoint
+  c.saveCheckpoint({
+    wave: 2,
+    score: 6400,
+    kills: 10,
+    headshots: 5,
+    shotsFired: 50,
+    shotsHit: 30,
+    health: 100,
+    armor: 50,
+    grenades: 2,
+    difficulty: 1,
+    endless: false,
+    runPhase: 'active',
+    weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    equipment: { lethal: 'frag', tactical: 'smoke', tacticalCount: 2, fieldCharge: 0, streakBank: [] }
+  });
+
+  // Player enters loadout menu, selects TDM
+  c.setActiveMode('tdm');
+  assert.strictEqual(c.activeModeId, 'tdm');
+
+  // Player backs out and clicks RESUME
+  c.resumeRun();
+  assert.strictEqual(c.activeModeId, 'survival', 'resumeRun must select Survival before resetGame');
+  assert.strictEqual(c.enemies.length, 0, 'Survival run must have 0 initial TDM bots');
+  assert.strictEqual(c.MODES.tdm.roster.length, 0, 'TDM roster must be cleared on resume');
+  assert.strictEqual(c.score, 6400, 'score must be restored from checkpoint');
+
+  // Waves must advance
+  c.betweenWaveT = 0.1;
+  c.MODES.survival.update(0.2);
+  assert.strictEqual(c.waveActive, true, 'Survival wave must advance after resume');
+
+  // 2. Victory checkpoint
+  c.saveCheckpoint({
+    wave: 14,
+    score: 35000,
+    kills: 50,
+    headshots: 25,
+    shotsFired: 200,
+    shotsHit: 120,
+    health: 100,
+    armor: 50,
+    grenades: 2,
+    difficulty: 1,
+    endless: false,
+    runPhase: 'victory',
+    settlementSnapshot: {},
+    weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    equipment: { lethal: 'frag', tactical: 'smoke', tacticalCount: 2, fieldCharge: 0, streakBank: [] }
+  });
+  c.setActiveMode('tdm');
+  c.resumeRun();
+  assert.strictEqual(c.activeModeId, 'survival', 'victory checkpoint resume must select Survival');
+  assert.strictEqual(c.gameEnded, true, 'victory checkpoint resume must preserve settled gameEnded');
+  assert.strictEqual(c.enemies.length, 0, 'victory checkpoint resume must not spawn TDM bots');
+
+  // 3. Endless checkpoint
+  c.saveCheckpoint({
+    wave: 18,
+    score: 55000,
+    kills: 70,
+    headshots: 35,
+    shotsFired: 300,
+    shotsHit: 180,
+    health: 100,
+    armor: 50,
+    grenades: 2,
+    difficulty: 1,
+    endless: true,
+    runPhase: 'endless',
+    weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    equipment: { lethal: 'frag', tactical: 'smoke', tacticalCount: 2, fieldCharge: 0, streakBank: [] }
+  });
+  c.setActiveMode('tdm');
+  c.resumeRun();
+  assert.strictEqual(c.activeModeId, 'survival', 'endless checkpoint resume must select Survival');
+  assert.strictEqual(c.endlessMode, true, 'endlessMode must be restored');
+  assert.strictEqual(c.enemies.length, 0, 'endless checkpoint resume must not spawn TDM bots');
+});
+
+test('regression [P2]: sentry targets nearest hostile and ignores closer friendly teammates', () => {
+  const c = createFullMatchContext();
+  c.spawnTracer = noop;
+  c.playSound3D = noop;
+  c.fxMuzzle = noop;
+  c.flashLight = noop;
+  vm.runInContext(source('58_streaks.js'), c);
+
+  c.deploySentry();
+  const sentries = vm.runInContext('sentries', c);
+  assert.strictEqual(sentries.length, 1, 'sentry must be deployed');
+  const sentry = sentries[0];
+  sentry.m.position.set(0, 0, 0);
+
+  // Friendly ally closer at z = 5
+  const ally = {
+    team: 'friendly',
+    dead: false,
+    health: 100,
+    maxHealth: 100,
+    pos: new Vector3(0, 0, 5),
+    yaw: 0,
+    kind: 0
+  };
+  // Hostile further away at z = 10
+  const hostile = {
+    team: 'enemy',
+    dead: false,
+    health: 135,
+    maxHealth: 135,
+    pos: new Vector3(0, 0, 10),
+    yaw: 0,
+    kind: 1
+  };
+  c.enemies.length = 0;
+  c.enemies.push(ally, hostile);
+
+  // Update sentry
+  sentry.cd = 0;
+  c.updateSentries(0.1);
+
+  // Hostile must take damage; ally must NOT take damage
+  assert.strictEqual(ally.health, 100, 'closer ally must NOT take sentry damage or block sentry');
+  assert.strictEqual(hostile.health, 113, 'hostile must take sentry damage from 135 to 113');
+});
+
+test('regression [P2]: respawn scoring builds per-entry candidate list of opponents and includes live player when hostile', () => {
+  const c = createFullMatchContext();
+
+  const spawnPoints = [[0, 15], [0, -15]];
+  const hostile = {
+    team: 'enemy',
+    dead: false,
+    pos: new Vector3(0, 0, 0),
+    yaw: 0 // facing towards [0, 15]
+  };
+  const ally = {
+    team: 'friendly',
+    dead: false,
+    pos: new Vector3(0, 0, -10),
+    yaw: 0
+  };
+  c.enemies.length = 0;
+  c.enemies.push(hostile, ally);
+
+  // 1. Friendly bot respawn: hostile facing [0, 15] gives sightline penalty, ally behind must not repel [0, -15]
+  const respawningAlly = {
+    id: 'ally_test',
+    team: 'friendly',
+    dead: true,
+    pos: new Vector3(0, 0, 0)
+  };
+  c.clearModeRespawns();
+  c.queueModeRespawn(respawningAlly, 0);
+
+  let chosenPointAlly = null;
+  c.updateModeRespawns(0.1, spawnPoints, c.enemies, c.colliders, (actor, pt) => {
+    chosenPointAlly = pt;
+  });
+
+  assert.ok(chosenPointAlly, 'spawn point must be chosen');
+  assert.deepStrictEqual(chosenPointAlly, [0, -15], 'friendly bot must select safe point [0, -15] scoring 35 over sightline point [0, 15]');
+
+  // 2. Enemy bot respawn: live player facing [0, 15] must be included in scoring candidates
+  const enemyAlly = {
+    team: 'enemy',
+    dead: false,
+    pos: new Vector3(0, 0, -10),
+    yaw: 0
+  };
+  c.enemies.length = 0;
+  c.enemies.push(enemyAlly);
+
+  c.player.team = 'friendly';
+  c.player.dead = false;
+  c.player.pos.set(0, 1.7, 0);
+  c.player.yaw = 0; // facing towards [0, 15]
+
+  const respawningEnemy = {
+    id: 'enemy_test',
+    team: 'enemy',
+    dead: true,
+    pos: new Vector3(0, 0, 0)
+  };
+  c.clearModeRespawns();
+  c.queueModeRespawn(respawningEnemy, 0);
+
+  let chosenPointEnemy = null;
+  c.updateModeRespawns(0.1, spawnPoints, c.enemies, c.colliders, (actor, pt) => {
+    chosenPointEnemy = pt;
+  });
+
+  assert.ok(chosenPointEnemy, 'spawn point must be chosen for enemy');
+  assert.deepStrictEqual(chosenPointEnemy, [0, -15], 'enemy bot must include hostile player and select [0, -15]');
+});
+
+test('regression [P2]: saved gameMode restores into activeModeId and survives reload/deploy', () => {
+  const c = createFullMatchContext();
+  vm.runInContext(source('02_settings.js'), c);
+
+  // 1. Saved gameMode = 'tdm'
+  vm.runInContext('SETTINGS.gameMode = "tdm"', c);
+  c.applySetting('gameMode');
+  assert.strictEqual(c.activeModeId, 'tdm', 'activeModeId must be restored to tdm when saved');
+
+  // Build mode picker row
+  c.buildModePickerRow();
+  const tdmBtn = c.$id('mode-btn-tdm');
+  assert.ok(tdmBtn && tdmBtn.className.includes('on'), 'TDM button must have on class when saved mode is tdm');
+
+  // 2. applySetting must NOT switch mode unexpectedly while match is active
+  c.started = true;
+  c.gameEnded = false;
+  vm.runInContext('SETTINGS.gameMode = "survival"', c);
+  c.applySetting('gameMode');
+  assert.strictEqual(c.activeModeId, 'tdm', 'applySetting must not change activeModeId while match is actively playing');
+
+  // 3. Saved gameMode = 'survival'
+  c.started = false;
+  c.applySetting('gameMode');
+  assert.strictEqual(c.activeModeId, 'survival', 'activeModeId must switch to survival when not actively playing');
+  c.buildModePickerRow();
+  const survBtn = c.$id('mode-btn-survival');
+  assert.ok(survBtn && survBtn.className.includes('on'), 'Survival button must have on class when saved mode is survival');
+});
+
 
 
 

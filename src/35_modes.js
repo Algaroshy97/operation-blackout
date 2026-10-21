@@ -2,7 +2,9 @@
 'use strict';
 
 var MODES = Object.create(null);
-var activeModeId = 'survival';
+var activeModeId = (typeof getSetting === 'function' && (getSetting('gameMode') === 'tdm' || getSetting('gameMode') === 'survival'))
+  ? getSetting('gameMode')
+  : 'survival';
 
 function registerMode(id, def) {
   if (id && def) MODES[id] = def;
@@ -59,6 +61,104 @@ function clearModeRespawns() {
   modeRespawnQueue.length = 0;
 }
 
+function rebuildEnemyRig(actor) {
+  if (!actor) return;
+  let hasRagdoll = false;
+  if (typeof ragdolls !== 'undefined' && Array.isArray(ragdolls)) {
+    for (let i = 0; i < ragdolls.length; i++) {
+      if (ragdolls[i] && ragdolls[i].en === actor) {
+        ragdolls[i].en = null;
+        hasRagdoll = true;
+      }
+      if (ragdolls[i] && ragdolls[i].sd && ragdolls[i].sd.en === actor) {
+        ragdolls[i].sd.en = null;
+        hasRagdoll = true;
+      }
+    }
+  }
+  const isSoldier = !!(actor.parts && actor.parts.soldier);
+  const isEmptied = isSoldier && (
+    !actor.parts.group ||
+    actor.parts.group.children.length === 0 ||
+    !actor.hitBody ||
+    !actor.parts.group.getObjectByName('hitBody')
+  );
+  if (!hasRagdoll && !isEmptied) {
+    return;
+  }
+  if (actor.parts && actor.parts.group && actor.parts.group.parent) {
+    actor.parts.group.parent.remove(actor.parts.group);
+  }
+  const kind = (actor.kind !== undefined) ? actor.kind : 0;
+  const team = actor.team || 'enemy';
+  let newParts = null;
+  if (isSoldier && typeof buildSoldier === 'function') {
+    const sd = buildSoldier(kind, team);
+    if (sd) {
+      newParts = {
+        group: sd.group,
+        body: sd.group,
+        J: sd.J,
+        hitBody: sd.hitBody,
+        hitHead: sd.hitHead,
+        hitLegs: sd.hitLegs,
+        soldier: true,
+        iff: sd.iff,
+        gun: sd.gun
+      };
+    }
+  }
+  if (!newParts && typeof makeEnemyMesh === 'function') {
+    newParts = makeEnemyMesh(kind, team);
+  }
+  if (newParts) {
+    const scale = (typeof CORE !== 'undefined' && typeof CORE.enemyScale === 'function') ? CORE.enemyScale(kind) : 1;
+    if (newParts.group && newParts.group.scale && typeof newParts.group.scale.set === 'function') {
+      newParts.group.scale.set(scale, scale, scale);
+    }
+    const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a, 6: 0xb83a30 };
+    if (KIND_TINT[kind] !== undefined && !newParts.soldier && newParts.group) {
+      if (typeof THREE !== 'undefined' && THREE.Color) {
+        const tint = new THREE.Color(KIND_TINT[kind]);
+        newParts.group.traverse(function (o) {
+          if (o.isMesh && o !== newParts.hitBody && o !== newParts.hitHead && o.material) {
+            o.material = o.material.clone();
+            if (o.material.color) o.material.color.copy(tint);
+          }
+        });
+      }
+    }
+    actor.parts = newParts;
+    actor.hitBody = newParts.hitBody;
+    actor.hitHead = newParts.hitHead;
+    if (newParts.hitBody) newParts.hitBody.userData = { enemyRef: actor, isHead: false };
+    if (newParts.hitHead) newParts.hitHead.userData = { enemyRef: actor, isHead: true };
+    if (newParts.hitLegs) newParts.hitLegs.userData = { enemyRef: actor, isHead: false, isLegs: true };
+  }
+}
+
+function getHostilesForActor(actor, candidateList, livePlayer) {
+  const actorTeam = (actor && actor.team) ? actor.team : (actor && actor.isPlayer ? 'friendly' : 'enemy');
+  const result = [];
+  const p = livePlayer !== undefined ? livePlayer : (typeof player !== 'undefined' ? player : null);
+  if (p && !p.dead && p !== actor) {
+    const pTeam = p.team || 'friendly';
+    if (pTeam !== actorTeam) {
+      result.push(p);
+    }
+  }
+  const list = candidateList || (typeof enemies !== 'undefined' ? enemies : []);
+  for (let j = 0; j < list.length; j++) {
+    const act = list[j];
+    if (!act || act.dead || act === actor || act === p) continue;
+    const actTeam = act.team || (act.isPlayer ? 'friendly' : 'enemy');
+    if (actTeam !== actorTeam) {
+      result.push(act);
+    }
+  }
+  return result;
+}
+
 function defaultOnRespawn(actor, pt) {
   if (!actor) return;
   const duration = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
@@ -95,6 +195,7 @@ function defaultOnRespawn(actor, pt) {
     actor.attackT = 0;
     actor.target = null;
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
+    rebuildEnemyRig(actor);
     if (actor.parts && actor.parts.group) {
       if (actor.pos && actor.parts.group.position && typeof actor.parts.group.position.copy === 'function') {
         actor.parts.group.position.copy(actor.pos);
@@ -129,8 +230,9 @@ function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
       : (entry.timer <= 0);
     if (ready) {
       modeRespawnQueue.splice(i, 1);
+      const actorHostiles = getHostilesForActor(entry.actor, hostiles);
       const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
-        ? CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders)
+        ? CORE.pickBestSpawnPoint(spawnPoints, actorHostiles, colliders)
         : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
       cb(entry.actor, pt);
     }
@@ -204,6 +306,31 @@ MODES.tdm = {
   roster: [],
   setup: function () {
     clearModeRespawns();
+    this._ended = false;
+    this._settled = false;
+    if (Array.isArray(this.roster)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        const act = this.roster[i];
+        if (act && !act.isPlayer) {
+          if (act.parts && act.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(act.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+        }
+      }
+    }
+    if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const en = enemies[i];
+        if (en && (en.team === 'friendly' || (this.roster && this.roster.includes(en)))) {
+          if (en.parts && en.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(en.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(en);
+          enemies.splice(i, 1);
+        }
+      }
+    }
     this.roster = [];
     if (typeof getSetting === 'function') {
       const sl = getSetting('tdmScoreLimit');
@@ -269,6 +396,7 @@ MODES.tdm = {
     updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
     if (victim) victim.deaths = (victim.deaths || 0) + 1;
     const p = (typeof player !== 'undefined') ? player : null;
     const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
@@ -370,6 +498,9 @@ MODES.tdm = {
     return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
   },
   endMatch: function () {
+    if (this._ended) return;
+    this._ended = true;
+    this._settled = true;
     if (typeof gameEnded !== 'undefined') gameEnded = true;
     clearModeRespawns();
     if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);

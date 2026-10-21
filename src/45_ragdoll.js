@@ -234,10 +234,10 @@ function removeRagdoll(e) {
       // Simple corpses detach their limbs for simulation. Return ownership before
       // the normal enemy cleanup traverses the group, otherwise their GPU geometry
       // (and any cloned tint materials) is missed when a live budget retires them.
-      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+      if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
     }
   }
-  if (e.en && e.en.parts && e.en.parts.group) {
+  if (e.en && (e.en.dead || e.en.dead === undefined) && e.en.parts && e.en.parts.group) {
     scene.remove(e.en.parts.group);
     disposeEnemyGeometry(e.en);
   }
