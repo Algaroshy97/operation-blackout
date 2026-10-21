@@ -38,10 +38,13 @@ function resumeGame() {
   $id('pause-menu').style.display = 'none';
   canvas.requestPointerLock();
 }
-function killPlayer() {
+function killPlayer(killer) {
+  if (player.dead) return;
   player.dead = true;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, null);
+  const sourceActor = killer || player.downedBy || player.lastAttacker || null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
   // A second lethal hit while already down comes straight here, so the bleed-out
   // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
   // stays on screen behind the death screen until the next deploy.
@@ -50,10 +53,13 @@ function killPlayer() {
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
-  if (document.pointerLockElement) document.exitPointerLock();
+  if (!activeMode || activeMode.id === 'survival' || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
   paused = false;
-  $id('pause-menu').style.display = 'none';
+  const pm = $id('pause-menu');
+  if (pm) pm.style.display = 'none';
   updateHudHealth();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
@@ -74,9 +80,11 @@ function killPlayer() {
       '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
       '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
       '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
-      '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
-    setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+      '<br><br><span style="font-size:13px;opacity:.8">' + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '') + '</span>';
+    setTimeout(function () { if (player.dead) { const ds = $id('death-screen'); if (ds) ds.style.display = 'flex'; } }, 900);
   } else {
+    const ds = $id('death-screen');
+    if (ds) ds.style.display = 'none';
     if (typeof showCenterMsgThrottled === 'function') showCenterMsgThrottled('RESPAWNING IN 3s…');
   }
 }
@@ -112,6 +120,21 @@ function resetGame() {
   }
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) {
+    for (let i = 0; i < MODES.tdm.roster.length; i++) {
+      const act = MODES.tdm.roster[i];
+      if (act && !act.isPlayer && act.parts && act.parts.group) {
+        if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(act.parts.group);
+        if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+      }
+    }
+    MODES.tdm.roster.length = 0;
+  }
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
+  if (typeof player !== 'undefined' && player) {
+    player.lastAttacker = null;
+    player.downedBy = null;
+  }
   // remove all enemies + pickups + grenades
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;
@@ -130,56 +153,66 @@ function resetGame() {
   }
   liveGrenades.length = 0;
   // clear vfx
-  for (let i = vfx.tracers.length - 1; i >= 0; i--) {
-    const t = vfx.tracers[i];
-    scene.remove(t.m);
-    t.m.visible = false;
-    tracerPool.push(t.m);
-    if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
-  }
-  vfx.tracers.length = 0;
-  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
-    const im = vfx.impacts[i];
-    scene.remove(im.m);
-    im.m.visible = false;
-    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
-      impactPool.push(im.m);
-    } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
-      releaseBlastFlash(im.m);
-    } else {
-      if (im.m.geometry) im.m.geometry.dispose();
-      if (im.m.material) im.m.material.dispose();
+  if (typeof vfx !== 'undefined' && vfx) {
+    if (Array.isArray(vfx.tracers)) {
+      for (let i = vfx.tracers.length - 1; i >= 0; i--) {
+        const t = vfx.tracers[i];
+        scene.remove(t.m);
+        t.m.visible = false;
+        if (typeof tracerPool !== 'undefined' && tracerPool) tracerPool.push(t.m);
+        if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
+      }
+      vfx.tracers.length = 0;
     }
-    if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+    if (Array.isArray(vfx.impacts)) {
+      for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+        const im = vfx.impacts[i];
+        scene.remove(im.m);
+        im.m.visible = false;
+        if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+          if (typeof impactPool !== 'undefined' && impactPool) impactPool.push(im.m);
+        } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+          releaseBlastFlash(im.m);
+        } else {
+          if (im.m.geometry) im.m.geometry.dispose();
+          if (im.m.material) im.m.material.dispose();
+        }
+        if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+      }
+      vfx.impacts.length = 0;
+    }
+    if (Array.isArray(vfx.blood)) {
+      for (let i = vfx.blood.length - 1; i >= 0; i--) {
+        const b = vfx.blood[i];
+        scene.remove(b.m);
+        b.m.visible = false;
+        if (b.isSpark && typeof sparkPool !== 'undefined' && sparkPool) sparkPool.push(b.m);
+        else if (b.isBlood && typeof bloodPool !== 'undefined' && bloodPool) bloodPool.push(b.m);
+        else if (b.isDust && typeof dustPool !== 'undefined' && dustPool) dustPool.push(b.m);
+        if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
+      }
+      vfx.blood.length = 0;
+    }
   }
-  vfx.impacts.length = 0;
-  for (let i = vfx.blood.length - 1; i >= 0; i--) {
-    const b = vfx.blood[i];
-    scene.remove(b.m);
-    b.m.visible = false;
-    if (b.isSpark) sparkPool.push(b.m);
-    else if (b.isBlood) bloodPool.push(b.m);
-    else if (b.isDust) dustPool.push(b.m);
-    if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
-  }
-  vfx.blood.length = 0;
   if (typeof clearCasings === 'function') {
     clearCasings();
-  } else {
+  } else if (typeof casings !== 'undefined' && Array.isArray(casings)) {
     for (let i = casings.length - 1; i >= 0; i--) {
       const c = casings[i];
       scene.remove(c.m);
       c.m.visible = false;
-      casingPool.push(c.m);
+      if (typeof casingPool !== 'undefined' && casingPool) casingPool.push(c.m);
     }
     casings.length = 0;
   }
-  grenades.count = CFG.grenade.count;
-  grenades.cd = 0;
+  if (typeof grenades !== 'undefined' && grenades) {
+    grenades.count = (typeof CFG !== 'undefined' && CFG.grenade && CFG.grenade.count) || 2;
+    grenades.cd = 0;
+  }
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
-  clearParticles();
-  clearBloodPools();
-  clearInputState();
+  if (typeof clearParticles === 'function') clearParticles();
+  if (typeof clearBloodPools === 'function') clearBloodPools();
+  if (typeof clearInputState === 'function') clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
@@ -192,27 +225,47 @@ function resetGame() {
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
-  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
-  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
-  resetRagdolls();
+  if (typeof resetStations === 'function') resetStations();
+  if (typeof clearDowned === 'function') clearDowned();
+  if (typeof resetEquipment === 'function') resetEquipment();
+  if (typeof resetStreaks === 'function') resetStreaks();
+  if (typeof waveSpecial !== 'undefined') waveSpecial = null;
+  if (typeof applySpecialLighting === 'function') applySpecialLighting(null);
+  if (typeof resetDistricts === 'function') resetDistricts();
+  if (typeof clearObjective === 'function') clearObjective();
+  if (typeof resetRagdolls === 'function') resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
-  updateHudPlates(); updateHudPerks();
-  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
-  credits = 0;
-  powerUntil.double = -99; powerUntil.instakill = -99;
-  if (hud.credits) hud.credits.textContent = '0';
-  runId++;   // invalidate anything the previous run scheduled
-  waveNum = 0; score = 0; kills = 0; headshots = 0;
-  shotsFired = 0; shotsHit = 0;
-  steadyT = STEADY_MAX; steadyActive = false;
+  if (typeof updateHudPlates === 'function') updateHudPlates();
+  if (typeof updateHudPerks === 'function') updateHudPerks();
+  if (typeof recoilShot !== 'undefined') recoilShot = 0;
+  if (typeof lastShotT !== 'undefined') lastShotT = -99;
+  if (typeof bloom !== 'undefined') bloom = 0;
+  if (typeof meleeT !== 'undefined') meleeT = 0;
+  if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
+  if (typeof credits !== 'undefined') credits = 0;
+  if (typeof powerUntil !== 'undefined' && powerUntil) { powerUntil.double = -99; powerUntil.instakill = -99; }
+  if (typeof hud !== 'undefined' && hud && hud.credits) hud.credits.textContent = '0';
+  if (typeof runId !== 'undefined') runId++;   // invalidate anything the previous run scheduled
+  if (typeof waveNum !== 'undefined') waveNum = 0;
+  if (typeof score !== 'undefined') score = 0;
+  if (typeof kills !== 'undefined') kills = 0;
+  if (typeof headshots !== 'undefined') headshots = 0;
+  if (typeof shotsFired !== 'undefined') shotsFired = 0;
+  if (typeof shotsHit !== 'undefined') shotsHit = 0;
+  if (typeof steadyT !== 'undefined') steadyT = typeof STEADY_MAX !== 'undefined' ? STEADY_MAX : 5;
+  if (typeof steadyActive !== 'undefined') steadyActive = false;
   if (typeof _wasSteadyActive !== 'undefined') _wasSteadyActive = false;
-  adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof adsAmount !== 'undefined') adsAmount = 0;
+  if (typeof wasScoped !== 'undefined') wasScoped = false;
+  if (typeof shotKick !== 'undefined') shotKick = 0;
+  if (typeof slideFov !== 'undefined') slideFov = 0;
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
   if (typeof _grenadeChargeHudState !== 'undefined') { _grenadeChargeHudState.visible = null; _grenadeChargeHudState.pct = -1; _grenadeChargeHudState.speed = -1; }
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
-  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
-  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (typeof _slideVigOpacity !== 'undefined') _slideVigOpacity = 0;
+  if (typeof _lastSlideVigWritten !== 'undefined') _lastSlideVigWritten = -1;
+  if (typeof _slideOvEl === 'undefined') _slideOvEl = $id('slide-vignette');
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
   if (typeof _lastSx !== 'undefined') { _lastSx = null; _lastSy = null; }
@@ -231,22 +284,32 @@ function resetGame() {
   if (typeof _touchSwapCache !== 'undefined' && _touchSwapCache) _touchSwapCache.swapState = null;
   if (typeof _touchStreakCache !== 'undefined' && _touchStreakCache) _touchStreakCache.streakState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
-  waveQueue = 0; waveActive = false; gameEnded = false;
-  betweenWaveT = CFG.wave.startDelay;
-  killStreak = 0; lastKillT = -99;   // multi-kill streak state
-  hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
+  if (typeof waveQueue !== 'undefined') waveQueue = 0;
+  if (typeof waveActive !== 'undefined') waveActive = false;
+  if (typeof gameEnded !== 'undefined') gameEnded = false;
+  if (typeof betweenWaveT !== 'undefined') betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) || 3;
+  if (typeof killStreak !== 'undefined') killStreak = 0;
+  if (typeof lastKillT !== 'undefined') lastKillT = -99;   // multi-kill streak state
+  if (typeof hudRedrawT !== 'undefined') hudRedrawT = 1;
+  if (typeof lastHudYaw !== 'undefined') lastHudYaw = player.yaw;
+  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;   // force immediate HUD redraw on new run
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
-  curWeapon = 0;
-  fireClockT = 0;
-  initWeapons();
-  gunSwitchT = 1;
-  buildViewmodel();
-  updateHudHealth(); updateHudAmmo();
-  hud.scoreVal.textContent = '0';
-  hud.killfeed.innerHTML = '';
-  clearTimeout(hud.waveBanner._t);
-  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+  if (typeof curWeapon !== 'undefined') curWeapon = 0;
+  if (typeof fireClockT !== 'undefined') fireClockT = 0;
+  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof gunSwitchT !== 'undefined') gunSwitchT = 1;
+  if (typeof buildViewmodel === 'function') buildViewmodel();
+  if (typeof updateHudHealth === 'function') updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof hud !== 'undefined' && hud) {
+    if (hud.scoreVal) hud.scoreVal.textContent = '0';
+    if (hud.killfeed) hud.killfeed.innerHTML = '';
+    if (hud.waveBanner) {
+      if (typeof hud.waveBanner._t !== 'undefined') clearTimeout(hud.waveBanner._t);
+      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+    }
+  }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
 }
@@ -401,9 +464,9 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  if (el) el.innerHTML = (typeof rankBarHtml === 'function' ? rankBarHtml() : '') + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '');
   const ch = $id('challenge-list');
-  if (ch) ch.innerHTML = challengesHtml();
+  if (ch) ch.innerHTML = typeof challengesHtml === 'function' ? challengesHtml() : '';
 }
 
 // gun select UI
@@ -692,7 +755,7 @@ function resumeRun() {
 }
 
 function refreshResumeButton() {
-  const cp = loadCheckpoint();
+  const cp = typeof loadCheckpoint === 'function' ? loadCheckpoint() : null;
   const btn = $id('btn-resume-run');
   const note = $id('save-note');
   if (cp) {
@@ -882,11 +945,17 @@ function showMatchEndScreen(mode) {
 function restartMatch() {
   const es = $id('match-end-screen');
   if (es) es.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
   paused = false;
   gameEnded = false;
   started = true;
   resetGame();
-  canvas.requestPointerLock();
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
+  if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
+    try { canvas.requestPointerLock(); } catch (e) {}
+  }
 }
 
 function quitMatchToMenu() {
@@ -896,9 +965,12 @@ function quitMatchToMenu() {
   if (mh) mh.style.display = 'none';
   const sb = $id('match-scoreboard');
   if (sb) sb.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
   paused = false;
   gameEnded = false;
   started = false;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
   if (document.body) document.body.classList.remove('started');
   if (document.pointerLockElement) document.exitPointerLock();
   setActiveMode('survival');

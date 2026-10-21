@@ -687,7 +687,7 @@ function updateEnemies(dt) {
             // global melee damage cap: max 2 melee hits landing within any 0.8s window
             if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
               const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
-              damagePlayer(meleeDmg, dirToDeg(en), 'melee');
+              damagePlayer(meleeDmg, dirToDeg(en), 'melee', en);
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
@@ -895,7 +895,7 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet');
+        damagePlayer(dmg, hitDeg, 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
         damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
       }
@@ -949,7 +949,7 @@ function breacherShoot(en, dist, target) {
     if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
-      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet', en);
       else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);

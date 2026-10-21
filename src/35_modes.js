@@ -65,10 +65,26 @@ function defaultOnRespawn(actor, pt) {
   if (actor.isPlayer) {
     if (pt && actor.pos) actor.pos.set(pt[0], (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.height : 1.7, pt[1]);
     actor.dead = false;
+    actor.downed = false;
+    actor.crouching = false;
+    actor.sprinting = false;
+    actor.sliding = false;
+    actor.downedBy = null;
+    actor.lastAttacker = null;
+    if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
     actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
     actor.spawnProtectionT = duration;
+    if (typeof document !== 'undefined') {
+      const ds = document.getElementById('death-screen');
+      if (ds) ds.style.display = 'none';
+    }
     if (typeof updateHudHealth === 'function') updateHudHealth();
     if (typeof updateHudAmmo === 'function') updateHudAmmo();
+    if (typeof pointerLocked !== 'undefined' && !pointerLocked && typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
+      if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function' && typeof isTouchDevice !== 'undefined' && !isTouchDevice) {
+        try { canvas.requestPointerLock(); } catch (e) {}
+      }
+    }
   } else {
     if (pt && actor.pos) actor.pos.set(pt[0], 0, pt[1]);
     actor.dead = false;
@@ -95,6 +111,12 @@ function defaultOnRespawn(actor, pt) {
 }
 
 function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
+  if (typeof paused !== 'undefined' && paused) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver()) || (typeof gameEnded !== 'undefined' && gameEnded)) {
+    clearModeRespawns();
+    return;
+  }
   if (modeRespawnQueue.length === 0) return;
   const cb = (typeof onRespawn === 'function') ? onRespawn : defaultOnRespawn;
   for (let i = modeRespawnQueue.length - 1; i >= 0; i--) {
@@ -121,6 +143,11 @@ MODES.survival = {
   name: 'Survival',
   setup: function () {
     clearModeRespawns();
+    if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+    if (typeof player !== 'undefined' && player) {
+      player.lastAttacker = null;
+      player.downedBy = null;
+    }
     if (typeof waveNum !== 'undefined') waveNum = 0;
     if (typeof waveQueue !== 'undefined') waveQueue = 0;
     if (typeof waveActive !== 'undefined') waveActive = false;
@@ -174,8 +201,10 @@ MODES.tdm = {
   enemyScore: 0,
   timeLeft: 600,
   teamSize: 6,
+  roster: [],
   setup: function () {
     clearModeRespawns();
+    this.roster = [];
     if (typeof getSetting === 'function') {
       const sl = getSetting('tdmScoreLimit');
       if (typeof sl === 'number' && sl > 0) this.targetScore = sl;
@@ -192,7 +221,11 @@ MODES.tdm = {
       p.isPlayer = true;
       p.kills = 0;
       p.deaths = 0;
+      p.downed = false;
+      p.downedBy = null;
+      p.lastAttacker = null;
       p.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+      this.roster.push(p);
     }
     // Production 6v6 setup: player + (teamSize - 1) friendly bots vs teamSize enemy bots
     const count = this.teamSize || 6;
@@ -211,6 +244,7 @@ MODES.tdm = {
           bot.name = 'ALLY ' + (i + 1);
           bot.kills = 0;
           bot.deaths = 0;
+          this.roster.push(bot);
         }
       }
       for (let i = 0; i < count; i++) {
@@ -222,29 +256,48 @@ MODES.tdm = {
           bot.name = 'HOSTILE ' + (i + 1);
           bot.kills = 0;
           bot.deaths = 0;
+          this.roster.push(bot);
         }
       }
     }
     if (typeof document !== 'undefined') {
       const endScreen = document.getElementById('match-end-screen');
       if (endScreen) endScreen.style.display = 'none';
+      const deathScreen = document.getElementById('death-screen');
+      if (deathScreen) deathScreen.style.display = 'none';
     }
     updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
-    if (killer) killer.kills = (killer.kills || 0) + 1;
     if (victim) victim.deaths = (victim.deaths || 0) + 1;
-    const killerTeam = (killer && killer.team) ? killer.team : ((killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'friendly' : 'enemy');
-    if (killerTeam === 'friendly') {
-      this.friendlyScore++;
-    } else {
-      this.enemyScore++;
+    const p = (typeof player !== 'undefined') ? player : null;
+    const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
+    const isPlayerVictim = !!(victim && (victim.isPlayer || victim === p));
+    const victimTeam = (victim && victim.team) ? victim.team : (isPlayerVictim ? 'friendly' : 'enemy');
+    const killerTeam = (killer && killer.team) ? killer.team : (isPlayerKiller ? 'friendly' : null);
+    const isSelfKill = !!(killer && victim && (killer === victim || (isPlayerKiller && isPlayerVictim) || (killer.id && victim.id && killer.id === victim.id)));
+    const isHostileKill = killer && !isSelfKill && killerTeam && (killerTeam !== victimTeam);
+
+    if (isHostileKill) {
+      killer.kills = (killer.kills || 0) + 1;
+      if (killerTeam === 'friendly') {
+        this.friendlyScore++;
+      } else if (killerTeam === 'enemy') {
+        this.enemyScore++;
+      }
     }
+
     if (typeof pushKillfeed === 'function') {
-      const killerName = (killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((killer && killer.name) ? killer.name : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
-      const victimName = (victim && (victim.isPlayer || victim === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((victim && victim.name) ? victim.name : ((victim && victim.team === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
-      const color = (killerTeam === 'friendly') ? '#38b6ff' : '#ff4030';
-      pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+      const killerName = isPlayerKiller ? 'YOU' : ((killer && killer.name) ? killer.name : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
+      const victimName = isPlayerVictim ? 'YOU' : ((victim && victim.name) ? victim.name : ((victimTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
+      if (isHostileKill) {
+        const color = (killerTeam === 'friendly') ? '#38b6ff' : '#ff4030';
+        pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+      } else if (isSelfKill) {
+        pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> eliminated themselves');
+      } else {
+        pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> died');
+      }
     }
     updateMatchHud(this);
     if (this.isOver()) {
@@ -252,11 +305,13 @@ MODES.tdm = {
     }
   },
   onDeath: function (victim, killer) {
+    if (this.isOver() || (typeof gameEnded !== 'undefined' && gameEnded)) return;
     if (victim) {
       queueModeRespawn(victim, (typeof CORE !== 'undefined' && CORE.RESPAWN_DELAY) ? CORE.RESPAWN_DELAY : 3.0);
     }
   },
   update: function (dt) {
+    if (typeof paused !== 'undefined' && paused) return;
     if (this.isOver()) {
       if (typeof gameEnded !== 'undefined' && !gameEnded) this.endMatch();
       return;
@@ -275,31 +330,28 @@ MODES.tdm = {
   },
   scoreboard: function () {
     const p = (typeof player !== 'undefined') ? player : null;
-    const allEnemies = (typeof enemies !== 'undefined' && Array.isArray(enemies)) ? enemies : [];
+    const rosterList = (Array.isArray(this.roster) && this.roster.length > 0)
+      ? this.roster
+      : (p ? [p, ...(typeof enemies !== 'undefined' && Array.isArray(enemies) ? enemies : [])] : (typeof enemies !== 'undefined' && Array.isArray(enemies) ? enemies : []));
     const friendlyMembers = [];
-    if (p) {
-      friendlyMembers.push({
-        id: 'player',
-        name: 'YOU',
-        isPlayer: true,
-        team: 'friendly',
-        kills: p.kills || (typeof kills !== 'undefined' ? kills : 0),
-        deaths: p.deaths || 0
-      });
-    }
     const enemyMembers = [];
-    for (let i = 0; i < allEnemies.length; i++) {
-      const e = allEnemies[i];
-      if (!e) continue;
+    const seenIds = new Set();
+    for (let i = 0; i < rosterList.length; i++) {
+      const actor = rosterList[i];
+      if (!actor) continue;
+      const isYou = !!(actor.isPlayer || actor === p);
+      const actorId = isYou ? 'player' : (actor.id || ('bot_' + i));
+      if (seenIds.has(actorId)) continue;
+      seenIds.add(actorId);
       const entry = {
-        id: e.id || ('bot_' + i),
-        name: e.name || (e.team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1))),
-        isPlayer: false,
-        team: e.team || 'enemy',
-        kills: e.kills || 0,
-        deaths: e.deaths || 0
+        id: actorId,
+        name: isYou ? 'YOU' : (actor.name || (actor.team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1)))),
+        isPlayer: isYou,
+        team: isYou ? 'friendly' : (actor.team || 'enemy'),
+        kills: isYou ? (actor.kills || (typeof kills !== 'undefined' ? kills : 0)) : (actor.kills || 0),
+        deaths: actor.deaths || 0
       };
-      if (e.team === 'friendly') friendlyMembers.push(entry);
+      if (entry.team === 'friendly') friendlyMembers.push(entry);
       else enemyMembers.push(entry);
     }
     friendlyMembers.sort(function (a, b) { return b.kills - a.kills; });
@@ -319,6 +371,7 @@ MODES.tdm = {
   },
   endMatch: function () {
     if (typeof gameEnded !== 'undefined') gameEnded = true;
+    clearModeRespawns();
     if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
   }
 };

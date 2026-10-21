@@ -5441,9 +5441,54 @@ def main() -> int:
             const restartBtn = document.getElementById('btn-match-restart');
             if (restartBtn) restartBtn.click();
             const restartedMode = getActiveMode();
-            const restartedOk = started === true && !gameEnded && restartedMode.friendlyScore === 0;
+            const restartedOk = started === true && !gameEnded && restartedMode.friendlyScore === 0 && restartedMode.enemyScore === 0;
 
-            // Step 5: Return to menu and restore standard settings on cleanup
+            // Step 5: Hostile bot attacks player -> spawn protection immunity, lethal down, finishing kill, killer stats, enemy score, player respawn, and enemy final win
+            const hostileKiller = enemies.find(e => e.team === 'enemy');
+            const playerInitHp = player.health;
+            const playerProtectedInit = player.spawnProtectionT > 0;
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerImmuneWhileProtected = player.health === playerInitHp && !player.downed && !player.dead;
+
+            // Expire player spawn protection
+            player.spawnProtectionT = 0;
+
+            // Lethal hit downs player
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerDownedOk = player.downed === true && player.downedBy === hostileKiller;
+
+            // Finishing hit kills player
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerDiedOk = player.dead === true;
+            const enemyScore1Ok = restartedMode.enemyScore === 1;
+            const killerKills1Ok = hostileKiller.kills === 1;
+            const playerDeaths1Ok = player.deaths === 1;
+            const playerQueuedRespawn = modeRespawnQueue.some(e => e.actor === player);
+
+            // Step respawn timer to bring player back
+            restartedMode.update(1.0);
+            restartedMode.update(1.0);
+            restartedMode.update(1.1);
+            const playerRevivedOk = player.dead === false && player.health === 100;
+            const playerRespawnProtected = player.spawnProtectionT > 0;
+
+            // Expire respawn protection
+            player.spawnProtectionT = 0;
+
+            // Hostile kills player a second time to reach targetScore (2) -> Enemy VICTORY / Player DEFEAT
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const enemyScore2Ok = restartedMode.enemyScore === 2;
+            const enemyWinMatchOver = restartedMode.isOver();
+            restartedMode.update(1 / 60);
+            const enemyWinGameEnded = gameEnded === true;
+            const defeatScreen = document.getElementById('match-end-screen');
+            const defeatScreenVisible = defeatScreen && getComputedStyle(defeatScreen).display !== 'none';
+            const defeatTitle = document.getElementById('match-end-title');
+            const defeatTitleOk = defeatTitle && defeatTitle.textContent === 'DEFEAT';
+            const playerNotQueuedOnMatchEnd = !modeRespawnQueue.some(e => e.actor === player);
+
+            // Step 6: Return to menu and restore standard settings on cleanup
             quitMatchToMenu();
             if (typeof setSetting === 'function') {
                 setSetting('tdmScoreLimit', 75);
@@ -5487,6 +5532,22 @@ def main() -> int:
                 endScreenVisible: endScreenVisible,
                 titleOk: titleOk,
                 restartedOk: restartedOk,
+                playerProtectedInit: playerProtectedInit,
+                playerImmuneWhileProtected: playerImmuneWhileProtected,
+                playerDownedOk: playerDownedOk,
+                playerDiedOk: playerDiedOk,
+                enemyScore1Ok: enemyScore1Ok,
+                killerKills1Ok: killerKills1Ok,
+                playerDeaths1Ok: playerDeaths1Ok,
+                playerQueuedRespawn: playerQueuedRespawn,
+                playerRevivedOk: playerRevivedOk,
+                playerRespawnProtected: playerRespawnProtected,
+                enemyScore2Ok: enemyScore2Ok,
+                enemyWinMatchOver: enemyWinMatchOver,
+                enemyWinGameEnded: enemyWinGameEnded,
+                defeatScreenVisible: defeatScreenVisible,
+                defeatTitleOk: defeatTitleOk,
+                playerNotQueuedOnMatchEnd: playerNotQueuedOnMatchEnd,
                 menuVisible: menuVisible,
                 settingsRestored: settingsRestored
             };
@@ -5512,6 +5573,22 @@ def main() -> int:
                             tdm_check["endScreenVisible"] and
                             tdm_check["titleOk"] and
                             tdm_check["restartedOk"] and
+                            tdm_check["playerProtectedInit"] and
+                            tdm_check["playerImmuneWhileProtected"] and
+                            tdm_check["playerDownedOk"] and
+                            tdm_check["playerDiedOk"] and
+                            tdm_check["enemyScore1Ok"] and
+                            tdm_check["killerKills1Ok"] and
+                            tdm_check["playerDeaths1Ok"] and
+                            tdm_check["playerQueuedRespawn"] and
+                            tdm_check["playerRevivedOk"] and
+                            tdm_check["playerRespawnProtected"] and
+                            tdm_check["enemyScore2Ok"] and
+                            tdm_check["enemyWinMatchOver"] and
+                            tdm_check["enemyWinGameEnded"] and
+                            tdm_check["defeatScreenVisible"] and
+                            tdm_check["defeatTitleOk"] and
+                            tdm_check["playerNotQueuedOnMatchEnd"] and
                             tdm_check["menuVisible"] and
                             tdm_check["settingsRestored"])))
 

@@ -119,8 +119,11 @@ short TDM match end to end.
   - Deploy mode picker (`SURVIVAL` vs `TEAM DEATHMATCH`) with saved settings (`gameMode`, `tdmScoreLimit` defaulting to 75, `tdmTeamSize` defaulting to 6).
   - Production 6v6 roster setup (player + 5 friendly bots vs 6 enemy bots), 75 kills / 600 s default match rules, scorebar HUD and match countdown clock.
   - Tab scoreboard displaying full K/D per actor across both teams, real killfeed announcements on eliminations, player death queuing respawn instead of Survival gameover, and result screen (`#match-end-screen`) with victory/defeat/draw and restart/main-menu lifecycle.
+  - Authoritative player death and kill attribution: hostile damage through down and finishing/bleedout attributes the killer, increments enemy score, records player deaths and killer kills, queues respawns, deduplicates repeated hits, and stops respawns on match-ending score limits. Attacker-absent and self deaths award no spurious credit.
+  - Stable match roster (`MODES.tdm.roster`) preserves all participants through death and respawn on the scoreboard without losing or duplicating rows when dead bots are dropped from `enemies`.
+  - Pause safety: match timer, respawn queue, and spawn protection do not elapse while paused.
 - Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules).
-- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, match conclusion, and restart lifecycle. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
+- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, friendly victory, restart lifecycle, hostile-to-player death attribution and respawn, enemy victory with defeat screen, and settings restoration. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
 
 ---
 

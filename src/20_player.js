@@ -73,6 +73,8 @@ const player = {
   health: CFG.player.health, armor: CFG.player.armor,
   stamina: CFG.player.maxStamina,
   lastDamageT: -99, dead: false,
+  lastAttacker: null, downedBy: null,
+  kills: 0, deaths: 0,
   bobPhase: 0, bobAmp: 0,
   recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
   // slide state
@@ -168,7 +170,7 @@ const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
-  if (player.spawnProtectionT > 0) {
+  if (player.spawnProtectionT > 0 && (typeof paused === 'undefined' || !paused)) {
     player.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
       ? CORE.stepSpawnProtection(player.spawnProtectionT, dt)
       : Math.max(0, player.spawnProtectionT - dt);
@@ -462,13 +464,14 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
+  player.lastAttacker = attacker || null;
   if (armorSnd) playSound(armorSnd);
   showDamageFx(dirDeg, amount, res.healthDamage, res.absorbedDamage);
   updateHudHealth();
   // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
   // mistake was the worst moment the game had. downPlayer() decides between a
   // Second Wind, a bleed-out, and death.
-  if (player.health <= 0) { player.health = 0; downPlayer(); }
+  if (player.health <= 0) { player.health = 0; downPlayer(attacker); }
 }
 
 let godMode = false;

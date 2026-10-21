@@ -201,6 +201,7 @@ test('real team-aware AI hostility and targeting: hostile priority over closer t
     liveGrenades: [],
     colliders: [],
     smokeVolumes: () => [],
+    smokeVolumes: () => [],
     updateFlowField: noop,
     updateEnemyShadowBudget: noop,
     moveEnemy: noop,
@@ -368,6 +369,7 @@ function createCombatContext(overrides = {}) {
     liveGrenades: [],
     colliders: [],
     smokeVolumes: () => [],
+    smokeVolumes: () => [],
     nextEstepT: Infinity,
     playSound3D: noop,
     playSound: noop,
@@ -377,6 +379,10 @@ function createCombatContext(overrides = {}) {
     meleeHits: [],
     damagePlayer: noop,
     showDamageFx: noop,
+    showHitmarker: noop,
+    spawnBlood: noop,
+    spawnImpact: noop,
+    addFieldCharge: noop,
     updateHudHealth: noop,
     spawnBlood: noop,
     showHitmarker: noop,
@@ -1195,6 +1201,7 @@ test('attack-triggered spawn protection cancellation for players and bots', () =
     },
     enemies: [],
     colliders: [],
+    smokeVolumes: () => [],
     camera: {
       position: new Vector3(0, 1.7, 0),
       quaternion: { set: noop },
@@ -1683,5 +1690,525 @@ test('production UI menu quit and reset lifecycle: exits pointer lock and cleans
   assert.match(mainSrc, /\$id\(['"]btn-v-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.body\.classList\.remove\(['"]started['"]\)/s,
     'btn-v-quit must remove started class from body');
 });
+
+function createFullMatchContext(overrides = {}) {
+  const docElements = new Map();
+  const doc = {
+    getElementById: id => {
+      if (!docElements.has(id)) {
+        docElements.set(id, {
+          id,
+          style: { display: '' },
+          textContent: '',
+          innerHTML: '',
+          dataset: {},
+          classList: { add: noop, remove: noop, contains: () => false },
+          addEventListener: noop,
+          removeEventListener: noop,
+          click: function () {
+            if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
+            if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+          }
+        });
+      }
+      return docElements.get(id);
+    },
+    querySelectorAll: () => [],
+    body: { classList: { remove: noop, add: noop, contains: () => false } },
+    addEventListener: noop,
+    removeEventListener: noop,
+    exitPointerLock: noop,
+    pointerLockElement: null
+  };
+
+  const dummyParts = () => ({
+    group: new Group(),
+    legL: new Mesh(),
+    legR: new Mesh(),
+    armL: new Mesh(),
+    armR: new Mesh(),
+    body: new Mesh()
+  });
+
+  const c = vm.createContext(Object.assign({
+    CORE,
+    IS_TOUCH: false,
+    Math: Object.create(Math),
+    performance: { now: () => Date.now() },
+    THREE: {
+      Vector3,
+      Group,
+      Mesh,
+      MeshStandardMaterial: Material,
+      MeshBasicMaterial: Material,
+      BoxGeometry: Geometry,
+      CylinderGeometry: Geometry,
+      SphereGeometry: Geometry,
+      Raycaster: function () { return { set: noop, intersectObjects: () => [] }; },
+      Color: function (col) { this.c = col; this.lerp = noop; }
+    },
+    MAT: { accent: new Material() },
+    mapBounds: 50,
+    GROUND: 0,
+    navGrid: null,
+    raycastColliders: [],
+    waveBehaviours: {},
+    E_DIM: { pelvisH: 0.95 },
+    losFrame: 0,
+    updateStatusEffects: noop,
+    updateFlowField: noop,
+    updateEnemyShadowBudget: noop,
+    flushStaticBatches: noop,
+    rebuildWorldRayGrid: noop,
+    rebuildNavGrid: noop,
+    document: doc,
+    $id: id => doc.getElementById(id),
+    canvas: { addEventListener: noop, requestPointerLock: noop },
+    window: {},
+    addEventListener: noop,
+    removeEventListener: noop,
+    setTimeout: (fn, ms) => 1,
+    clearTimeout: noop,
+    requestAnimationFrame: () => 1,
+    playSound: noop,
+    playSound3D: noop,
+    diff: () => ({ dmg: 1, speed: 1, hp: 1 }),
+    stopMusic: noop,
+    showDamageFx: noop,
+    showHitmarker: noop,
+    spawnBlood: noop,
+    spawnImpact: noop,
+    addFieldCharge: noop,
+    updateHudHealth: noop,
+    updateHudAmmo: noop,
+    updateHudStreaks: noop,
+    updateHudPerks: noop,
+    applyTouchInput: noop,
+    showCenterMsg: noop,
+    showCenterMsgThrottled: noop,
+    killfeedMessages: [],
+    pushKillfeed: function (msg) { c.killfeedMessages.push(msg); },
+    breakStreak: noop,
+    addBox: noop,
+    scene: { add: noop, remove: noop },
+    colliders: [],
+    smokeVolumes: () => [],
+    spawnPoints: [
+      [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
+      [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
+    ],
+    openSpawnPoints: () => [
+      [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
+      [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
+    ],
+    perks: [],
+    godMode: false,
+    gameT: 0,
+    kills: 0,
+    headshots: 0,
+    score: 0,
+    credits: 0,
+    shotsFired: 0,
+    shotsHit: 0,
+    waveNum: 0,
+    runStreaksEarned: 0,
+    settlementSnapshot: null,
+    captureRunState: () => ({}),
+    saveCheckpoint: noop,
+    clearCheckpoint: noop,
+    recordRun: () => ({}),
+    spawnRagdoll: noop,
+    disposeEnemyGeometry: noop,
+    addScore: noop,
+    addCredits: noop,
+    registerKillT: noop,
+    registerStreakKill: noop,
+    dropPowerUp: noop,
+    dropPickup: noop,
+    pickups: [],
+    liveGrenades: [],
+    vfx: { tracers: [], impacts: [], blood: [] },
+    tracerPool: [],
+    impactPool: [],
+    bloodPool: [],
+    sparkPool: [],
+    dustPool: [],
+    casingPool: [],
+    casings: [],
+    keys: {},
+    curW: () => null,
+    adsDown: () => false,
+    clearParticles: noop,
+    clearBloodPools: noop,
+    clearInputState: noop,
+    clearDecals: noop,
+    resetEquipment: noop,
+    resetStreaks: noop,
+    resetDistricts: noop,
+    resetRagdolls: noop,
+    clearObjective: noop,
+    applySpecialLighting: noop,
+    clearDowned: noop,
+    resetStations: noop,
+    updateHudPlates: noop,
+    openDistricts: [],
+    DISTRICT_BARRIERS: {},
+    doorMeshes: {},
+    doorColliders: {},
+    loadCheckpoint: () => null,
+    hud: {},
+    powerUntil: { double: -99, instakill: -99 },
+    runId: 0,
+    STEADY_MAX: 5,
+    getSetting: k => {
+      if (k === 'tdmTeamSize') return 6;
+      if (k === 'tdmScoreLimit') return 75;
+      return 1;
+    },
+    adsAmount: 0,
+    statsSummaryHtml: () => '',
+    rankBarHtml: () => '',
+    challengesHtml: () => '',
+    applyAimAssist: d => d,
+    suppression: 0,
+    started: true,
+    paused: false,
+    gameEnded: false,
+    pointerLocked: true,
+    CFG: {
+      player: { height: 1.7, health: 100, armor: 50, maxStamina: 100, radius: 0.4 },
+      score: { kill: 100, headshot: 50 },
+      wave: { startDelay: 3 },
+      ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
+      grenade: { radius: 6, dmg: 120 }
+    },
+    dummyParts
+  }, overrides));
+
+  vm.runInContext(source('20_player.js'), c);
+  vm.runInContext(source('57_stations.js'), c);
+  vm.runInContext(source('35_modes.js'), c);
+  vm.runInContext(source('40_enemies.js'), c);
+  const mainSrc = source('70_main.js');
+  const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
+  vm.runInContext(mainSlice, c);
+
+  c.player = vm.runInContext('player', c);
+  c.enemies = vm.runInContext('enemies', c);
+  c.modeRespawnQueue = vm.runInContext('modeRespawnQueue', c);
+  c.MODES = vm.runInContext('MODES', c);
+  ['paused', 'started', 'pointerLocked'].forEach(prop => {
+    Object.defineProperty(c, prop, {
+      get: () => vm.runInContext(prop, c),
+      set: v => { vm.runInContext(prop + ' = ' + JSON.stringify(v), c); },
+      configurable: true
+    });
+  });
+  Object.defineProperty(c, 'perks', {
+    get: () => vm.runInContext('perks', c),
+    set: v => { vm.runInContext('perks = ' + JSON.stringify(v), c); },
+    configurable: true
+  });
+
+  return c;
+}
+
+test('TDM player death lifecycle: hostile lethal -> downed -> finishing kill records authoritative killer, enemy score, stats, killfeed, and respawn', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const p = c.player;
+  p.spawnProtectionT = 0; // Fresh match spawn protection has expired
+
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  assert.ok(hostile, 'hostile bot must be present in TDM enemies roster');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'initial enemy score must be 0');
+  assert.strictEqual(hostile.kills, 0, 'initial hostile kills must be 0');
+  assert.strictEqual(p.deaths, 0, 'initial player deaths must be 0');
+
+  // Lethal hit 1: Player goes down
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(p.downed, true, 'lethal hit 1 must down player');
+  assert.strictEqual(p.dead, false, 'player must not be dead while downed');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'downing player must not award kill score yet');
+  assert.strictEqual(hostile.kills, 0, 'downing player must not award kill count yet');
+  assert.strictEqual(p.deaths, 0, 'downing player must not award death count yet');
+
+  // Lethal hit 2: Finishing kill while down
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(p.dead, true, 'finishing hit must kill player');
+  assert.strictEqual(p.downed, false, 'dead player downed state must be cleared');
+
+  // Authoritative kill attribution
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1, 'finishing player kill must award 1 point to enemy team score');
+  assert.strictEqual(hostile.kills, 1, 'finishing player kill must award 1 kill to hostile killer');
+  assert.strictEqual(p.deaths, 1, 'finishing player kill must record 1 death for player');
+
+  // Killfeed receives event
+  const kf = c.killfeedMessages;
+  assert.ok(kf.length > 0, 'killfeed must receive kill message');
+  const lastKf = kf[kf.length - 1];
+  assert.ok(lastKf.includes('eliminated') && lastKf.includes('YOU'), 'killfeed must show killer eliminated YOU');
+
+  // Mode respawn queue receives player
+  assert.strictEqual(c.modeRespawnQueue.some(e => e.actor === p), true, 'player must enter modeRespawnQueue');
+
+  // Scoreboard Tab data retains player deaths and killer kills
+  const sb = c.MODES.tdm.scoreboard();
+  assert.strictEqual(sb.enemyScore, 1, 'scoreboard enemyScore must be 1');
+  const sbHostile = sb.enemyTeam.members.find(m => m.id === hostile.id);
+  assert.ok(sbHostile, 'hostile killer must appear in scoreboard');
+  assert.strictEqual(sbHostile.kills, 1, 'hostile kills in scoreboard must be 1');
+  const sbPlayer = sb.friendlyTeam.members.find(m => m.isPlayer);
+  assert.ok(sbPlayer, 'player must appear in friendly scoreboard');
+  assert.strictEqual(sbPlayer.deaths, 1, 'player deaths in scoreboard must be 1');
+});
+
+test('TDM player death lifecycle: hostile down -> bleedout death attributes killer and increments enemy score', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const p = c.player;
+  p.spawnProtectionT = 0;
+
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(p.downed, true, 'hostile lethal damage must down player');
+
+  // Bleedout timer runs out (DOWN_TIME is 10s)
+  c.updateDowned(10.1);
+  assert.strictEqual(p.dead, true, 'bleedout expiration must kill player');
+  assert.strictEqual(p.downed, false, 'bleedout death must clear downed state');
+
+  // Killer must be preserved as the hostile who downed the player
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1, 'bleedout after hostile down must credit hostile team score');
+  assert.strictEqual(hostile.kills, 1, 'bleedout after hostile down must credit hostile killer');
+  assert.strictEqual(p.deaths, 1, 'bleedout death must increment player deaths');
+});
+
+test('TDM player death lifecycle: repeated damage calls on dead player do not duplicate score or death events', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const p = c.player;
+  p.spawnProtectionT = 0;
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(p.dead, true);
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1);
+  assert.strictEqual(hostile.kills, 1);
+  assert.strictEqual(p.deaths, 1);
+  assert.strictEqual(c.modeRespawnQueue.filter(e => e.actor === p).length, 1);
+
+  // Subsequent damage while dead must be ignored
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1, 'enemy score must not increment on dead player hit');
+  assert.strictEqual(hostile.kills, 1, 'hostile kills must not increment on dead player hit');
+  assert.strictEqual(p.deaths, 1, 'player deaths must not increment on dead player hit');
+  assert.strictEqual(c.modeRespawnQueue.filter(e => e.actor === p).length, 1, 'modeRespawnQueue must not duplicate player entry');
+});
+
+test('TDM player death reaching score limit ends match and never subsequently respawns', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.MODES.tdm.targetScore = 1;
+
+  const p = c.player;
+  p.spawnProtectionT = 0;
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1, 'enemyScore must reach targetScore (1)');
+  assert.strictEqual(c.MODES.tdm.isOver(), true, 'isOver must be true when enemy reaches targetScore');
+  assert.strictEqual(c.gameEnded, true, 'gameEnded must be true on match completion');
+  assert.strictEqual(c.modeRespawnQueue.some(e => e.actor === p), false, 'modeRespawnQueue must not queue player into ended match');
+
+  // Update mode respawns over time: player must NEVER respawn
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.1);
+  assert.strictEqual(p.dead, true, 'player must remain dead after match end and never subsequently respawn');
+});
+
+test('TDM attribution: grenade owner, environmental fall, and self deaths are deterministic without spurious credit', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  const p = c.player;
+  p.spawnProtectionT = 0;
+
+  // 1. Fall damage (attacker absent/null)
+  c.damagePlayer(10000, undefined, 'fall', null);
+  c.damagePlayer(10000, undefined, 'fall', null);
+  assert.strictEqual(p.dead, true);
+  assert.strictEqual(p.deaths, 1, 'fall death must increment player death count');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'fall death must NOT award enemy team score');
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 0, 'fall death must NOT award friendly team score');
+
+  // Respawn player
+  p.dead = false;
+  p.health = 100;
+  p.spawnProtectionT = 0;
+
+  // 2. Self grenade damage (owner is player)
+  c.damagePlayer(10000, 0, 'blast', p);
+  c.damagePlayer(10000, 0, 'blast', p);
+  assert.strictEqual(p.dead, true);
+  assert.strictEqual(p.deaths, 2, 'suicide death must increment player death count');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'self blast must NOT award enemy team score');
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 0, 'self blast must NOT award friendly team score');
+
+  // Respawn player
+  p.dead = false;
+  p.health = 100;
+  p.spawnProtectionT = 0;
+
+  // 3. Enemy grenade blast (owner is hostile)
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  c.damagePlayer(10000, 0, 'blast', hostile);
+  c.damagePlayer(10000, 0, 'blast', hostile);
+  assert.strictEqual(p.dead, true);
+  assert.strictEqual(p.deaths, 3, 'hostile grenade death must increment player deaths');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 1, 'hostile grenade death must increment enemy score');
+  assert.strictEqual(hostile.kills, 1, 'hostile grenade death must increment killer kills');
+});
+
+test('TDM stable match roster and scoreboard retains participants through death and respawn without duplicate or lost rows', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const initialSb = c.MODES.tdm.scoreboard();
+  assert.strictEqual(initialSb.friendlyTeam.members.length, 6, 'friendly roster must start with 6 members (player + 5 bots)');
+  assert.strictEqual(initialSb.enemyTeam.members.length, 6, 'enemy roster must start with 6 members');
+
+  // Kill an enemy bot
+  const hostileBot = c.enemies.find(e => e.team === 'enemy');
+  hostileBot.spawnProtectionT = 0;
+  c.damageEnemy(hostileBot, 300, hostileBot.pos, false, false, 'AR', c.player);
+  assert.strictEqual(hostileBot.dead, true);
+
+  // updateEnemies drops corpse from enemies array
+  c.updateEnemies(1 / 60);
+  assert.strictEqual(c.enemies.includes(hostileBot), false, 'dead hostile must be dropped from lexical enemies');
+
+  // Scoreboard requirement: dead bot removed by updateEnemies must STILL appear on scoreboard!
+  const midSb = c.MODES.tdm.scoreboard();
+  assert.strictEqual(midSb.enemyTeam.members.length, 6, 'dead bot must NOT be lost from scoreboard while waiting to respawn');
+  const deadRow = midSb.enemyTeam.members.find(m => m.id === hostileBot.id);
+  assert.ok(deadRow, 'dead hostile row must still exist in scoreboard');
+  assert.strictEqual(deadRow.deaths, 1, 'dead hostile row must show 1 death');
+
+  // Respawn bot
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.1);
+  assert.strictEqual(hostileBot.dead, false, 'hostile must be revived');
+  assert.strictEqual(c.enemies.includes(hostileBot), true, 'revived hostile must reenter enemies');
+
+  // Scoreboard after respawn: exact same roster size, no duplicate row
+  const postSb = c.MODES.tdm.scoreboard();
+  assert.strictEqual(postSb.enemyTeam.members.length, 6, 'scoreboard must retain exactly 6 enemies, no duplicate row');
+  const postRows = postSb.enemyTeam.members.filter(m => m.id === hostileBot.id);
+  assert.strictEqual(postRows.length, 1, 'hostile bot must appear exactly once in scoreboard');
+
+  // Reset / quit to menu clears match roster
+  c.quitMatchToMenu();
+  assert.strictEqual(c.MODES.tdm.roster.length, 0, 'match roster must clear on menu return');
+});
+
+test('Survival mode lifecycle remains completely intact without match immunities or score leakage', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('survival');
+  c.MODES.survival.setup();
+
+  const p = c.player;
+  assert.strictEqual(p.spawnProtectionT, 0, 'player must have 0 spawn protection in Survival deploy');
+
+  // Second Wind perk allows revive
+  c.perks.push('wind');
+  c.damagePlayer(10000, 0, 'bullet', { team: 'enemy' });
+  assert.strictEqual(p.downed, false, 'second wind consumes perk and revives player');
+  assert.strictEqual(p.health, CORE.DOWN_REVIVE_HEALTH, 'revived health must be DOWN_REVIVE_HEALTH');
+  assert.strictEqual(c.perks.includes('wind'), false, 'second wind must be consumed');
+
+  // Next lethal hit downs player
+  c.damagePlayer(10000, 0, 'bullet', { team: 'enemy' });
+  assert.strictEqual(p.downed, true, 'lethal hit without second wind downs player');
+
+  // Wave clear revives from down
+  c.reviveFromDown();
+  assert.strictEqual(p.downed, false, 'reviveFromDown clears down');
+  assert.strictEqual(p.health, CORE.DOWN_REVIVE_HEALTH);
+
+  // Lethal hit and bleedout in Survival
+  c.damagePlayer(10000, 0, 'bullet', { team: 'enemy' });
+  assert.strictEqual(p.downed, true);
+  c.updateDowned(10.1);
+  assert.strictEqual(p.dead, true, 'bleedout in survival kills player');
+  assert.strictEqual(c.modeRespawnQueue.length, 0, 'survival player death must NOT queue mode respawn');
+  assert.strictEqual(c.MODES.survival.scoreboard().wave, 0, 'survival scoreboard reflects survival stats');
+});
+
+test('pause safety: match timer, respawn queue, and spawn protection do not elapse while paused', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const p = c.player;
+  p.spawnProtectionT = 2.0;
+  const initialTime = c.MODES.tdm.timeLeft;
+
+  const dummyActor = { id: 'bot_test', dead: true };
+  c.queueModeRespawn(dummyActor, 3.0);
+  assert.strictEqual(c.modeRespawnQueue.length, 1);
+
+  // Pause game
+  c.paused = true;
+
+  // Step while paused
+  c.MODES.tdm.update(1.0);
+  c.updateModeRespawns(1.0, c.spawnPoints, c.enemies, c.colliders);
+  c.updatePlayer(1.0);
+
+  assert.strictEqual(c.MODES.tdm.timeLeft, initialTime, 'timeLeft must NOT decrement while paused');
+  assert.strictEqual(c.modeRespawnQueue[0].timer, 3.0, 'respawn timer must NOT decrement while paused');
+  assert.strictEqual(p.spawnProtectionT, 2.0, 'spawn protection must NOT decrement while paused');
+});
+
+test('reset attribution across respawn, restart, and mode switch', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  const p = c.player;
+  p.spawnProtectionT = 0;
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+
+  // Take non-lethal hit from hostile
+  c.damagePlayer(25, 0, 'bullet', hostile);
+  assert.strictEqual(p.lastAttacker, hostile, 'damagePlayer must record lastAttacker');
+
+  // Restart match clears attribution
+  c.restartMatch();
+  assert.strictEqual(p.lastAttacker, null, 'restartMatch must reset player lastAttacker');
+  assert.strictEqual(p.downedBy, null, 'restartMatch must reset player downedBy');
+
+  // Switch to Survival and back
+  c.setActiveMode('survival');
+  c.MODES.survival.setup();
+  assert.strictEqual(p.lastAttacker, null, 'survival setup must reset player lastAttacker');
+  assert.strictEqual(p.downedBy, null, 'survival setup must reset player downedBy');
+});
+
+
 
 

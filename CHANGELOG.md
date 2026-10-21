@@ -4,6 +4,28 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v169 — Authoritative TDM player death attribution, stable scoreboard roster, pause safety, and bidirectional E2E match lifecycle
+
+- Authoritative player death and kill attribution in `src/20_player.js`, `src/40_enemies.js`, `src/57_stations.js`, `src/70_main.js`, and `src/35_modes.js`:
+  - Fix asymmetric TDM scoring defect where hostile lethal attacks against player left `enemyScore = 0`, `enemy.kills = 0`, and `player.deaths = 0`.
+  - Propagate attacker identity through `damagePlayer(amount, dirDeg, damageType, attacker)` into `player.lastAttacker` and `downPlayer(attacker)`.
+  - Pass attacker identity from `src/40_enemies.js` across melee, rifleman bullet, and breacher shotgun attacks.
+  - In `src/57_stations.js`, retain `player.downedBy = attacker || player.lastAttacker || null` during downed state and pass killer to `killPlayer(killer)` on immediate lethal down or bleedout timer expiration.
+  - In `src/70_main.js`, add idempotency guard to `killPlayer(killer)` (`if (player.dead) return;`) to prevent duplicate death events on repeated damage, and dispatch both `activeMode.onDeath(player, sourceActor)` and `activeMode.onKill(player, false, sourceActor)`.
+  - In `src/35_modes.js`, update `MODES.tdm.onKill` to attribute kills to the hostile killer, increment `enemyScore`, record `player.deaths` and `killer.kills`, and push authoritative killfeed messages. Attacker-absent, environmental, and self deaths are deterministic and grant no spurious enemy or friendly score credit.
+  - Verify player death that reaches target score limit ends match immediately and never subsequently queues respawn.
+  - Reset attribution cleanly across respawn, restart, and mode switch.
+- Stable match roster and scoreboard retention in `src/35_modes.js` and `src/70_main.js`:
+  - Back TDM scoreboard with a persistent actor roster (`MODES.tdm.roster`) initialized during `MODES.tdm.setup()` and cleared upon `resetGame()` and `quitMatchToMenu()`.
+  - Scoreboard queries `this.roster` with deduplication (`seenIds`), retaining participants through death and respawn without duplicate or lost rows even when `updateEnemies` temporarily drops dead corpses from the lexical `enemies` array.
+  - Mesh removal and geometry disposal in `resetGame()` clean up match roster objects without leaking Survival actors, scene meshes, or corpses.
+- Pause safety in `src/20_player.js`, `src/35_modes.js`:
+  - Gate match countdown timer, mode respawn queue timers, and player spawn protection duration so they do not elapse while `paused` is true.
+- Survival mode isolation:
+  - Preserve Survival mode down, revive, bleedout, Second Wind perk consumption, and checkpoint lifecycle completely unchanged without match immunities or score leakage.
+- Extend browser acceptance verification in `scripts/probe_live.py`:
+  - Extend real TDM browser E2E test to verify hostile bot attacking player with spawn protection immunity, downing, finishing kill, killer stats, enemy score increment, player deaths, killfeed announcement, player respawn with protection, and second hostile kill reaching score limit to trigger match completion, enemy victory, and `#match-end-title` `'DEFEAT'` display, followed by return to menu and clean settings restoration.
+
 ## v168 — Production deployable TDM, review findings repairs, roster re-entry, and UI mode picker
 
 - Repair bot respawn roster re-entry in `src/35_modes.js`:
