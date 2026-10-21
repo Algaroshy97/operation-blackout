@@ -477,6 +477,7 @@
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
+<div id="match-hud" class="hud" style="display:none;top:20px;left:50%;transform:translateX(-50%);text-align:center;color:#fff;text-shadow:0 1px 4px #000"><div id="match-timer" style="font-size:16px;letter-spacing:2px;font-weight:700">05:00</div><div id="match-score-bar" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:2px;font-size:24px;font-weight:800"><span id="match-score-friendly" style="color:#38b6ff">0</span><span style="opacity:.6;font-size:16px">—</span><span id="match-score-enemy" style="color:#ff4030">0</span></div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
 <div id="armor-container" class="hud"><div class="armor-bar-bg"><div id="armor-bar"></div></div></div>
@@ -5796,6 +5797,20 @@ const CORE = (function () {
       runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
+      spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
+      modeRespawnQueue: Array.isArray(state.modeRespawnQueue) ? state.modeRespawnQueue.map(function (entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        return {
+          timer: _isNum(entry.timer) ? entry.timer : 0,
+          actor: entry.actor ? {
+            id: entry.actor.id,
+            team: entry.actor.team,
+            kind: entry.actor.kind,
+            isPlayer: !!entry.actor.isPlayer,
+            spawnProtectionT: _isNum(entry.actor.spawnProtectionT) ? entry.actor.spawnProtectionT : 0
+          } : null
+        };
+      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: state.equipment && state.equipment.lethal || 'frag',
         tactical: state.equipment && state.equipment.tactical || null,
@@ -5874,6 +5889,20 @@ const CORE = (function () {
       weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
+      modeRespawnQueue: Array.isArray(raw.modeRespawnQueue) ? raw.modeRespawnQueue.map(function (e) {
+        if (!e || typeof e !== 'object') return null;
+        return {
+          timer: num(e.timer, 0, 60, 0),
+          actor: e.actor && typeof e.actor === 'object' ? {
+            id: typeof e.actor.id === 'string' ? e.actor.id.slice(0, 40) : undefined,
+            team: typeof e.actor.team === 'string' ? e.actor.team.slice(0, 20) : undefined,
+            kind: typeof e.actor.kind === 'number' ? e.actor.kind : undefined,
+            isPlayer: !!e.actor.isPlayer,
+            spawnProtectionT: num(e.actor.spawnProtectionT, 0, 60, 0)
+          } : null
+        };
+      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
         tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,
@@ -11049,13 +11078,24 @@ const CORE = (function () {
       score: _isNum(s.score) ? s.score : 0,
       kills: _isNum(s.kills) ? s.kills : 0,
       headshots: _isNum(s.headshots) ? s.headshots : 0,
-      credits: _isNum(s.credits) ? s.credits : 0
+      credits: _isNum(s.credits) ? s.credits : 0,
+      friendlyScore: _isNum(s.friendlyScore) ? s.friendlyScore : 0,
+      enemyScore: _isNum(s.enemyScore) ? s.enemyScore : 0,
+      targetScore: _isNum(s.targetScore) ? s.targetScore : 25,
+      timeLeft: _isNum(s.timeLeft) ? s.timeLeft : 0
     };
   }
 
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
+    if (modeId === 'tdm') {
+      const target = _isNum(s.targetScore) ? s.targetScore : 25;
+      if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
+          (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
+      if (_isNum(s.timeLeft) && s.timeLeft <= 0) return true;
+      return false;
+    }
     if (modeId === 'survival' || !modeId) {
       return !!(s.playerDead && !s.playerDowned);
     }
@@ -11090,10 +11130,13 @@ const CORE = (function () {
 
   function isFriendlyFire(attacker, target) {
     if (!attacker || !target || attacker === target) return false;
-    const isPlayerA = !!(attacker.isPlayer || attacker.team === 'friendly' || (attacker.kind === undefined && target.kind !== undefined));
-    const isPlayerB = !!(target.isPlayer || target.team === 'friendly' || (target.kind === undefined && attacker.kind !== undefined));
-    const teamA = attacker.team || (isPlayerA ? 'friendly' : 'enemy');
-    const teamB = target.team || (isPlayerB ? 'friendly' : 'enemy');
+    const teamA = (typeof attacker.team === 'string' && attacker.team.length > 0)
+      ? attacker.team
+      : (attacker.isPlayer ? 'friendly' : null);
+    const teamB = (typeof target.team === 'string' && target.team.length > 0)
+      ? target.team
+      : (target.isPlayer ? 'friendly' : null);
+    if (!teamA || !teamB) return false;
     return teamA === teamB;
   }
 
@@ -12933,7 +12976,7 @@ addEventListener('mousemove', function (e) {
 
 const player = {
   team: 'friendly', isPlayer: true,
-  spawnProtectionT: 0,
+  spawnProtectionT: (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -15234,8 +15277,36 @@ function getActiveMode() {
   return MODES[activeModeId] || MODES.survival;
 }
 
+function updateMatchHud(mode) {
+  if (typeof document === 'undefined') return;
+  const matchHud = (typeof $id === 'function') ? $id('match-hud') : document.getElementById('match-hud');
+  const waveHud = (typeof $id === 'function') ? $id('wave-hud') : document.getElementById('wave-hud');
+  if (!matchHud) return;
+  if (!mode || mode.id !== 'tdm') {
+    matchHud.style.display = 'none';
+    if (waveHud) waveHud.style.display = '';
+    return;
+  }
+  matchHud.style.display = 'block';
+  if (waveHud) waveHud.style.display = 'none';
+  const timerEl = (typeof $id === 'function') ? $id('match-timer') : document.getElementById('match-timer');
+  const fScoreEl = (typeof $id === 'function') ? $id('match-score-friendly') : document.getElementById('match-score-friendly');
+  const eScoreEl = (typeof $id === 'function') ? $id('match-score-enemy') : document.getElementById('match-score-enemy');
+  if (timerEl) {
+    const t = Math.max(0, mode.timeLeft || 0);
+    const mins = Math.floor(t / 60);
+    const secs = Math.floor(t % 60);
+    timerEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }
+  if (fScoreEl) fScoreEl.textContent = String(mode.friendlyScore || 0);
+  if (eScoreEl) eScoreEl.textContent = String(mode.enemyScore || 0);
+}
+
 function setActiveMode(id) {
-  if (MODES[id]) activeModeId = id;
+  if (MODES[id]) {
+    activeModeId = id;
+    updateMatchHud(MODES[id]);
+  }
 }
 
 var modeRespawnQueue = [];
@@ -15253,8 +15324,29 @@ function clearModeRespawns() {
   modeRespawnQueue.length = 0;
 }
 
+function defaultOnRespawn(actor, pt) {
+  if (!actor) return;
+  const duration = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+  if (actor.isPlayer) {
+    if (pt && actor.pos) actor.pos.set(pt[0], (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.height : 1.7, pt[1]);
+    actor.dead = false;
+    actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
+    actor.spawnProtectionT = duration;
+  } else {
+    if (pt && actor.pos) actor.pos.set(pt[0], 0, pt[1]);
+    actor.dead = false;
+    actor.health = actor.maxHealth || 100;
+    actor.spawnProtectionT = duration;
+    if (actor.parts && actor.parts.group) {
+      if (actor.pos) actor.parts.group.position.copy(actor.pos);
+      if (typeof scene !== 'undefined' && scene.add && !actor.parts.group.parent) scene.add(actor.parts.group);
+    }
+  }
+}
+
 function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
   if (modeRespawnQueue.length === 0) return;
+  const cb = (typeof onRespawn === 'function') ? onRespawn : defaultOnRespawn;
   for (let i = modeRespawnQueue.length - 1; i >= 0; i--) {
     const entry = modeRespawnQueue[i];
     entry.timer = (typeof CORE !== 'undefined' && typeof CORE.stepRespawnTimer === 'function')
@@ -15268,9 +15360,7 @@ function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
       const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
         ? CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders)
         : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
-      if (typeof onRespawn === 'function') {
-        onRespawn(entry.actor, pt);
-      }
+      cb(entry.actor, pt);
     }
   }
 }
@@ -15287,13 +15377,23 @@ MODES.survival = {
       betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) ? CFG.wave.startDelay : 3;
     }
     if (typeof gameEnded !== 'undefined') gameEnded = false;
+    updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
   },
   onDeath: function (victim, killer) {
+    if (victim && victim.team === 'friendly' && !victim.isPlayer) {
+      queueModeRespawn(victim, (typeof CORE !== 'undefined' && CORE.RESPAWN_DELAY) ? CORE.RESPAWN_DELAY : 3.0);
+    }
   },
   update: function (dt) {
     if (typeof updateWaves === 'function') updateWaves(dt);
+    if (typeof updateModeRespawns === 'function') {
+      const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+      const hostiles = (typeof enemies !== 'undefined') ? enemies : [];
+      const cols = (typeof colliders !== 'undefined') ? colliders : [];
+      updateModeRespawns(dt, sp, hostiles, cols);
+    }
   },
   scoreboard: function () {
     return CORE.modeScoreboardData('survival', {
@@ -15309,6 +15409,80 @@ MODES.survival = {
       gameEnded: typeof gameEnded !== 'undefined' ? !!gameEnded : false,
       playerDead: (typeof player !== 'undefined' && player) ? !!player.dead : false,
       playerDowned: (typeof player !== 'undefined' && player) ? !!player.downed : false
+    });
+  }
+};
+
+MODES.tdm = {
+  id: 'tdm',
+  name: 'Team Deathmatch',
+  targetScore: 25,
+  matchDuration: 300,
+  friendlyScore: 0,
+  enemyScore: 0,
+  timeLeft: 300,
+  setup: function () {
+    clearModeRespawns();
+    this.friendlyScore = 0;
+    this.enemyScore = 0;
+    this.timeLeft = this.matchDuration;
+    if (typeof gameEnded !== 'undefined') gameEnded = false;
+    updateMatchHud(this);
+  },
+  onKill: function (victim, isHead, killer) {
+    const killerTeam = (killer && killer.team) ? killer.team : ((killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'friendly' : 'enemy');
+    if (killerTeam === 'friendly') {
+      this.friendlyScore++;
+    } else {
+      this.enemyScore++;
+    }
+    if (typeof pushKillfeed === 'function') {
+      const killerName = (killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT');
+      const victimName = (victim && (victim.isPlayer || victim === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((victim && victim.team === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT');
+      const color = (killerTeam === 'friendly') ? '#38b6ff' : '#ff4030';
+      pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+    }
+    updateMatchHud(this);
+    if (this.isOver() && typeof gameEnded !== 'undefined') {
+      gameEnded = true;
+    }
+  },
+  onDeath: function (victim, killer) {
+    if (victim) {
+      queueModeRespawn(victim, (typeof CORE !== 'undefined' && CORE.RESPAWN_DELAY) ? CORE.RESPAWN_DELAY : 3.0);
+    }
+  },
+  update: function (dt) {
+    if (this.timeLeft > 0) {
+      this.timeLeft = Math.max(0, this.timeLeft - dt);
+    }
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+    const hostiles = (typeof enemies !== 'undefined') ? enemies : [];
+    const cols = (typeof colliders !== 'undefined') ? colliders : [];
+    updateModeRespawns(dt, sp, hostiles, cols);
+    updateMatchHud(this);
+    if (this.isOver() && typeof gameEnded !== 'undefined') {
+      gameEnded = true;
+    }
+  },
+  scoreboard: function () {
+    return CORE.modeScoreboardData('tdm', {
+      friendlyScore: this.friendlyScore,
+      enemyScore: this.enemyScore,
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      score: typeof score !== 'undefined' ? score : 0,
+      kills: typeof kills !== 'undefined' ? kills : 0,
+      headshots: typeof headshots !== 'undefined' ? headshots : 0
+    });
+  },
+  isOver: function () {
+    return CORE.isModeOver('tdm', {
+      friendlyScore: this.friendlyScore,
+      enemyScore: this.enemyScore,
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      gameEnded: typeof gameEnded !== 'undefined' ? !!gameEnded : false
     });
   }
 };
@@ -16230,6 +16404,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
   }
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
   en._lastHitNode = isHead ? 'head' : 'chest';
   if (point) {
     const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
@@ -16244,12 +16419,12 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget && !isSourceDead) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
-  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && !isSourceDead && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  if (isPlayerSource && isHostileTarget) {
+  if (isPlayerSource && isHostileTarget && !isSourceDead) {
     const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
     showHitmarker(isHead, tier);
     addCredits(CORE.creditsForDamage(isKill, isHead));
@@ -16281,7 +16456,8 @@ function killEnemy(en, isHead, killer) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
-  const isQualifyingKill = isPlayerKiller && isHostileTarget;
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead;
   en.dead = true; en.deathT = 0;
   const impulse = CORE.enemyKillImpulse(en._lastHitForce, isHead, Math.random(), _killImpulseOut);
   spawnRagdoll(en, {
@@ -16305,6 +16481,7 @@ function killEnemy(en, isHead, killer) {
     playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
   if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 
@@ -20650,6 +20827,8 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    spawnProtectionT: (typeof player !== 'undefined' && player) ? (player.spawnProtectionT || 0) : 0,
+    modeRespawnQueue: (typeof modeRespawnQueue !== 'undefined' && Array.isArray(modeRespawnQueue)) ? modeRespawnQueue.slice() : [],
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -20890,7 +21069,7 @@ function spawnFromQueue() {
   if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
   if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
   const elite = CORE.rollElite(waveNum, Math.random());
-  spawnEnemy(kind, x, z, { elite: elite });
+  spawnEnemy(kind, x, z, { elite: elite, spawnProtection: true });
 }
 
 function openSpawnPoints() {
@@ -21492,6 +21671,7 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
+  player.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
@@ -21828,6 +22008,14 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  player.spawnProtectionT = cp.spawnProtectionT || 0;
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
+  if (Array.isArray(cp.modeRespawnQueue) && cp.modeRespawnQueue.length > 0 && typeof queueModeRespawn === 'function') {
+    for (let i = 0; i < cp.modeRespawnQueue.length; i++) {
+      const rq = cp.modeRespawnQueue[i];
+      if (rq) queueModeRespawn(rq.actor, rq.timer);
+    }
+  }
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
   perks = (cp.perks || []).slice();

@@ -227,6 +227,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
   }
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
   en._lastHitNode = isHead ? 'head' : 'chest';
@@ -243,14 +244,14 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget && !isSourceDead) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
   // would otherwise have absorbed.
-  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && !isSourceDead && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  if (isPlayerSource && isHostileTarget) {
+  if (isPlayerSource && isHostileTarget && !isSourceDead) {
     const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
     showHitmarker(isHead, tier);
     addCredits(CORE.creditsForDamage(isKill, isHead));
@@ -284,7 +285,8 @@ function killEnemy(en, isHead, killer) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
-  const isQualifyingKill = isPlayerKiller && isHostileTarget;
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead;
   en.dead = true; en.deathT = 0;
   // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
   // rather than firing it across the arena.
@@ -312,6 +314,7 @@ function killEnemy(en, isHead, killer) {
     playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
   if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 

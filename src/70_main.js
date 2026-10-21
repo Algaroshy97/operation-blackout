@@ -181,6 +181,7 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
+  player.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
@@ -537,6 +538,14 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  player.spawnProtectionT = cp.spawnProtectionT || 0;
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
+  if (Array.isArray(cp.modeRespawnQueue) && cp.modeRespawnQueue.length > 0 && typeof queueModeRespawn === 'function') {
+    for (let i = 0; i < cp.modeRespawnQueue.length; i++) {
+      const rq = cp.modeRespawnQueue[i];
+      if (rq) queueModeRespawn(rq.actor, rq.timer);
+    }
+  }
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
   perks = (cp.perks || []).slice();

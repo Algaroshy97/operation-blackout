@@ -4,6 +4,37 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v167 — Posthumous reward gating, spawn protection wiring, mode respawn lifecycle, and browser verification
+
+- Restore dead-source gate on the player reward path in `src/40_enemies.js`:
+  - In `damageEnemy`, gate hitmarker display, credit accrual, and field charge accumulation on `!isSourceDead`. Posthumous non-lethal damage applies to enemy health but awards no player rewards.
+  - In `killEnemy`, gate score, credit multiplier, multi-kill streak bonuses, kill/headshot counters, killstreak registration, pickup/power-up drops, and kill confirmation audio on `isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead`. Posthumous kills continue to resolve physics, ragdolls, and mode death/kill hooks in the world without granting rewards to a dead player.
+  - Add regression coverage in `tests/test_modes_and_teams.js` asserting reward effects themselves (counters, credits, hitmarker, streaks, drops) are withheld when player is dead and awarded when alive.
+- Make spawn protection reachable in production gameplay in `src/20_player.js`, `src/60_hud_waves.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Initialize `player.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION` (2.0 s) on player deploy in `src/20_player.js` and reset it on redeploy in `resetGame()`.
+  - Pass `{ elite: elite, spawnProtection: true }` in `spawnWaveEnemy` (`src/60_hud_waves.js:808`), naturally granting wave-spawned enemies 2 s of spawn protection.
+  - Set 2 s spawn protection on mode-respawned actors in `src/35_modes.js`.
+  - Preserve attack-triggered early cancellation across all weapons and grenades.
+- Wire mode respawn framework into real production call paths in `src/35_modes.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Hook `activeMode.onDeath` into `killPlayer()` and `killEnemy()`. In Survival mode, allied bot deaths invoke `queueModeRespawn(victim)`.
+  - In `MODES.survival.update(dt)` and `MODES.tdm.update(dt)`, invoke `updateModeRespawns(dt, ...)` each frame, decrementing respawn timers, selecting optimal cover spawn points via `CORE.pickBestSpawnPoint`, and reviving respawned actors with full health and spawn protection.
+  - Implement `MODES.tdm` (Team Deathmatch) complete with target score tracking, match timer countdown, scoreboard integration, and `#match-hud` overlay (`src/00_head.html`) displaying the score bar and match timer, and push killfeed announcements on eliminations.
+  - Add execution-level integration coverage in `tests/test_modes_and_teams.js` proving the production call path runs.
+- Checkpoint serialization and defensive loading for new module state in `src/01_core.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Serialize `spawnProtectionT` and `modeRespawnQueue` in `CORE.makeCheckpoint`.
+  - Validate and sanitize both fields in `CORE.validateCheckpoint`, defaulting to `0` and `[]` respectively when loading legacy checkpoints written by older builds.
+  - Integrate save/resume roundtrip in `captureRunState` and `resumeRun`, asserting no duplicate and no lost respawns across save and restore boundaries.
+- Tighten `CORE.isFriendlyFire` heuristic in `src/01_core.js`:
+  - Require both actors to possess a genuine, identified matching team (`teamA === teamB`). Unidentified or team-less actors (no `team` property and not player) are never assumed friendly, preventing damage from team-less hostile actors against enemies or friendlies from being falsely negated.
+  - Add unit test coverage in `tests/test_modes_and_teams.js` verifying team-less hostiles do not trigger friendly-fire negation.
+- Extend bounded browser lifecycle verification in `scripts/probe_live.py`:
+  - Add check `survival-deploy-live-state` asserting live gameplay state immediately after DEPLOY and loadout selection.
+  - Add check `checkpoint-between-wave-save-resume` testing between-wave checkpoint write and state identity alongside defensive legacy save loading.
+  - Add check `checkpoint-settled-victory-and-endless` testing settled victory screen presentation and endless mode continuation persistence.
+  - Add check `friendly-bot-iff-and-friendly-fire-immunity` testing friendly bot team registration, IFF marker presence, minimap color, and mutual friendly-fire damage negation.
+  - Add check `tdm-end-to-end-match-lifecycle` running a short TDM match end-to-end verifying HUD score bar, match timer countdown, kill feed announcements, respawn queuing, and match completion.
+
+
 ## v166 — Friendly bot visual kits, IFF markers, friendly fire immunity, and respawn lifecycle
 
 - Implement friendly bot visuals, kit tints, and IFF marker integration in `src/38_soldier.js` and `src/40_enemies.js`:

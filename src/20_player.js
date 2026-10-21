@@ -55,7 +55,7 @@ addEventListener('mousemove', function (e) {
 // ---- Player state ----
 const player = {
   team: 'friendly', isPlayer: true,
-  spawnProtectionT: 0,
+  spawnProtectionT: (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,

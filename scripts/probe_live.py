@@ -123,6 +123,18 @@ def main() -> int:
         #    in-game time runs several times slower than wall clock when frames are
         #    slow (headless/swiftshader), so 25 s was not enough headroom.
         checks.append(("start-screen-hidden", page.evaluate("() => document.getElementById('start-screen').style.display === 'none'")))
+
+        # 2b) Survival deployment from deploy screen: deploy button -> live gameplay state
+        surv_deploy = page.evaluate("""() => {
+            const isStarted = typeof started !== 'undefined' && started === true;
+            const notPaused = typeof paused !== 'undefined' && paused === false;
+            const isAlive = typeof player !== 'undefined' && player && !player.dead && player.health > 0;
+            const protActive = typeof player !== 'undefined' && player && player.spawnProtectionT > 0;
+            const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+            const isSurvival = activeMode && activeMode.id === 'survival';
+            return isStarted && notPaused && isAlive && protActive && isSurvival;
+        }""")
+        checks.append(("survival-deploy-live-state", bool(surv_deploy)))
         telemetry_snapshot = page.evaluate("""() => {
             const before = window.fpsGameTelemetry.snapshot();
             window.fpsGameTelemetry.enable();
@@ -5206,6 +5218,187 @@ def main() -> int:
             return { near: near, far: far };
         }""")
         checks.append(("breacher-fires-close-not-far", br["near"] >= 2 and br["far"] == 0))
+
+        # 113i) Between-wave save/resume: write checkpoint, load/resume and assert state identity
+        save_resume = page.evaluate("""() => {
+            const savedState = captureRunState();
+            savedState.wave = 3;
+            savedState.score = 6400;
+            savedState.kills = 16;
+            savedState.headshots = 5;
+            savedState.health = 90;
+            savedState.armor = 30;
+            savedState.credits = 800;
+            savedState.spawnProtectionT = 1.6;
+            savedState.modeRespawnQueue = [
+                { timer: 2.0, actor: { id: 'bot_test', team: 'friendly', kind: 1 } }
+            ];
+            saveCheckpoint(savedState);
+            const loaded = loadCheckpoint();
+            const identityOk = loaded &&
+                loaded.wave === 3 &&
+                loaded.score === 6400 &&
+                loaded.kills === 16 &&
+                loaded.headshots === 5 &&
+                loaded.health === 90 &&
+                loaded.armor === 30 &&
+                loaded.credits === 800 &&
+                loaded.spawnProtectionT === 1.6 &&
+                Array.isArray(loaded.modeRespawnQueue) &&
+                loaded.modeRespawnQueue.length === 1 &&
+                loaded.modeRespawnQueue[0].timer === 2.0;
+
+            // Also test defensive loading for legacy save missing these fields
+            const legacyRaw = {
+                v: 3,
+                wave: 2, score: 500, kills: 5, headshots: 1,
+                shotsFired: 20, shotsHit: 10,
+                health: 100, armor: 0, grenades: 2, credits: 100,
+                weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+            };
+            const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+            const defensiveOk = legacyLoaded &&
+                legacyLoaded.spawnProtectionT === 0 &&
+                Array.isArray(legacyLoaded.modeRespawnQueue) &&
+                legacyLoaded.modeRespawnQueue.length === 0;
+
+            return { identityOk: identityOk, defensiveOk: defensiveOk };
+        }""")
+        checks.append(("checkpoint-between-wave-save-resume", bool(save_resume["identityOk"] and save_resume["defensiveOk"])))
+
+        # 113j) Settled-victory and endless-run checkpoint behaviour
+        vic_endless = page.evaluate("""() => {
+            const savedPhase = typeof runPhase !== 'undefined' ? runPhase : 'active';
+            const savedEnded = typeof gameEnded !== 'undefined' ? gameEnded : false;
+            const savedEndless = typeof endlessMode !== 'undefined' ? endlessMode : false;
+
+            // 1. Victory checkpoint: settled victory persists without repeating
+            const vicState = captureRunState();
+            vicState.runPhase = 'victory';
+            vicState.settlementSnapshot = { kills: 100, headshots: 30, streaks: 4 };
+            saveCheckpoint(vicState);
+            const loadedVic = loadCheckpoint();
+            const resumeVic = CORE.resumeCheckpointState(loadedVic.runPhase);
+
+            // 2. Endless checkpoint: continuation phase persists
+            const endlessState = captureRunState();
+            endlessState.runPhase = 'endless';
+            endlessState.endless = true;
+            saveCheckpoint(endlessState);
+            const loadedEndless = loadCheckpoint();
+            const resumeEndless = CORE.resumeCheckpointState(loadedEndless.runPhase);
+
+            // Restore live state
+            if (typeof runPhase !== 'undefined') runPhase = savedPhase;
+            if (typeof gameEnded !== 'undefined') gameEnded = savedEnded;
+            if (typeof endlessMode !== 'undefined') endlessMode = savedEndless;
+
+            return {
+                vicPhase: loadedVic && loadedVic.runPhase === 'victory',
+                vicShowScreen: resumeVic && resumeVic.showVictory === true && resumeVic.gameEnded === true,
+                endlessPhase: loadedEndless && loadedEndless.runPhase === 'endless' && loadedEndless.endless === true,
+                endlessContinues: resumeEndless && resumeEndless.showVictory === false && resumeEndless.gameEnded === false
+            };
+        }""")
+        checks.append(("checkpoint-settled-victory-and-endless",
+                       bool(vic_endless["vicPhase"] and vic_endless["vicShowScreen"] and
+                            vic_endless["endlessPhase"] and vic_endless["endlessContinues"])))
+
+        # 113k) Friendly-bot rendering/IFF marker and team interaction incl. friendly-fire immunity
+        fb_check = page.evaluate("""() => {
+            const friendly = spawnEnemy(1, 12, 18, { team: 'friendly' });
+            const hasTeam = friendly && friendly.team === 'friendly';
+            const iffObj = friendly && friendly.parts && (
+                friendly.parts.iff ||
+                (friendly.parts.group && friendly.parts.group.userData && friendly.parts.group.userData.iff)
+            );
+            const hasIff = !!iffObj;
+            const minimapColor = CORE.minimapActorColor(friendly);
+            const isFriendlyColor = minimapColor === CORE.MINIMAP_FRIENDLY_COLOR;
+
+            // Friendly fire immunity: player cannot damage friendly bot
+            const friendlyInitHp = friendly.health;
+            damageEnemy(friendly, 45, friendly.pos, false, false, 'AR', player);
+            const immuneToPlayer = friendly.health === friendlyInitHp;
+
+            // Friendly fire immunity: friendly bot cannot damage player
+            const playerInitHp = player.health;
+            damagePlayer(25, 0, 'bullet', friendly);
+            const playerImmuneToAlly = player.health === playerInitHp;
+
+            // Clean up friendly bot
+            friendly.dead = true;
+            if (friendly.parts && friendly.parts.group) scene.remove(friendly.parts.group);
+            const idx = enemies.indexOf(friendly);
+            if (idx >= 0) enemies.splice(idx, 1);
+
+            return {
+                hasTeam: hasTeam,
+                hasIff: hasIff,
+                isFriendlyColor: isFriendlyColor,
+                immuneToPlayer: immuneToPlayer,
+                playerImmuneToAlly: playerImmuneToAlly
+            };
+        }""")
+        checks.append(("friendly-bot-iff-and-friendly-fire-immunity",
+                       bool(fb_check["hasTeam"] and fb_check["hasIff"] and
+                            fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
+                            fb_check["playerImmuneToAlly"])))
+
+        # 113l) Short TDM end-to-end match lifecycle: HUD score bar, kill feed, match timer, respawns
+        tdm_check = page.evaluate("""() => {
+            const savedMode = activeModeId;
+            setActiveMode('tdm');
+            const mode = getActiveMode();
+            mode.setup();
+            mode.targetScore = 2; // short 2-kill acceptance match
+
+            // Verify HUD elements are visible and styled
+            const hudEl = document.getElementById('match-hud');
+            const scoreBarEl = document.getElementById('match-score-bar');
+            const timerEl = document.getElementById('match-timer');
+            const friendlyScoreEl = document.getElementById('match-score-friendly');
+            const enemyScoreEl = document.getElementById('match-score-enemy');
+            const hudVisible = hudEl && getComputedStyle(hudEl).display !== 'none';
+            const initialTimer = timerEl ? timerEl.textContent : '';
+
+            // Step 1: Kill 1 by player against hostile bot
+            const hostileBot = { team: 'enemy', isPlayer: false, dead: false, maxHealth: 100, pos: new THREE.Vector3(0, 0, 0) };
+            mode.onKill(hostileBot, true, player);
+            mode.onDeath(hostileBot, player);
+
+            const score1Friendly = mode.friendlyScore === 1;
+            const queueHasRespawn = modeRespawnQueue.length === 1;
+            const kfItem = document.querySelector('#killfeed .killfeed-item');
+            const hasKillfeed = !!kfItem && kfItem.textContent.includes('eliminated');
+
+            // Step 2: Update loop steps timer and respawns
+            mode.update(1.0);
+            const timerStepped = mode.timeLeft < 300;
+
+            // Step 3: Kill 2 reaches targetScore (2), match completes
+            mode.onKill(hostileBot, false, player);
+            const isMatchOver = mode.isOver();
+
+            // Restore survival mode and clean up
+            setActiveMode(savedMode);
+            getActiveMode().setup();
+
+            return {
+                hudVisible: hudVisible,
+                hasTimer: !!initialTimer,
+                score1Friendly: score1Friendly,
+                queueHasRespawn: queueHasRespawn,
+                hasKillfeed: hasKillfeed,
+                timerStepped: timerStepped,
+                isMatchOver: isMatchOver
+            };
+        }""")
+        checks.append(("tdm-end-to-end-match-lifecycle",
+                       bool(tdm_check["hudVisible"] and tdm_check["hasTimer"] and
+                            tdm_check["score1Friendly"] and tdm_check["queueHasRespawn"] and
+                            tdm_check["hasKillfeed"] and tdm_check["timerStepped"] and
+                            tdm_check["isMatchOver"])))
 
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics

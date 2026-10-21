@@ -533,6 +533,8 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    spawnProtectionT: (typeof player !== 'undefined' && player) ? (player.spawnProtectionT || 0) : 0,
+    modeRespawnQueue: (typeof modeRespawnQueue !== 'undefined' && Array.isArray(modeRespawnQueue)) ? modeRespawnQueue.slice() : [],
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -805,7 +807,7 @@ function spawnFromQueue() {
   if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
   if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
   const elite = CORE.rollElite(waveNum, Math.random());
-  spawnEnemy(kind, x, z, { elite: elite });
+  spawnEnemy(kind, x, z, { elite: elite, spawnProtection: true });
 }
 
 // A sealed district must be excluded from the spawn ring. `usableSpawnPoints`

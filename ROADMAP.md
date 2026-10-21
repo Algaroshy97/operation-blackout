@@ -115,7 +115,7 @@ short TDM match end to end.
   - Respawn timers (3 s) and spawn protection (2 s) with damage immunity and attack-triggered break-off for players and bots.
   - Mode respawn queue lifecycle in `src/35_modes.js` (`queueModeRespawn`, `updateModeRespawns`, `clearModeRespawns`), with Survival wave spawning preserved and respawn queue cleared on reset.
 - Next dependency: match HUD (score bar, Tab scoreboard for actor K/D, kill feed, match timer, end-of-match screen) and mode picker on deploy screen, followed by TDM, FFA, Domination, and Gun Game mode rules.
-- Evidence gaps: bounded browser acceptance coverage for Survival deployment, between-wave save/resume, settled-victory/endless checkpoints, and friendly rendering/team interactions (full live probe timed out after 420 seconds without log output; bounded Chromium smoke check loaded shipped artifact without immediate page errors, but assetsReady remained false, leaving gameplay and checkpoint integration unverified); match HUD integration, multi-mode matches, and browser acceptance probe coverage for match modes.
+- Evidence gaps: bounded browser acceptance coverage now verified in `scripts/probe_live.py` covering Survival deployment from deploy screen, between-wave save/resume state identity and defensive loading, settled-victory and endless checkpoints, friendly-bot rendering with IFF markers and mutual friendly-fire damage immunity, and short TDM match end-to-end (score bar, match timer, kill feed, and respawns); remaining gaps: full multi-map support and additional game modes (FFA, Domination, Gun Game).
 
 ---
 

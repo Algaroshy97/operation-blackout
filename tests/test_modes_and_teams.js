@@ -1241,3 +1241,217 @@ test('attack-triggered spawn protection cancellation for players and bots', () =
   assert.strictEqual(wepContext.player.spawnProtectionT, 0, 'doMelee must cancel player spawn protection');
 });
 
+test('posthumous player rewards dead-source gate: damage applies but rewards are withheld', () => {
+  let hitmarkers = 0;
+  let creditsGranted = 0;
+  let fieldChargeGranted = 0;
+  let scoreGranted = 0;
+  let streaksRegistered = 0;
+  let powerUpsDropped = 0;
+  let pickupsDropped = 0;
+  let killBonusCalls = 0;
+
+  const c = createCombatContext({
+    showHitmarker: () => { hitmarkers++; },
+    addCredits: (n) => { creditsGranted += n; },
+    addFieldCharge: (n) => { fieldChargeGranted += n; },
+    addScore: (n) => { scoreGranted += n; },
+    registerStreakKill: () => { streaksRegistered++; },
+    registerKillT: () => { killBonusCalls++; },
+    dropPowerUp: () => { powerUpsDropped++; },
+    dropPickup: () => { pickupsDropped++; }
+  });
+
+  const enemy = {
+    team: 'enemy',
+    pos: new Vector3(5, 0, 5),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+
+  // 1. Posthumous non-lethal damage (e.g. projectile or tick after player died)
+  c.player.dead = true;
+  c.damageEnemy(enemy, 30, enemy.pos, false, false, 'AR', c.player);
+  assert.strictEqual(enemy.health, 70, 'damage must apply to enemy health even when attacker is dead');
+  assert.strictEqual(hitmarkers, 0, 'dead attacker must not receive hitmarker');
+  assert.strictEqual(creditsGranted, 0, 'dead attacker must not receive credits');
+  assert.strictEqual(fieldChargeGranted, 0, 'dead attacker must not receive field charge');
+
+  // 2. Posthumous lethal blow (e.g. grenade explosion or burn kill after player died)
+  c.damageEnemy(enemy, 80, enemy.pos, false, false, 'AR', c.player);
+  assert.strictEqual(enemy.health <= 0, true, 'lethal damage must reduce enemy to <= 0 health');
+  assert.strictEqual(enemy.dead, true, 'kill must resolve in world state (dead flag)');
+  assert.strictEqual(hitmarkers, 0, 'dead killer must not receive hitmarker');
+  assert.strictEqual(creditsGranted, 0, 'dead killer must not receive credits');
+  assert.strictEqual(fieldChargeGranted, 0, 'dead killer must not receive field charge');
+  assert.strictEqual(scoreGranted, 0, 'dead killer must not receive score');
+  assert.strictEqual(c.kills, 0, 'dead killer must not increment kills counter');
+  assert.strictEqual(c.headshots, 0, 'dead killer must not increment headshot counter');
+  assert.strictEqual(streaksRegistered, 0, 'dead killer must not register killstreak');
+  assert.strictEqual(killBonusCalls, 0, 'dead killer must not trigger multi-kill streak bonus');
+  assert.strictEqual(powerUpsDropped, 0, 'dead killer must not trigger power-up drops');
+  assert.strictEqual(pickupsDropped, 0, 'dead killer must not trigger pickup drops');
+
+  // 3. Omitted attacker fallback with dead player also withholds rewards
+  const enemy2 = {
+    team: 'enemy',
+    pos: new Vector3(5, 0, 5),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  c.damageEnemy(enemy2, 100, enemy2.pos, false);
+  assert.strictEqual(enemy2.dead, true);
+  assert.strictEqual(c.kills, 0, 'omitted attacker with dead player fallback must not increment kills');
+  assert.strictEqual(scoreGranted, 0, 'omitted attacker with dead player fallback must not grant score');
+
+  // 4. Living player DOES receive all rewards
+  c.player.dead = false;
+  const enemy3 = {
+    team: 'enemy',
+    pos: new Vector3(5, 0, 5),
+    health: 50,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  c.damageEnemy(enemy3, 60, enemy3.pos, false, false, 'AR', c.player);
+  assert.strictEqual(enemy3.dead, true);
+  assert.strictEqual(hitmarkers > 0, true, 'living player must receive hitmarker');
+  assert.strictEqual(creditsGranted > 0, true, 'living player must receive credits');
+  assert.strictEqual(scoreGranted > 0, true, 'living player must receive score');
+  assert.strictEqual(c.kills, 1, 'living player must increment kill counter');
+});
+
+test('CORE.isFriendlyFire heuristic: unknown and team-less hostiles are not treated as friendly', () => {
+  // Actors with undefined team and undefined kind must NOT be treated as friendly
+  const teamlessHostile = { dead: false };
+  const teamlessAttacker = { dead: false, hostile: true };
+  const enemyBot = { team: 'enemy', kind: 1, dead: false };
+  const friendlyBot = { team: 'friendly', kind: 1, dead: false };
+  const playerActor = { team: 'friendly', isPlayer: true, dead: false };
+
+  // A team-less hostile attacking an enemy must NOT trigger friendly fire
+  assert.strictEqual(CORE.isFriendlyFire(teamlessHostile, enemyBot), false, 'teamless hostile attacking enemy is not friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(teamlessAttacker, enemyBot), false, 'explicit hostile flag attacking enemy is not friendly fire');
+
+  // A team-less hostile attacking a friendly bot must NOT trigger friendly fire
+  assert.strictEqual(CORE.isFriendlyFire(teamlessHostile, friendlyBot), false, 'teamless hostile attacking friendly is not friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(teamlessAttacker, friendlyBot), false, 'explicit hostile flag attacking friendly is not friendly fire');
+
+  // Two team-less actors cannot be confirmed on same team
+  assert.strictEqual(CORE.isFriendlyFire(teamlessHostile, teamlessAttacker), false, 'unidentified actors do not trigger friendly fire');
+
+  // Friendly-fire only triggers when both actors are on the same identified team
+  assert.strictEqual(CORE.isFriendlyFire(playerActor, friendlyBot), true, 'both friendly triggers friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(enemyBot, { team: 'enemy', dead: false }), true, 'both enemy triggers friendly fire');
+  assert.strictEqual(CORE.isFriendlyFire(playerActor, enemyBot), false, 'friendly vs enemy is not friendly fire');
+});
+
+test('spawn protection reachable on production deploy and wave spawn paths', () => {
+  // 1. Production player definition in 20_player.js must initialize spawnProtectionT = 2.0 (CORE.SPAWN_PROTECTION_DURATION)
+  const playerSrc = source('20_player.js');
+  const pContext = vm.createContext({
+    CORE,
+    CFG: { player: { height: 1.7, health: 100, armor: 50, maxStamina: 100, radius: 0.4 } },
+    THREE: { Vector3 },
+    canvas: { addEventListener: noop },
+    addEventListener: noop,
+    document: { addEventListener: noop },
+    window: {}
+  });
+  const playerObj = vm.runInContext(playerSrc + '; player;', pContext);
+  assert.strictEqual(playerObj.spawnProtectionT, CORE.SPAWN_PROTECTION_DURATION, 'player must have initial 2s spawn protection on deploy');
+
+  // 2. Wave enemy spawn caller in 60_hud_waves.js must pass spawnProtection: true
+  const hudWavesSrc = source('60_hud_waves.js');
+  assert.ok(
+    hudWavesSrc.includes('spawnProtection: true') || hudWavesSrc.includes('spawnProtection: CORE.SPAWN_PROTECTION_DURATION'),
+    'spawnEnemy caller in 60_hud_waves.js must set spawnProtection'
+  );
+});
+
+test('mode respawn framework execution: activeMode.onDeath and activeMode.update call paths', () => {
+  const modesSrc = source('35_modes.js');
+  const c = createCombatContext();
+  vm.runInContext(modesSrc, c);
+
+  // Friendly bot dying triggers activeMode.onDeath and queues respawn
+  const friendlyBot = {
+    id: 'fbot1',
+    team: 'friendly',
+    pos: new Vector3(10, 0, 10),
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    parts: c.dummyParts()
+  };
+  const enemyKiller = { team: 'enemy', pos: new Vector3(0, 0, 0), dead: false };
+
+  c.MODES.survival.setup();
+  assert.strictEqual(c.modeRespawnQueue.length, 0);
+
+  // Kill friendly bot via killEnemy
+  c.killEnemy(friendlyBot, false, enemyKiller);
+  assert.strictEqual(friendlyBot.dead, true);
+  assert.strictEqual(c.modeRespawnQueue.length, 1, 'friendly bot death must queue mode respawn in Survival');
+  assert.strictEqual(c.modeRespawnQueue[0].actor, friendlyBot);
+  assert.strictEqual(c.modeRespawnQueue[0].timer, CORE.RESPAWN_DELAY);
+
+  // Update mode loop for 1.5 s: timer steps
+  c.MODES.survival.update(1.5);
+  assert.strictEqual(c.modeRespawnQueue.length, 1);
+  assert.strictEqual(c.modeRespawnQueue[0].timer, 1.5);
+
+  // Update mode loop for another 1.5 s: actor respawns and receives spawn protection
+  c.spawnPoints = [[0, 25]];
+  c.MODES.survival.update(1.5);
+  assert.strictEqual(c.modeRespawnQueue.length, 0, 'queue must clear when timer expires');
+  assert.strictEqual(friendlyBot.dead, false, 'actor must be revived upon respawn');
+  assert.strictEqual(friendlyBot.spawnProtectionT, CORE.SPAWN_PROTECTION_DURATION, 'respawned actor must receive spawn protection');
+});
+
+test('checkpoint serialization and defensive legacy loading for modeRespawnQueue and spawnProtectionT', () => {
+  // 1. Serialization via makeCheckpoint
+  const state = {
+    wave: 3, score: 1000, kills: 10, headshots: 2,
+    shotsFired: 50, shotsHit: 30,
+    health: 100, armor: 50, grenades: 2, credits: 500,
+    weapons: [{ gi: 0, ammo: 30, reserve: 90, up: null }],
+    spawnProtectionT: 1.8,
+    modeRespawnQueue: [
+      { timer: 2.5, actor: { id: 'bot1', team: 'friendly', kind: 1 } }
+    ]
+  };
+
+  const cp = CORE.makeCheckpoint(state);
+  assert.strictEqual(cp.spawnProtectionT, 1.8, 'makeCheckpoint must serialize spawnProtectionT');
+  assert.ok(Array.isArray(cp.modeRespawnQueue), 'makeCheckpoint must serialize modeRespawnQueue');
+  assert.strictEqual(cp.modeRespawnQueue.length, 1);
+  assert.strictEqual(cp.modeRespawnQueue[0].timer, 2.5);
+
+  // 2. Validation via validateCheckpoint
+  const valid = CORE.validateCheckpoint(cp);
+  assert.ok(valid);
+  assert.strictEqual(valid.spawnProtectionT, 1.8);
+  assert.strictEqual(valid.modeRespawnQueue.length, 1);
+  assert.strictEqual(valid.modeRespawnQueue[0].timer, 2.5);
+
+  // 3. Defensive loading for legacy checkpoint without these fields
+  const legacyRaw = {
+    v: 3,
+    wave: 2, score: 500, kills: 5, headshots: 1,
+    shotsFired: 20, shotsHit: 10,
+    health: 100, armor: 0, grenades: 2, credits: 100,
+    weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+  };
+  const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+  assert.ok(legacyLoaded);
+  assert.strictEqual(legacyLoaded.spawnProtectionT, 0, 'legacy checkpoint must default spawnProtectionT to 0');
+  assert.deepStrictEqual(legacyLoaded.modeRespawnQueue, [], 'legacy checkpoint must default modeRespawnQueue to []');
+});
+
+

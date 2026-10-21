@@ -1248,6 +1248,20 @@ const CORE = (function () {
       runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
+      spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
+      modeRespawnQueue: Array.isArray(state.modeRespawnQueue) ? state.modeRespawnQueue.map(function (entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        return {
+          timer: _isNum(entry.timer) ? entry.timer : 0,
+          actor: entry.actor ? {
+            id: entry.actor.id,
+            team: entry.actor.team,
+            kind: entry.actor.kind,
+            isPlayer: !!entry.actor.isPlayer,
+            spawnProtectionT: _isNum(entry.actor.spawnProtectionT) ? entry.actor.spawnProtectionT : 0
+          } : null
+        };
+      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: state.equipment && state.equipment.lethal || 'frag',
         tactical: state.equipment && state.equipment.tactical || null,
@@ -1333,6 +1347,20 @@ const CORE = (function () {
       weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
+      modeRespawnQueue: Array.isArray(raw.modeRespawnQueue) ? raw.modeRespawnQueue.map(function (e) {
+        if (!e || typeof e !== 'object') return null;
+        return {
+          timer: num(e.timer, 0, 60, 0),
+          actor: e.actor && typeof e.actor === 'object' ? {
+            id: typeof e.actor.id === 'string' ? e.actor.id.slice(0, 40) : undefined,
+            team: typeof e.actor.team === 'string' ? e.actor.team.slice(0, 20) : undefined,
+            kind: typeof e.actor.kind === 'number' ? e.actor.kind : undefined,
+            isPlayer: !!e.actor.isPlayer,
+            spawnProtectionT: num(e.actor.spawnProtectionT, 0, 60, 0)
+          } : null
+        };
+      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
         tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,
@@ -7164,13 +7192,24 @@ const CORE = (function () {
       score: _isNum(s.score) ? s.score : 0,
       kills: _isNum(s.kills) ? s.kills : 0,
       headshots: _isNum(s.headshots) ? s.headshots : 0,
-      credits: _isNum(s.credits) ? s.credits : 0
+      credits: _isNum(s.credits) ? s.credits : 0,
+      friendlyScore: _isNum(s.friendlyScore) ? s.friendlyScore : 0,
+      enemyScore: _isNum(s.enemyScore) ? s.enemyScore : 0,
+      targetScore: _isNum(s.targetScore) ? s.targetScore : 25,
+      timeLeft: _isNum(s.timeLeft) ? s.timeLeft : 0
     };
   }
 
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
+    if (modeId === 'tdm') {
+      const target = _isNum(s.targetScore) ? s.targetScore : 25;
+      if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
+          (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
+      if (_isNum(s.timeLeft) && s.timeLeft <= 0) return true;
+      return false;
+    }
     if (modeId === 'survival' || !modeId) {
       return !!(s.playerDead && !s.playerDowned);
     }
@@ -7203,12 +7242,17 @@ const CORE = (function () {
     return (_isNum(protectionT) ? protectionT : 0) > 0;
   }
 
+  // Friendly fire applies only when both actors are genuinely on the same identified team.
+  // Unknown or team-less actors (no team property, not player) are never assumed friendly.
   function isFriendlyFire(attacker, target) {
     if (!attacker || !target || attacker === target) return false;
-    const isPlayerA = !!(attacker.isPlayer || attacker.team === 'friendly' || (attacker.kind === undefined && target.kind !== undefined));
-    const isPlayerB = !!(target.isPlayer || target.team === 'friendly' || (target.kind === undefined && attacker.kind !== undefined));
-    const teamA = attacker.team || (isPlayerA ? 'friendly' : 'enemy');
-    const teamB = target.team || (isPlayerB ? 'friendly' : 'enemy');
+    const teamA = (typeof attacker.team === 'string' && attacker.team.length > 0)
+      ? attacker.team
+      : (attacker.isPlayer ? 'friendly' : null);
+    const teamB = (typeof target.team === 'string' && target.team.length > 0)
+      ? target.team
+      : (target.isPlayer ? 'friendly' : null);
+    if (!teamA || !teamB) return false;
     return teamA === teamB;
   }
 
