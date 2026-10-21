@@ -1912,10 +1912,19 @@ function createFullMatchContext(overrides = {}) {
     powerUntil: { double: -99, instakill: -99 },
     runId: 0,
     STEADY_MAX: 5,
+    _settings: null,
     getSetting: k => {
+      if (c && c._settings && k in c._settings) return c._settings[k];
       if (k === 'tdmTeamSize') return 6;
       if (k === 'tdmScoreLimit') return 75;
+      if (k === 'muted') return false;
+      if (k === 'musicVolume') return 0.5;
+      if (k === 'masterVolume') return 0.9;
       return 1;
+    },
+    setSetting: (k, v) => {
+      if (!c._settings) c._settings = {};
+      c._settings[k] = v;
     },
     adsAmount: 0,
     statsSummaryHtml: () => '',
@@ -2931,6 +2940,126 @@ test('regression [P0]: corpse and live-rig resource ownership isolates lifecycle
 
   assert.strictEqual(totalOldGeosDisposed, totalOldGeosCollected, 'all old cycle geometries must be disposed exactly once');
   assert.strictEqual(cyclicBot.parts.group.parent, c.scene, 'cyclic bot live rig must be in scene after 5 cycles');
+});
+
+test('regression [P1]: actual showMatchEndScreen and restartMatch lifecycle restarts audio consistently with settings and preserves TDM correctness', () => {
+  const c = createFullMatchContext();
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+
+  let musicStops = 0;
+  let musicStarts = 0;
+  let resets = 0;
+  c.stopMusic = () => { musicStops++; };
+  c.startMusic = () => { musicStarts++; };
+  const origResetGame = c.resetGame;
+  c.resetGame = function () {
+    resets++;
+    return origResetGame.apply(this, arguments);
+  };
+
+  // Complete a match (friendly victory 75 - 60)
+  c.MODES.tdm.friendlyScore = 75;
+  c.MODES.tdm.enemyScore = 60;
+  c.gameEnded = true;
+
+  // 1. showMatchEndScreen lifecycle: stops music and opens end screen
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1, 'showMatchEndScreen must stop music');
+  assert.strictEqual(musicStarts, 0, 'showMatchEndScreen must not start music');
+  assert.strictEqual(resets, 0, 'showMatchEndScreen must not reset game');
+  assert.strictEqual(c.$id('match-end-screen').style.display, 'flex', 'match-end-screen must be displayed');
+  assert.strictEqual(c.$id('match-end-title').textContent, 'VICTORY', 'end screen title must be VICTORY');
+
+  // 2. restartMatch lifecycle: restarts gameplay and restarts audio when enabled
+  c.restartMatch();
+  assert.strictEqual(musicStops, 1, 'music stops must remain 1 after restart');
+  assert.strictEqual(resets, 1, 'game resets must be 1 after restart');
+  assert.strictEqual(musicStarts, 1, 'end-screen restart must restart music when audio is enabled');
+  assert.strictEqual(c.$id('match-end-screen').style.display, 'none', 'match-end-screen must be hidden');
+  assert.strictEqual(c.started, true, 'started must be true after restart');
+  assert.strictEqual(c.gameEnded, false, 'gameEnded must be false after restart');
+  assert.strictEqual(c.paused, false, 'paused must be false after restart');
+
+  // Roster and score correctness
+  assert.strictEqual(c.getActiveMode().id, 'tdm', 'activeMode must remain tdm');
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 0, 'friendlyScore must reset to 0');
+  assert.strictEqual(c.MODES.tdm.enemyScore, 0, 'enemyScore must reset to 0');
+  assert.strictEqual(c.enemies.length, 11, 'enemies roster must have exactly 11 bots');
+  assert.strictEqual(c.enemies.filter(e => e.team === 'friendly').length, 5, 'must have exactly 5 friendly bots');
+  assert.strictEqual(c.enemies.filter(e => e.team === 'enemy').length, 6, 'must have exactly 6 enemy bots');
+  assert.strictEqual(c.player.dead, false, 'player must not be dead');
+  assert.strictEqual(c.player.lastAttacker, null, 'player lastAttacker must be null');
+  assert.strictEqual(c.player.downedBy, null, 'player downedBy must be null');
+  const sb = c.MODES.tdm.scoreboard();
+  assert.strictEqual(sb.friendlyTeam.members.length, 6, 'scoreboard must have 6 friendly members');
+  assert.strictEqual(sb.enemyTeam.members.length, 6, 'scoreboard must have 6 enemy members');
+
+  // 3. Audio settings gating: avoid audio starting when disabled/muted
+  // 3a. Muted audio
+  musicStarts = 0;
+  musicStops = 0;
+  resets = 0;
+  c.setSetting('muted', true);
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1);
+  c.restartMatch();
+  assert.strictEqual(resets, 1);
+  assert.strictEqual(musicStarts, 0, 'restartMatch must NOT start audio when muted is true');
+
+  // 3b. Zero music volume
+  musicStarts = 0;
+  musicStops = 0;
+  resets = 0;
+  c.setSetting('muted', false);
+  c.setSetting('musicVolume', 0);
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1);
+  c.restartMatch();
+  assert.strictEqual(resets, 1);
+  assert.strictEqual(musicStarts, 0, 'restartMatch must NOT start audio when musicVolume is 0');
+
+  // 3c. Zero master volume
+  musicStarts = 0;
+  musicStops = 0;
+  resets = 0;
+  c.setSetting('musicVolume', 0.5);
+  c.setSetting('masterVolume', 0);
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1);
+  c.restartMatch();
+  assert.strictEqual(resets, 1);
+  assert.strictEqual(musicStarts, 0, 'restartMatch must NOT start audio when masterVolume is 0');
+
+  // 3d. Audio re-enabled
+  musicStarts = 0;
+  musicStops = 0;
+  resets = 0;
+  c.setSetting('masterVolume', 0.9);
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1);
+  c.restartMatch();
+  assert.strictEqual(resets, 1);
+  assert.strictEqual(musicStarts, 1, 'restartMatch must restart music when audio settings are enabled');
+
+  // 4. Button click integration: clicking btn-match-restart invokes real restartMatch
+  musicStarts = 0;
+  musicStops = 0;
+  resets = 0;
+  c.showMatchEndScreen(c.MODES.tdm);
+  assert.strictEqual(musicStops, 1);
+  c.$id('btn-match-restart').click();
+  assert.strictEqual(resets, 1, 'clicking btn-match-restart must reset game');
+  assert.strictEqual(musicStarts, 1, 'clicking btn-match-restart must restart music');
+  assert.strictEqual(c.$id('match-end-screen').style.display, 'none');
+
+  // 5. Idempotent restarts preserve mode and roster stability
+  c.restartMatch();
+  c.restartMatch();
+  assert.strictEqual(c.getActiveMode().id, 'tdm');
+  assert.strictEqual(c.enemies.length, 11, 'repeated restarts must not duplicate bots');
+  assert.strictEqual(c.enemies.filter(e => e.team === 'friendly').length, 5);
+  assert.strictEqual(c.enemies.filter(e => e.team === 'enemy').length, 6);
 });
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v171 — Match end-screen restart audio lifecycle regression repair and audio settings gating
+
+- Match end-screen restart audio lifecycle repair in `src/70_main.js`:
+  - Fixed audio desynchronization where completing a match called `showMatchEndScreen()` (stopping music via `stopMusic()`), and restarting the match via `restartMatch()` or `#btn-match-restart` restarted gameplay without restarting music.
+  - `restartMatch()` now restarts music consistently with existing audio settings (`!getSetting('muted') && getSetting('musicVolume') > 0 && getSetting('masterVolume') > 0`), ensuring audio starts only when enabled.
+  - Avoids starting audio when muted or when volume is zero.
+  - Updates match HUD (`updateMatchHud(activeMode)`) on restart for non-survival modes and preserves TDM game mode, score reset, and 6v6 roster correctness.
+  - Added enduring actual-production end-screen -> restart lifecycle regression test in `tests/test_modes_and_teams.js` exercising real functions without replacement restart stubs.
+
 ## v170 — Bot rig reconstruction upon respawn, restart idempotency, match completion freeze, Survival resume mode restoration, sentry hostility targeting, and spawn point candidate scoring
 
 - Rebuild live rig upon bot respawn and isolate corpse vs live-rig resource ownership in `src/35_modes.js`, `src/40_enemies.js`, and `src/45_ragdoll.js`:

@@ -960,6 +960,14 @@ function restartMatch() {
   gameEnded = false;
   started = true;
   resetGame();
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && activeMode.id !== 'survival') {
+    if (typeof updateMatchHud === 'function') updateMatchHud(activeMode);
+  }
+  const audioDisabled = typeof getSetting === 'function' && (getSetting('muted') || getSetting('musicVolume') <= 0 || getSetting('masterVolume') <= 0);
+  if (!audioDisabled && typeof startMusic === 'function') {
+    startMusic();
+  }
   if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
     try { canvas.requestPointerLock(); } catch (e) {}
   }
