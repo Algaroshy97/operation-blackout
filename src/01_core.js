@@ -406,7 +406,10 @@ const CORE = (function () {
     postProcessing: { type: 'enum', def: 'auto', values: ['auto', 'off', 'on'], label: 'Bloom & colour grading', help: 'Applies now. On enables extra fullscreen GPU passes even on touch devices or low quality. Off frees render targets.' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
-    showFps: { type: 'bool', def: true, label: 'Show FPS counter' }
+    showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
+    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm'], label: 'Game mode' },
+    tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
+    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' }
   };
 
   function defaultSettings() {
@@ -1249,19 +1252,6 @@ const CORE = (function () {
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
       spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
-      modeRespawnQueue: Array.isArray(state.modeRespawnQueue) ? state.modeRespawnQueue.map(function (entry) {
-        if (!entry || typeof entry !== 'object') return null;
-        return {
-          timer: _isNum(entry.timer) ? entry.timer : 0,
-          actor: entry.actor ? {
-            id: entry.actor.id,
-            team: entry.actor.team,
-            kind: entry.actor.kind,
-            isPlayer: !!entry.actor.isPlayer,
-            spawnProtectionT: _isNum(entry.actor.spawnProtectionT) ? entry.actor.spawnProtectionT : 0
-          } : null
-        };
-      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: state.equipment && state.equipment.lethal || 'frag',
         tactical: state.equipment && state.equipment.tactical || null,
@@ -1348,19 +1338,6 @@ const CORE = (function () {
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
       spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
-      modeRespawnQueue: Array.isArray(raw.modeRespawnQueue) ? raw.modeRespawnQueue.map(function (e) {
-        if (!e || typeof e !== 'object') return null;
-        return {
-          timer: num(e.timer, 0, 60, 0),
-          actor: e.actor && typeof e.actor === 'object' ? {
-            id: typeof e.actor.id === 'string' ? e.actor.id.slice(0, 40) : undefined,
-            team: typeof e.actor.team === 'string' ? e.actor.team.slice(0, 20) : undefined,
-            kind: typeof e.actor.kind === 'number' ? e.actor.kind : undefined,
-            isPlayer: !!e.actor.isPlayer,
-            spawnProtectionT: num(e.actor.spawnProtectionT, 0, 60, 0)
-          } : null
-        };
-      }).filter(function (e) { return e !== null; }) : [],
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
         tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,

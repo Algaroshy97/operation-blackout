@@ -67,14 +67,29 @@ function defaultOnRespawn(actor, pt) {
     actor.dead = false;
     actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
     actor.spawnProtectionT = duration;
+    if (typeof updateHudHealth === 'function') updateHudHealth();
+    if (typeof updateHudAmmo === 'function') updateHudAmmo();
   } else {
     if (pt && actor.pos) actor.pos.set(pt[0], 0, pt[1]);
     actor.dead = false;
     actor.health = actor.maxHealth || 100;
     actor.spawnProtectionT = duration;
+    actor.state = 'idle';
+    actor.stateT = 0;
+    actor.attackT = 0;
+    actor.target = null;
+    if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
     if (actor.parts && actor.parts.group) {
-      if (actor.pos) actor.parts.group.position.copy(actor.pos);
-      if (typeof scene !== 'undefined' && scene.add && !actor.parts.group.parent) scene.add(actor.parts.group);
+      if (actor.pos && actor.parts.group.position && typeof actor.parts.group.position.copy === 'function') {
+        actor.parts.group.position.copy(actor.pos);
+      }
+      if (typeof scene !== 'undefined' && scene && scene.add && !actor.parts.group.parent) scene.add(actor.parts.group);
+    }
+    // Re-enter lexical enemies roster
+    if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+      if (!enemies.includes(actor)) {
+        enemies.push(actor);
+      }
     }
   }
 }
@@ -153,20 +168,72 @@ MODES.survival = {
 MODES.tdm = {
   id: 'tdm',
   name: 'Team Deathmatch',
-  targetScore: 25,
-  matchDuration: 300,
+  targetScore: 75,
+  matchDuration: 600,
   friendlyScore: 0,
   enemyScore: 0,
-  timeLeft: 300,
+  timeLeft: 600,
+  teamSize: 6,
   setup: function () {
     clearModeRespawns();
+    if (typeof getSetting === 'function') {
+      const sl = getSetting('tdmScoreLimit');
+      if (typeof sl === 'number' && sl > 0) this.targetScore = sl;
+      const ts = getSetting('tdmTeamSize');
+      if (typeof ts === 'number' && ts > 0) this.teamSize = ts;
+    }
     this.friendlyScore = 0;
     this.enemyScore = 0;
     this.timeLeft = this.matchDuration;
     if (typeof gameEnded !== 'undefined') gameEnded = false;
+    const p = (typeof player !== 'undefined') ? player : null;
+    if (p) {
+      p.team = 'friendly';
+      p.isPlayer = true;
+      p.kills = 0;
+      p.deaths = 0;
+      p.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+    }
+    // Production 6v6 setup: player + (teamSize - 1) friendly bots vs teamSize enemy bots
+    const count = this.teamSize || 6;
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : ((typeof spawnPoints !== 'undefined' && Array.isArray(spawnPoints)) ? spawnPoints : []);
+    const getSpawnPt = function (idx) {
+      if (sp && sp.length > 0) return sp[idx % sp.length];
+      return [(idx % 4) * 6 - 9, ((idx / 4) | 0) * 6 + 10];
+    };
+    if (typeof spawnEnemy === 'function') {
+      for (let i = 0; i < count - 1; i++) {
+        const pt = getSpawnPt(i);
+        const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+        const bot = spawnEnemy(kind, pt[0], pt[1], { team: 'friendly', spawnProtection: true });
+        if (bot) {
+          bot.id = 'ally_' + (i + 1);
+          bot.name = 'ALLY ' + (i + 1);
+          bot.kills = 0;
+          bot.deaths = 0;
+        }
+      }
+      for (let i = 0; i < count; i++) {
+        const pt = getSpawnPt(i + count);
+        const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+        const bot = spawnEnemy(kind, pt[0], pt[1], { team: 'enemy', spawnProtection: true });
+        if (bot) {
+          bot.id = 'enemy_' + (i + 1);
+          bot.name = 'HOSTILE ' + (i + 1);
+          bot.kills = 0;
+          bot.deaths = 0;
+        }
+      }
+    }
+    if (typeof document !== 'undefined') {
+      const endScreen = document.getElementById('match-end-screen');
+      if (endScreen) endScreen.style.display = 'none';
+    }
     updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
+    if (killer) killer.kills = (killer.kills || 0) + 1;
+    if (victim) victim.deaths = (victim.deaths || 0) + 1;
     const killerTeam = (killer && killer.team) ? killer.team : ((killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'friendly' : 'enemy');
     if (killerTeam === 'friendly') {
       this.friendlyScore++;
@@ -174,14 +241,14 @@ MODES.tdm = {
       this.enemyScore++;
     }
     if (typeof pushKillfeed === 'function') {
-      const killerName = (killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT');
-      const victimName = (victim && (victim.isPlayer || victim === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((victim && victim.team === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT');
+      const killerName = (killer && (killer.isPlayer || killer === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((killer && killer.name) ? killer.name : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
+      const victimName = (victim && (victim.isPlayer || victim === (typeof player !== 'undefined' ? player : null))) ? 'YOU' : ((victim && victim.name) ? victim.name : ((victim && victim.team === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
       const color = (killerTeam === 'friendly') ? '#38b6ff' : '#ff4030';
       pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
     }
     updateMatchHud(this);
-    if (this.isOver() && typeof gameEnded !== 'undefined') {
-      gameEnded = true;
+    if (this.isOver()) {
+      this.endMatch();
     }
   },
   onDeath: function (victim, killer) {
@@ -190,6 +257,10 @@ MODES.tdm = {
     }
   },
   update: function (dt) {
+    if (this.isOver()) {
+      if (typeof gameEnded !== 'undefined' && !gameEnded) this.endMatch();
+      return;
+    }
     if (this.timeLeft > 0) {
       this.timeLeft = Math.max(0, this.timeLeft - dt);
     }
@@ -198,28 +269,56 @@ MODES.tdm = {
     const cols = (typeof colliders !== 'undefined') ? colliders : [];
     updateModeRespawns(dt, sp, hostiles, cols);
     updateMatchHud(this);
-    if (this.isOver() && typeof gameEnded !== 'undefined') {
-      gameEnded = true;
+    if (this.isOver()) {
+      this.endMatch();
     }
   },
   scoreboard: function () {
-    return CORE.modeScoreboardData('tdm', {
+    const p = (typeof player !== 'undefined') ? player : null;
+    const allEnemies = (typeof enemies !== 'undefined' && Array.isArray(enemies)) ? enemies : [];
+    const friendlyMembers = [];
+    if (p) {
+      friendlyMembers.push({
+        id: 'player',
+        name: 'YOU',
+        isPlayer: true,
+        team: 'friendly',
+        kills: p.kills || (typeof kills !== 'undefined' ? kills : 0),
+        deaths: p.deaths || 0
+      });
+    }
+    const enemyMembers = [];
+    for (let i = 0; i < allEnemies.length; i++) {
+      const e = allEnemies[i];
+      if (!e) continue;
+      const entry = {
+        id: e.id || ('bot_' + i),
+        name: e.name || (e.team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1))),
+        isPlayer: false,
+        team: e.team || 'enemy',
+        kills: e.kills || 0,
+        deaths: e.deaths || 0
+      };
+      if (e.team === 'friendly') friendlyMembers.push(entry);
+      else enemyMembers.push(entry);
+    }
+    friendlyMembers.sort(function (a, b) { return b.kills - a.kills; });
+    enemyMembers.sort(function (a, b) { return b.kills - a.kills; });
+    return {
+      mode: 'tdm',
       friendlyScore: this.friendlyScore,
       enemyScore: this.enemyScore,
       targetScore: this.targetScore,
       timeLeft: this.timeLeft,
-      score: typeof score !== 'undefined' ? score : 0,
-      kills: typeof kills !== 'undefined' ? kills : 0,
-      headshots: typeof headshots !== 'undefined' ? headshots : 0
-    });
+      friendlyTeam: { name: 'FRIENDLY', score: this.friendlyScore, members: friendlyMembers },
+      enemyTeam: { name: 'ENEMY', score: this.enemyScore, members: enemyMembers }
+    };
   },
   isOver: function () {
-    return CORE.isModeOver('tdm', {
-      friendlyScore: this.friendlyScore,
-      enemyScore: this.enemyScore,
-      targetScore: this.targetScore,
-      timeLeft: this.timeLeft,
-      gameEnded: typeof gameEnded !== 'undefined' ? !!gameEnded : false
-    });
+    return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
+  },
+  endMatch: function () {
+    if (typeof gameEnded !== 'undefined') gameEnded = true;
+    if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
   }
 };

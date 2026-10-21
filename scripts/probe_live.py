@@ -129,10 +129,10 @@ def main() -> int:
             const isStarted = typeof started !== 'undefined' && started === true;
             const notPaused = typeof paused !== 'undefined' && paused === false;
             const isAlive = typeof player !== 'undefined' && player && !player.dead && player.health > 0;
-            const protActive = typeof player !== 'undefined' && player && player.spawnProtectionT > 0;
+            const zeroProtection = typeof player !== 'undefined' && player && player.spawnProtectionT === 0;
             const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
             const isSurvival = activeMode && activeMode.id === 'survival';
-            return isStarted && notPaused && isAlive && protActive && isSurvival;
+            return isStarted && notPaused && isAlive && zeroProtection && isSurvival;
         }""")
         checks.append(("survival-deploy-live-state", bool(surv_deploy)))
         telemetry_snapshot = page.evaluate("""() => {
@@ -5229,10 +5229,7 @@ def main() -> int:
             savedState.health = 90;
             savedState.armor = 30;
             savedState.credits = 800;
-            savedState.spawnProtectionT = 1.6;
-            savedState.modeRespawnQueue = [
-                { timer: 2.0, actor: { id: 'bot_test', team: 'friendly', kind: 1 } }
-            ];
+            savedState.spawnProtectionT = 0;
             saveCheckpoint(savedState);
             const loaded = loadCheckpoint();
             const identityOk = loaded &&
@@ -5243,24 +5240,22 @@ def main() -> int:
                 loaded.health === 90 &&
                 loaded.armor === 30 &&
                 loaded.credits === 800 &&
-                loaded.spawnProtectionT === 1.6 &&
-                Array.isArray(loaded.modeRespawnQueue) &&
-                loaded.modeRespawnQueue.length === 1 &&
-                loaded.modeRespawnQueue[0].timer === 2.0;
+                loaded.spawnProtectionT === 0 &&
+                loaded.modeRespawnQueue === undefined;
 
-            // Also test defensive loading for legacy save missing these fields
+            // Also test defensive loading for legacy save with detached stubs
             const legacyRaw = {
                 v: 3,
                 wave: 2, score: 500, kills: 5, headshots: 1,
                 shotsFired: 20, shotsHit: 10,
                 health: 100, armor: 0, grenades: 2, credits: 100,
-                weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+                weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }],
+                modeRespawnQueue: [{ timer: 2.0, actor: { id: 'bot_test', team: 'friendly', kind: 1 } }]
             };
             const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
             const defensiveOk = legacyLoaded &&
                 legacyLoaded.spawnProtectionT === 0 &&
-                Array.isArray(legacyLoaded.modeRespawnQueue) &&
-                legacyLoaded.modeRespawnQueue.length === 0;
+                legacyLoaded.modeRespawnQueue === undefined;
 
             return { identityOk: identityOk, defensiveOk: defensiveOk };
         }""")
@@ -5345,65 +5340,184 @@ def main() -> int:
                             fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
                             fb_check["playerImmuneToAlly"])))
 
-        # 113l) Short TDM end-to-end match lifecycle: HUD score bar, kill feed, match timer, respawns
-        tdm_check = page.evaluate("""() => {
-            const savedMode = activeModeId;
-            setActiveMode('tdm');
-            const mode = getActiveMode();
-            mode.setup();
-            mode.targetScore = 2; // short 2-kill acceptance match
+        # Previous acceptance contexts have finished; retire their render loops
+        # before the independent TDM and graphics UI runs compete for software GPU time.
+        for finished_context in list(browser.contexts):
+            finished_context.close()
 
-            // Verify HUD elements are visible and styled
+        # 113l) Real TDM deploy through UI, real 6v6 teams, HUD/scoreboard, full match lifecycle, result & restart
+        # Acceptance check isolated in a fresh page/context to prevent prior probes' pointer-lock and DOM mutations
+        # from interfering with normal UI deployment via real user clicks.
+        tdm_page = browser.new_page(viewport={"width": 1280, "height": 720})
+        tdm_page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        tdm_page.on("pageerror", lambda e: console_errors.append(str(e)))
+        tdm_page.goto(args.build.resolve().as_uri())
+        wait_until(tdm_page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+
+        tdm_page.click("#btn-start")
+        tdm_page.wait_for_selector("#gun-select", state="visible")
+        tdm_page.click("#mode-btn-tdm")
+        tdm_page.click("#tdm-score-2")
+        tdm_page.click("#gun-cards .gun-card:not(.locked)")
+        tdm_page.wait_for_timeout(200)
+        tdm_page.click("#gun-cards .gun-card:not(.locked)")
+        tdm_page.wait_for_timeout(300)
+
+        tdm_check = tdm_page.evaluate("""() => {
+            const mode = getActiveMode();
+            const isTdm = mode && mode.id === 'tdm';
+            const friendlies = enemies.filter(e => e.team === 'friendly');
+            const hostiles = enemies.filter(e => e.team === 'enemy');
+            const totalRosterOk = friendlies.length === 5 && hostiles.length === 6 && player.team === 'friendly';
+            const targetScoreOk = mode && mode.targetScore === 2;
+
             const hudEl = document.getElementById('match-hud');
-            const scoreBarEl = document.getElementById('match-score-bar');
-            const timerEl = document.getElementById('match-timer');
-            const friendlyScoreEl = document.getElementById('match-score-friendly');
-            const enemyScoreEl = document.getElementById('match-score-enemy');
             const hudVisible = hudEl && getComputedStyle(hudEl).display !== 'none';
+            const timerEl = document.getElementById('match-timer');
             const initialTimer = timerEl ? timerEl.textContent : '';
 
-            // Step 1: Kill 1 by player against hostile bot
-            const hostileBot = { team: 'enemy', isPlayer: false, dead: false, maxHealth: 100, pos: new THREE.Vector3(0, 0, 0) };
-            mode.onKill(hostileBot, true, player);
-            mode.onDeath(hostileBot, player);
+            // Verify Tab scoreboard
+            setScoreboardVisible(true);
+            const sbEl = document.getElementById('match-scoreboard');
+            const sbVisible = sbEl && getComputedStyle(sbEl).display !== 'none';
+            const sbText = sbEl ? sbEl.textContent : '';
+            const sbHasContent = sbText.includes('ALLIES') && sbText.includes('HOSTILES') && sbText.includes('YOU');
+            setScoreboardVisible(false);
 
+            // Step 1: Default spawn immunity test:
+            // Hostile bot spawns with spawn protection (2s duration). Hostile damage must wait/expire
+            // protection or actually shoot to break it before killing.
+            const targetHostile = hostiles[0];
+            const initialHp = targetHostile.health;
+            const protectedInitially = targetHostile.spawnProtectionT > 0;
+            damageEnemy(targetHostile, 45, targetHostile.pos, false, false, 'AR', player);
+            const immuneWhileProtected = targetHostile.health === initialHp && !targetHostile.dead;
+
+            // Wait/expire protection naturally via enemy update dt
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+            const protectionExpired = targetHostile.spawnProtectionT === 0;
+
+            // Now inflict lethal damage to eliminate hostile
+            damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', player);
+            const hostileDied = targetHostile.dead === true;
+
+            // updateEnemies drops corpse from enemies array
+            updateEnemies(1 / 60);
+            const corpseDropped = !enemies.includes(targetHostile);
+            const queueHasRespawn = modeRespawnQueue.some(e => e.actor === targetHostile);
             const score1Friendly = mode.friendlyScore === 1;
-            const queueHasRespawn = modeRespawnQueue.length === 1;
-            const kfItem = document.querySelector('#killfeed .killfeed-item');
-            const hasKillfeed = !!kfItem && kfItem.textContent.includes('eliminated');
 
-            // Step 2: Update loop steps timer and respawns
+            // Verify killfeed has genuine event
+            const kfEl = document.getElementById('killfeed');
+            const killfeedOk = !!(kfEl && kfEl.textContent && kfEl.textContent.includes('eliminated'));
+
+            // Step 2: Update loop steps timer and respawns actor back into enemies
             mode.update(1.0);
-            const timerStepped = mode.timeLeft < 300;
+            mode.update(1.0);
+            mode.update(1.1);
+            const hostileRevived = targetHostile.dead === false;
+            const hostileReentered = enemies.includes(targetHostile);
+            const respawnProtected = targetHostile.spawnProtectionT > 0;
+
+            // Expire protection on respawned hostile
+            updateEnemies(1.0);
+            updateEnemies(1.1);
 
             // Step 3: Kill 2 reaches targetScore (2), match completes
-            mode.onKill(hostileBot, false, player);
+            damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', player);
+            const score2Friendly = mode.friendlyScore === 2;
             const isMatchOver = mode.isOver();
 
-            // Restore survival mode and clean up
-            setActiveMode(savedMode);
-            getActiveMode().setup();
+            // Run normal update loop path to trigger match end and UI settlement
+            mode.update(1 / 60);
+            const gameEndedOk = gameEnded === true;
+            const endScreen = document.getElementById('match-end-screen');
+            const endScreenVisible = endScreen && getComputedStyle(endScreen).display !== 'none';
+            const endTitle = document.getElementById('match-end-title');
+            const titleOk = endTitle && endTitle.textContent === 'VICTORY';
+
+            // Step 4: Verify restart lifecycle via real restart button
+            const restartBtn = document.getElementById('btn-match-restart');
+            if (restartBtn) restartBtn.click();
+            const restartedMode = getActiveMode();
+            const restartedOk = started === true && !gameEnded && restartedMode.friendlyScore === 0;
+
+            // Step 5: Return to menu and restore standard settings on cleanup
+            quitMatchToMenu();
+            if (typeof setSetting === 'function') {
+                setSetting('tdmScoreLimit', 75);
+                setSetting('tdmTeamSize', 6);
+                setSetting('gameMode', 'survival');
+            }
+            if (MODES.tdm) {
+                MODES.tdm.targetScore = 75;
+                MODES.tdm.teamSize = 6;
+            }
+            setActiveMode('survival');
+
+            const menuVisible = document.getElementById('start-screen').style.display !== 'none';
+            const settingsRestored = (typeof getSetting === 'function') &&
+                                     getSetting('tdmScoreLimit') === 75 &&
+                                     getSetting('tdmTeamSize') === 6 &&
+                                     getSetting('gameMode') === 'survival';
 
             return {
+                isTdm: isTdm,
+                totalRosterOk: totalRosterOk,
+                targetScoreOk: targetScoreOk,
                 hudVisible: hudVisible,
                 hasTimer: !!initialTimer,
-                score1Friendly: score1Friendly,
+                sbVisible: sbVisible,
+                sbHasContent: sbHasContent,
+                protectedInitially: protectedInitially,
+                immuneWhileProtected: immuneWhileProtected,
+                protectionExpired: protectionExpired,
+                hostileDied: hostileDied,
+                corpseDropped: corpseDropped,
                 queueHasRespawn: queueHasRespawn,
-                hasKillfeed: hasKillfeed,
-                timerStepped: timerStepped,
-                isMatchOver: isMatchOver
+                score1Friendly: score1Friendly,
+                killfeedOk: killfeedOk,
+                hostileRevived: hostileRevived,
+                hostileReentered: hostileReentered,
+                respawnProtected: respawnProtected,
+                score2Friendly: score2Friendly,
+                isMatchOver: isMatchOver,
+                gameEndedOk: gameEndedOk,
+                endScreenVisible: endScreenVisible,
+                titleOk: titleOk,
+                restartedOk: restartedOk,
+                menuVisible: menuVisible,
+                settingsRestored: settingsRestored
             };
         }""")
+        tdm_page.close()
+
         checks.append(("tdm-end-to-end-match-lifecycle",
-                       bool(tdm_check["hudVisible"] and tdm_check["hasTimer"] and
-                            tdm_check["score1Friendly"] and tdm_check["queueHasRespawn"] and
-                            tdm_check["hasKillfeed"] and tdm_check["timerStepped"] and
-                            tdm_check["isMatchOver"])))
+                       bool(tdm_check["isTdm"] and tdm_check["totalRosterOk"] and
+                            tdm_check["targetScoreOk"] and
+                            tdm_check["hudVisible"] and tdm_check["hasTimer"] and
+                            tdm_check["sbVisible"] and tdm_check["sbHasContent"] and
+                            tdm_check["protectedInitially"] and
+                            tdm_check["immuneWhileProtected"] and
+                            tdm_check["protectionExpired"] and
+                            tdm_check["hostileDied"] and tdm_check["corpseDropped"] and
+                            tdm_check["queueHasRespawn"] and tdm_check["score1Friendly"] and
+                            tdm_check["killfeedOk"] and
+                            tdm_check["hostileRevived"] and tdm_check["hostileReentered"] and
+                            tdm_check["respawnProtected"] and
+                            tdm_check["score2Friendly"] and
+                            tdm_check["isMatchOver"] and
+                            tdm_check["gameEndedOk"] and
+                            tdm_check["endScreenVisible"] and
+                            tdm_check["titleOk"] and
+                            tdm_check["restartedOk"] and
+                            tdm_check["menuVisible"] and
+                            tdm_check["settingsRestored"])))
 
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
-        # Previous acceptance contexts have finished; retire their render loops
-        # before the independent graphics UI run competes for software GPU time.
+        # Retire TDM context so graphics run is also isolated before competing for software GPU time.
         for finished_context in list(browser.contexts):
             finished_context.close()
         probe_graphics(browser, args.build.resolve().as_uri(),

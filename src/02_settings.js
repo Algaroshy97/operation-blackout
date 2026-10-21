@@ -193,6 +193,7 @@ function setAttachment(weaponIndex, slot, key) {
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
 function saveCheckpoint(state) {
+  if (typeof activeModeId !== 'undefined' && activeModeId !== 'survival') return false;
   state.savedAt = Date.now();
   return storageSet(STORE_KEY_SAVE, CORE.makeCheckpoint(state));
 }

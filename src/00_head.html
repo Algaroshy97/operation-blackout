@@ -202,13 +202,13 @@
   #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
   #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
-  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
+  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen,#match-end-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
   /* A 15-wave run ends on one of these, and a landscape phone is ~360px tall while the
      victory screen is ~430px of content. Plain `justify-content:center` clips the
      overflow at BOTH ends and leaves it unreachable — the title and MAIN MENU were
      scrolled off with no way back. `safe center` centres only while it fits and
      top-aligns once it does not; the plain `center` before it is the fallback. */
-  #pause-menu,#death-screen,#start-screen,#victory-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
+  #pause-menu,#death-screen,#start-screen,#victory-screen,#match-end-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
   #start-screen{display:flex}
   #menu-emblem{display:block;margin:0 auto 14px auto;width:112px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.75))}
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
@@ -524,11 +524,19 @@
     </div>
   </div>
 </div>
-<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
+<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="mode-row" style="display:flex;gap:8px;margin-bottom:8px"></div><div id="diff-row"></div><div id="tdm-settings-row" style="display:none;gap:12px;margin-bottom:8px;align-items:center"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn fullscreen-btn" id="btn-fullscreen-pause">FULL SCREEN</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
 <div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser. On mobile, ADS BUTTON FOR ROTATION lets the FIRE button aim while held and dragged; turn it off for a fixed right-fire perspective.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
 <div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-endless">CONTINUE — ENDLESS</div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
+<div id="match-end-screen">
+  <h2 id="match-end-title" style="font-size:44px;letter-spacing:10px;font-weight:900;margin:0 0 10px">VICTORY</h2>
+  <div id="match-end-scores" style="font-size:32px;font-weight:900;letter-spacing:4px;margin-bottom:12px">0 — 0</div>
+  <div class="end-stats" id="match-end-stats" style="margin:8px 0 20px;color:rgba(255,255,255,.85);font-size:15px;text-align:center;line-height:1.8"></div>
+  <div class="menu-btn" id="btn-match-restart">RESTART MATCH</div>
+  <div class="menu-btn" id="btn-match-quit">MAIN MENU</div>
+</div>
+<div id="match-scoreboard" class="hud" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:45;pointer-events:none"></div>
 <div id="fps-counter" class="hud"></div>

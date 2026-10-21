@@ -399,7 +399,8 @@ function createCombatContext(overrides = {}) {
     started: true,
     paused: false,
     runId: 1,
-    getActiveMode: () => c.MODES.survival,
+    activeModeId: 'survival',
+    getActiveMode: () => (c.MODES && c.MODES[c.activeModeId]) || (c.MODES && c.MODES.survival) || null,
     MODES: {
       survival: {
         id: 'survival',
@@ -413,6 +414,7 @@ function createCombatContext(overrides = {}) {
 
   const text = source('40_enemies.js');
   vm.runInContext(text, c);
+  c.enemies = vm.runInContext('enemies', c);
   return c;
 }
 
@@ -1352,7 +1354,7 @@ test('CORE.isFriendlyFire heuristic: unknown and team-less hostiles are not trea
 });
 
 test('spawn protection reachable on production deploy and wave spawn paths', () => {
-  // 1. Production player definition in 20_player.js must initialize spawnProtectionT = 2.0 (CORE.SPAWN_PROTECTION_DURATION)
+  // 1. Production player definition in 20_player.js must initialize spawnProtectionT = 0 (Survival deploy contract: no match immunity)
   const playerSrc = source('20_player.js');
   const pContext = vm.createContext({
     CORE,
@@ -1364,94 +1366,322 @@ test('spawn protection reachable on production deploy and wave spawn paths', () 
     window: {}
   });
   const playerObj = vm.runInContext(playerSrc + '; player;', pContext);
-  assert.strictEqual(playerObj.spawnProtectionT, CORE.SPAWN_PROTECTION_DURATION, 'player must have initial 2s spawn protection on deploy');
+  assert.strictEqual(playerObj.spawnProtectionT, 0, 'player must have 0 spawn protection on Survival deploy');
 
-  // 2. Wave enemy spawn caller in 60_hud_waves.js must pass spawnProtection: true
+  // 2. Wave enemy spawn caller in 60_hud_waves.js must NOT pass spawnProtection: true
   const hudWavesSrc = source('60_hud_waves.js');
   assert.ok(
-    hudWavesSrc.includes('spawnProtection: true') || hudWavesSrc.includes('spawnProtection: CORE.SPAWN_PROTECTION_DURATION'),
-    'spawnEnemy caller in 60_hud_waves.js must set spawnProtection'
+    !hudWavesSrc.includes('spawnProtection: true'),
+    'spawnEnemy caller in 60_hud_waves.js must NOT pass spawnProtection: true (Survival wave enemies have no spawn immunity)'
+  );
+
+  // 3. Survival deploy contract: player has zero spawn immunity and hostile damage applies immediately,
+  // while match spawn protection check stays intact when spawnProtectionT > 0.
+  const c = createCombatContext();
+  const playerText = source('20_player.js');
+  const dmgPlayerSlice = playerText.slice(playerText.indexOf('function damagePlayer('));
+  const endFn = dmgPlayerSlice.indexOf('\n}\n');
+  vm.runInContext(dmgPlayerSlice.slice(0, endFn + 3), c);
+  c.godMode = false;
+  c.player.dead = false;
+  c.player.health = 100;
+  c.player.armor = 0;
+  c.player.spawnProtectionT = 0; // Fresh Survival deploy contract
+  const hostileAttacker = { team: 'enemy', dead: false, pos: new Vector3(5, 0, 0) };
+  c.damagePlayer(25, 0, 'bullet', hostileAttacker);
+  assert.strictEqual(c.player.health, 75, 'freshly deployed Survival player without spawn protection must take hostile damage');
+
+  // Negative control: match protection check in damagePlayer stays intact when spawnProtectionT > 0
+  c.player.spawnProtectionT = 2.0;
+  c.damagePlayer(25, 0, 'bullet', hostileAttacker);
+  assert.strictEqual(c.player.health, 75, 'damagePlayer must not damage player while spawnProtectionT > 0');
+
+  // 4. scripts/probe_live.py survival deploy check must align with contract: require zero spawnProtectionT, not active protection
+  const probeSrc = fs.readFileSync(path.join(__dirname, '../scripts/probe_live.py'), 'utf8');
+  assert.ok(
+    !probeSrc.includes("protActive = typeof player !== 'undefined' && player && player.spawnProtectionT > 0;"),
+    'scripts/probe_live.py must not require active spawn protection on Survival deploy'
+  );
+  assert.match(
+    probeSrc,
+    /zeroProtection\s*=\s*typeof player !== ['"]undefined['"] && player && player\.spawnProtectionT === 0;/,
+    'scripts/probe_live.py survival deploy check must assert zero spawnProtectionT'
   );
 });
 
-test('mode respawn framework execution: activeMode.onDeath and activeMode.update call paths', () => {
-  const modesSrc = source('35_modes.js');
+test('dead bot removed by updateEnemies must reenter actual lexical enemies on respawn with original identity/mesh/position and no duplicates', () => {
   const c = createCombatContext();
+  const modesSrc = source('35_modes.js');
   vm.runInContext(modesSrc, c);
 
-  // Friendly bot dying triggers activeMode.onDeath and queues respawn
-  const friendlyBot = {
-    id: 'fbot1',
-    team: 'friendly',
+  const botGroup = new Group();
+  const bot = {
+    id: 'test_enemy_1',
+    team: 'enemy',
+    kind: 1,
     pos: new Vector3(10, 0, 10),
+    vel: new Vector3(0, 0, 0),
+    yaw: 0,
     health: 100,
     maxHealth: 100,
     dead: false,
-    parts: c.dummyParts()
+    parts: Object.assign(c.dummyParts(), { group: botGroup })
   };
-  const enemyKiller = { team: 'enemy', pos: new Vector3(0, 0, 0), dead: false };
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.enemies.length = 0;
+  c.enemies.push(bot);
+  assert.strictEqual(c.enemies.length, 1);
+  assert.strictEqual(c.enemies.includes(bot), true);
 
-  c.MODES.survival.setup();
-  assert.strictEqual(c.modeRespawnQueue.length, 0);
-
-  // Kill friendly bot via killEnemy
-  c.killEnemy(friendlyBot, false, enemyKiller);
-  assert.strictEqual(friendlyBot.dead, true);
-  assert.strictEqual(c.modeRespawnQueue.length, 1, 'friendly bot death must queue mode respawn in Survival');
-  assert.strictEqual(c.modeRespawnQueue[0].actor, friendlyBot);
-  assert.strictEqual(c.modeRespawnQueue[0].timer, CORE.RESPAWN_DELAY);
-
-  // Update mode loop for 1.5 s: timer steps
-  c.MODES.survival.update(1.5);
+  c.killEnemy(bot, false, c.player);
+  assert.strictEqual(bot.dead, true);
   assert.strictEqual(c.modeRespawnQueue.length, 1);
-  assert.strictEqual(c.modeRespawnQueue[0].timer, 1.5);
 
-  // Update mode loop for another 1.5 s: actor respawns and receives spawn protection
-  c.spawnPoints = [[0, 25]];
-  c.MODES.survival.update(1.5);
-  assert.strictEqual(c.modeRespawnQueue.length, 0, 'queue must clear when timer expires');
-  assert.strictEqual(friendlyBot.dead, false, 'actor must be revived upon respawn');
-  assert.strictEqual(friendlyBot.spawnProtectionT, CORE.SPAWN_PROTECTION_DURATION, 'respawned actor must receive spawn protection');
+  // updateEnemies drops dead bot from enemies roster
+  c.updateEnemies(1 / 60);
+  assert.strictEqual(c.enemies.includes(bot), false, 'dead bot must be spliced out of enemies by updateEnemies');
+  assert.strictEqual(c.enemies.length, 0);
+
+  // Step TDM update until respawn timer expires (3s)
+  c.spawnPoints = [[15, 25]];
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.1);
+
+  // Assertions for revived bot:
+  assert.strictEqual(c.modeRespawnQueue.length, 0, 'queue must be drained');
+  assert.strictEqual(bot.dead, false, 'bot.dead must be cleared');
+  assert.strictEqual(c.enemies.includes(bot), true, 'revived bot MUST reenter lexical enemies array');
+  assert.strictEqual(c.enemies.length, 1, 'enemies array must have length 1');
+  assert.strictEqual(bot.pos.x, 15, 'position x must be restored to spawn point');
+  assert.strictEqual(bot.pos.z, 25, 'position z must be restored to spawn point');
+  assert.strictEqual(botGroup.position.x, 15, 'group mesh x must be restored to spawn point');
+  assert.strictEqual(botGroup.position.z, 25, 'group mesh z must be restored to spawn point');
+  assert.strictEqual(bot.health, 100, 'bot health must be restored to maxHealth');
+
+  // Prove it can target and be targeted
+  const target = c.findNearestHostileActor(bot);
+  assert.strictEqual(target, c.player, 'revived bot must be able to target player');
+  const enemyForPlayer = c.findNearestHostileActor(c.player);
+  assert.strictEqual(enemyForPlayer, bot, 'player must be able to target revived bot in enemies');
+
+  // Prove it can fight (updateEnemies runs without error on it)
+  c.updateEnemies(0.1);
+  assert.strictEqual(bot.dead, false);
+
+  // Break spawn protection and prove it can take damage again
+  bot.spawnProtectionT = 0;
+  c.damageEnemy(bot, 30, bot.pos, false, false, 'AR', c.player);
+  assert.strictEqual(bot.health, 70, 'revived bot must be able to take damage again');
+
+  // Prove repeated deaths produce no duplicate entries
+  c.killEnemy(bot, false, c.player);
+  assert.strictEqual(bot.dead, true);
+  c.updateEnemies(1 / 60);
+  assert.strictEqual(c.enemies.includes(bot), false, 'dead bot must be dropped again');
+  assert.strictEqual(c.enemies.length, 0);
+
+  // Respawn again
+  c.MODES.tdm.update(3.1);
+  assert.strictEqual(bot.dead, false);
+  assert.strictEqual(c.enemies.includes(bot), true, 'bot re-enters enemies on second respawn');
+  assert.strictEqual(c.enemies.length, 1, 'must have exactly one entry in enemies, no duplicates');
 });
 
-test('checkpoint serialization and defensive legacy loading for modeRespawnQueue and spawnProtectionT', () => {
-  // 1. Serialization via makeCheckpoint
+test('checkpoint serialization and defensive resume boundary: only Survival supports checkpoints, no match respawn stubs', () => {
+  // 1. Serialization via makeCheckpoint: modeRespawnQueue must NOT be serialized
   const state = {
     wave: 3, score: 1000, kills: 10, headshots: 2,
     shotsFired: 50, shotsHit: 30,
     health: 100, armor: 50, grenades: 2, credits: 500,
     weapons: [{ gi: 0, ammo: 30, reserve: 90, up: null }],
-    spawnProtectionT: 1.8,
+    spawnProtectionT: 0,
     modeRespawnQueue: [
       { timer: 2.5, actor: { id: 'bot1', team: 'friendly', kind: 1 } }
     ]
   };
 
   const cp = CORE.makeCheckpoint(state);
-  assert.strictEqual(cp.spawnProtectionT, 1.8, 'makeCheckpoint must serialize spawnProtectionT');
-  assert.ok(Array.isArray(cp.modeRespawnQueue), 'makeCheckpoint must serialize modeRespawnQueue');
-  assert.strictEqual(cp.modeRespawnQueue.length, 1);
-  assert.strictEqual(cp.modeRespawnQueue[0].timer, 2.5);
+  assert.strictEqual(cp.modeRespawnQueue, undefined, 'makeCheckpoint must NOT serialize modeRespawnQueue');
 
-  // 2. Validation via validateCheckpoint
+  // 2. Validation via validateCheckpoint: no modeRespawnQueue returned
   const valid = CORE.validateCheckpoint(cp);
   assert.ok(valid);
-  assert.strictEqual(valid.spawnProtectionT, 1.8);
-  assert.strictEqual(valid.modeRespawnQueue.length, 1);
-  assert.strictEqual(valid.modeRespawnQueue[0].timer, 2.5);
+  assert.strictEqual(valid.modeRespawnQueue, undefined, 'validateCheckpoint must NOT return modeRespawnQueue');
 
-  // 3. Defensive loading for legacy checkpoint without these fields
+  // 3. Defensive loading for legacy checkpoint with detached modeRespawnQueue
   const legacyRaw = {
     v: 3,
     wave: 2, score: 500, kills: 5, headshots: 1,
     shotsFired: 20, shotsHit: 10,
     health: 100, armor: 0, grenades: 2, credits: 100,
-    weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+    weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }],
+    modeRespawnQueue: [{ timer: 2.5, actor: { id: 'stub', team: 'friendly' } }]
   };
   const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
   assert.ok(legacyLoaded);
-  assert.strictEqual(legacyLoaded.spawnProtectionT, 0, 'legacy checkpoint must default spawnProtectionT to 0');
-  assert.deepStrictEqual(legacyLoaded.modeRespawnQueue, [], 'legacy checkpoint must default modeRespawnQueue to []');
+  assert.strictEqual(legacyLoaded.modeRespawnQueue, undefined, 'legacy checkpoint must drop detached modeRespawnQueue');
+});
+
+test('TDM production setup, settings schema, 6v6 roster, match HUD, Tab scoreboard, and player death respawn', () => {
+  // Settings defaults
+  const defSettings = CORE.defaultSettings();
+  assert.strictEqual(defSettings.gameMode, 'survival', 'default gameMode setting must be survival');
+  assert.strictEqual(defSettings.tdmScoreLimit, 75, 'default tdmScoreLimit setting must be 75');
+  assert.strictEqual(defSettings.tdmTeamSize, 6, 'default tdmTeamSize setting must be 6');
+
+  // TDM default rules
+  const c = createCombatContext();
+  const modesSrc = source('35_modes.js');
+  vm.runInContext(modesSrc, c);
+
+  assert.strictEqual(c.MODES.tdm.targetScore, 75, 'TDM targetScore must default to 75');
+  assert.strictEqual(c.MODES.tdm.matchDuration, 600, 'TDM matchDuration must default to 600');
+
+  // 6v6 roster setup (player + 5 friendly vs 6 enemies)
+  c.spawnPoints = [
+    [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
+    [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
+  ];
+  c.MODES.tdm.setup();
+  const friendlies = c.enemies.filter(e => e.team === 'friendly');
+  const enemies = c.enemies.filter(e => e.team === 'enemy');
+  assert.strictEqual(friendlies.length, 5, 'TDM setup must spawn 5 friendly bots (with player = 6 friendly)');
+  assert.strictEqual(enemies.length, 6, 'TDM setup must spawn 6 enemy bots (6v6 total)');
+
+  // Scoreboard structure for Tab K/D
+  const sb = c.MODES.tdm.scoreboard();
+  assert.ok(sb.friendlyTeam && Array.isArray(sb.friendlyTeam.members), 'scoreboard must have friendly team members');
+  assert.ok(sb.enemyTeam && Array.isArray(sb.enemyTeam.members), 'scoreboard must have enemy team members');
+  assert.strictEqual(sb.friendlyTeam.members.length, 6, 'friendly team scoreboard must have 6 members');
+  assert.strictEqual(sb.enemyTeam.members.length, 6, 'enemy team scoreboard must have 6 members');
+  assert.strictEqual(typeof sb.friendlyTeam.members[0].kills, 'number', 'member must have numeric kills');
+  assert.strictEqual(typeof sb.friendlyTeam.members[0].deaths, 'number', 'member must have numeric deaths');
+
+  // Player death in TDM queues respawn rather than gameover
+  c.MODES.tdm.onDeath(c.player, null);
+  assert.strictEqual(c.modeRespawnQueue.some(e => e.actor === c.player), true, 'player death in TDM must queue respawn');
+
+  // Match completes when target score reached
+  c.MODES.tdm.friendlyScore = 75;
+  assert.strictEqual(c.MODES.tdm.isOver(), true, 'isOver must return true when target score reached');
+});
+
+test('TDM lifecycle: score limit selection, spawn immunity wait/expire before kill, end match update, and cleanup', () => {
+  const c = createCombatContext();
+  const modesSrc = source('35_modes.js');
+  vm.runInContext(modesSrc, c);
+
+  // 1. Selected score control produces short 2-kill match vs normal 75
+  let savedSettings = { tdmScoreLimit: 2, tdmTeamSize: 6, gameMode: 'tdm' };
+  c.getSetting = key => savedSettings[key];
+  c.setSetting = (key, val) => { savedSettings[key] = val; };
+
+  c.spawnPoints = [
+    [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
+    [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
+  ];
+
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  assert.strictEqual(c.MODES.tdm.targetScore, 2, 'TDM targetScore must be 2 when score limit 2 is selected');
+
+  const hostiles = c.enemies.filter(e => e.team === 'enemy');
+  const targetHostile = hostiles[0];
+  assert.ok(targetHostile, 'must have enemy bot');
+  assert.strictEqual(targetHostile.spawnProtectionT > 0, true, 'hostile must spawn with active spawn protection');
+
+  // 2. Default spawn immunity: damage dealt while protected is ignored
+  const initialHp = targetHostile.health;
+  c.damageEnemy(targetHostile, 45, targetHostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(targetHostile.health, initialHp, 'hostile with spawn protection must take zero damage');
+  assert.strictEqual(targetHostile.dead, false, 'hostile must not die while spawn protection is active');
+
+  // 3. Protection must wait/expire (via updateEnemies dt or hostile attack) before killing
+  c.updateEnemies(1.0);
+  c.updateEnemies(1.1);
+  assert.strictEqual(targetHostile.spawnProtectionT, 0, 'spawn protection must expire over time');
+
+  // 4. Once protection expired, lethal damage kills hostile
+  c.damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(targetHostile.dead, true, 'hostile must die after spawn protection has expired');
+
+  // 5. updateEnemies drops corpse from enemies array and queues respawn
+  c.updateEnemies(1 / 60);
+  assert.strictEqual(c.enemies.includes(targetHostile), false, 'dead hostile must be dropped from enemies array');
+  assert.strictEqual(c.modeRespawnQueue.some(e => e.actor === targetHostile), true, 'dead hostile must enter modeRespawnQueue');
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 1, 'friendlyScore must increment to 1');
+  assert.strictEqual(c.MODES.tdm.isOver(), false, 'match must not be over at 1 kill when target is 2');
+
+  // 6. Step respawn timer and revive actor back into lexical enemies
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.0);
+  c.MODES.tdm.update(1.1);
+  assert.strictEqual(targetHostile.dead, false, 'hostile must be revived on respawn');
+  assert.strictEqual(c.enemies.includes(targetHostile), true, 'revived hostile must re-enter enemies array');
+  assert.strictEqual(targetHostile.spawnProtectionT > 0, true, 'revived hostile must receive fresh spawn protection');
+
+  // Expire fresh protection
+  c.updateEnemies(2.1);
+  assert.strictEqual(targetHostile.spawnProtectionT, 0, 'fresh spawn protection must expire');
+
+  // 7. Kill 2 reaches targetScore (2), match completes
+  let endMatchCalled = false;
+  c.MODES.tdm.endMatch = () => { endMatchCalled = true; c.gameEnded = true; };
+
+  c.damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', c.player);
+  assert.strictEqual(c.MODES.tdm.friendlyScore, 2, 'friendlyScore must reach target score 2');
+  assert.strictEqual(c.MODES.tdm.isOver(), true, 'isOver must return true when friendlyScore reaches targetScore');
+  assert.strictEqual(endMatchCalled, true, 'endMatch must be triggered on reaching target score');
+
+  // Negative control: verify normal 75 would NOT be over at 2 kills
+  c.MODES.tdm.targetScore = 75;
+  assert.strictEqual(c.MODES.tdm.isOver(), false, 'match must not be over at 2 kills with normal 75 target score');
+  c.MODES.tdm.targetScore = 2;
+
+  // 8. Normal update loop respects ended state
+  c.MODES.tdm.update(1 / 60);
+  assert.strictEqual(c.gameEnded, true, 'gameEnded must be true');
+
+  // 9. Standard settings restored on cleanup
+  c.setSetting('tdmScoreLimit', 75);
+  c.setSetting('tdmTeamSize', 6);
+  c.setSetting('gameMode', 'survival');
+  c.MODES.tdm.targetScore = 75;
+  c.MODES.tdm.teamSize = 6;
+  c.setActiveMode('survival');
+
+  assert.strictEqual(c.getSetting('tdmScoreLimit'), 75, 'tdmScoreLimit must restore to 75');
+  assert.strictEqual(c.getSetting('tdmTeamSize'), 6, 'tdmTeamSize must restore to 6');
+  assert.strictEqual(c.getSetting('gameMode'), 'survival', 'gameMode must restore to survival');
+  assert.strictEqual(c.getActiveMode().id, 'survival', 'activeMode must restore to survival');
+});
+
+test('production UI menu quit and reset lifecycle: exits pointer lock and cleans started state', () => {
+  const mainSrc = source('70_main.js');
+
+  // 1. quitMatchToMenu must exit pointer lock and clear body.started
+  assert.match(mainSrc, /function quitMatchToMenu\(\)\s*\{[^}]*document\.exitPointerLock\(\)/s,
+    'quitMatchToMenu must defensively exit pointer lock when returning to menu');
+  assert.match(mainSrc, /function quitMatchToMenu\(\)\s*\{[^}]*document\.body\.classList\.remove\(['"]started['"]\)/s,
+    'quitMatchToMenu must remove started class from body');
+
+  // 2. Pause quit, death quit, victory quit must exit pointer lock and remove started class
+  assert.match(mainSrc, /\$id\(['"]btn-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.exitPointerLock\(\)/s,
+    'btn-quit must exit pointer lock');
+  assert.match(mainSrc, /\$id\(['"]btn-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.body\.classList\.remove\(['"]started['"]\)/s,
+    'btn-quit must remove started class from body');
+
+  assert.match(mainSrc, /\$id\(['"]btn-death-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.exitPointerLock\(\)/s,
+    'btn-death-quit must exit pointer lock');
+  assert.match(mainSrc, /\$id\(['"]btn-death-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.body\.classList\.remove\(['"]started['"]\)/s,
+    'btn-death-quit must remove started class from body');
+
+  assert.match(mainSrc, /\$id\(['"]btn-v-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.exitPointerLock\(\)/s,
+    'btn-v-quit must exit pointer lock');
+  assert.match(mainSrc, /\$id\(['"]btn-v-quit['"]\)\.addEventListener\(['"]click['"],\s*function\s*\(\)\s*\{[^}]*document\.body\.classList\.remove\(['"]started['"]\)/s,
+    'btn-v-quit must remove started class from body');
 });
 
 

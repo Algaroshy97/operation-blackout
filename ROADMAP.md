@@ -15,7 +15,7 @@ no new binary assets.
 | # | Milestone | Size | Depends on |
 |---|-----------|------|------------|
 | 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
-| 2 | Game modes: TDM, FFA, Domination, Gun Game (in progress: framework & team AI) | L | 1 (Gun Game ladder) |
+| 2 | Game modes: TDM, FFA, Domination, Gun Game (in progress: TDM delivered; FFA/Dom/Gun Game next) | L | 1 (Gun Game ladder) |
 | 3 | Second map: Snowy Compound | L | 2 (per-map spawns) |
 | 4 | Survival climax + wave objectives | M | 3 (per-map points) |
 | 5 | Feel & AI: audio, warnings, cover, weather | M | — |
@@ -112,10 +112,15 @@ short TDM match end to end.
   - Friendly bot support in `buildSoldier(kind, team)` and `makeEnemyMesh(kind, team)`, with friendly blips on minimap (`CORE.minimapActorColor`).
   - Friendly fire damage immunity across bullets, melee, and grenades (`CORE.isFriendlyFire`).
   - Spawn-point scoring in core (`CORE.scoreSpawnPoint`, `CORE.pickBestSpawnPoint`) evaluating distance and hostile facing sight lines with obstacle occlusion.
-  - Respawn timers (3 s) and spawn protection (2 s) with damage immunity and attack-triggered break-off for players and bots.
-  - Mode respawn queue lifecycle in `src/35_modes.js` (`queueModeRespawn`, `updateModeRespawns`, `clearModeRespawns`), with Survival wave spawning preserved and respawn queue cleared on reset.
-- Next dependency: match HUD (score bar, Tab scoreboard for actor K/D, kill feed, match timer, end-of-match screen) and mode picker on deploy screen, followed by TDM, FFA, Domination, and Gun Game mode rules.
-- Evidence gaps: bounded browser acceptance coverage now verified in `scripts/probe_live.py` covering Survival deployment from deploy screen, between-wave save/resume state identity and defensive loading, settled-victory and endless checkpoints, friendly-bot rendering with IFF markers and mutual friendly-fire damage immunity, and short TDM match end-to-end (score bar, match timer, kill feed, and respawns); remaining gaps: full multi-map support and additional game modes (FFA, Domination, Gun Game).
+  - Revived bot roster re-entry into lexical `enemies` with identity, mesh, and position restored; verified to target, engage, take damage, and avoid duplicate entries over repeated deaths.
+  - Respawn timers (3 s) and match spawn protection (2 s) with damage immunity and attack-triggered break-off across all combat paths.
+  - Survival baseline preserved: wave enemy spawns and player deploy have zero spawn protection; checkpoints are strictly forbidden for matches and exclusive to Survival between-wave states without detached stubs.
+- Team Deathmatch (TDM) production release:
+  - Deploy mode picker (`SURVIVAL` vs `TEAM DEATHMATCH`) with saved settings (`gameMode`, `tdmScoreLimit` defaulting to 75, `tdmTeamSize` defaulting to 6).
+  - Production 6v6 roster setup (player + 5 friendly bots vs 6 enemy bots), 75 kills / 600 s default match rules, scorebar HUD and match countdown clock.
+  - Tab scoreboard displaying full K/D per actor across both teams, real killfeed announcements on eliminations, player death queuing respawn instead of Survival gameover, and result screen (`#match-end-screen`) with victory/defeat/draw and restart/main-menu lifecycle.
+- Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules).
+- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, match conclusion, and restart lifecycle. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
 
 ---
 

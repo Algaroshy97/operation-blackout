@@ -4,6 +4,35 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v168 — Production deployable TDM, review findings repairs, roster re-entry, and UI mode picker
+
+- Repair bot respawn roster re-entry in `src/35_modes.js`:
+  - Revived bot actors in `defaultOnRespawn` re-enter lexical `enemies` array with original identity, mesh, and position restored.
+  - Reset state to idle, reset timers, and ensure bots immediately pathfind, acquire hostile targets, engage, and take damage after respawn.
+  - Assert in tests that repeated deaths and respawns cleanly drop and re-insert the actor without creating duplicate entries in `enemies`.
+- Restrict checkpoints strictly to Survival mode in `src/01_core.js`, `src/02_settings.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Disallow saving checkpoints when in match modes (`saveCheckpoint` early-returns false if `activeModeId !== 'survival'`).
+  - Remove `modeRespawnQueue` serialization and deserialization from `CORE.makeCheckpoint` and `CORE.validateCheckpoint`.
+  - Remove detached stub replay from `resumeRun()`, ensuring Survival checkpoint restore remains clean, defensive, and free of phantom actors.
+- Preserve Survival gameplay baseline in `src/20_player.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Remove 2.0 s spawn immunity from Survival player deploy (`player.spawnProtectionT = 0` in `20_player.js` and `resetGame()`).
+  - Remove `spawnProtection: true` from Survival wave enemy spawning (`spawnWaveEnemy` in `60_hud_waves.js`).
+  - Maintain 2.0 s spawn protection strictly for match modes (TDM), verifying it negates bullets, melee, and explosive damage and breaks early on attack.
+- Implement production deploy mode picker and saved settings in `src/01_core.js`, `src/00_head.html`, and `src/70_main.js`:
+  - Add `#mode-row` to the deploy screen (`#gun-select`), exposing only implemented modes (`SURVIVAL` and `TEAM DEATHMATCH`).
+  - Add match settings row (`#tdm-settings-row`) for score limits (default 75, with 50, 25, 10, and short 2-kill acceptance options) and team size (default 6v6, with 4v4 and 2v2).
+  - Persist `gameMode`, `tdmScoreLimit`, and `tdmTeamSize` in `CORE.SETTINGS_SCHEMA`.
+- Implement full Team Deathmatch (TDM) match lifecycle in `src/35_modes.js`, `src/00_head.html`, and `src/70_main.js`:
+  - TDM setup spawns 6v6 roster: player + 5 friendly bots vs 6 enemy bots, with default first-to-75-kills or 10-minute (600 s) duration rules.
+  - Integrated kill attribution, deaths, respawn queuing, and killfeed announcements.
+  - Player deaths in TDM queue respawn after 3 s rather than triggering Survival game over.
+  - Tab scoreboard (`#match-scoreboard`) renders real-time team tables and actor K/D statistics upon holding Tab.
+  - Match conclusion triggers result screen (`#match-end-screen`) with victory/defeat/draw status, scores, player K/D, and restart/main-menu lifecycle.
+  - Defensively release pointer lock and clear `started` body state across all menu quit paths (`quitMatchToMenu`, `btn-quit`, `btn-death-quit`, `btn-v-quit`, and `resetGame`) to ensure clean menu transitions.
+- Update browser acceptance verification in `scripts/probe_live.py`:
+  - Isolate TDM acceptance in a dedicated browser page/context to prevent prior probes' pointer-lock and DOM state mutations from intercepting deployment UI clicks.
+  - Verify real default spawn immunity on hostile bot before waiting/expiring protection naturally via updates, corpse dropping and roster re-entry on respawn, 2-kill match completion vs normal 75, end screen presentation, restart lifecycle, and standard settings cleanup.
+
 ## v167 — Posthumous reward gating, spawn protection wiring, mode respawn lifecycle, and browser verification
 
 - Restore dead-source gate on the player reward path in `src/40_enemies.js`:

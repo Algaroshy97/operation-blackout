@@ -11,8 +11,18 @@ addEventListener('keydown', function (e) {
   keys[e.code] = true; pressed[e.code] = true;
   if (['Space','ArrowUp','ArrowDown','KeyW','KeyA','KeyS','KeyD'].indexOf(e.code) >= 0) e.preventDefault();
   if ((e.code === 'Escape' || e.code === 'KeyP') && started && !paused) pauseGame();
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (started && !paused && typeof setScoreboardVisible === 'function') setScoreboardVisible(true);
+  }
 });
-addEventListener('keyup', function (e) { keys[e.code] = false; });
+addEventListener('keyup', function (e) {
+  keys[e.code] = false;
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (typeof setScoreboardVisible === 'function') setScoreboardVisible(false);
+  }
+});
 
 canvas.addEventListener('mousedown', function (e) {
   if (!started || paused || player.dead) return;
@@ -55,7 +65,7 @@ addEventListener('mousemove', function (e) {
 // ---- Player state ----
 const player = {
   team: 'friendly', isPlayer: true,
-  spawnProtectionT: (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0,
+  spawnProtectionT: 0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,

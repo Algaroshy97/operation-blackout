@@ -58,23 +58,27 @@ function killPlayer() {
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
   if (typeof applyTouchInput === 'function') applyTouchInput();
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  clearCheckpoint();   // a lost run is not resumable
-  const delta = settlementDelta();
-  const beat = recordRun({ score: delta.score, wave: delta.wave,
-    accuracy: delta.accuracy, recordScore: delta.recordScore,
-    recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
-    kills: delta.kills,
-    headshots: delta.headshots, streaks: delta.streaks,
-    countRun: !settlementSnapshot, victory: false });
-  $id('ds-stats').innerHTML =
-    'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
-    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
-    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
-  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+  if (!activeMode || activeMode.id === 'survival') {
+    const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+    const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+    clearCheckpoint();   // a lost run is not resumable
+    const delta = settlementDelta();
+    const beat = recordRun({ score: delta.score, wave: delta.wave,
+      accuracy: delta.accuracy, recordScore: delta.recordScore,
+      recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
+      kills: delta.kills,
+      headshots: delta.headshots, streaks: delta.streaks,
+      countRun: !settlementSnapshot, victory: false });
+    $id('ds-stats').innerHTML =
+      'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+      '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+      '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
+    setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+  } else {
+    if (typeof showCenterMsgThrottled === 'function') showCenterMsgThrottled('RESPAWNING IN 3s…');
+  }
 }
 function victory() {
   if (gameEnded) return;
@@ -102,8 +106,10 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   paused = false;   // never reset into a paused state
-  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
+  if (typeof document !== 'undefined') {
+    if (!started && document.body) document.body.classList.remove('started');
+    if (!started && document.pointerLockElement) document.exitPointerLock();
+  }
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
   // remove all enemies + pickups + grenades
@@ -181,7 +187,7 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
-  player.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+  player.spawnProtectionT = 0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
@@ -241,6 +247,8 @@ function resetGame() {
   hud.killfeed.innerHTML = '';
   clearTimeout(hud.waveBanner._t);
   hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
 }
 
 // ---- Settings panel ---------------------------------------------------------
@@ -404,10 +412,121 @@ function refreshMenuStats() {
 // player never called.
 let pickingSlot = 0;
 let pendingSecondary = -1;
+function buildModePickerRow() {
+  const row = $id('mode-row');
+  if (!row) return;
+  row.innerHTML = '';
+  const availableModes = [
+    { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
+    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
+  ];
+  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : (getSetting('gameMode') || 'survival');
+  availableModes.forEach(function (m) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn mode-btn' + (m.id === curMode ? ' on' : '');
+    b.id = 'mode-btn-' + m.id;
+    b.innerHTML = m.name + '<small>' + m.blurb + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      setActiveMode(m.id);
+      if (typeof setSetting === 'function') setSetting('gameMode', m.id);
+      buildModePickerRow();
+      buildDifficultyRow();
+      buildTdmSettingsRow();
+      const isTdm = (m.id === 'tdm');
+      $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+      const tr = $id('tdm-settings-row');
+      if (tr) tr.style.display = isTdm ? 'flex' : 'none';
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
+function buildTdmSettingsRow() {
+  const row = $id('tdm-settings-row');
+  if (!row) return;
+  const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+  if (!isTdm) {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = 'flex';
+  row.innerHTML = '';
+  const curScore = (typeof getSetting === 'function' ? getSetting('tdmScoreLimit') : null) || (MODES.tdm ? MODES.tdm.targetScore : 75) || 75;
+  const scoreGroup = document.createElement('div');
+  scoreGroup.style.display = 'flex';
+  scoreGroup.style.gap = '6px';
+  scoreGroup.style.alignItems = 'center';
+  const scoreLabel = document.createElement('span');
+  scoreLabel.style.fontSize = '12px';
+  scoreLabel.style.letterSpacing = '1px';
+  scoreLabel.style.color = '#ffdf8a';
+  scoreLabel.textContent = 'SCORE:';
+  scoreGroup.appendChild(scoreLabel);
+  [75, 50, 25, 10, 2].forEach(function (lim) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (lim === curScore ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-score-' + lim;
+    b.textContent = String(lim);
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.targetScore = lim;
+      if (typeof setSetting === 'function') setSetting('tdmScoreLimit', lim);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    scoreGroup.appendChild(b);
+  });
+  row.appendChild(scoreGroup);
+
+  const curTeam = (typeof getSetting === 'function' ? getSetting('tdmTeamSize') : null) || (MODES.tdm ? MODES.tdm.teamSize : 6) || 6;
+  const teamGroup = document.createElement('div');
+  teamGroup.style.display = 'flex';
+  teamGroup.style.gap = '6px';
+  teamGroup.style.alignItems = 'center';
+  teamGroup.style.marginLeft = '16px';
+  const teamLabel = document.createElement('span');
+  teamLabel.style.fontSize = '12px';
+  teamLabel.style.letterSpacing = '1px';
+  teamLabel.style.color = '#ffdf8a';
+  teamLabel.textContent = 'TEAM:';
+  teamGroup.appendChild(teamLabel);
+  [6, 4, 2].forEach(function (sz) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (sz === curTeam ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-team-' + sz;
+    b.textContent = sz + 'v' + sz;
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.teamSize = sz;
+      if (typeof setSetting === 'function') setSetting('tdmTeamSize', sz);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    teamGroup.appendChild(b);
+  });
+  row.appendChild(teamGroup);
+}
+
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
-  if (pickingSlot === 0) { pendingSecondary = -1; buildDifficultyRow(); }
-  $id('diff-row').style.display = pickingSlot === 0 ? 'flex' : 'none';
+  if (pickingSlot === 0) {
+    pendingSecondary = -1;
+    buildModePickerRow();
+    buildDifficultyRow();
+    buildTdmSettingsRow();
+    const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+    $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isTdm ? 'flex' : 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'flex';
+  } else {
+    $id('diff-row').style.display = 'none';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'none';
+  }
   document.querySelector('#gun-select h2').textContent =
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
@@ -495,7 +614,13 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
-  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || activeMode.id === 'survival') {
+    showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+    startMusic();
+  } else {
+    updateMatchHud(activeMode);
+  }
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
   startMusic();
@@ -540,12 +665,6 @@ function resumeRun() {
   player.health = cp.health; player.armor = cp.armor;
   player.spawnProtectionT = cp.spawnProtectionT || 0;
   if (typeof clearModeRespawns === 'function') clearModeRespawns();
-  if (Array.isArray(cp.modeRespawnQueue) && cp.modeRespawnQueue.length > 0 && typeof queueModeRespawn === 'function') {
-    for (let i = 0; i < cp.modeRespawnQueue.length; i++) {
-      const rq = cp.modeRespawnQueue[i];
-      if (rq) queueModeRespawn(rq.actor, rq.timer);
-    }
-  }
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
   perks = (cp.perks || []).slice();
@@ -681,6 +800,8 @@ $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
   stopMusic();
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
@@ -705,6 +826,8 @@ addEventListener('keydown', function (e) {
 });
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   refreshResumeButton();
@@ -719,10 +842,121 @@ $id('btn-v-restart').addEventListener('click', function () {
 });
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   resetGame(); started = false;
 });
+
+function showMatchEndScreen(mode) {
+  if (typeof document === 'undefined') return;
+  const es = $id('match-end-screen');
+  if (!es) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  stopMusic();
+  const fScore = mode.friendlyScore || 0;
+  const eScore = mode.enemyScore || 0;
+  const won = fScore > eScore;
+  const draw = fScore === eScore;
+  playSound(won ? 'victory' : 'death');
+  const titleEl = $id('match-end-title');
+  if (titleEl) {
+    titleEl.textContent = draw ? 'DRAW' : (won ? 'VICTORY' : 'DEFEAT');
+    titleEl.style.color = draw ? '#ffd24a' : (won ? '#7ee08a' : '#ff4030');
+  }
+  const scoreEl = $id('match-end-scores');
+  if (scoreEl) {
+    scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+  }
+  const statsEl = $id('match-end-stats');
+  if (statsEl) {
+    const pk = (typeof player !== 'undefined' && player) ? (player.kills || 0) : 0;
+    const pd = (typeof player !== 'undefined' && player) ? (player.deaths || 0) : 0;
+    const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
+    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>Target score: <b>' + (mode.targetScore || 75) + '</b>';
+  }
+  es.style.display = 'flex';
+}
+
+function restartMatch() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = true;
+  resetGame();
+  canvas.requestPointerLock();
+}
+
+function quitMatchToMenu() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  const mh = $id('match-hud');
+  if (mh) mh.style.display = 'none';
+  const sb = $id('match-scoreboard');
+  if (sb) sb.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = false;
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
+  setActiveMode('survival');
+  resetGame();
+  $id('start-screen').style.display = 'flex';
+  refreshResumeButton();
+  refreshMenuStats();
+}
+
+const btnMR = $id('btn-match-restart');
+if (btnMR) btnMR.addEventListener('click', restartMatch);
+const btnMQ = $id('btn-match-quit');
+if (btnMQ) btnMQ.addEventListener('click', quitMatchToMenu);
+
+function updateScoreboard() {
+  if (typeof document === 'undefined') return;
+  const sbEl = $id('match-scoreboard');
+  if (!sbEl) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || typeof activeMode.scoreboard !== 'function') return;
+  const data = activeMode.scoreboard();
+  if (data.mode === 'tdm') {
+    let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
+    html += '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#38b6ff;display:flex;justify-content:space-between;margin-bottom:8px"><span>ALLIES</span><span>' + (data.friendlyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const fMembers = (data.friendlyTeam && data.friendlyTeam.members) || [];
+    for (let i = 0; i < fMembers.length; i++) {
+      const m = fMembers[i];
+      const isYou = m.isPlayer;
+      html += '<tr style="' + (isYou ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div>';
+    html += '<div style="flex:1;background:rgba(50,20,20,0.92);border:1px solid #ff4030;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#ff4030;display:flex;justify-content:space-between;margin-bottom:8px"><span>HOSTILES</span><span>' + (data.enemyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const eMembers = (data.enemyTeam && data.enemyTeam.members) || [];
+    for (let i = 0; i < eMembers.length; i++) {
+      const m = eMembers[i];
+      html += '<tr><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div></div>';
+    sbEl.innerHTML = html;
+  }
+}
+
+let scoreboardOpen = false;
+function setScoreboardVisible(visible) {
+  scoreboardOpen = !!visible;
+  const sbEl = (typeof $id === 'function') ? $id('match-scoreboard') : null;
+  if (!sbEl) return;
+  if (scoreboardOpen) {
+    updateScoreboard();
+    sbEl.style.display = 'flex';
+  } else {
+    sbEl.style.display = 'none';
+  }
+}
 
 // Runtime telemetry is disabled unless a local probe explicitly enables it.
 const runtimeTelemetry = CORE.createRuntimeTelemetry();
