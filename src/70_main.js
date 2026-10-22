@@ -44,7 +44,7 @@ function killPlayer(killer) {
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const sourceActor = killer || player.downedBy || player.lastAttacker || null;
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
-  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor, player.lastDamageType);
   // A second lethal hit while already down comes straight here, so the bleed-out
   // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
   // stays on screen behind the death screen until the next deploy.
@@ -487,10 +487,13 @@ function buildModePickerRow() {
   row.innerHTML = '';
   const availableModes = [
     { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
-    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
+    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' },
+    { id: 'ffa', name: 'FREE-FOR-ALL', blurb: '8 actors, 30 kills' },
+    { id: 'domination', name: 'DOMINATION', blurb: '3 flags to 200' },
+    { id: 'gun-game', name: 'GUN GAME', blurb: '20-tier ladder' }
   ];
   const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
-  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  const validSaved = (typeof isKnownModeId === 'function' && isKnownModeId(savedMode)) ? savedMode : 'survival';
   if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
     if (typeof setActiveMode === 'function') setActiveMode(validSaved);
     else activeModeId = validSaved;
@@ -508,10 +511,10 @@ function buildModePickerRow() {
       buildModePickerRow();
       buildDifficultyRow();
       buildTdmSettingsRow();
-      const isTdm = (m.id === 'tdm');
-      $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+      const isMatch = (m.id !== 'survival');
+      $id('diff-row').style.display = isMatch ? 'none' : 'flex';
       const tr = $id('tdm-settings-row');
-      if (tr) tr.style.display = isTdm ? 'flex' : 'none';
+      if (tr) tr.style.display = isMatch ? 'flex' : 'none';
       playSound('click');
     });
     row.appendChild(b);
@@ -521,13 +524,94 @@ function buildModePickerRow() {
 function buildTdmSettingsRow() {
   const row = $id('tdm-settings-row');
   if (!row) return;
-  const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
-  if (!isTdm) {
+  const modeId = (typeof activeModeId !== 'undefined') ? activeModeId : 'survival';
+  const isMatch = (typeof isMatchMode === 'function') ? isMatchMode(MODES[modeId]) : (modeId !== 'survival');
+  if (!isMatch) {
     row.style.display = 'none';
+    const diffRowHidden = $id('diff-row');
+    if (diffRowHidden) diffRowHidden.style.display = 'flex';
     return;
   }
   row.style.display = 'flex';
   row.innerHTML = '';
+  // The difficulty row only means something for the Survival run; keep the menu
+  // consistent no matter who triggered this rebuild.
+  const diffRow = $id('diff-row');
+  if (diffRow) diffRow.style.display = 'none';
+  if (modeId !== 'tdm') {
+    // One labelled group of choices per match mode, built from the same schema keys
+    // the mode reads at setup time, so the menu and the match can never disagree.
+    const groupLabel = function (label, marginLeft) {
+      const g = document.createElement('div');
+      g.style.display = 'flex';
+      g.style.gap = '6px';
+      g.style.alignItems = 'center';
+      if (marginLeft) g.style.marginLeft = '16px';
+      const l = document.createElement('span');
+      l.style.fontSize = '12px';
+      l.style.letterSpacing = '1px';
+      l.style.color = '#ffdf8a';
+      l.textContent = label;
+      g.appendChild(l);
+      return g;
+    };
+    const choices = function (group, prefix, values, current, fmt, onPick) {
+      values.forEach(function (v) {
+        const b = document.createElement('div');
+        b.className = 'diff-btn' + (v === current ? ' on' : '');
+        b.style.padding = '6px 12px';
+        b.id = prefix + v;
+        b.textContent = fmt ? fmt(v) : String(v);
+        enableMenuKeyboard(b);
+        b.addEventListener('click', function () {
+          onPick(v);
+          buildTdmSettingsRow();
+          playSound('click');
+        });
+        group.appendChild(b);
+      });
+    };
+    const setting = function (key, fallback, min) {
+      if (typeof getSetting !== 'function') return fallback;
+      const v = getSetting(key);
+      return (typeof v === 'number' && isFinite(v) && v >= min) ? v : fallback;
+    };
+    if (modeId === 'ffa') {
+      const curScore = setting('ffaScoreLimit', 30, 5);
+      const scoreGroup = groupLabel('SCORE:');
+      choices(scoreGroup, 'ffa-score-', [30, 15, 5, 2], curScore, null, function (v) {
+        if (MODES.ffa) MODES.ffa.targetScore = v;
+        if (typeof setSetting === 'function') setSetting('ffaScoreLimit', v);
+      });
+      row.appendChild(scoreGroup);
+      const curActors = setting('ffaActorCount', CORE.FREE_FOR_ALL_MAX_ACTORS, 2);
+      const actorGroup = groupLabel('ACTORS:', true);
+      choices(actorGroup, 'ffa-actors-', [8, 6, 4, 2], curActors, null, function (v) {
+        if (MODES.ffa) MODES.ffa.actors = v;
+        if (typeof setSetting === 'function') setSetting('ffaActorCount', v);
+      });
+      row.appendChild(actorGroup);
+      return;
+    }
+    if (modeId === 'domination') {
+      const curScore = setting('dominationScoreLimit', 200, 50);
+      const scoreGroup = groupLabel('SCORE:');
+      choices(scoreGroup, 'domination-score-', [200, 150, 100, 50], curScore, null, function (v) {
+        if (MODES.domination) MODES.domination.targetScore = v;
+        if (typeof setSetting === 'function') setSetting('dominationScoreLimit', v);
+      });
+      row.appendChild(scoreGroup);
+      return;
+    }
+    const curActors = setting('gunGameActorCount', CORE.FREE_FOR_ALL_MAX_ACTORS, 2);
+    const actorGroup = groupLabel('ACTORS:');
+    choices(actorGroup, 'gg-actors-', [8, 6, 4, 2], curActors, null, function (v) {
+      if (MODES['gun-game']) MODES['gun-game'].actors = v;
+      if (typeof setSetting === 'function') setSetting('gunGameActorCount', v);
+    });
+    row.appendChild(actorGroup);
+    return;
+  }
   const curScore = (typeof getSetting === 'function' ? getSetting('tdmScoreLimit') : null) || (MODES.tdm ? MODES.tdm.targetScore : 75) || 75;
   const scoreGroup = document.createElement('div');
   scoreGroup.style.display = 'flex';
@@ -933,26 +1017,35 @@ function showMatchEndScreen(mode) {
   if (!es) return;
   if (document.pointerLockElement) document.exitPointerLock();
   stopMusic();
-  const fScore = mode.friendlyScore || 0;
-  const eScore = mode.enemyScore || 0;
-  const won = fScore > eScore;
-  const draw = fScore === eScore;
+  // Every match mode describes its own result; TDM keeps its original score-line
+  // rendering, so its end screen is byte-for-byte what it has always been.
+  const view = (mode && typeof mode.outcome === 'function') ? mode.outcome() : null;
+  const fScore = (mode && typeof mode.friendlyScore === 'number') ? mode.friendlyScore : 0;
+  const eScore = (mode && typeof mode.enemyScore === 'number') ? mode.enemyScore : 0;
+  const title = view ? view.title : (fScore > eScore ? 'VICTORY' : (fScore === eScore ? 'DRAW' : 'DEFEAT'));
+  const won = title === 'VICTORY';
+  const draw = title === 'DRAW';
   playSound(won ? 'victory' : 'death');
   const titleEl = $id('match-end-title');
   if (titleEl) {
-    titleEl.textContent = draw ? 'DRAW' : (won ? 'VICTORY' : 'DEFEAT');
+    titleEl.textContent = title;
     titleEl.style.color = draw ? '#ffd24a' : (won ? '#7ee08a' : '#ff4030');
   }
   const scoreEl = $id('match-end-scores');
   if (scoreEl) {
-    scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+    if (view) {
+      scoreEl.innerHTML = '<span style="color:#38b6ff">' + view.leftScore + '</span> — <span style="color:#ff4030">' + view.rightScore + '</span>';
+    } else {
+      scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+    }
   }
   const statsEl = $id('match-end-stats');
   if (statsEl) {
     const pk = (typeof player !== 'undefined' && player) ? (player.kills || 0) : 0;
     const pd = (typeof player !== 'undefined' && player) ? (player.deaths || 0) : 0;
     const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
-    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>Target score: <b>' + (mode.targetScore || 75) + '</b>';
+    const detail = (view && view.note) ? view.note : ('Target score: <b>' + (mode.targetScore || 75) + '</b>');
+    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>' + detail;
   }
   es.style.display = 'flex';
 }
@@ -991,7 +1084,7 @@ function quitMatchToMenu() {
   paused = false;
   gameEnded = false;
   started = false;
-  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+  if (typeof clearAllMatchRosters === 'function') clearAllMatchRosters();
   if (document.body) document.body.classList.remove('started');
   if (document.pointerLockElement) document.exitPointerLock();
   setActiveMode('survival');
@@ -1013,6 +1106,50 @@ function updateScoreboard() {
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!activeMode || typeof activeMode.scoreboard !== 'function') return;
   const data = activeMode.scoreboard();
+  if (data.mode === 'ffa' || data.mode === 'gun-game') {
+    const gunGame = (data.mode === 'gun-game');
+    let html = '<div style="background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;min-width:300px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#38b6ff;margin-bottom:8px">' + (gunGame ? 'GUN GAME — LADDER' : 'FREE-FOR-ALL — KILLS') + '</div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th>' + (gunGame ? '<th style="text-align:right">TIER</th>' : '') + '<th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const members = data.members || [];
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i];
+      html += '<tr style="' + (m.isPlayer ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td>'
+        + (gunGame ? '<td style="text-align:right">' + ((m.tier || 0) + 1) + '/' + (data.tierCount || 20) + '</td>' : '')
+        + '<td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div>';
+    sbEl.innerHTML = html;
+    return;
+  }
+  if (data.mode === 'domination') {
+    const flags = data.flags || [];
+    let flagHtml = '';
+    for (let i = 0; i < flags.length; i++) {
+      const owner = flags[i].owner;
+      const color = (owner === 'friendly') ? '#38b6ff' : ((owner === 'enemy') ? '#ff4030' : '#cfd8e3');
+      flagHtml += '<span style="color:' + color + ';font-weight:900">' + flags[i].name + '</span> ';
+    }
+    const sideTable = function (title, color, team) {
+      let h = '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid ' + color + ';border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+      h += '<div style="font-weight:900;font-size:18px;color:' + color + ';display:flex;justify-content:space-between;margin-bottom:8px"><span>' + title + '</span><span>' + ((team && team.score) || 0) + '</span></div>';
+      h += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+      const members = (team && team.members) || [];
+      for (let i = 0; i < members.length; i++) {
+        const m = members[i];
+        h += '<tr style="' + (m.isPlayer ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+      }
+      h += '</table></div>';
+      return h;
+    };
+    let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
+    html += sideTable('FRIENDLY', '#38b6ff', data.friendlyTeam);
+    html += '<div style="align-self:center;text-align:center;font-size:13px">FLAGS<br>' + flagHtml + '</div>';
+    html += sideTable('ENEMY', '#ff4030', data.enemyTeam);
+    html += '</div>';
+    sbEl.innerHTML = html;
+    return;
+  }
   if (data.mode === 'tdm') {
     let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
     html += '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
@@ -1126,7 +1263,9 @@ function frame(now) {
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    const isSettled = (typeof matchSettled === 'function')
+      ? matchSettled()
+      : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
     if (!isSettled) {
       updatePlayer(dt);
       updateWeapons(dt);

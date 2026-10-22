@@ -4,6 +4,20 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v174 — Milestone 2 completion: Free-for-All, Domination and Gun Game
+
+- **Free-for-All (`src/35_modes.js`, `src/70_main.js`, `src/01_core.js`).** 8 actors (player + 7 bots) where every actor is its own faction (`ffa_you`, `ffa_1…ffa_7`), first to 30 kills over a 600 s clock, with deploy options for the kill limit (`ffaScoreLimit`) and actor budget (`ffaActorCount`).
+  - Faction-per-actor keeps the shared IFF (`CORE.isHostile`), bot target selection, hostiles-only aim assist and friendly-fire guard correct without any mode-specific branch.
+  - HUD shows your kills against the lobby leader; the end screen names the sole leader, and a shared top score is a draw.
+- **Domination (`src/35_modes.js`).** 6v6, three fixed flags A/B/C, 5 s capture, 4 m capture radius, contested flags pause capture, abandoned captures decay, ownership scores 1 point per owned flag per second up to 200 (`dominationScoreLimit`).
+  - Bots walk real attack/defend/hold flag orders: `objectiveSteerTarget()` feeds the existing navigation path, so an actor with no fight in range moves on the objective instead of idling, and the order is cleared before aim/attack stages so a flag is never treated as a target.
+  - Scoring is whole-point with a carried fractional remainder, so a 1 s tick and twenty 0.05 s ticks award exactly the same score.
+- **Gun Game (`src/35_modes.js`, `src/70_main.js`).** 8 free-for-all actors on an explicit, visible 20-tier ladder (`CORE.GUN_GAME_LADDER`, ascending unlock rank) ending with the Knife at `CORE.GUN_GAME_KNIFE`.
+  - A credited weapon kill advances the killer one tier; a knife kill demotes its victim one tier and never below the first; grenade, sentry, environment, self and same-faction kills grant nothing.
+  - The tier weapon is issued to the player immediately (every firearm slot is emptied at the knife tier), survives respawn, and drives bot damage through `actorDamageMul()`, and the final knife kill wins the match without overflowing the ladder.
+- **Shared match plumbing, no per-mode copies.** `CORE.isModeOver` now covers every registered match mode via `CORE.MATCH_MODE_IDS`/`isMatchModeId`; one `matchSettled()` freeze replaced the TDM-only settlement checks in `src/40_enemies.js`, `src/20_player.js` and `src/70_main.js`; one `matchHudView()`/`updateMatchHud()` renders the score bar, clock and mode note; one scoreboard renderer and one end screen driven by each mode's `outcome()`; one roster purge on menu exit. Survival, its checkpoint/resume path and touch controls are unchanged.
+- **Coverage.** 12 new regressions in `tests/test_modes_and_teams.js` (568 total Node tests) drive real deploy/damage/kill/respawn/capture/ladder/settlement paths with observed RED before implementation, plus 6 new browser acceptance checks in `scripts/probe_live.py` deploying each mode through the real menu.
+
 ## v173 — Team-aware aim assistance and nonterminal match music lifecycle repair
 
 - Aim assist and bullet magnetism only ever attract to hostiles (`src/30_weapons.js`):

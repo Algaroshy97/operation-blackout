@@ -5592,6 +5592,268 @@ def main() -> int:
                             tdm_check["menuVisible"] and
                             tdm_check["settingsRestored"])))
 
+        # 113m) Remaining milestone-2 modes: FFA, Domination and Gun Game each deploy
+        # through the real menu, run their real lifecycle and clean up after themselves.
+        # Each mode gets its own page so pointer-lock/DOM mutations stay isolated.
+        ffa_page = browser.new_page(viewport={"width": 1280, "height": 720})
+        ffa_page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        ffa_page.on("pageerror", lambda e: console_errors.append(str(e)))
+        ffa_page.goto(args.build.resolve().as_uri())
+        wait_until(ffa_page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+        ffa_page.click("#btn-start")
+        ffa_page.wait_for_selector("#gun-select", state="visible")
+        ffa_page.click("#mode-btn-ffa")
+        ffa_page.click("#ffa-score-2")
+        ffa_page.click("#ffa-actors-8")
+        ffa_page.click("#gun-cards .gun-card:not(.locked)")
+        ffa_page.wait_for_timeout(200)
+        ffa_page.click("#gun-cards .gun-card:not(.locked)")
+        ffa_page.wait_for_timeout(300)
+        ffa_check = ffa_page.evaluate("""() => {
+            const mode = getActiveMode();
+            const bots = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0);
+            const deployOk = mode.id === 'ffa' && mode.roster.length === 8 && bots.length === 7 &&
+                             player.team === 'ffa_you' && mode.targetScore === 2;
+            const factionOk = bots.every(b => b.team !== player.team) &&
+                              CORE.isHostile(player, bots[0]) && CORE.isHostile(bots[0], bots[1]);
+            const hudEl = document.getElementById('match-hud');
+            const hudNote = document.getElementById('match-hud-note');
+            const hudOk = hudEl && getComputedStyle(hudEl).display !== 'none' &&
+                          hudNote && hudNote.textContent.indexOf('FIRST TO 2') >= 0;
+            const timerOk = document.getElementById('match-timer').textContent === '10:00';
+            setScoreboardVisible(true);
+            const sbText = document.getElementById('match-scoreboard').textContent || '';
+            const sbOk = sbText.indexOf('FREE-FOR-ALL') >= 0 && sbText.indexOf('YOU') >= 0;
+            setScoreboardVisible(false);
+
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+            damageEnemy(bots[0], 300, bots[0].pos, false, false, 'AR', player);
+            const kill1Ok = mode.playerScore() === 1 && mode.leaderKills() === 1 && bots[0].dead === true;
+            updateEnemies(1 / 60);
+            const corpseDropped = enemies.indexOf(bots[0]) < 0;
+            const queued = modeRespawnQueue.some(e => e.actor === bots[0]);
+            mode.update(1.0);
+            mode.update(1.0);
+            mode.update(1.1);
+            const revived = bots[0].dead === false &&
+                            enemies.filter(e => e === bots[0]).length === 1 &&
+                            mode.roster.filter(a => a === bots[0]).length === 1;
+
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+            const second = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0 && !e.dead)[0];
+            damageEnemy(second, 300, second.pos, false, false, 'AR', player);
+            const overOk = mode.isOver() === true && mode.playerScore() === 2;
+            mode.update(1 / 60);
+            const endedOk = gameEnded === true &&
+                            getComputedStyle(document.getElementById('match-end-screen')).display !== 'none' &&
+                            document.getElementById('match-end-title').textContent === 'VICTORY';
+            const killfeedOk = (document.getElementById('killfeed').textContent || '').indexOf('eliminated') >= 0;
+
+            document.getElementById('btn-match-restart').click();
+            const restartOk = started === true && gameEnded === false && mode.roster.length === 8 && mode.playerScore() === 0;
+            document.getElementById('btn-match-quit').click();
+            const menuOk = getActiveMode().id === 'survival' &&
+                           document.getElementById('start-screen').style.display !== 'none';
+            const leftover = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0).length === 0;
+            setSetting('ffaScoreLimit', 30);
+            setSetting('ffaActorCount', 8);
+            MODES.ffa.targetScore = 30;
+
+            return {
+                deployOk: deployOk, factionOk: factionOk, hudOk: hudOk, timerOk: timerOk, sbOk: sbOk,
+                kill1Ok: kill1Ok, corpseDropped: corpseDropped, queued: queued, revived: revived,
+                overOk: overOk, endedOk: endedOk, killfeedOk: killfeedOk, restartOk: restartOk,
+                menuOk: menuOk, leftover: leftover
+            };
+        }""")
+        ffa_page.close()
+        checks.append(("ffa-deploy-actors-settings-and-hud",
+                       bool(ffa_check["deployOk"] and ffa_check["factionOk"] and ffa_check["hudOk"] and
+                            ffa_check["timerOk"] and ffa_check["sbOk"])))
+        checks.append(("ffa-kill-respawn-win-and-menu-cleanup",
+                       bool(ffa_check["kill1Ok"] and ffa_check["corpseDropped"] and ffa_check["queued"] and
+                            ffa_check["revived"] and ffa_check["overOk"] and ffa_check["endedOk"] and
+                            ffa_check["killfeedOk"] and ffa_check["restartOk"] and ffa_check["menuOk"] and
+                            ffa_check["leftover"])))
+
+        dom_page = browser.new_page(viewport={"width": 1280, "height": 720})
+        dom_page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        dom_page.on("pageerror", lambda e: console_errors.append(str(e)))
+        dom_page.goto(args.build.resolve().as_uri())
+        wait_until(dom_page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+        dom_page.click("#btn-start")
+        dom_page.wait_for_selector("#gun-select", state="visible")
+        dom_page.click("#mode-btn-domination")
+        dom_page.click("#domination-score-50")
+        dom_page.click("#gun-cards .gun-card:not(.locked)")
+        dom_page.wait_for_timeout(200)
+        dom_page.click("#gun-cards .gun-card:not(.locked)")
+        dom_page.wait_for_timeout(300)
+        dom_check = dom_page.evaluate("""() => {
+            const mode = getActiveMode();
+            const flags = mode.flags;
+            const hostiles = enemies.filter(e => e.team === 'enemy');
+            const allies = enemies.filter(e => e.team === 'friendly');
+            const deployOk = mode.id === 'domination' && flags.length === 3 &&
+                             flags.map(f => f.name).join('') === 'ABC' &&
+                             flags.every(f => f.owner === 'neutral') &&
+                             allies.length === 5 && hostiles.length === 6 &&
+                             player.team === 'friendly' && mode.targetScore === 50;
+            const hudEl = document.getElementById('match-hud');
+            const note = document.getElementById('match-hud-note');
+            const hudOk = hudEl && getComputedStyle(hudEl).display !== 'none' &&
+                          note && note.textContent.indexOf('A NEUTRAL') >= 0;
+
+            enemies.forEach((e, i) => e.pos.set(70 + i * 20, 0, 70 + i * 20));
+            player.pos.set(flags[0].x, 1.7, flags[0].z);
+            for (let i = 0; i < 50; i++) mode.updateFlags(0.1);
+            const capturedOk = flags[0].owner === 'friendly' && flags[0].capture === 0;
+
+            player.pos.set(flags[1].x, 1.7, flags[1].z);
+            hostiles[0].pos.set(flags[1].x + 1, 0, flags[1].z);
+            for (let i = 0; i < 40; i++) mode.updateFlags(0.1);
+            const contestedOk = flags[1].owner === 'neutral' && flags[1].capture === 0;
+
+            hostiles[0].pos.set(70, 0, 70);
+            mode.friendlyScore = 0;
+            mode._scoreAcc = { friendly: 0, enemy: 0 };
+            player.pos.set(flags[0].x, 1.7, flags[0].z);
+            mode.updateFlags(0);
+            mode.update(1);
+            const tickOk = mode.friendlyScore === 1;
+            mode.friendlyScore = 0;
+            mode._scoreAcc = { friendly: 0, enemy: 0 };
+            for (let i = 0; i < 20; i++) { mode.updateFlags(0); mode.update(0.05); }
+            const fractionOk = mode.friendlyScore === 1;
+
+            player.pos.set(0, 1.7, 0);
+            enemies.forEach((e, i) => e.pos.set(80 + i * 40, 0, 80 + i * 40));
+            const walker = enemies.filter(e => e.team === 'enemy')[0];
+            updateEnemies(0.1);
+            const steerOk = !!(walker.objectiveTarget && walker.objectiveTarget.objectiveRole) && walker.target === null;
+            const steerRole = walker.objectiveTarget ? walker.objectiveTarget.objectiveRole : '';
+
+            mode.friendlyScore = 49;
+            mode._scoreAcc = { friendly: 0, enemy: 0 };
+            player.pos.set(flags[0].x, 1.7, flags[0].z);
+            mode.update(1);
+            const overOk = mode.isOver() === true && mode.friendlyScore >= 50;
+            mode.update(1 / 60);
+            const endedOk = gameEnded === true &&
+                            getComputedStyle(document.getElementById('match-end-screen')).display !== 'none' &&
+                            document.getElementById('match-end-title').textContent === 'VICTORY';
+            setScoreboardVisible(true);
+            const sbText = document.getElementById('match-scoreboard').textContent || '';
+            const sbOk = sbText.indexOf('FRIENDLY') >= 0 && sbText.indexOf('FLAGS') >= 0;
+            setScoreboardVisible(false);
+
+            document.getElementById('btn-match-quit').click();
+            const menuOk = getActiveMode().id === 'survival' &&
+                           document.getElementById('start-screen').style.display !== 'none';
+            const leftover = enemies.filter(e => e.team === 'friendly').length === 0;
+            setSetting('dominationScoreLimit', 200);
+            MODES.domination.targetScore = 200;
+
+            return {
+                deployOk: deployOk, hudOk: hudOk, capturedOk: capturedOk, contestedOk: contestedOk,
+                tickOk: tickOk, fractionOk: fractionOk, steerOk: steerOk, steerRole: steerRole,
+                overOk: overOk, endedOk: endedOk, sbOk: sbOk, menuOk: menuOk, leftover: leftover
+            };
+        }""")
+        dom_page.close()
+        checks.append(("domination-deploy-flags-capture-and-contest",
+                       bool(dom_check["deployOk"] and dom_check["hudOk"] and dom_check["capturedOk"] and
+                            dom_check["contestedOk"])))
+        checks.append(("domination-score-tick-objective-and-win",
+                       bool(dom_check["tickOk"] and dom_check["fractionOk"] and dom_check["steerOk"] and
+                            dom_check["overOk"] and dom_check["endedOk"] and dom_check["sbOk"] and
+                            dom_check["menuOk"] and dom_check["leftover"])))
+
+        gg_page = browser.new_page(viewport={"width": 1280, "height": 720})
+        gg_page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        gg_page.on("pageerror", lambda e: console_errors.append(str(e)))
+        gg_page.goto(args.build.resolve().as_uri())
+        wait_until(gg_page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+        gg_page.click("#btn-start")
+        gg_page.wait_for_selector("#gun-select", state="visible")
+        gg_page.click("#mode-btn-gun-game")
+        gg_page.click("#gg-actors-8")
+        gg_page.click("#gun-cards .gun-card:not(.locked)")
+        gg_page.wait_for_timeout(200)
+        gg_page.click("#gun-cards .gun-card:not(.locked)")
+        gg_page.wait_for_timeout(300)
+        gg_check = gg_page.evaluate("""() => {
+            const mode = getActiveMode();
+            const bots = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0);
+            const deployOk = mode.id === 'gun-game' && mode.roster.length === 8 && bots.length === 7 &&
+                             mode.playerTier() === 0 && CORE.GUN_GAME_TIER_COUNT === 20 &&
+                             CORE.GUN_GAME_LADDER[19] === -1 &&
+                             weaponsOwned[0] === CORE.GUN_GAME_LADDER[0];
+            const HUD = document.getElementById('match-hud-note').textContent || '';
+            const scoreHud = document.getElementById('match-score-friendly').textContent || '';
+            const hudOk = HUD.indexOf('KNIFE') >= 0 && scoreHud === 'TIER 1/20';
+            const pickerOk = ['survival', 'tdm', 'ffa', 'domination', 'gun-game']
+                .every(id => !!document.getElementById('mode-btn-' + id));
+
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+            const victim = bots[0];
+            damageEnemy(victim, 300, victim.pos, false, false, 'AR', player);
+            const advanceOk = mode.playerTier() === 1 && victim.tier === 0 &&
+                              weaponsOwned[0] === CORE.GUN_GAME_LADDER[1];
+
+            const demote = bots[1];
+            mode.setTier(demote, 3);
+            const tierBefore = demote.tier;
+            damageEnemy(demote, 300, demote.pos, false, false, 'MELEE', player);
+            const demoteOk = tierBefore === 3 && demote.tier === 2;
+
+            const grenadeVictim = bots[2];
+            const beforeGrenade = mode.playerTier();
+            damageEnemy(grenadeVictim, 300, grenadeVictim.pos, false, false, undefined, player);
+            const grenadeOk = mode.playerTier() === beforeGrenade && grenadeVictim.dead === true;
+
+            mode.setTier(player, 19);
+            const knifeLoadoutOk = weaponsOwned.every(i => i === -1);
+            const finalVictim = bots[3];
+            damageEnemy(finalVictim, 300, finalVictim.pos, false, false, 'MELEE', player);
+            const winOk = mode.isOver() === true && mode.playerTier() === 19 && mode.winner === player;
+            mode.update(1 / 60);
+            const endedOk = gameEnded === true &&
+                            getComputedStyle(document.getElementById('match-end-screen')).display !== 'none' &&
+                            document.getElementById('match-end-title').textContent === 'VICTORY';
+            setScoreboardVisible(true);
+            const sbText = document.getElementById('match-scoreboard').textContent || '';
+            const sbOk = sbText.indexOf('LADDER') >= 0 && sbText.indexOf('TIER') >= 0;
+            setScoreboardVisible(false);
+
+            document.getElementById('btn-match-restart').click();
+            const restartOk = mode.roster.length === 8 && mode.playerTier() === 0 &&
+                              weaponsOwned[0] === CORE.GUN_GAME_LADDER[0];
+            document.getElementById('btn-match-quit').click();
+            const menuOk = getActiveMode().id === 'survival' &&
+                           document.getElementById('start-screen').style.display !== 'none';
+            const leftover = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0).length === 0;
+            setSetting('gunGameActorCount', 8);
+
+            return {
+                deployOk: deployOk, hudOk: hudOk, pickerOk: pickerOk, advanceOk: advanceOk,
+                demoteOk: demoteOk, grenadeOk: grenadeOk, knifeLoadoutOk: knifeLoadoutOk,
+                winOk: winOk, endedOk: endedOk, sbOk: sbOk, restartOk: restartOk,
+                menuOk: menuOk, leftover: leftover
+            };
+        }""")
+        gg_page.close()
+        checks.append(("gun-game-deploy-ladder-loadout-and-picker",
+                       bool(gg_check["deployOk"] and gg_check["hudOk"] and gg_check["pickerOk"] and
+                            gg_check["advanceOk"] and gg_check["knifeLoadoutOk"])))
+        checks.append(("gun-game-demotion-grenade-knife-win-and-cleanup",
+                       bool(gg_check["demoteOk"] and gg_check["grenadeOk"] and gg_check["winOk"] and
+                            gg_check["endedOk"] and gg_check["sbOk"] and gg_check["restartOk"] and
+                            gg_check["menuOk"] and gg_check["leftover"])))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
         # Retire TDM context so graphics run is also isolated before competing for software GPU time.

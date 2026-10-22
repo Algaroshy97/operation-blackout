@@ -112,7 +112,7 @@ function applySetting(key) {
         // do not switch an active match unexpectedly
         break;
       }
-      if (typeof setActiveMode === 'function' && (SETTINGS.gameMode === 'tdm' || SETTINGS.gameMode === 'survival')) {
+      if (typeof setActiveMode === 'function' && typeof MODES !== 'undefined' && MODES[SETTINGS.gameMode]) {
         setActiveMode(SETTINGS.gameMode);
       }
       break;

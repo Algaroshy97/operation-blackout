@@ -407,9 +407,13 @@ const CORE = (function () {
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
-    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm'], label: 'Game mode' },
+    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
-    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' }
+    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
+    ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
+    ffaScoreLimit: { type: 'number', def: 30, min: 5, max: 100, step: 5, label: 'FFA score limit' },
+    dominationScoreLimit: { type: 'number', def: 200, min: 50, max: 500, step: 25, label: 'Domination score limit' },
+    gunGameActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'Gun Game actors' }
   };
 
   function defaultSettings() {
@@ -7177,10 +7181,18 @@ const CORE = (function () {
     };
   }
 
+  // Shared settlement rule for every match mode (TDM/FFA/Domination/Gun Game),
+  // so nothing has to special-case one mode id. Survival keeps its own lifecycle
+  // answer: only a finished run counts, and a downed player is not yet finished.
+  const MATCH_MODE_IDS = ['tdm', 'ffa', 'domination', 'gun-game'];
+  function isMatchModeId(modeId) {
+    return MATCH_MODE_IDS.indexOf(modeId) >= 0;
+  }
+
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
-    if (modeId === 'tdm') {
+    if (isMatchModeId(modeId)) {
       const target = _isNum(s.targetScore) ? s.targetScore : 25;
       if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
           (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
@@ -7191,6 +7203,100 @@ const CORE = (function () {
       return !!(s.playerDead && !s.playerDowned);
     }
     return false;
+  }
+
+  // ---- Domination rules -----------------------------------------------------
+  // Three fixed arena flags, 5 s to capture, 4 m capture radius, and one point
+  // per owned flag per second. Ownership, not continuous occupation, scores.
+  const DOMINATION_FLAG_NAMES = ['A', 'B', 'C'];
+  const DOMINATION_FLAG_POINTS = [[-18, 0], [0, 18], [18, 0]];
+  const DOMINATION_CAPTURE_SECONDS = 5;
+  const DOMINATION_FLAG_RADIUS = 4;
+  const DOMINATION_POINTS_PER_FLAG_SEC = 1;
+  const DOMINATION_DEFEND_RADIUS = 12;
+
+  function flagCaptureStep(capture, dt, present, contested, seconds) {
+    const c = _isNum(capture) ? capture : 0;
+    const d = _isNum(dt) ? dt : 0;
+    const limit = _isNum(seconds) ? seconds : DOMINATION_CAPTURE_SECONDS;
+    // Millisecond quantisation keeps the result identical however the frame was
+    // sliced: one 1 s step and twenty 0.05 s steps must agree exactly.
+    const q = function (v) { return Math.round(v * 1000) / 1000; };
+    // A contested flag pauses where it stands: neither side gains or loses ground.
+    if (contested) return Math.min(limit, Math.max(0, c));
+    if (!present) return q(Math.max(0, c - d));   // abandoned: the partial capture decays
+    return Math.min(limit, q(c + d));
+  }
+
+  // Whole points only, with the fractional remainder carried into the next frame,
+  // so a 1 s tick and twenty 0.05 s ticks award exactly the same score.
+  function flagScoreStep(acc, ownedCount, dt, perSecond) {
+    const a = _isNum(acc) ? acc : 0;
+    const n = _isNum(ownedCount) ? ownedCount : 0;
+    const d = _isNum(dt) ? dt : 0;
+    const per = _isNum(perSecond) ? perSecond : DOMINATION_POINTS_PER_FLAG_SEC;
+    const total = a + n * per * d;
+    const points = Math.floor(total);
+    return { points: points, acc: total - points };
+  }
+
+  // ---- Gun Game rules -------------------------------------------------------
+  // Explicit, visible 20-tier ladder: tiers 1-19 walk the arsenal in ascending
+  // unlock order (starters first, marksman last), tier 20 is the Knife. The
+  // ladder is data, so the UI, the loadout code and the tests read one truth.
+  const GUN_GAME_KNIFE = -1;
+  const GUN_GAME_TIER_COUNT = 20;
+  // Ascending unlock rank (WEAPON_UNLOCK_RANK: 0,1,4 unlock first, then the
+  // sidearm, then SCAR-H, M249, and the marksman rifle last), then the Knife.
+  const GUN_GAME_LADDER = [
+    0, 1, 4, 6, 2, 5, 3,
+    0, 1, 4, 6, 2, 5, 3,
+    3, 5, 2, 3, 5,
+    GUN_GAME_KNIFE
+  ];
+  const GUN_GAME_BOT_DAMAGE_MIN = 0.6;
+  const GUN_GAME_BOT_DAMAGE_MAX = 1.6;
+  const GUN_GAME_KNIFE_DAMAGE_MUL = 1.6;
+  const FREE_FOR_ALL_MAX_ACTORS = 8;
+
+  function gunGameTierWeapon(tier) {
+    const t = _isNum(tier) ? Math.floor(tier) : 0;
+    if (t <= 0) return GUN_GAME_LADDER[0];
+    if (t >= GUN_GAME_LADDER.length) return GUN_GAME_LADDER[GUN_GAME_LADDER.length - 1];
+    return GUN_GAME_LADDER[t];
+  }
+
+  function gunGameIsKnifeTier(tier) {
+    const t = _isNum(tier) ? Math.floor(tier) : -1;
+    // Both the ladder index of the knife tier and the knife ladder value answer yes.
+    if (t === GUN_GAME_KNIFE) return true;
+    return gunGameTierWeapon(t) === GUN_GAME_KNIFE;
+  }
+
+  function gunGameAdvance(tier, delta) {
+    const t = _isNum(tier) ? Math.floor(tier) : 0;
+    const d = _isNum(delta) ? Math.floor(delta) : 0;
+    return Math.max(0, Math.min(GUN_GAME_TIER_COUNT - 1, t + d));
+  }
+
+  // Credited kills only: a grenade, sentry, burn or environment kill carries no
+  // weapon type and must never move a player up (or down) the ladder.
+  function gunGameCreditedKill(damageType) {
+    if (typeof damageType !== 'string' || !damageType) return false;
+    return !/GRENADE|FRAG|EXPLOSION|SENTRY|FIRE|BURN|FALL|ENV/i.test(damageType);
+  }
+
+  function gunGameMeleeKill(damageType) {
+    return typeof damageType === 'string' && damageType.toUpperCase() === 'MELEE';
+  }
+
+  // A bot's tier weapon decides how hard it hits: damage relative to the baseline
+  // rifle, clamped so the ladder stays readable and never becomes a one-shot.
+  function gunGameBotDamageMul(weaponDmg, baselineDmg) {
+    if (!_isNum(weaponDmg) || weaponDmg <= 0) return 1;
+    if (!_isNum(baselineDmg) || baselineDmg <= 0) return 1;
+    const raw = weaponDmg / baselineDmg;
+    return Math.min(GUN_GAME_BOT_DAMAGE_MAX, Math.max(GUN_GAME_BOT_DAMAGE_MIN, Math.round(raw * 100) / 100));
   }
 
   const RESPAWN_DELAY = 3.0;
@@ -7678,7 +7784,12 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver, MATCH_MODE_IDS, isMatchModeId,
+    DOMINATION_FLAG_NAMES, DOMINATION_FLAG_POINTS, DOMINATION_CAPTURE_SECONDS, DOMINATION_FLAG_RADIUS,
+    DOMINATION_POINTS_PER_FLAG_SEC, DOMINATION_DEFEND_RADIUS, flagCaptureStep, flagScoreStep,
+    GUN_GAME_KNIFE, GUN_GAME_TIER_COUNT, GUN_GAME_LADDER, GUN_GAME_BOT_DAMAGE_MIN,
+    GUN_GAME_BOT_DAMAGE_MAX, GUN_GAME_KNIFE_DAMAGE_MUL, FREE_FOR_ALL_MAX_ACTORS, gunGameTierWeapon,
+    gunGameIsKnifeTier, gunGameAdvance, gunGameCreditedKill, gunGameMeleeKill, gunGameBotDamageMul,
     RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
     teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint

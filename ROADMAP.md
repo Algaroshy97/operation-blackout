@@ -15,7 +15,7 @@ no new binary assets.
 | # | Milestone | Size | Depends on |
 |---|-----------|------|------------|
 | 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
-| 2 | Game modes: TDM, FFA, Domination, Gun Game (in progress: TDM delivered; FFA/Dom/Gun Game next) | L | 1 (Gun Game ladder) |
+| 2 | ✅ Game modes: TDM, FFA, Domination, Gun Game | L | 1 (Gun Game ladder) |
 | 3 | Second map: Snowy Compound | L | 2 (per-map spawns) |
 | 4 | Survival climax + wave objectives | M | 3 (per-map points) |
 | 5 | Feel & AI: audio, warnings, cover, weather | M | — |
@@ -128,8 +128,14 @@ short TDM match end to end.
     - Newly rebuilt live actor rigs, hitboxes, geometries, and skeletons remain untouched and active in the scene across corpse retirement and match resets.
     - Full lifecycle isolation across death -> respawn before corpse retirement, corpse retirement before respawn, and repeated cycles with zero monotonic GPU geometry leak.
     - Enduring Node regression in `tests/test_modes_and_teams.js` and real WebGL browser lifecycle probe in `tests/test_corpse_lifecycle_probe.py`.
-- Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules). Milestone 2 remains in progress until all modes and acceptance are delivered.
-- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, friendly victory, restart lifecycle, hostile-to-player death attribution and respawn, enemy victory with defeat screen, and settings restoration. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
+- **Delivered: Free-for-All, Domination and Gun Game (`src/35_modes.js`, `src/70_main.js`, `src/01_core.js`).**
+  - **Free-for-All.** 8 actors (player + 7 bots), each its own faction (`ffa_you`, `ffa_1…ffa_7`), so the shared IFF, bot targeting and hostiles-only aim assist work unchanged; first to 30 kills, 600 s clock, deploy option for the kill limit and actor budget.
+  - **Domination.** 6v6, three fixed flags A/B/C, 5 s capture, 4 m capture radius, contested flags pause capture, ownership (not occupation) scores 1 point per flag per second up to 200, and bots walk attack/defend flag orders as real navigation destinations instead of idling.
+  - **Gun Game.** 8 free-for-all actors on an explicit 20-tier ladder in ascending unlock rank, the Knife on the final tier: credited weapon kills advance the killer one tier, a knife kill demotes its victim one tier (never below the first), grenade/self/friendly kills grant nothing, tier weapons are issued to the player and drive bot damage, and the final knife kill wins without overflowing the ladder.
+  - **Shared generalization.** `CORE.isModeOver`/`CORE.isMatchModeId`, one `matchSettled()` freeze, one `matchHudView()`/`updateMatchHud()` HUD model, one scoreboard renderer, one end-of-match screen driven by each mode's `outcome()`, and one roster purge on exit — no mode-specific copies of the settlement, HUD, scoreboard or cleanup paths. Survival and its checkpoint/touch behaviour are untouched.
+  - Node regressions (12) in `tests/test_modes_and_teams.js` drive the production deploy, damage, kill, respawn, ladder, capture, scoring and settlement paths for all three modes; browser acceptance (6 checks) in `scripts/probe_live.py` deploys each mode through the real menu.
+- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, FFA, Domination and Gun Game, roster validation for each mode, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, friendly victory, restart lifecycle, hostile-to-player death attribution and respawn, enemy victory with defeat screen, flag capture/contestation and scoring, ladder advance/demotion and the gun-game knife win, and settings restoration.
+- Milestone 2 scope is delivered by this change: TDM, FFA, Domination and Gun Game are all implemented, with regression coverage and browser acceptance, and ship through the reviewed PR workflow.
 
 ---
 

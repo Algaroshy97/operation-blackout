@@ -2,7 +2,49 @@
 'use strict';
 
 var MODES = Object.create(null);
-var activeModeId = (typeof getSetting === 'function' && (getSetting('gameMode') === 'tdm' || getSetting('gameMode') === 'survival'))
+// Every match-mode id the registry can restore from persisted settings.
+var MATCH_MODE_IDS = (typeof CORE !== 'undefined' && CORE.MATCH_MODE_IDS) ? CORE.MATCH_MODE_IDS : ['tdm', 'ffa', 'domination', 'gun-game'];
+
+function isKnownModeId(id) {
+  return id === 'survival' || MATCH_MODE_IDS.indexOf(id) >= 0;
+}
+
+// A match mode is any registered mode that is not the Survival run. The shared
+// HUD, settlement and scoreboard code keys off this instead of one hard-coded id.
+function isMatchMode(mode) {
+  return !!(mode && mode.id && mode.id !== 'survival');
+}
+
+// Single settlement answer for freezing combat: an explicitly ended match, or a
+// match mode whose own win condition is met. Survival keeps its own lifecycle.
+function matchSettled() {
+  if (typeof gameEnded !== 'undefined' && gameEnded) return true;
+  const active = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+  if (!isMatchMode(active)) return false;
+  return (typeof active.isOver === 'function') ? !!active.isOver() : false;
+}
+
+function matchHudView(mode) {
+  if (!isMatchMode(mode)) return null;
+  if (typeof mode.hudModel === 'function') return mode.hudModel();
+  return {
+    time: (typeof mode.timeLeft === 'number') ? mode.timeLeft : 0,
+    left: mode.friendlyScore || 0,
+    right: mode.enemyScore || 0,
+    note: ''
+  };
+}
+
+// Deployment options are read through one clamped accessor so a stub or a saved
+// value outside the schema range can never inflate a match budget.
+function modeSettingNum(key, fallback, min, max) {
+  if (typeof getSetting !== 'function') return fallback;
+  const v = getSetting(key);
+  if (typeof v !== 'number' || !isFinite(v) || v < min || v > max) return fallback;
+  return v;
+}
+
+var activeModeId = (typeof getSetting === 'function' && isKnownModeId(getSetting('gameMode')))
   ? getSetting('gameMode')
   : 'survival';
 
@@ -19,7 +61,8 @@ function updateMatchHud(mode) {
   const matchHud = (typeof $id === 'function') ? $id('match-hud') : document.getElementById('match-hud');
   const waveHud = (typeof $id === 'function') ? $id('wave-hud') : document.getElementById('wave-hud');
   if (!matchHud) return;
-  if (!mode || mode.id !== 'tdm') {
+  const view = matchHudView(mode);
+  if (!view) {
     matchHud.style.display = 'none';
     if (waveHud) waveHud.style.display = '';
     return;
@@ -29,14 +72,16 @@ function updateMatchHud(mode) {
   const timerEl = (typeof $id === 'function') ? $id('match-timer') : document.getElementById('match-timer');
   const fScoreEl = (typeof $id === 'function') ? $id('match-score-friendly') : document.getElementById('match-score-friendly');
   const eScoreEl = (typeof $id === 'function') ? $id('match-score-enemy') : document.getElementById('match-score-enemy');
+  const noteEl = (typeof $id === 'function') ? $id('match-hud-note') : document.getElementById('match-hud-note');
   if (timerEl) {
-    const t = Math.max(0, mode.timeLeft || 0);
+    const t = Math.max(0, view.time || 0);
     const mins = Math.floor(t / 60);
     const secs = Math.floor(t % 60);
     timerEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
   }
-  if (fScoreEl) fScoreEl.textContent = String(mode.friendlyScore || 0);
-  if (eScoreEl) eScoreEl.textContent = String(mode.enemyScore || 0);
+  if (fScoreEl) fScoreEl.textContent = String(view.left);
+  if (eScoreEl) eScoreEl.textContent = String(view.right);
+  if (noteEl) noteEl.textContent = String(view.note || '');
 }
 
 function setActiveMode(id) {
@@ -515,4 +560,747 @@ MODES.tdm = {
     clearModeRespawns();
     if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
   }
+};
+
+
+// ============ SHARED MATCH-ROSTER HELPERS (FFA / DOMINATION / GUN GAME) ============
+// One purge and one spawner keep every non-Survival mode honest about resource
+// ownership: actors are disposed and removed from the live AI roster, and the match
+// roster is rebuilt from scratch, so a restart can never duplicate bots.
+function purgeMatchBots(mode, prefix) {
+  if (!mode) return;
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  for (let i = 0; i < roster.length; i++) {
+    const act = roster[i];
+    if (act && !act.isPlayer) {
+      if (act.parts && act.parts.group && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(act.parts.group);
+      if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+    }
+  }
+  if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (!en) continue;
+      const inRoster = roster.indexOf(en) >= 0;
+      const prefixed = prefix && typeof en.team === 'string' && en.team.indexOf(prefix) === 0;
+      const strayFriendly = (!prefix && en.team === 'friendly') || (typeof en.team === 'string' && en.team.indexOf('ffa_') === 0);
+      if (inRoster || prefixed || strayFriendly) {
+        if (en.parts && en.parts.group && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(en.parts.group);
+        if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(en);
+        enemies.splice(i, 1);
+      }
+    }
+  }
+  mode.roster = [];
+}
+
+// Leaving a match must not leave match bots in the live AI roster, whichever mode
+// was running. Kept as a single brace-free call site for quitMatchToMenu.
+function clearAllMatchRosters() {
+  if (typeof MODES === 'undefined') return;
+  for (const id in MODES) {
+    const m = MODES[id];
+    if (!m || !Array.isArray(m.roster) || m.roster.length === 0) continue;
+    purgeMatchBots(m, null);
+  }
+}
+
+function matchSpawnPointAt(idx) {
+  const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints()
+    : ((typeof spawnPoints !== 'undefined' && Array.isArray(spawnPoints)) ? spawnPoints : []);
+  if (sp && sp.length > 0) return sp[idx % sp.length];
+  return [(idx % 4) * 6 - 9, ((idx / 4) | 0) * 6 + 10];
+}
+
+function ffaFactionTeam(index) {
+  return 'ffa_' + index;
+}
+
+// Free-for-all deployment: every bot is its own faction, which makes the shared IFF
+// (CORE.isHostile), bot targeting and hostiles-only aim assist work as-is.
+function spawnFreeForAllRoster(mode, count) {
+  if (typeof spawnEnemy !== 'function') return;
+  const total = Math.max(2, Math.min(CORE.FREE_FOR_ALL_MAX_ACTORS, count | 0));
+  for (let i = 1; i < total; i++) {
+    const pt = matchSpawnPointAt(i - 1);
+    const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+    const bot = spawnEnemy(kind, pt[0], pt[1], { team: ffaFactionTeam(i), spawnProtection: true });
+    if (bot) {
+      bot.id = ffaFactionTeam(i);
+      bot.name = 'RIVAL ' + (i + 1);
+      bot.kills = 0;
+      bot.deaths = 0;
+      bot.tier = 0;
+      mode.roster.push(bot);
+    }
+  }
+}
+
+function actorTeamOf(actor) {
+  if (!actor) return 'enemy';
+  if (actor.team) return actor.team;
+  return actor.isPlayer ? 'friendly' : 'enemy';
+}
+
+function liveActors() {
+  const out = [];
+  const p = (typeof player !== 'undefined') ? player : null;
+  if (p && !p.dead) out.push(p);
+  const list = (typeof enemies !== 'undefined' && Array.isArray(enemies)) ? enemies : [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e && !e.dead && e !== p) out.push(e);
+  }
+  return out;
+}
+
+function actorInsideFlag(actor, flag, radius) {
+  if (!actor || !actor.pos || !flag) return false;
+  const dx = actor.pos.x - flag.x;
+  const dz = actor.pos.z - flag.z;
+  const r = (typeof radius === 'number') ? radius : CORE.DOMINATION_FLAG_RADIUS;
+  return (dx * dx + dz * dz) <= r * r;
+}
+
+function hideMatchOverlays() {
+  if (typeof document === 'undefined') return;
+  const endScreen = document.getElementById('match-end-screen');
+  if (endScreen) endScreen.style.display = 'none';
+  const deathScreen = document.getElementById('death-screen');
+  if (deathScreen) deathScreen.style.display = 'none';
+}
+
+// ============ FREE-FOR-ALL BASE (shared by FFA and Gun Game) ============
+// Both modes are free-for-all: identical roster, death/respawn, settlement and HUD
+// plumbing. They differ only in their win condition and ladder bookkeeping, which is
+// where a wrong local copy would hide, so the shared half lives in one place.
+function ffaDeploy(mode, def) {
+  clearModeRespawns();
+  mode._ended = false;
+  mode._settled = false;
+  mode.winner = null;
+  purgeMatchBots(mode, 'ffa_');
+  if (def.scoreKey) mode.targetScore = modeSettingNum(def.scoreKey, mode.targetScore, def.scoreMin, def.scoreMax);
+  mode.actors = modeSettingNum(def.actorsKey, CORE.FREE_FOR_ALL_MAX_ACTORS, 2, CORE.FREE_FOR_ALL_MAX_ACTORS);
+  mode.timeLeft = mode.matchDuration;
+  if (typeof gameEnded !== 'undefined') gameEnded = false;
+  const p = (typeof player !== 'undefined') ? player : null;
+  if (p) {
+    p.team = 'ffa_you';
+    p.isPlayer = true;
+    p.kills = 0;
+    p.deaths = 0;
+    p.downed = false;
+    p.downedBy = null;
+    p.lastAttacker = null;
+    p.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION;
+    if (def.prepareActor) def.prepareActor(p);
+    mode.roster.push(p);
+  }
+  spawnFreeForAllRoster(mode, mode.actors);
+  const roster = mode.roster;
+  for (let i = 0; i < roster.length; i++) {
+    const a = roster[i];
+    if (a && !a.isPlayer && def.prepareActor) def.prepareActor(a);
+  }
+  hideMatchOverlays();
+  updateMatchHud(mode);
+}
+
+function ffaStep(mode, dt) {
+  if (typeof paused !== 'undefined' && paused) return;
+  if (mode.isOver()) {
+    if (typeof gameEnded !== 'undefined' && !gameEnded) mode.endMatch();
+    return;
+  }
+  if (mode.timeLeft > 0) mode.timeLeft = Math.max(0, mode.timeLeft - dt);
+  if (typeof mode.tickExtra === 'function') mode.tickExtra(dt);
+  const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+  updateModeRespawns(dt, sp, (typeof enemies !== 'undefined') ? enemies : [], (typeof colliders !== 'undefined') ? colliders : []);
+  updateMatchHud(mode);
+  if (mode.isOver()) mode.endMatch();
+}
+
+function ffaOnDeath(mode, victim) {
+  if (mode.isOver() || (typeof gameEnded !== 'undefined' && gameEnded)) return;
+  if (victim) queueModeRespawn(victim, CORE.RESPAWN_DELAY);
+}
+
+function ffaSettle(mode) {
+  if (mode._ended) return;
+  mode._ended = true;
+  mode._settled = true;
+  if (typeof gameEnded !== 'undefined') gameEnded = true;
+  clearModeRespawns();
+  if (typeof showMatchEndScreen === 'function') showMatchEndScreen(mode);
+}
+
+function ffaPlayer() {
+  return (typeof player !== 'undefined') ? player : null;
+}
+
+function ffaPlayerKills() {
+  const p = ffaPlayer();
+  return (p && typeof p.kills === 'number') ? p.kills : 0;
+}
+
+function ffaLeaderKills(mode) {
+  let best = 0;
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  for (let i = 0; i < roster.length; i++) {
+    const k = roster[i] && typeof roster[i].kills === 'number' ? roster[i].kills : 0;
+    if (k > best) best = k;
+  }
+  return best;
+}
+
+// Shared kill accounting: deaths always count, only a hostile weapon kill credits the
+// killer, and the killfeed never invents a name for an actor that has none.
+function matchCreditKill(mode, victim, isHead, killer, damageType, victimsLabel, killerLabel) {
+  if (victim) victim.deaths = (victim.deaths || 0) + 1;
+  const p = ffaPlayer();
+  const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
+  const isPlayerVictim = !!(victim && (victim.isPlayer || victim === p));
+  const victimTeam = actorTeamOf(victim);
+  const killerTeam = killer ? actorTeamOf(killer) : null;
+  const isSelfKill = !!(killer && victim && (killer === victim || (killer.id && victim.id && killer.id === victim.id) || (isPlayerKiller && isPlayerVictim)));
+  const isHostileKill = !!(killer && !isSelfKill && killerTeam && killerTeam !== victimTeam);
+  if (isHostileKill) killer.kills = (killer.kills || 0) + 1;
+  if (typeof pushKillfeed === 'function') {
+    const killerName = isPlayerKiller ? 'YOU' : ((killer && killer.name) ? killer.name : (killerLabel || 'RIVAL'));
+    const victimName = isPlayerVictim ? 'YOU' : ((victim && victim.name) ? victim.name : (victimsLabel || 'RIVAL'));
+    if (isHostileKill) {
+      const color = (typeof matchKillfeedColor === 'function') ? matchKillfeedColor(killerTeam) : '#ff4030';
+      pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+    } else if (isSelfKill) {
+      pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> eliminated themselves');
+    } else {
+      pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> died');
+    }
+  }
+  const creditedType = (typeof damageType === 'string') ? damageType : victim && victim.lastDamageType;
+  return {
+    killer: killer,
+    victim: victim,
+    killerTeam: killerTeam,
+    victimTeam: victimTeam,
+    isSelfKill: isSelfKill,
+    isHostileKill: isHostileKill,
+    isPlayerKiller: isPlayerKiller,
+    credited: isHostileKill && CORE.gunGameCreditedKill(creditedType),
+    damageType: creditedType
+  };
+}
+
+function matchKillfeedColor(team) {
+  return (team === 'friendly' || team === 'ffa_you') ? '#38b6ff' : '#ff4030';
+}
+
+function ffaMembers(mode, gunGame) {
+  const p = ffaPlayer();
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  const members = [];
+  for (let i = 0; i < roster.length; i++) {
+    const actor = roster[i];
+    if (!actor) continue;
+    const isYou = !!(actor.isPlayer || actor === p);
+    const m = {
+      id: isYou ? 'player' : (actor.id || ('ffa_' + i)),
+      name: isYou ? 'YOU' : (actor.name || ('RIVAL ' + (i + 1))),
+      isPlayer: isYou,
+      team: isYou ? 'ffa_you' : actorTeamOf(actor),
+      kills: actor.kills || 0,
+      deaths: actor.deaths || 0
+    };
+    if (gunGame) {
+      m.tier = mode.tierOf(actor);
+      m.weapon = CORE.gunGameTierWeapon(m.tier);
+    }
+    members.push(m);
+  }
+  members.sort(function (a, b) {
+    return (gunGame ? (b.tier - a.tier || b.kills - a.kills) : (b.kills - a.kills));
+  });
+  return members;
+}
+
+// Whoever tops the board alone takes it; a shared top score is a draw.
+function ffaSoleLeader(mode, gunGame) {
+  const p = ffaPlayer();
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  let best = 0;
+  let count = 0;
+  let playerBest = false;
+  for (let i = 0; i < roster.length; i++) {
+    const a = roster[i];
+    if (!a) continue;
+    const v = gunGame ? mode.tierOf(a) : (a.kills || 0);
+    const isP = !!(a.isPlayer || a === p);
+    if (v > best) { best = v; count = 1; playerBest = isP; }
+    else if (v === best) { count++; if (isP) playerBest = true; }
+  }
+  return best > 0 && count === 1 && playerBest;
+}
+
+function ffaOutcome(mode, gunGame) {
+  const mine = gunGame ? mode.playerTier() : ffaPlayerKills();
+  const best = gunGame ? mode.leaderTier() : ffaLeaderKills(mode);
+  const p = ffaPlayer();
+  let title = 'DEFEAT';
+  if (gunGame && mode.winner && (mode.winner.isPlayer || mode.winner === p)) title = 'VICTORY';
+  else if (mine > best) title = 'VICTORY';
+  else if (mine === best && best > 0) title = ffaSoleLeader(mode, gunGame) ? 'VICTORY' : 'DRAW';
+  return {
+    title: title,
+    leftLabel: 'YOU',
+    leftScore: gunGame ? ('TIER ' + (mine + 1)) : mine,
+    rightLabel: 'LEADER',
+    rightScore: gunGame ? ('TIER ' + (best + 1)) : best,
+    note: gunGame ? ('Knife take-all: final tier ' + CORE.GUN_GAME_TIER_COUNT)
+      : ('First to ' + mode.targetScore + ' kills')
+  };
+}
+
+MODES.ffa = {
+  id: 'ffa',
+  name: 'Free-for-All',
+  targetScore: 30,
+  matchDuration: 600,
+  timeLeft: 600,
+  actors: 8,
+  roster: [],
+  setup: function () {
+    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 5, scoreMax: 100, actorsKey: 'ffaActorCount' });
+  },
+  playerScore: ffaPlayerKills,
+  leaderKills: function () { return ffaLeaderKills(this); },
+  leaders: function () {
+    const best = ffaLeaderKills(this);
+    return (Array.isArray(this.roster) ? this.roster : []).filter(function (a) { return a && (a.kills || 0) === best && best > 0; });
+  },
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
+    matchCreditKill(this, victim, isHead, killer, damageType, 'RIVAL', 'RIVAL');
+    updateMatchHud(this);
+    if (this.isOver()) this.endMatch();
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  update: function (dt) { ffaStep(this, dt); },
+  scoreboard: function () {
+    return {
+      mode: 'ffa',
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      playerScore: ffaPlayerKills(),
+      leaderKills: ffaLeaderKills(this),
+      members: ffaMembers(this, false)
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return ffaLeaderKills(this) >= this.targetScore || this.timeLeft <= 0;
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    return {
+      time: this.timeLeft,
+      left: 'YOU ' + ffaPlayerKills(),
+      right: 'LEADER ' + ffaLeaderKills(this),
+      note: 'FIRST TO ' + this.targetScore + ' KILLS'
+    };
+  },
+  outcome: function () { return ffaOutcome(this, false); }
+};
+
+// ============ DOMINATION ============
+function buildDominationFlags() {
+  const out = [];
+  const names = CORE.DOMINATION_FLAG_NAMES || ['A', 'B', 'C'];
+  const pts = CORE.DOMINATION_FLAG_POINTS || [[-18, 0], [0, 18], [18, 0]];
+  for (let i = 0; i < names.length; i++) {
+    const pt = pts[i] || [0, 0];
+    out.push({ name: names[i], x: pt[0], z: pt[1], owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS });
+  }
+  return out;
+}
+
+MODES.domination = {
+  id: 'domination',
+  name: 'Domination',
+  targetScore: 200,
+  matchDuration: 600,
+  timeLeft: 600,
+  teamSize: 6,
+  friendlyScore: 0,
+  enemyScore: 0,
+  flags: [],
+  roster: [],
+  setup: function () {
+    clearModeRespawns();
+    this._ended = false;
+    this._settled = false;
+    purgeMatchBots(this, null);
+    this.teamSize = 6;
+    this.targetScore = modeSettingNum('dominationScoreLimit', 200, 50, 500);
+    this.friendlyScore = 0;
+    this.enemyScore = 0;
+    this._scoreAcc = { friendly: 0, enemy: 0 };
+    this.timeLeft = this.matchDuration;
+    this.flags = buildDominationFlags();
+    if (typeof gameEnded !== 'undefined') gameEnded = false;
+    const p = (typeof player !== 'undefined') ? player : null;
+    if (p) {
+      p.team = 'friendly';
+      p.isPlayer = true;
+      p.kills = 0;
+      p.deaths = 0;
+      p.downed = false;
+      p.downedBy = null;
+      p.lastAttacker = null;
+      p.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION;
+      this.roster.push(p);
+    }
+    if (typeof spawnEnemy === 'function') {
+      const count = this.teamSize;
+      const sides = [{ team: 'friendly', n: count - 1, tag: 'ALLY', prefix: 'ally_' }, { team: 'enemy', n: count, tag: 'HOSTILE', prefix: 'enemy_' }];
+      for (let s = 0; s < sides.length; s++) {
+        const side = sides[s];
+        for (let i = 0; i < side.n; i++) {
+          const pt = matchSpawnPointAt(s === 0 ? i : i + count);
+          const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+          const bot = spawnEnemy(kind, pt[0], pt[1], { team: side.team, spawnProtection: true });
+          if (bot) {
+            bot.id = side.prefix + (i + 1);
+            bot.name = side.tag + ' ' + (i + 1);
+            bot.kills = 0;
+            bot.deaths = 0;
+            this.roster.push(bot);
+          }
+        }
+      }
+    }
+    hideMatchOverlays();
+    updateMatchHud(this);
+  },
+  flagHostileCount: function (flag, team, radius) {
+    let n = 0;
+    const actors = liveActors();
+    for (let i = 0; i < actors.length; i++) {
+      if (actorTeamOf(actors[i]) !== team && actorInsideFlag(actors[i], flag, radius)) n++;
+    }
+    return n;
+  },
+  flagDistance: function (actor, flag) {
+    if (!actor || !actor.pos || !flag) return Infinity;
+    const dx = actor.pos.x - flag.x;
+    const dz = actor.pos.z - flag.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  },
+  // Attack the nearest flag the side does not hold, defend one hostiles are taking,
+  // otherwise hold. The bot AI and the HUD read the same order.
+  objectiveFor: function (actor) {
+    const team = actorTeamOf(actor);
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    let best = null;
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      if (f.owner === team && this.flagHostileCount(f, team, CORE.DOMINATION_DEFEND_RADIUS) > 0) {
+        const d = this.flagDistance(actor, f);
+        if (!best || d < best.d) best = { f: f, d: d, role: 'defend' };
+      }
+    }
+    if (!best) {
+      for (let i = 0; i < flags.length; i++) {
+        const f = flags[i];
+        if (f.owner === team) continue;
+        const d = this.flagDistance(actor, f);
+        if (!best || d < best.d) best = { f: f, d: d, role: 'attack' };
+      }
+    }
+    if (!best) {
+      for (let i = 0; i < flags.length; i++) {
+        const d = this.flagDistance(actor, flags[i]);
+        if (!best || d < best.d) best = { f: flags[i], d: d, role: 'hold' };
+      }
+    }
+    if (!best) return null;
+    return { name: best.f.name, point: [best.f.x, best.f.z], role: best.role };
+  },
+  updateFlags: function (dt) {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const actors = liveActors();
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      let friendly = 0;
+      let enemy = 0;
+      for (let j = 0; j < actors.length; j++) {
+        if (!actorInsideFlag(actors[j], f, CORE.DOMINATION_FLAG_RADIUS)) continue;
+        if (actorTeamOf(actors[j]) === 'friendly') friendly++;
+        else enemy++;
+      }
+      const contested = friendly > 0 && enemy > 0;
+      const attacker = contested ? null : (friendly > 0 ? 'friendly' : (enemy > 0 ? 'enemy' : null));
+      if (contested) {
+        f.capture = CORE.flagCaptureStep(f.capture, dt, true, true);
+      } else if (!attacker || attacker === f.owner) {
+        // Nobody on it, or the owner standing on its own flag: partial progress decays.
+        f.capture = CORE.flagCaptureStep(f.capture, dt, false, false);
+      } else {
+        f.capture = CORE.flagCaptureStep(f.capture, dt, true, false);
+        if (f.capture >= CORE.DOMINATION_CAPTURE_SECONDS) {
+          f.owner = attacker;
+          f.capture = 0;
+        }
+      }
+    }
+  },
+  // Ownership scores, not occupation: whole points are awarded per owned flag per
+  // second and the fractional remainder carries across frames.
+  updateScore: function (dt) {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    if (!this._scoreAcc) this._scoreAcc = { friendly: 0, enemy: 0 };
+    const owned = { friendly: 0, enemy: 0 };
+    for (let i = 0; i < flags.length; i++) {
+      if (owned[flags[i].owner] !== undefined) owned[flags[i].owner]++;
+    }
+    const fStep = CORE.flagScoreStep(this._scoreAcc.friendly, owned.friendly, dt);
+    this.friendlyScore += fStep.points;
+    this._scoreAcc.friendly = fStep.acc;
+    const eStep = CORE.flagScoreStep(this._scoreAcc.enemy, owned.enemy, dt);
+    this.enemyScore += eStep.points;
+    this._scoreAcc.enemy = eStep.acc;
+  },
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
+    matchCreditKill(this, victim, isHead, killer, damageType, 'ALLY BOT', 'HOSTILE BOT');
+    updateMatchHud(this);
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  update: function (dt) {
+    if (typeof paused !== 'undefined' && paused) return;
+    if (this.isOver()) {
+      if (typeof gameEnded !== 'undefined' && !gameEnded) this.endMatch();
+      return;
+    }
+    if (this.timeLeft > 0) this.timeLeft = Math.max(0, this.timeLeft - dt);
+    this.updateFlags(dt);
+    this.updateScore(dt);
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+    updateModeRespawns(dt, sp, (typeof enemies !== 'undefined') ? enemies : [], (typeof colliders !== 'undefined') ? colliders : []);
+    updateMatchHud(this);
+    if (this.isOver()) this.endMatch();
+  },
+  flagStatus: function () {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const label = { friendly: 'FRIENDLY', enemy: 'HOSTILE', neutral: 'NEUTRAL' };
+    const parts = [];
+    for (let i = 0; i < flags.length; i++) parts.push(flags[i].name + ' ' + (label[flags[i].owner] || 'NEUTRAL'));
+    return parts.join(' · ');
+  },
+  scoreboard: function () {
+    const p = (typeof player !== 'undefined') ? player : null;
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    const sides = { friendly: [], enemy: [] };
+    const seen = {};
+    for (let i = 0; i < roster.length; i++) {
+      const actor = roster[i];
+      if (!actor) continue;
+      const isYou = !!(actor.isPlayer || actor === p);
+      const actorId = isYou ? 'player' : (actor.id || ('bot_' + i));
+      if (seen[actorId]) continue;
+      seen[actorId] = true;
+      const team = (isYou || actorTeamOf(actor) === 'friendly') ? 'friendly' : 'enemy';
+      sides[team].push({
+        id: actorId,
+        name: isYou ? 'YOU' : (actor.name || (team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1)))),
+        isPlayer: isYou,
+        team: team,
+        kills: actor.kills || 0,
+        deaths: actor.deaths || 0
+      });
+    }
+    sides.friendly.sort(function (a, b) { return b.kills - a.kills; });
+    sides.enemy.sort(function (a, b) { return b.kills - a.kills; });
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const flagRows = [];
+    for (let i = 0; i < flags.length; i++) flagRows.push({ name: flags[i].name, owner: flags[i].owner, capture: flags[i].capture });
+    return {
+      mode: 'domination',
+      friendlyScore: this.friendlyScore,
+      enemyScore: this.enemyScore,
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      flags: flagRows,
+      friendlyTeam: { name: 'FRIENDLY', score: this.friendlyScore, members: sides.friendly },
+      enemyTeam: { name: 'ENEMY', score: this.enemyScore, members: sides.enemy }
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    return {
+      time: this.timeLeft,
+      left: this.friendlyScore,
+      right: this.enemyScore,
+      note: this.flagStatus() + ' · FIRST TO ' + this.targetScore
+    };
+  },
+  outcome: function () {
+    const draw = this.friendlyScore === this.enemyScore;
+    return {
+      title: draw ? 'DRAW' : (this.friendlyScore > this.enemyScore ? 'VICTORY' : 'DEFEAT'),
+      leftLabel: 'FRIENDLY',
+      leftScore: this.friendlyScore,
+      rightLabel: 'ENEMY',
+      rightScore: this.enemyScore,
+      note: this.flagStatus()
+    };
+  }
+};
+
+// ============ GUN GAME ============
+// A bot's tier weapon decides how hard it hits; the knife tier fights up close.
+function gunGameBaselineDamage() {
+  if (typeof CFG === 'undefined' || !CFG || !Array.isArray(CFG.weapons) || !CFG.weapons[0]) return 26;
+  const dmg = CFG.weapons[0].dmg;
+  return (typeof dmg === 'number' && dmg > 0) ? dmg : 26;
+}
+
+function applyGunGameBotLoadout(actor) {
+  if (!actor) return;
+  const tier = (typeof actor.tier === 'number') ? actor.tier : 0;
+  const weapon = CORE.gunGameTierWeapon(tier);
+  actor.ggWeapon = weapon;
+  if (weapon < 0) {
+    actor.dmgMul = CORE.GUN_GAME_KNIFE_DAMAGE_MUL;
+    return;
+  }
+  const w = (typeof CFG !== 'undefined' && CFG && Array.isArray(CFG.weapons)) ? CFG.weapons[weapon] : null;
+  actor.dmgMul = CORE.gunGameBotDamageMul(w ? w.dmg : undefined, gunGameBaselineDamage());
+}
+
+// The player's only weapon is the ladder weapon for the earned tier: at the knife
+// tier every firearm slot is emptied and the melee knife is what remains.
+function applyGunGamePlayerLoadout(mode) {
+  if (typeof weaponsOwned === 'undefined' || !Array.isArray(weaponsOwned)) return;
+  const p = (typeof player !== 'undefined') ? player : null;
+  const weapon = CORE.gunGameTierWeapon((p && typeof p.tier === 'number') ? p.tier : 0);
+  for (let i = 0; i < weaponsOwned.length; i++) weaponsOwned[i] = -1;
+  if (weapon >= 0 && weaponsOwned.length > 0) weaponsOwned[0] = weapon;
+  if (typeof curWeapon !== 'undefined') curWeapon = 0;
+  if (typeof pendingSecondary !== 'undefined') pendingSecondary = -1;
+  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof buildViewmodel === 'function') buildViewmodel();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+}
+
+MODES['gun-game'] = {
+  id: 'gun-game',
+  name: 'Gun Game',
+  matchDuration: 600,
+  timeLeft: 600,
+  actors: 8,
+  tierCount: 20,
+  winner: null,
+  roster: [],
+  setup: function () {
+    ffaDeploy(this, {
+      actorsKey: 'gunGameActorCount',
+      prepareActor: function (actor) { actor.tier = 0; }
+    });
+    const p = ffaPlayer();
+    if (p) applyGunGamePlayerLoadout(this);
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    for (let i = 0; i < roster.length; i++) {
+      if (roster[i] && !roster[i].isPlayer) applyGunGameBotLoadout(roster[i]);
+    }
+    updateMatchHud(this);
+  },
+  tierOf: function (actor) {
+    return (actor && typeof actor.tier === 'number') ? actor.tier : 0;
+  },
+  setTier: function (actor, tier) {
+    if (!actor) return 0;
+    actor.tier = CORE.gunGameAdvance(tier, 0);
+    this.onRespawn(actor);
+    updateMatchHud(this);
+    return actor.tier;
+  },
+  playerTier: function () { return this.tierOf(ffaPlayer()); },
+  leaderTier: function () {
+    let best = 0;
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    for (let i = 0; i < roster.length; i++) {
+      const t = this.tierOf(roster[i]);
+      if (t > best) best = t;
+    }
+    return best;
+  },
+  // The ladder only moves on genuine hostile weapon kills. Grenades, self kills and
+  // same-faction kills leave every rung untouched; the knife demotes its victim.
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded)) return;
+    const r = matchCreditKill(this, victim, isHead, killer, damageType, 'RIVAL', 'RIVAL');
+    let won = false;
+    if (r.isHostileKill && victim && CORE.gunGameMeleeKill(r.damageType)) {
+      const before = this.tierOf(victim);
+      const after = CORE.gunGameAdvance(before, -1);
+      if (after !== before) {
+        victim.tier = after;
+        this.onRespawn(victim);
+      }
+    }
+    if (r.credited && killer) {
+      if (CORE.gunGameIsKnifeTier(this.tierOf(killer))) {
+        won = true;                       // the knife owner landed the final kill
+      } else {
+        killer.tier = CORE.gunGameAdvance(this.tierOf(killer), 1);
+        this.onRespawn(killer);
+      }
+    }
+    updateMatchHud(this);
+    if (won) {
+      this.winner = killer;
+      this.endMatch();
+      return;
+    }
+    if (this.isOver()) this.endMatch();
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  // Respawning must not reset progress: re-issue the loadout for the earned tier.
+  onRespawn: function (actor) {
+    if (!actor) return;
+    const p = ffaPlayer();
+    if (actor.isPlayer || actor === p) applyGunGamePlayerLoadout(this);
+    else applyGunGameBotLoadout(actor);
+  },
+  update: function (dt) { ffaStep(this, dt); },
+  scoreboard: function () {
+    return {
+      mode: 'gun-game',
+      tierCount: CORE.GUN_GAME_TIER_COUNT,
+      timeLeft: this.timeLeft,
+      playerTier: this.playerTier(),
+      leaderTier: this.leaderTier(),
+      members: ffaMembers(this, true)
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return !!this.winner || this.timeLeft <= 0;
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    const total = CORE.GUN_GAME_TIER_COUNT;
+    return {
+      time: this.timeLeft,
+      left: 'TIER ' + (this.playerTier() + 1) + '/' + total,
+      right: 'LEADER ' + (this.leaderTier() + 1) + '/' + total,
+      note: 'FINAL TIER IS THE KNIFE'
+    };
+  },
+  outcome: function () { return ffaOutcome(this, true); }
 };

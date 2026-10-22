@@ -234,13 +234,30 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
+
+// One multiplier for "how hard does this actor hit", driven by its earned loadout
+// (Gun Game tiers). Anything without a multiplier hits at its normal damage.
+function actorDamageMul(actor) {
+  if (!actor) return 1;
+  const m = actor.dmgMul;
+  return (typeof m === 'number' && isFinite(m) && m > 0) ? m : 1;
+}
+
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  const isSettled = (typeof matchSettled === 'function')
+    ? matchSettled()
+    : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
   if (isSettled) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  // Gun Game bots hit harder or softer depending on the tier weapon they earned.
+  const attackerMul = (typeof actorDamageMul === 'function') ? actorDamageMul(sourceActor) : 1;
+  if (attackerMul !== 1) dmg = dmg * attackerMul;
+  // Remember how the blow landed so credited-kill rules (the Gun Game ladder) can
+  // tell a weapon kill from an unowned blast, sentry or environment kill.
+  en.lastDamageType = (typeof weaponType === 'string' && weaponType) ? weaponType : undefined;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -294,7 +311,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
       soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
     }
   }
-  if (isKill) killEnemy(en, isHead, sourceActor);
+  if (isKill) killEnemy(en, isHead, sourceActor, en.lastDamageType);
   else {
     // flinch + alert
     en.stateT = 0;
@@ -304,7 +321,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
 
 const _killImpulseOut = { force: 0, y: 0 };
 
-function killEnemy(en, isHead, killer) {
+function killEnemy(en, isHead, killer, damageType) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
@@ -338,7 +355,7 @@ function killEnemy(en, isHead, killer) {
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
-  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor, (typeof damageType === 'string') ? damageType : en.lastDamageType);
 }
 
 // Horizontal distance from an enemy to the player.
@@ -600,6 +617,28 @@ function vertGapToTarget(en, target) {
   return (target.pos.y - eyeH) - en.pos.y;
 }
 
+// Domination objective orders are real navigation destinations: an actor with no
+// hostile within engagement range walks its attack/defend flag instead of idling.
+// Returns null for every other mode (and whenever a fight is available), so the
+// ordinary AI path is completely untouched outside Domination.
+const OBJECTIVE_ENGAGE_RANGE = 30;
+function objectiveSteerTarget(en, target) {
+  if (!en || typeof getActiveMode !== 'function') return null;
+  const mode = getActiveMode();
+  if (!mode || mode.id !== 'domination' || typeof mode.objectiveFor !== 'function') return null;
+  if (target && !target.dead && distToTarget(en, target) <= OBJECTIVE_ENGAGE_RANGE) return null;
+  const order = mode.objectiveFor(en);
+  if (!order) return null;
+  return {
+    pos: { x: order.point[0], y: 0, z: order.point[1] },
+    isPlayer: false,
+    objective: true,
+    objectiveRole: order.role,
+    objectiveName: order.name,
+    dead: false
+  };
+}
+
 function updateEnemies(dt) {
   updateStatusEffects(dt);
   losFrame++;
@@ -625,6 +664,20 @@ function updateEnemies(dt) {
     const targetGone = !target || target.dead;
     en.stateT += dt;
     const dist = target ? distToTarget(en, target) : distToPlayer(en);
+    // Domination: nothing to fight within engagement range means walk the flag
+    // order. The order is cleared again before the aim/attack stages so no weapon
+    // or animation code ever treats a flag as a target.
+    const order = objectiveSteerTarget(en, target);
+    if (order) {
+      en.objectiveTarget = order;
+      en.target = order;
+      moveEnemy(en, dt, distToTarget(en, order));
+      en.target = null;
+      if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; }
+      en.swinging = undefined;
+      animateEnemy(en, dt, dist);
+      continue;
+    }
     // state machine
     if (targetGone) {
       if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
