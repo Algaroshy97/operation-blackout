@@ -123,6 +123,18 @@ def main() -> int:
         #    in-game time runs several times slower than wall clock when frames are
         #    slow (headless/swiftshader), so 25 s was not enough headroom.
         checks.append(("start-screen-hidden", page.evaluate("() => document.getElementById('start-screen').style.display === 'none'")))
+
+        # 2b) Survival deployment from deploy screen: deploy button -> live gameplay state
+        surv_deploy = page.evaluate("""() => {
+            const isStarted = typeof started !== 'undefined' && started === true;
+            const notPaused = typeof paused !== 'undefined' && paused === false;
+            const isAlive = typeof player !== 'undefined' && player && !player.dead && player.health > 0;
+            const zeroProtection = typeof player !== 'undefined' && player && player.spawnProtectionT === 0;
+            const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+            const isSurvival = activeMode && activeMode.id === 'survival';
+            return isStarted && notPaused && isAlive && zeroProtection && isSurvival;
+        }""")
+        checks.append(("survival-deploy-live-state", bool(surv_deploy)))
         telemetry_snapshot = page.evaluate("""() => {
             const before = window.fpsGameTelemetry.snapshot();
             window.fpsGameTelemetry.enable();
@@ -5207,10 +5219,382 @@ def main() -> int:
         }""")
         checks.append(("breacher-fires-close-not-far", br["near"] >= 2 and br["far"] == 0))
 
+        # 113i) Between-wave save/resume: write checkpoint, load/resume and assert state identity
+        save_resume = page.evaluate("""() => {
+            const savedState = captureRunState();
+            savedState.wave = 3;
+            savedState.score = 6400;
+            savedState.kills = 16;
+            savedState.headshots = 5;
+            savedState.health = 90;
+            savedState.armor = 30;
+            savedState.credits = 800;
+            savedState.spawnProtectionT = 0;
+            saveCheckpoint(savedState);
+            const loaded = loadCheckpoint();
+            const identityOk = loaded &&
+                loaded.wave === 3 &&
+                loaded.score === 6400 &&
+                loaded.kills === 16 &&
+                loaded.headshots === 5 &&
+                loaded.health === 90 &&
+                loaded.armor === 30 &&
+                loaded.credits === 800 &&
+                loaded.spawnProtectionT === 0 &&
+                loaded.modeRespawnQueue === undefined;
+
+            // Also test defensive loading for legacy save with detached stubs
+            const legacyRaw = {
+                v: 3,
+                wave: 2, score: 500, kills: 5, headshots: 1,
+                shotsFired: 20, shotsHit: 10,
+                health: 100, armor: 0, grenades: 2, credits: 100,
+                weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }],
+                modeRespawnQueue: [{ timer: 2.0, actor: { id: 'bot_test', team: 'friendly', kind: 1 } }]
+            };
+            const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+            const defensiveOk = legacyLoaded &&
+                legacyLoaded.spawnProtectionT === 0 &&
+                legacyLoaded.modeRespawnQueue === undefined;
+
+            return { identityOk: identityOk, defensiveOk: defensiveOk };
+        }""")
+        checks.append(("checkpoint-between-wave-save-resume", bool(save_resume["identityOk"] and save_resume["defensiveOk"])))
+
+        # 113j) Settled-victory and endless-run checkpoint behaviour
+        vic_endless = page.evaluate("""() => {
+            const savedPhase = typeof runPhase !== 'undefined' ? runPhase : 'active';
+            const savedEnded = typeof gameEnded !== 'undefined' ? gameEnded : false;
+            const savedEndless = typeof endlessMode !== 'undefined' ? endlessMode : false;
+
+            // 1. Victory checkpoint: settled victory persists without repeating
+            const vicState = captureRunState();
+            vicState.runPhase = 'victory';
+            vicState.settlementSnapshot = { kills: 100, headshots: 30, streaks: 4 };
+            saveCheckpoint(vicState);
+            const loadedVic = loadCheckpoint();
+            const resumeVic = CORE.resumeCheckpointState(loadedVic.runPhase);
+
+            // 2. Endless checkpoint: continuation phase persists
+            const endlessState = captureRunState();
+            endlessState.runPhase = 'endless';
+            endlessState.endless = true;
+            saveCheckpoint(endlessState);
+            const loadedEndless = loadCheckpoint();
+            const resumeEndless = CORE.resumeCheckpointState(loadedEndless.runPhase);
+
+            // Restore live state
+            if (typeof runPhase !== 'undefined') runPhase = savedPhase;
+            if (typeof gameEnded !== 'undefined') gameEnded = savedEnded;
+            if (typeof endlessMode !== 'undefined') endlessMode = savedEndless;
+
+            return {
+                vicPhase: loadedVic && loadedVic.runPhase === 'victory',
+                vicShowScreen: resumeVic && resumeVic.showVictory === true && resumeVic.gameEnded === true,
+                endlessPhase: loadedEndless && loadedEndless.runPhase === 'endless' && loadedEndless.endless === true,
+                endlessContinues: resumeEndless && resumeEndless.showVictory === false && resumeEndless.gameEnded === false
+            };
+        }""")
+        checks.append(("checkpoint-settled-victory-and-endless",
+                       bool(vic_endless["vicPhase"] and vic_endless["vicShowScreen"] and
+                            vic_endless["endlessPhase"] and vic_endless["endlessContinues"])))
+
+        # 113k) Friendly-bot rendering/IFF marker and team interaction incl. friendly-fire immunity
+        fb_check = page.evaluate("""() => {
+            const friendly = spawnEnemy(1, 12, 18, { team: 'friendly' });
+            const hasTeam = friendly && friendly.team === 'friendly';
+            const iffObj = friendly && friendly.parts && (
+                friendly.parts.iff ||
+                (friendly.parts.group && friendly.parts.group.userData && friendly.parts.group.userData.iff)
+            );
+            const hasIff = !!iffObj;
+            const minimapColor = CORE.minimapActorColor(friendly);
+            const isFriendlyColor = minimapColor === CORE.MINIMAP_FRIENDLY_COLOR;
+
+            // Friendly fire immunity: player cannot damage friendly bot
+            const friendlyInitHp = friendly.health;
+            damageEnemy(friendly, 45, friendly.pos, false, false, 'AR', player);
+            const immuneToPlayer = friendly.health === friendlyInitHp;
+
+            // Friendly fire immunity: friendly bot cannot damage player
+            const playerInitHp = player.health;
+            damagePlayer(25, 0, 'bullet', friendly);
+            const playerImmuneToAlly = player.health === playerInitHp;
+
+            // Clean up friendly bot
+            friendly.dead = true;
+            if (friendly.parts && friendly.parts.group) scene.remove(friendly.parts.group);
+            const idx = enemies.indexOf(friendly);
+            if (idx >= 0) enemies.splice(idx, 1);
+
+            return {
+                hasTeam: hasTeam,
+                hasIff: hasIff,
+                isFriendlyColor: isFriendlyColor,
+                immuneToPlayer: immuneToPlayer,
+                playerImmuneToAlly: playerImmuneToAlly
+            };
+        }""")
+        checks.append(("friendly-bot-iff-and-friendly-fire-immunity",
+                       bool(fb_check["hasTeam"] and fb_check["hasIff"] and
+                            fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
+                            fb_check["playerImmuneToAlly"])))
+
+        # Previous acceptance contexts have finished; retire their render loops
+        # before the independent TDM and graphics UI runs compete for software GPU time.
+        for finished_context in list(browser.contexts):
+            finished_context.close()
+
+        # 113l) Real TDM deploy through UI, real 6v6 teams, HUD/scoreboard, full match lifecycle, result & restart
+        # Acceptance check isolated in a fresh page/context to prevent prior probes' pointer-lock and DOM mutations
+        # from interfering with normal UI deployment via real user clicks.
+        tdm_page = browser.new_page(viewport={"width": 1280, "height": 720})
+        tdm_page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        tdm_page.on("pageerror", lambda e: console_errors.append(str(e)))
+        tdm_page.goto(args.build.resolve().as_uri())
+        wait_until(tdm_page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+
+        tdm_page.click("#btn-start")
+        tdm_page.wait_for_selector("#gun-select", state="visible")
+        tdm_page.click("#mode-btn-tdm")
+        tdm_page.click("#tdm-score-2")
+        tdm_page.click("#gun-cards .gun-card:not(.locked)")
+        tdm_page.wait_for_timeout(200)
+        tdm_page.click("#gun-cards .gun-card:not(.locked)")
+        tdm_page.wait_for_timeout(300)
+
+        tdm_check = tdm_page.evaluate("""() => {
+            const mode = getActiveMode();
+            const isTdm = mode && mode.id === 'tdm';
+            const friendlies = enemies.filter(e => e.team === 'friendly');
+            const hostiles = enemies.filter(e => e.team === 'enemy');
+            const totalRosterOk = friendlies.length === 5 && hostiles.length === 6 && player.team === 'friendly';
+            const targetScoreOk = mode && mode.targetScore === 2;
+
+            const hudEl = document.getElementById('match-hud');
+            const hudVisible = hudEl && getComputedStyle(hudEl).display !== 'none';
+            const timerEl = document.getElementById('match-timer');
+            const initialTimer = timerEl ? timerEl.textContent : '';
+
+            // Verify Tab scoreboard
+            setScoreboardVisible(true);
+            const sbEl = document.getElementById('match-scoreboard');
+            const sbVisible = sbEl && getComputedStyle(sbEl).display !== 'none';
+            const sbText = sbEl ? sbEl.textContent : '';
+            const sbHasContent = sbText.includes('ALLIES') && sbText.includes('HOSTILES') && sbText.includes('YOU');
+            setScoreboardVisible(false);
+
+            // Step 1: Default spawn immunity test:
+            // Hostile bot spawns with spawn protection (2s duration). Hostile damage must wait/expire
+            // protection or actually shoot to break it before killing.
+            const targetHostile = hostiles[0];
+            const initialHp = targetHostile.health;
+            const protectedInitially = targetHostile.spawnProtectionT > 0;
+            damageEnemy(targetHostile, 45, targetHostile.pos, false, false, 'AR', player);
+            const immuneWhileProtected = targetHostile.health === initialHp && !targetHostile.dead;
+
+            // Wait/expire protection naturally via enemy update dt
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+            const protectionExpired = targetHostile.spawnProtectionT === 0;
+
+            // Now inflict lethal damage to eliminate hostile
+            damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', player);
+            const hostileDied = targetHostile.dead === true;
+
+            // updateEnemies drops corpse from enemies array
+            updateEnemies(1 / 60);
+            const corpseDropped = !enemies.includes(targetHostile);
+            const queueHasRespawn = modeRespawnQueue.some(e => e.actor === targetHostile);
+            const score1Friendly = mode.friendlyScore === 1;
+
+            // Verify killfeed has genuine event
+            const kfEl = document.getElementById('killfeed');
+            const killfeedOk = !!(kfEl && kfEl.textContent && kfEl.textContent.includes('eliminated'));
+
+            // Step 2: Update loop steps timer and respawns actor back into enemies
+            mode.update(1.0);
+            mode.update(1.0);
+            mode.update(1.1);
+            const hostileRevived = targetHostile.dead === false;
+            const hostileReentered = enemies.includes(targetHostile);
+            const respawnProtected = targetHostile.spawnProtectionT > 0;
+
+            // Expire protection on respawned hostile
+            updateEnemies(1.0);
+            updateEnemies(1.1);
+
+            // Step 3: Kill 2 reaches targetScore (2), match completes
+            damageEnemy(targetHostile, 300, targetHostile.pos, false, false, 'AR', player);
+            const score2Friendly = mode.friendlyScore === 2;
+            const isMatchOver = mode.isOver();
+
+            // Run normal update loop path to trigger match end and UI settlement
+            mode.update(1 / 60);
+            const gameEndedOk = gameEnded === true;
+            const endScreen = document.getElementById('match-end-screen');
+            const endScreenVisible = endScreen && getComputedStyle(endScreen).display !== 'none';
+            const endTitle = document.getElementById('match-end-title');
+            const titleOk = endTitle && endTitle.textContent === 'VICTORY';
+
+            // Step 4: Verify restart lifecycle via real restart button
+            const restartBtn = document.getElementById('btn-match-restart');
+            if (restartBtn) restartBtn.click();
+            const restartedMode = getActiveMode();
+            const restartedOk = started === true && !gameEnded && restartedMode.friendlyScore === 0 && restartedMode.enemyScore === 0;
+
+            // Step 5: Hostile bot attacks player -> spawn protection immunity, lethal down, finishing kill, killer stats, enemy score, player respawn, and enemy final win
+            const hostileKiller = enemies.find(e => e.team === 'enemy');
+            const playerInitHp = player.health;
+            const playerProtectedInit = player.spawnProtectionT > 0;
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerImmuneWhileProtected = player.health === playerInitHp && !player.downed && !player.dead;
+
+            // Expire player spawn protection
+            player.spawnProtectionT = 0;
+
+            // Lethal hit downs player
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerDownedOk = player.downed === true && player.downedBy === hostileKiller;
+
+            // Finishing hit kills player
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const playerDiedOk = player.dead === true;
+            const enemyScore1Ok = restartedMode.enemyScore === 1;
+            const killerKills1Ok = hostileKiller.kills === 1;
+            const playerDeaths1Ok = player.deaths === 1;
+            const playerQueuedRespawn = modeRespawnQueue.some(e => e.actor === player);
+
+            // Step respawn timer to bring player back
+            restartedMode.update(1.0);
+            restartedMode.update(1.0);
+            restartedMode.update(1.1);
+            const playerRevivedOk = player.dead === false && player.health === 100;
+            const playerRespawnProtected = player.spawnProtectionT > 0;
+
+            // Expire respawn protection
+            player.spawnProtectionT = 0;
+
+            // Hostile kills player a second time to reach targetScore (2) -> Enemy VICTORY / Player DEFEAT
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            damagePlayer(10000, 0, 'bullet', hostileKiller);
+            const enemyScore2Ok = restartedMode.enemyScore === 2;
+            const enemyWinMatchOver = restartedMode.isOver();
+            restartedMode.update(1 / 60);
+            const enemyWinGameEnded = gameEnded === true;
+            const defeatScreen = document.getElementById('match-end-screen');
+            const defeatScreenVisible = defeatScreen && getComputedStyle(defeatScreen).display !== 'none';
+            const defeatTitle = document.getElementById('match-end-title');
+            const defeatTitleOk = defeatTitle && defeatTitle.textContent === 'DEFEAT';
+            const playerNotQueuedOnMatchEnd = !modeRespawnQueue.some(e => e.actor === player);
+
+            // Step 6: Return to menu and restore standard settings on cleanup
+            quitMatchToMenu();
+            if (typeof setSetting === 'function') {
+                setSetting('tdmScoreLimit', 75);
+                setSetting('tdmTeamSize', 6);
+                setSetting('gameMode', 'survival');
+            }
+            if (MODES.tdm) {
+                MODES.tdm.targetScore = 75;
+                MODES.tdm.teamSize = 6;
+            }
+            setActiveMode('survival');
+
+            const menuVisible = document.getElementById('start-screen').style.display !== 'none';
+            const settingsRestored = (typeof getSetting === 'function') &&
+                                     getSetting('tdmScoreLimit') === 75 &&
+                                     getSetting('tdmTeamSize') === 6 &&
+                                     getSetting('gameMode') === 'survival';
+
+            return {
+                isTdm: isTdm,
+                totalRosterOk: totalRosterOk,
+                targetScoreOk: targetScoreOk,
+                hudVisible: hudVisible,
+                hasTimer: !!initialTimer,
+                sbVisible: sbVisible,
+                sbHasContent: sbHasContent,
+                protectedInitially: protectedInitially,
+                immuneWhileProtected: immuneWhileProtected,
+                protectionExpired: protectionExpired,
+                hostileDied: hostileDied,
+                corpseDropped: corpseDropped,
+                queueHasRespawn: queueHasRespawn,
+                score1Friendly: score1Friendly,
+                killfeedOk: killfeedOk,
+                hostileRevived: hostileRevived,
+                hostileReentered: hostileReentered,
+                respawnProtected: respawnProtected,
+                score2Friendly: score2Friendly,
+                isMatchOver: isMatchOver,
+                gameEndedOk: gameEndedOk,
+                endScreenVisible: endScreenVisible,
+                titleOk: titleOk,
+                restartedOk: restartedOk,
+                playerProtectedInit: playerProtectedInit,
+                playerImmuneWhileProtected: playerImmuneWhileProtected,
+                playerDownedOk: playerDownedOk,
+                playerDiedOk: playerDiedOk,
+                enemyScore1Ok: enemyScore1Ok,
+                killerKills1Ok: killerKills1Ok,
+                playerDeaths1Ok: playerDeaths1Ok,
+                playerQueuedRespawn: playerQueuedRespawn,
+                playerRevivedOk: playerRevivedOk,
+                playerRespawnProtected: playerRespawnProtected,
+                enemyScore2Ok: enemyScore2Ok,
+                enemyWinMatchOver: enemyWinMatchOver,
+                enemyWinGameEnded: enemyWinGameEnded,
+                defeatScreenVisible: defeatScreenVisible,
+                defeatTitleOk: defeatTitleOk,
+                playerNotQueuedOnMatchEnd: playerNotQueuedOnMatchEnd,
+                menuVisible: menuVisible,
+                settingsRestored: settingsRestored
+            };
+        }""")
+        tdm_page.close()
+
+        checks.append(("tdm-end-to-end-match-lifecycle",
+                       bool(tdm_check["isTdm"] and tdm_check["totalRosterOk"] and
+                            tdm_check["targetScoreOk"] and
+                            tdm_check["hudVisible"] and tdm_check["hasTimer"] and
+                            tdm_check["sbVisible"] and tdm_check["sbHasContent"] and
+                            tdm_check["protectedInitially"] and
+                            tdm_check["immuneWhileProtected"] and
+                            tdm_check["protectionExpired"] and
+                            tdm_check["hostileDied"] and tdm_check["corpseDropped"] and
+                            tdm_check["queueHasRespawn"] and tdm_check["score1Friendly"] and
+                            tdm_check["killfeedOk"] and
+                            tdm_check["hostileRevived"] and tdm_check["hostileReentered"] and
+                            tdm_check["respawnProtected"] and
+                            tdm_check["score2Friendly"] and
+                            tdm_check["isMatchOver"] and
+                            tdm_check["gameEndedOk"] and
+                            tdm_check["endScreenVisible"] and
+                            tdm_check["titleOk"] and
+                            tdm_check["restartedOk"] and
+                            tdm_check["playerProtectedInit"] and
+                            tdm_check["playerImmuneWhileProtected"] and
+                            tdm_check["playerDownedOk"] and
+                            tdm_check["playerDiedOk"] and
+                            tdm_check["enemyScore1Ok"] and
+                            tdm_check["killerKills1Ok"] and
+                            tdm_check["playerDeaths1Ok"] and
+                            tdm_check["playerQueuedRespawn"] and
+                            tdm_check["playerRevivedOk"] and
+                            tdm_check["playerRespawnProtected"] and
+                            tdm_check["enemyScore2Ok"] and
+                            tdm_check["enemyWinMatchOver"] and
+                            tdm_check["enemyWinGameEnded"] and
+                            tdm_check["defeatScreenVisible"] and
+                            tdm_check["defeatTitleOk"] and
+                            tdm_check["playerNotQueuedOnMatchEnd"] and
+                            tdm_check["menuVisible"] and
+                            tdm_check["settingsRestored"])))
+
         # 113) Clean console throughout gameplay.
         from probe_graphics import probe_graphics
-        # Previous acceptance contexts have finished; retire their render loops
-        # before the independent graphics UI run competes for software GPU time.
+        # Retire TDM context so graphics run is also isolated before competing for software GPU time.
         for finished_context in list(browser.contexts):
             finished_context.close()
         probe_graphics(browser, args.build.resolve().as_uri(),

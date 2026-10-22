@@ -11,8 +11,18 @@ addEventListener('keydown', function (e) {
   keys[e.code] = true; pressed[e.code] = true;
   if (['Space','ArrowUp','ArrowDown','KeyW','KeyA','KeyS','KeyD'].indexOf(e.code) >= 0) e.preventDefault();
   if ((e.code === 'Escape' || e.code === 'KeyP') && started && !paused) pauseGame();
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (started && !paused && typeof setScoreboardVisible === 'function') setScoreboardVisible(true);
+  }
 });
-addEventListener('keyup', function (e) { keys[e.code] = false; });
+addEventListener('keyup', function (e) {
+  keys[e.code] = false;
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (typeof setScoreboardVisible === 'function') setScoreboardVisible(false);
+  }
+});
 
 canvas.addEventListener('mousedown', function (e) {
   if (!started || paused || player.dead) return;
@@ -55,6 +65,7 @@ addEventListener('mousemove', function (e) {
 // ---- Player state ----
 const player = {
   team: 'friendly', isPlayer: true,
+  spawnProtectionT: 0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -62,6 +73,8 @@ const player = {
   health: CFG.player.health, armor: CFG.player.armor,
   stamina: CFG.player.maxStamina,
   lastDamageT: -99, dead: false,
+  lastAttacker: null, downedBy: null,
+  kills: 0, deaths: 0,
   bobPhase: 0, bobAmp: 0,
   recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
   // slide state
@@ -157,6 +170,11 @@ const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
+  if (player.spawnProtectionT > 0 && (typeof paused === 'undefined' || !paused)) {
+    player.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+      ? CORE.stepSpawnProtection(player.spawnProtectionT, dt)
+      : Math.max(0, player.spawnProtectionT - dt);
+  }
   // mobile: joystick axes -> keys/look accumulators
   applyTouchInput();
   // look
@@ -431,20 +449,32 @@ function updatePlayer(dt) {
 }
 
 // damage entry point (called by enemies/projectiles)
-function damagePlayer(amount, dirDeg, damageType) {
+function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
+  if (player.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
+  if (attacker && attacker !== player && !attacker.isPlayer) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, player)
+      : (((attacker.team || (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly'));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
+  player.lastAttacker = attacker || null;
   if (armorSnd) playSound(armorSnd);
   showDamageFx(dirDeg, amount, res.healthDamage, res.absorbedDamage);
   updateHudHealth();
   // A lethal hit no longer ends the run outright: losing 30-40 minutes to one
   // mistake was the worst moment the game had. downPlayer() decides between a
   // Second Wind, a bleed-out, and death.
-  if (player.health <= 0) { player.health = 0; downPlayer(); }
+  if (player.health <= 0) { player.health = 0; downPlayer(attacker); }
 }
 
 let godMode = false;

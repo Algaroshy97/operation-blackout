@@ -57,6 +57,7 @@ function noteBlast(pos) {
   sdRagdollBlast(pos, CFG.grenade.radius, 40);   // and shove the bodies already down
 }
 function spawnSoldierRagdoll(en) {
+  if (en && en.parts) en.parts._ragdolled = true;
   en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
   const blast = gameT - lastBlast.t < 0.05;
   let R;
@@ -70,7 +71,7 @@ function spawnSoldierRagdoll(en) {
     const hy = en._lastHitNode === 'head' ? 1.65 : 1.2;
     R = sdStartRagdoll(en, _rdShotDir, speed, _rdV.set(en.pos.x, en.pos.y + hy, en.pos.z), null);
   }
-  const entry = { en: en, rag: R, sd: R, t: 0, sunk: 0 };
+  const entry = { en: en, retiredParts: (en && en.parts) ? en.parts : null, rag: R, sd: R, t: 0, sunk: 0 };
   ragdolls.push(entry);
   while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
   return entry;
@@ -82,7 +83,8 @@ function applyRagdollBudget() {
 }
 function spawnRagdoll(en, impulse) {
   applyRagdollBudget();
-  if (!RAGDOLL_MAX) { removeRagdoll({ en: en }); return; }
+  if (en && en.parts) en.parts._ragdolled = true;
+  if (!RAGDOLL_MAX) { removeRagdoll({ en: en, retiredParts: (en && en.parts) ? en.parts : null }); return; }
   if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   // A corpse keeps whatever shadow-caster state it died with: updateEnemyShadowBudget
@@ -105,7 +107,9 @@ function spawnRagdoll(en, impulse) {
   en.parts.group.traverse(function (o) { if (o.isBone && o.name === 'root' && !root) root = o; });
 
   const entry = {
-    en: en, rag: rag,
+    en: en,
+    retiredParts: (en && en.parts) ? en.parts : null,
+    rag: rag,
     bones: bones, root: root,
     useBones: boneCount >= 4 && !!root,
     box: en.parts.torso ? en.parts : null,
@@ -226,20 +230,26 @@ function updateRagdolls(dt) {
 }
 
 function removeRagdoll(e) {
-  if (e.sd) scene.remove(e.sd.container);
+  if (!e) return;
+  if (e.sd && e.sd.container && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(e.sd.container);
+  const rp = e.retiredParts || (e.en && (e.en.dead || e.en.dead === undefined) ? e.en.parts : null);
   if (e.boxParts) {
     for (let k = 0; k < e.boxParts.length; k++) {
       const obj = e.boxParts[k].obj;
-      scene.remove(obj);
+      if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(obj);
       // Simple corpses detach their limbs for simulation. Return ownership before
       // the normal enemy cleanup traverses the group, otherwise their GPU geometry
       // (and any cloned tint materials) is missed when a live budget retires them.
-      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+      if (rp && rp.group) rp.group.add(obj);
     }
   }
-  if (e.en && e.en.parts && e.en.parts.group) {
-    scene.remove(e.en.parts.group);
-    disposeEnemyGeometry(e.en);
+  if (rp && rp.group) {
+    if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(rp.group);
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
+  } else if (rp) {
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
   }
 }
 

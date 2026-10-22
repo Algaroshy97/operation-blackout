@@ -202,13 +202,13 @@
   #grenade-charge-bar{width:130px;height:6px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
   #grenade-charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd24a,#ff4030);border-radius:1px}
   #slide-vignette{top:0;left:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity .1s;box-shadow:inset 0 0 90px 30px rgba(0,0,0,0);pointer-events:none}
-  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
+  #pause-menu,#death-screen,#start-screen,#gun-select,#victory-screen,#match-end-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,6,.82);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(3px);box-sizing:border-box;padding:12px calc(12px + var(--sa-r)) calc(12px + var(--sa-b)) calc(12px + var(--sa-l))}
   /* A 15-wave run ends on one of these, and a landscape phone is ~360px tall while the
      victory screen is ~430px of content. Plain `justify-content:center` clips the
      overflow at BOTH ends and leaves it unreachable — the title and MAIN MENU were
      scrolled off with no way back. `safe center` centres only while it fits and
      top-aligns once it does not; the plain `center` before it is the fallback. */
-  #pause-menu,#death-screen,#start-screen,#victory-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
+  #pause-menu,#death-screen,#start-screen,#victory-screen,#match-end-screen{overflow-y:auto;overscroll-behavior:contain;justify-content:center;justify-content:safe center}
   #start-screen{display:flex}
   #menu-emblem{display:block;margin:0 auto 14px auto;width:112px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.75))}
   #start-screen h1{font-size:52px;font-weight:900;letter-spacing:8px;margin:0 0 6px 0;color:#ffdf8a;text-shadow:0 0 30px rgba(255,180,40,.35),0 3px 8px #000;text-align:center}
@@ -477,6 +477,7 @@
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
+<div id="match-hud" class="hud" style="display:none;top:20px;left:50%;transform:translateX(-50%);text-align:center;color:#fff;text-shadow:0 1px 4px #000"><div id="match-timer" style="font-size:16px;letter-spacing:2px;font-weight:700">05:00</div><div id="match-score-bar" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:2px;font-size:24px;font-weight:800"><span id="match-score-friendly" style="color:#38b6ff">0</span><span style="opacity:.6;font-size:16px">—</span><span id="match-score-enemy" style="color:#ff4030">0</span></div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
 <div id="armor-container" class="hud"><div class="armor-bar-bg"><div id="armor-bar"></div></div></div>
@@ -523,13 +524,21 @@
     </div>
   </div>
 </div>
-<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="diff-row"></div><div id="gun-cards"></div></div>
+<div id="gun-select"><h2>SELECT PRIMARY</h2><div id="mode-row" style="display:flex;gap:8px;margin-bottom:8px"></div><div id="diff-row"></div><div id="tdm-settings-row" style="display:none;gap:12px;margin-bottom:8px;align-items:center"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn fullscreen-btn" id="btn-fullscreen-pause">FULL SCREEN</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
 <div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser. On mobile, ADS BUTTON FOR ROTATION lets the FIRE button aim while held and dragged; turn it off for a fixed right-fire perspective.</p></div>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>
 <div id="victory-screen"><h2>AREA SECURED</h2><div class="end-stats" id="vs-stats"></div><div class="menu-btn" id="btn-endless">CONTINUE — ENDLESS</div><div class="menu-btn" id="btn-v-restart">REDEPLOY</div><div class="menu-btn" id="btn-v-quit">MAIN MENU</div></div>
+<div id="match-end-screen">
+  <h2 id="match-end-title" style="font-size:44px;letter-spacing:10px;font-weight:900;margin:0 0 10px">VICTORY</h2>
+  <div id="match-end-scores" style="font-size:32px;font-weight:900;letter-spacing:4px;margin-bottom:12px">0 — 0</div>
+  <div class="end-stats" id="match-end-stats" style="margin:8px 0 20px;color:rgba(255,255,255,.85);font-size:15px;text-align:center;line-height:1.8"></div>
+  <div class="menu-btn" id="btn-match-restart">RESTART MATCH</div>
+  <div class="menu-btn" id="btn-match-quit">MAIN MENU</div>
+</div>
+<div id="match-scoreboard" class="hud" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:45;pointer-events:none"></div>
 <div id="fps-counter" class="hud"></div>
 
 <script>
@@ -5068,7 +5077,10 @@ const CORE = (function () {
     postProcessing: { type: 'enum', def: 'auto', values: ['auto', 'off', 'on'], label: 'Bloom & colour grading', help: 'Applies now. On enables extra fullscreen GPU passes even on touch devices or low quality. Off frees render targets.' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
-    showFps: { type: 'bool', def: true, label: 'Show FPS counter' }
+    showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
+    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm'], label: 'Game mode' },
+    tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
+    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' }
   };
 
   function defaultSettings() {
@@ -5796,6 +5808,7 @@ const CORE = (function () {
       runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
+      spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
       equipment: {
         lethal: state.equipment && state.equipment.lethal || 'frag',
         tactical: state.equipment && state.equipment.tactical || null,
@@ -5874,6 +5887,7 @@ const CORE = (function () {
       weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
         tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,
@@ -11049,17 +11063,162 @@ const CORE = (function () {
       score: _isNum(s.score) ? s.score : 0,
       kills: _isNum(s.kills) ? s.kills : 0,
       headshots: _isNum(s.headshots) ? s.headshots : 0,
-      credits: _isNum(s.credits) ? s.credits : 0
+      credits: _isNum(s.credits) ? s.credits : 0,
+      friendlyScore: _isNum(s.friendlyScore) ? s.friendlyScore : 0,
+      enemyScore: _isNum(s.enemyScore) ? s.enemyScore : 0,
+      targetScore: _isNum(s.targetScore) ? s.targetScore : 25,
+      timeLeft: _isNum(s.timeLeft) ? s.timeLeft : 0
     };
   }
 
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
+    if (modeId === 'tdm') {
+      const target = _isNum(s.targetScore) ? s.targetScore : 25;
+      if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
+          (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
+      if (_isNum(s.timeLeft) && s.timeLeft <= 0) return true;
+      return false;
+    }
     if (modeId === 'survival' || !modeId) {
       return !!(s.playerDead && !s.playerDowned);
     }
     return false;
+  }
+
+  const RESPAWN_DELAY = 3.0;
+  const SPAWN_PROTECTION_DURATION = 2.0;
+  const FRIENDLY_IFF_COLOR = 0x38b6ff;
+  const FRIENDLY_KIT_TINT = 0x3880c8;
+  const MINIMAP_FRIENDLY_COLOR = '#4da6ff';
+
+  function stepRespawnTimer(timer, dt) {
+    const t = _isNum(timer) ? timer : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, t - d);
+  }
+
+  function canRespawn(timer) {
+    return (_isNum(timer) ? timer : 0) <= 0;
+  }
+
+  function stepSpawnProtection(protectionT, dt) {
+    const p = _isNum(protectionT) ? protectionT : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, p - d);
+  }
+
+  function isSpawnProtected(protectionT) {
+    return (_isNum(protectionT) ? protectionT : 0) > 0;
+  }
+
+  function isFriendlyFire(attacker, target) {
+    if (!attacker || !target || attacker === target) return false;
+    const teamA = (typeof attacker.team === 'string' && attacker.team.length > 0)
+      ? attacker.team
+      : (attacker.isPlayer ? 'friendly' : null);
+    const teamB = (typeof target.team === 'string' && target.team.length > 0)
+      ? target.team
+      : (target.isPlayer ? 'friendly' : null);
+    if (!teamA || !teamB) return false;
+    return teamA === teamB;
+  }
+
+  function teamKitColor(team) {
+    return (team === 'friendly') ? FRIENDLY_KIT_TINT : null;
+  }
+
+  function teamIffColor(team) {
+    return (team === 'friendly') ? FRIENDLY_IFF_COLOR : null;
+  }
+
+  function minimapActorColor(actor) {
+    if (!actor) return '#ff4030';
+    if (actor.team === 'friendly' || actor.isPlayer) return MINIMAP_FRIENDLY_COLOR;
+    if (typeof MM_KIND_COLOR !== 'undefined' && actor.kind !== undefined && MM_KIND_COLOR[actor.kind]) {
+      return MM_KIND_COLOR[actor.kind];
+    }
+    return '#ff4030';
+  }
+
+  function scoreSpawnPoint(point, hostiles, colliders, opts) {
+    if (!point) return -Infinity;
+    const px = Array.isArray(point) ? point[0] : (point.x || 0);
+    const py = Array.isArray(point) ? (point.length >= 3 ? point[1] : 0) : (_isNum(point.y) ? point.y : 0);
+    const pz = Array.isArray(point) ? (point.length >= 3 ? point[2] : point[1]) : (point.z || 0);
+    const options = opts || {};
+    const sweetSpot = _isNum(options.sweetSpot) ? options.sweetSpot : 25;
+    const minSafeDist = _isNum(options.minSafeDist) ? options.minSafeDist : 10;
+    const maxSafeDist = _isNum(options.maxSafeDist) ? options.maxSafeDist : 60;
+
+    if (!Array.isArray(hostiles) || hostiles.length === 0) return 100;
+
+    let minHostileDist = Infinity;
+    let sightLinePenalty = 0;
+    let activeHostiles = 0;
+
+    for (let i = 0; i < hostiles.length; i++) {
+      const h = hostiles[i];
+      if (!h || h.dead) continue;
+      activeHostiles++;
+      const hx = (h.pos && _isNum(h.pos.x)) ? h.pos.x : 0;
+      const hz = (h.pos && _isNum(h.pos.z)) ? h.pos.z : 0;
+      const dx = px - hx, dz = pz - hz;
+      const dist = Math.hypot(dx, dz) || 0.001;
+      if (dist < minHostileDist) minHostileDist = dist;
+
+      const hyaw = _isNum(h.yaw) ? h.yaw : 0;
+      const dirX = Math.sin(hyaw), dirZ = Math.cos(hyaw);
+      const toSpawnX = dx / dist, toSpawnZ = dz / dist;
+      const dot = dirX * toSpawnX + dirZ * toSpawnZ;
+
+      if (dot > 0.25 && dist < maxSafeDist) {
+        let blocked = false;
+        if (Array.isArray(colliders) && colliders.length > 0) {
+          const hy = h.isPlayer
+            ? ((h.pos && _isNum(h.pos.y)) ? h.pos.y : 1.6)
+            : enemyEyeHeight((h.pos && _isNum(h.pos.y)) ? h.pos.y : 0, h.kind);
+          const spawnEyeY = py + 1.5;
+          blocked = segmentBlocked(hx, hy, hz, px, spawnEyeY, pz, colliders, 0.25);
+        }
+        if (!blocked) {
+          const directness = Math.max(0, dot);
+          const proxFactor = Math.max(0.1, 1 - (dist / maxSafeDist));
+          sightLinePenalty += directness * proxFactor * 100;
+        }
+      }
+    }
+
+    if (activeHostiles === 0) return 100;
+
+    let proxScore = 0;
+    if (minHostileDist < minSafeDist) {
+      proxScore = -200 * (1 - (minHostileDist / minSafeDist));
+    } else {
+      proxScore = 50 - Math.abs(minHostileDist - sweetSpot) * 1.5;
+    }
+
+    return proxScore - sightLinePenalty;
+  }
+
+  function pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts) {
+    if (!Array.isArray(spawnPoints) || spawnPoints.length === 0) return null;
+    if (spawnPoints.length === 1) return spawnPoints[0];
+
+    let bestPoint = spawnPoints[0];
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < spawnPoints.length; i++) {
+      const pt = spawnPoints[i];
+      const score = scoreSpawnPoint(pt, hostiles, colliders, opts);
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
   }
 
   return {
@@ -11411,7 +11570,10 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
+    stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
   };
 
 
@@ -11517,6 +11679,14 @@ function applySetting(key) {
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;
+    case 'gameMode':
+      if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
+        break;
+      }
+      if (typeof setActiveMode === 'function' && (SETTINGS.gameMode === 'tdm' || SETTINGS.gameMode === 'survival')) {
+        setActiveMode(SETTINGS.gameMode);
+      }
+      break;
   }
 }
 function applyAllSettings() {
@@ -11582,6 +11752,7 @@ function setAttachment(weaponIndex, slot, key) {
 }
 
 function saveCheckpoint(state) {
+  if (typeof activeModeId !== 'undefined' && activeModeId !== 'survival') return false;
   state.savedAt = Date.now();
   return storageSet(STORE_KEY_SAVE, CORE.makeCheckpoint(state));
 }
@@ -12756,8 +12927,18 @@ addEventListener('keydown', function (e) {
   keys[e.code] = true; pressed[e.code] = true;
   if (['Space','ArrowUp','ArrowDown','KeyW','KeyA','KeyS','KeyD'].indexOf(e.code) >= 0) e.preventDefault();
   if ((e.code === 'Escape' || e.code === 'KeyP') && started && !paused) pauseGame();
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (started && !paused && typeof setScoreboardVisible === 'function') setScoreboardVisible(true);
+  }
 });
-addEventListener('keyup', function (e) { keys[e.code] = false; });
+addEventListener('keyup', function (e) {
+  keys[e.code] = false;
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (typeof setScoreboardVisible === 'function') setScoreboardVisible(false);
+  }
+});
 
 canvas.addEventListener('mousedown', function (e) {
   if (!started || paused || player.dead) return;
@@ -12799,6 +12980,7 @@ addEventListener('mousemove', function (e) {
 
 const player = {
   team: 'friendly', isPlayer: true,
+  spawnProtectionT: 0,
   pos: new THREE.Vector3(0, CFG.player.height, 24),
   vel: new THREE.Vector3(),
   yaw: Math.PI, pitch: 0,
@@ -12806,6 +12988,8 @@ const player = {
   health: CFG.player.health, armor: CFG.player.armor,
   stamina: CFG.player.maxStamina,
   lastDamageT: -99, dead: false,
+  lastAttacker: null, downedBy: null,
+  kills: 0, deaths: 0,
   bobPhase: 0, bobAmp: 0,
   recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
   sliding: false, slideT: 0, slideDir: new THREE.Vector3(),
@@ -12880,6 +13064,11 @@ const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
 function updatePlayer(dt) {
   if (player.dead) return;
+  if (player.spawnProtectionT > 0 && (typeof paused === 'undefined' || !paused)) {
+    player.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+      ? CORE.stepSpawnProtection(player.spawnProtectionT, dt)
+      : Math.max(0, player.spawnProtectionT - dt);
+  }
   applyTouchInput();
   const sens = CORE.lookSensitivity(getSetting('sensitivity'), adsAmount);
   const invertY = getSetting('invertY') ? -1 : 1;
@@ -13110,17 +13299,29 @@ function updatePlayer(dt) {
   if (player.pos.y < -5) { player.pos.set(0, CFG.player.height, 24); player.vel.set(0, 0, 0); }
 }
 
-function damagePlayer(amount, dirDeg, damageType) {
+function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
+  if (player.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
+  if (attacker && attacker !== player && !attacker.isPlayer) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(attacker, player)
+      : (((attacker.team || (attacker.kind !== undefined ? 'enemy' : 'friendly'))) === (player.team || 'friendly'));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const res = CORE.resolveArmorDamage(amount, player.armor, undefined, damageType);
   const armorSnd = CORE.armorDamageSound(player.armor, res.remainingArmor, res.absorbedDamage);
   player.armor = res.remainingArmor;
   player.health -= res.healthDamage;
   player.lastDamageT = gameT;
+  player.lastAttacker = attacker || null;
   if (armorSnd) playSound(armorSnd);
   showDamageFx(dirDeg, amount, res.healthDamage, res.absorbedDamage);
   updateHudHealth();
-  if (player.health <= 0) { player.health = 0; downPlayer(); }
+  if (player.health <= 0) { player.health = 0; downPlayer(attacker); }
 }
 
 let godMode = false;
@@ -14035,6 +14236,12 @@ const _assistToH = new THREE.Vector3();
 const _assistBestTo = new THREE.Vector3();
 const _assistNudged = new THREE.Vector3();
 
+function isAssistAlly(actor) {
+  if (!actor || typeof CORE === 'undefined' || typeof CORE.isFriendlyFire !== 'function') return false;
+  if (typeof player === 'undefined' || !player) return false;
+  return CORE.isFriendlyFire(player, actor);
+}
+
 function applyAimAssist(dir, from) {
   if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
   let hasBest = false, bestCos = CORE.aimAssistMinCos(CFG.assist.angle, steadyActive, 1.6);
@@ -14043,6 +14250,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInAimAssistRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
@@ -14077,6 +14285,7 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
@@ -14104,6 +14313,7 @@ const _rfEnemyHitsOut = [];
 
 function fireShot(preserveSchedule) {
   const s = curS(), w = curW();
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   shotsFired++;
   s.ammo--;
   const interval = CORE.weaponFireInterval(w.rpm);
@@ -14180,7 +14390,7 @@ function traceRound(w, spreadNow, magnetize) {
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
-    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR');
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR', player);
     if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
       spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object, null, w ? w.type : 'AR');
       if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
@@ -14233,6 +14443,7 @@ function finishShot(s, w, hit) {
   updateHudAmmo();
 }
 function doMelee() {
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   meleeT = CORE.MELEE_COOLDOWN;
   meleeSwing = 1;
   const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
@@ -14258,7 +14469,7 @@ function doMelee() {
   const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
   const hitSnd = CORE.meleeHitSound(isBackstab);
   if (hitSnd) playSound(hitSnd);
-  damageEnemy(en, meleeDmg, _meleePoint, isBackstab);
+  damageEnemy(en, meleeDmg, _meleePoint, isBackstab, false, 'MELEE', player);
   CORE.meleeSlashNormal(player.yaw, _meleeNormOut);
   if (typeof fxMeleeSlash === 'function') fxMeleeSlash(_meleePoint, _meleeNormOut, isBackstab);
 }
@@ -15074,7 +15285,9 @@ function muzzleWorldPos(out) {
 'use strict';
 
 var MODES = Object.create(null);
-var activeModeId = 'survival';
+var activeModeId = (typeof getSetting === 'function' && (getSetting('gameMode') === 'tdm' || getSetting('gameMode') === 'survival'))
+  ? getSetting('gameMode')
+  : 'survival';
 
 function registerMode(id, def) {
   if (id && def) MODES[id] = def;
@@ -15084,14 +15297,249 @@ function getActiveMode() {
   return MODES[activeModeId] || MODES.survival;
 }
 
+function updateMatchHud(mode) {
+  if (typeof document === 'undefined') return;
+  const matchHud = (typeof $id === 'function') ? $id('match-hud') : document.getElementById('match-hud');
+  const waveHud = (typeof $id === 'function') ? $id('wave-hud') : document.getElementById('wave-hud');
+  if (!matchHud) return;
+  if (!mode || mode.id !== 'tdm') {
+    matchHud.style.display = 'none';
+    if (waveHud) waveHud.style.display = '';
+    return;
+  }
+  matchHud.style.display = 'block';
+  if (waveHud) waveHud.style.display = 'none';
+  const timerEl = (typeof $id === 'function') ? $id('match-timer') : document.getElementById('match-timer');
+  const fScoreEl = (typeof $id === 'function') ? $id('match-score-friendly') : document.getElementById('match-score-friendly');
+  const eScoreEl = (typeof $id === 'function') ? $id('match-score-enemy') : document.getElementById('match-score-enemy');
+  if (timerEl) {
+    const t = Math.max(0, mode.timeLeft || 0);
+    const mins = Math.floor(t / 60);
+    const secs = Math.floor(t % 60);
+    timerEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }
+  if (fScoreEl) fScoreEl.textContent = String(mode.friendlyScore || 0);
+  if (eScoreEl) eScoreEl.textContent = String(mode.enemyScore || 0);
+}
+
 function setActiveMode(id) {
-  if (MODES[id]) activeModeId = id;
+  if (MODES[id]) {
+    activeModeId = id;
+    updateMatchHud(MODES[id]);
+  }
+}
+
+var modeRespawnQueue = [];
+
+function queueModeRespawn(actor, timer) {
+  if (actor) {
+    modeRespawnQueue.push({
+      actor: actor,
+      timer: (typeof timer === 'number') ? timer : (typeof CORE !== 'undefined' ? CORE.RESPAWN_DELAY : 3.0)
+    });
+  }
+}
+
+function clearModeRespawns() {
+  modeRespawnQueue.length = 0;
+}
+
+function rebuildEnemyRig(actor) {
+  if (!actor) return;
+  let hasRagdoll = false;
+  if (typeof ragdolls !== 'undefined' && Array.isArray(ragdolls)) {
+    for (let i = 0; i < ragdolls.length; i++) {
+      const rd = ragdolls[i];
+      if (rd && (rd.en === actor || (rd.sd && rd.sd.en === actor))) {
+        if (!rd.retiredParts && actor.parts) {
+          rd.retiredParts = actor.parts;
+        }
+        rd.en = null;
+        if (rd.sd) rd.sd.en = null;
+        hasRagdoll = true;
+      }
+    }
+  }
+  const isSoldier = (actor.soldier !== undefined) ? !!actor.soldier : !!(actor.parts && actor.parts.soldier);
+  actor.soldier = isSoldier;
+  const isEmptied = isSoldier && (
+    !actor.parts.group ||
+    actor.parts.group.children.length === 0 ||
+    !actor.hitBody ||
+    !actor.parts.group.getObjectByName('hitBody')
+  );
+  const wasRagdolled = !!(actor.parts && (actor.parts._ragdolled || actor.parts._geometryDisposed));
+  if (!hasRagdoll && !isEmptied && !wasRagdolled) {
+    return;
+  }
+  if (actor.parts && actor.parts.group && actor.parts.group.parent) {
+    actor.parts.group.parent.remove(actor.parts.group);
+  }
+  const kind = (actor.kind !== undefined) ? actor.kind : 0;
+  const team = actor.team || 'enemy';
+  let newParts = null;
+  if (isSoldier && typeof buildSoldier === 'function') {
+    const sd = buildSoldier(kind, team);
+    if (sd) {
+      newParts = {
+        group: sd.group,
+        body: sd.group,
+        J: sd.J,
+        hitBody: sd.hitBody,
+        hitHead: sd.hitHead,
+        hitLegs: sd.hitLegs,
+        soldier: true,
+        iff: sd.iff,
+        gun: sd.gun
+      };
+    }
+  }
+  if (!newParts && typeof makeEnemyMesh === 'function') {
+    newParts = makeEnemyMesh(kind, team);
+  }
+  if (newParts) {
+    const scale = (typeof CORE !== 'undefined' && typeof CORE.enemyScale === 'function') ? CORE.enemyScale(kind) : 1;
+    if (newParts.group && newParts.group.scale && typeof newParts.group.scale.set === 'function') {
+      newParts.group.scale.set(scale, scale, scale);
+    }
+    const KIND_TINT = { 3: 0x4a6fa5, 4: 0x8fd66a, 5: 0xd6a24a, 6: 0xb83a30 };
+    if (KIND_TINT[kind] !== undefined && !newParts.soldier && newParts.group) {
+      if (typeof THREE !== 'undefined' && THREE.Color) {
+        const tint = new THREE.Color(KIND_TINT[kind]);
+        newParts.group.traverse(function (o) {
+          if (o.isMesh && o !== newParts.hitBody && o !== newParts.hitHead && o.material) {
+            o.material = o.material.clone();
+            if (o.material.color && typeof o.material.color.lerp === 'function') {
+              o.material.color.lerp(tint, 0.55);
+            } else if (o.material.color) {
+              o.material.color.copy(tint);
+            }
+            o.userData.clonedTint = true;
+          }
+        });
+      }
+    }
+    actor.parts = newParts;
+    actor.hitBody = newParts.hitBody;
+    actor.hitHead = newParts.hitHead;
+    if (newParts.hitBody) newParts.hitBody.userData = { enemyRef: actor, isHead: false };
+    if (newParts.hitHead) newParts.hitHead.userData = { enemyRef: actor, isHead: true };
+    if (newParts.hitLegs) newParts.hitLegs.userData = { enemyRef: actor, isHead: false, isLegs: true };
+  }
+}
+
+function getHostilesForActor(actor, candidateList, livePlayer) {
+  const actorTeam = (actor && actor.team) ? actor.team : (actor && actor.isPlayer ? 'friendly' : 'enemy');
+  const result = [];
+  const p = livePlayer !== undefined ? livePlayer : (typeof player !== 'undefined' ? player : null);
+  if (p && !p.dead && p !== actor) {
+    const pTeam = p.team || 'friendly';
+    if (pTeam !== actorTeam) {
+      result.push(p);
+    }
+  }
+  const list = candidateList || (typeof enemies !== 'undefined' ? enemies : []);
+  for (let j = 0; j < list.length; j++) {
+    const act = list[j];
+    if (!act || act.dead || act === actor || act === p) continue;
+    const actTeam = act.team || (act.isPlayer ? 'friendly' : 'enemy');
+    if (actTeam !== actorTeam) {
+      result.push(act);
+    }
+  }
+  return result;
+}
+
+function defaultOnRespawn(actor, pt) {
+  if (!actor) return;
+  const duration = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+  if (actor.isPlayer) {
+    if (pt && actor.pos) actor.pos.set(pt[0], (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.height : 1.7, pt[1]);
+    actor.dead = false;
+    actor.downed = false;
+    actor.crouching = false;
+    actor.sprinting = false;
+    actor.sliding = false;
+    actor.downedBy = null;
+    actor.lastAttacker = null;
+    if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
+    actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
+    actor.spawnProtectionT = duration;
+    if (typeof ensureMusicPlaying === 'function') ensureMusicPlaying();
+    if (typeof document !== 'undefined') {
+      const ds = document.getElementById('death-screen');
+      if (ds) ds.style.display = 'none';
+    }
+    if (typeof updateHudHealth === 'function') updateHudHealth();
+    if (typeof updateHudAmmo === 'function') updateHudAmmo();
+    if (typeof pointerLocked !== 'undefined' && !pointerLocked && typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
+      if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function' && typeof isTouchDevice !== 'undefined' && !isTouchDevice) {
+        try { canvas.requestPointerLock(); } catch (e) {}
+      }
+    }
+  } else {
+    if (pt && actor.pos) actor.pos.set(pt[0], 0, pt[1]);
+    actor.dead = false;
+    actor.health = actor.maxHealth || 100;
+    actor.spawnProtectionT = duration;
+    actor.state = 'idle';
+    actor.stateT = 0;
+    actor.attackT = 0;
+    actor.target = null;
+    if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
+    rebuildEnemyRig(actor);
+    if (actor.parts && actor.parts.group) {
+      if (actor.pos && actor.parts.group.position && typeof actor.parts.group.position.copy === 'function') {
+        actor.parts.group.position.copy(actor.pos);
+      }
+      if (typeof scene !== 'undefined' && scene && scene.add && !actor.parts.group.parent) scene.add(actor.parts.group);
+    }
+    if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+      if (!enemies.includes(actor)) {
+        enemies.push(actor);
+      }
+    }
+  }
+}
+
+function updateModeRespawns(dt, spawnPoints, hostiles, colliders, onRespawn) {
+  if (typeof paused !== 'undefined' && paused) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if ((activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver()) || (typeof gameEnded !== 'undefined' && gameEnded)) {
+    clearModeRespawns();
+    return;
+  }
+  if (modeRespawnQueue.length === 0) return;
+  const cb = (typeof onRespawn === 'function') ? onRespawn : defaultOnRespawn;
+  for (let i = modeRespawnQueue.length - 1; i >= 0; i--) {
+    const entry = modeRespawnQueue[i];
+    entry.timer = (typeof CORE !== 'undefined' && typeof CORE.stepRespawnTimer === 'function')
+      ? CORE.stepRespawnTimer(entry.timer, dt)
+      : Math.max(0, entry.timer - dt);
+    const ready = (typeof CORE !== 'undefined' && typeof CORE.canRespawn === 'function')
+      ? CORE.canRespawn(entry.timer)
+      : (entry.timer <= 0);
+    if (ready) {
+      modeRespawnQueue.splice(i, 1);
+      const actorHostiles = getHostilesForActor(entry.actor, hostiles);
+      const pt = (typeof CORE !== 'undefined' && typeof CORE.pickBestSpawnPoint === 'function')
+        ? CORE.pickBestSpawnPoint(spawnPoints, actorHostiles, colliders)
+        : (spawnPoints && spawnPoints[0] ? spawnPoints[0] : null);
+      cb(entry.actor, pt);
+    }
+  }
 }
 
 MODES.survival = {
   id: 'survival',
   name: 'Survival',
   setup: function () {
+    clearModeRespawns();
+    if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+    if (typeof player !== 'undefined' && player) {
+      player.lastAttacker = null;
+      player.downedBy = null;
+    }
     if (typeof waveNum !== 'undefined') waveNum = 0;
     if (typeof waveQueue !== 'undefined') waveQueue = 0;
     if (typeof waveActive !== 'undefined') waveActive = false;
@@ -15099,13 +15547,23 @@ MODES.survival = {
       betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) ? CFG.wave.startDelay : 3;
     }
     if (typeof gameEnded !== 'undefined') gameEnded = false;
+    updateMatchHud(this);
   },
   onKill: function (victim, isHead, killer) {
   },
   onDeath: function (victim, killer) {
+    if (victim && victim.team === 'friendly' && !victim.isPlayer) {
+      queueModeRespawn(victim, (typeof CORE !== 'undefined' && CORE.RESPAWN_DELAY) ? CORE.RESPAWN_DELAY : 3.0);
+    }
   },
   update: function (dt) {
     if (typeof updateWaves === 'function') updateWaves(dt);
+    if (typeof updateModeRespawns === 'function') {
+      const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+      const hostiles = (typeof enemies !== 'undefined') ? enemies : [];
+      const cols = (typeof colliders !== 'undefined') ? colliders : [];
+      updateModeRespawns(dt, sp, hostiles, cols);
+    }
   },
   scoreboard: function () {
     return CORE.modeScoreboardData('survival', {
@@ -15122,6 +15580,218 @@ MODES.survival = {
       playerDead: (typeof player !== 'undefined' && player) ? !!player.dead : false,
       playerDowned: (typeof player !== 'undefined' && player) ? !!player.downed : false
     });
+  }
+};
+
+MODES.tdm = {
+  id: 'tdm',
+  name: 'Team Deathmatch',
+  targetScore: 75,
+  matchDuration: 600,
+  friendlyScore: 0,
+  enemyScore: 0,
+  timeLeft: 600,
+  teamSize: 6,
+  roster: [],
+  setup: function () {
+    clearModeRespawns();
+    this._ended = false;
+    this._settled = false;
+    if (Array.isArray(this.roster)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        const act = this.roster[i];
+        if (act && !act.isPlayer) {
+          if (act.parts && act.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(act.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+        }
+      }
+    }
+    if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const en = enemies[i];
+        if (en && (en.team === 'friendly' || (this.roster && this.roster.includes(en)))) {
+          if (en.parts && en.parts.group && typeof scene !== 'undefined' && scene && scene.remove) {
+            scene.remove(en.parts.group);
+          }
+          if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(en);
+          enemies.splice(i, 1);
+        }
+      }
+    }
+    this.roster = [];
+    if (typeof getSetting === 'function') {
+      const sl = getSetting('tdmScoreLimit');
+      if (typeof sl === 'number' && sl > 0) this.targetScore = sl;
+      const ts = getSetting('tdmTeamSize');
+      if (typeof ts === 'number' && ts > 0) this.teamSize = ts;
+    }
+    this.friendlyScore = 0;
+    this.enemyScore = 0;
+    this.timeLeft = this.matchDuration;
+    if (typeof gameEnded !== 'undefined') gameEnded = false;
+    const p = (typeof player !== 'undefined') ? player : null;
+    if (p) {
+      p.team = 'friendly';
+      p.isPlayer = true;
+      p.kills = 0;
+      p.deaths = 0;
+      p.downed = false;
+      p.downedBy = null;
+      p.lastAttacker = null;
+      p.spawnProtectionT = (typeof CORE !== 'undefined' && CORE.SPAWN_PROTECTION_DURATION) ? CORE.SPAWN_PROTECTION_DURATION : 2.0;
+      this.roster.push(p);
+    }
+    const count = this.teamSize || 6;
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : ((typeof spawnPoints !== 'undefined' && Array.isArray(spawnPoints)) ? spawnPoints : []);
+    const getSpawnPt = function (idx) {
+      if (sp && sp.length > 0) return sp[idx % sp.length];
+      return [(idx % 4) * 6 - 9, ((idx / 4) | 0) * 6 + 10];
+    };
+    if (typeof spawnEnemy === 'function') {
+      for (let i = 0; i < count - 1; i++) {
+        const pt = getSpawnPt(i);
+        const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+        const bot = spawnEnemy(kind, pt[0], pt[1], { team: 'friendly', spawnProtection: true });
+        if (bot) {
+          bot.id = 'ally_' + (i + 1);
+          bot.name = 'ALLY ' + (i + 1);
+          bot.kills = 0;
+          bot.deaths = 0;
+          this.roster.push(bot);
+        }
+      }
+      for (let i = 0; i < count; i++) {
+        const pt = getSpawnPt(i + count);
+        const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+        const bot = spawnEnemy(kind, pt[0], pt[1], { team: 'enemy', spawnProtection: true });
+        if (bot) {
+          bot.id = 'enemy_' + (i + 1);
+          bot.name = 'HOSTILE ' + (i + 1);
+          bot.kills = 0;
+          bot.deaths = 0;
+          this.roster.push(bot);
+        }
+      }
+    }
+    if (typeof document !== 'undefined') {
+      const endScreen = document.getElementById('match-end-screen');
+      if (endScreen) endScreen.style.display = 'none';
+      const deathScreen = document.getElementById('death-screen');
+      if (deathScreen) deathScreen.style.display = 'none';
+    }
+    updateMatchHud(this);
+  },
+  onKill: function (victim, isHead, killer) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
+    if (victim) victim.deaths = (victim.deaths || 0) + 1;
+    const p = (typeof player !== 'undefined') ? player : null;
+    const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
+    const isPlayerVictim = !!(victim && (victim.isPlayer || victim === p));
+    const victimTeam = (victim && victim.team) ? victim.team : (isPlayerVictim ? 'friendly' : 'enemy');
+    const killerTeam = (killer && killer.team) ? killer.team : (isPlayerKiller ? 'friendly' : null);
+    const isSelfKill = !!(killer && victim && (killer === victim || (isPlayerKiller && isPlayerVictim) || (killer.id && victim.id && killer.id === victim.id)));
+    const isHostileKill = killer && !isSelfKill && killerTeam && (killerTeam !== victimTeam);
+
+    if (isHostileKill) {
+      killer.kills = (killer.kills || 0) + 1;
+      if (killerTeam === 'friendly') {
+        this.friendlyScore++;
+      } else if (killerTeam === 'enemy') {
+        this.enemyScore++;
+      }
+    }
+
+    if (typeof pushKillfeed === 'function') {
+      const killerName = isPlayerKiller ? 'YOU' : ((killer && killer.name) ? killer.name : ((killerTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
+      const victimName = isPlayerVictim ? 'YOU' : ((victim && victim.name) ? victim.name : ((victimTeam === 'friendly') ? 'ALLY BOT' : 'HOSTILE BOT'));
+      if (isHostileKill) {
+        const color = (killerTeam === 'friendly') ? '#38b6ff' : '#ff4030';
+        pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+      } else if (isSelfKill) {
+        pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> eliminated themselves');
+      } else {
+        pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> died');
+      }
+    }
+    updateMatchHud(this);
+    if (this.isOver()) {
+      this.endMatch();
+    }
+  },
+  onDeath: function (victim, killer) {
+    if (this.isOver() || (typeof gameEnded !== 'undefined' && gameEnded)) return;
+    if (victim) {
+      queueModeRespawn(victim, (typeof CORE !== 'undefined' && CORE.RESPAWN_DELAY) ? CORE.RESPAWN_DELAY : 3.0);
+    }
+  },
+  update: function (dt) {
+    if (typeof paused !== 'undefined' && paused) return;
+    if (this.isOver()) {
+      if (typeof gameEnded !== 'undefined' && !gameEnded) this.endMatch();
+      return;
+    }
+    if (this.timeLeft > 0) {
+      this.timeLeft = Math.max(0, this.timeLeft - dt);
+    }
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+    const hostiles = (typeof enemies !== 'undefined') ? enemies : [];
+    const cols = (typeof colliders !== 'undefined') ? colliders : [];
+    updateModeRespawns(dt, sp, hostiles, cols);
+    updateMatchHud(this);
+    if (this.isOver()) {
+      this.endMatch();
+    }
+  },
+  scoreboard: function () {
+    const p = (typeof player !== 'undefined') ? player : null;
+    const rosterList = (Array.isArray(this.roster) && this.roster.length > 0)
+      ? this.roster
+      : (p ? [p, ...(typeof enemies !== 'undefined' && Array.isArray(enemies) ? enemies : [])] : (typeof enemies !== 'undefined' && Array.isArray(enemies) ? enemies : []));
+    const friendlyMembers = [];
+    const enemyMembers = [];
+    const seenIds = new Set();
+    for (let i = 0; i < rosterList.length; i++) {
+      const actor = rosterList[i];
+      if (!actor) continue;
+      const isYou = !!(actor.isPlayer || actor === p);
+      const actorId = isYou ? 'player' : (actor.id || ('bot_' + i));
+      if (seenIds.has(actorId)) continue;
+      seenIds.add(actorId);
+      const entry = {
+        id: actorId,
+        name: isYou ? 'YOU' : (actor.name || (actor.team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1)))),
+        isPlayer: isYou,
+        team: isYou ? 'friendly' : (actor.team || 'enemy'),
+        kills: isYou ? (actor.kills || (typeof kills !== 'undefined' ? kills : 0)) : (actor.kills || 0),
+        deaths: actor.deaths || 0
+      };
+      if (entry.team === 'friendly') friendlyMembers.push(entry);
+      else enemyMembers.push(entry);
+    }
+    friendlyMembers.sort(function (a, b) { return b.kills - a.kills; });
+    enemyMembers.sort(function (a, b) { return b.kills - a.kills; });
+    return {
+      mode: 'tdm',
+      friendlyScore: this.friendlyScore,
+      enemyScore: this.enemyScore,
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      friendlyTeam: { name: 'FRIENDLY', score: this.friendlyScore, members: friendlyMembers },
+      enemyTeam: { name: 'ENEMY', score: this.enemyScore, members: enemyMembers }
+    };
+  },
+  isOver: function () {
+    return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
+  },
+  endMatch: function () {
+    if (this._ended) return;
+    this._ended = true;
+    this._settled = true;
+    if (typeof gameEnded !== 'undefined') gameEnded = true;
+    clearModeRespawns();
+    if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
   }
 };
 
@@ -15157,6 +15827,15 @@ const SOLDIER_KITS = [
   { name: 'scout', cloth: sdMat(0xa8d888, TEX.camo.map), pants: sdMat(0x5a7a44, TEX.camo.map), vest: sdMat(0x33422a), helmet: null, cap: sdMat(0x4a6a34) },
   { name: 'grenadier', cloth: sdMat(0xe0b070, TEX.camo.map), pants: sdMat(0x8a6e40, TEX.camo.map), vest: sdMat(0x4a3a22), helmet: sdMat(0x7a5a2a, null, 0.8) },
   { name: 'breacher', cloth: sdMat(0x3a3a40, TEX.camo.map), pants: sdMat(0x26262a, TEX.camo.map), vest: sdMat(0x7a1e1a), helmet: sdMat(0x1c1c20, null, 0.6, 0.3) }
+];
+const SOLDIER_FRIENDLY_KITS = [
+  { name: 'runner', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: null, cap: sdMat(0x24364c) },
+  { name: 'rifleman', cloth: sdMat(0x4a658a, TEX.camo.map), pants: sdMat(0x2d3e54, TEX.camo.map), vest: sdMat(0x1e2e42), helmet: sdMat(0x24364c, null, 0.7) },
+  { name: 'tank', cloth: sdMat(0x3e5270, TEX.camo.map), pants: sdMat(0x253448, TEX.camo.map), vest: SDM.plate, helmet: sdMat(0x1a2636, null, 0.55, 0.4) },
+  { name: 'shielded', cloth: sdMat(0x5074a8, TEX.camo.map), pants: sdMat(0x2c4263, TEX.camo.map), vest: sdMat(0x223550), helmet: sdMat(0x2d466b, null, 0.6, 0.3) },
+  { name: 'scout', cloth: sdMat(0x5a82b8, TEX.camo.map), pants: sdMat(0x334d70, TEX.camo.map), vest: sdMat(0x253b59), helmet: null, cap: sdMat(0x2d466b) },
+  { name: 'grenadier', cloth: sdMat(0x527299, TEX.camo.map), pants: sdMat(0x30445e, TEX.camo.map), vest: sdMat(0x223347), helmet: sdMat(0x2a405c, null, 0.8) },
+  { name: 'breacher', cloth: sdMat(0x334860, TEX.camo.map), pants: sdMat(0x202e40, TEX.camo.map), vest: sdMat(0x182433), helmet: sdMat(0x1c2838, null, 0.6, 0.3) }
 ];
 const SDM_SHIELD = sdMat(0x2a3446, TEX.paint.map, 0.5, 0.55);
 const SDM_SHIELD_GLASS = sdMat(0x0a1420, null, 0.05, 0.9, { transparent: true, opacity: 0.65 });
@@ -15263,8 +15942,10 @@ function sdCloneRig(template) {
   return clone;
 }
 
-function buildSoldierTemplate(kind) {
-  const K = SOLDIER_KITS[kind];
+function buildSoldierTemplate(kind, team) {
+  const isFriendly = (team === 'friendly');
+  const kitList = isFriendly ? SOLDIER_FRIENDLY_KITS : SOLDIER_KITS;
+  const K = kitList[kind] || SOLDIER_KITS[kind];
   const heavy = kind === 2;
   const root = new THREE.Group(); root.name = 'root';
   const hips = sdJoint(root, 'hips', 0, 0.97, 0);
@@ -15393,18 +16074,32 @@ function buildSoldierTemplate(kind) {
   const hitBody = sdPiece(spine, sdBoxG(0.5, 0.56, 0.38), hbMat, 0, 0.26, 0); hitBody.name = 'hitBody'; hitBody.userData.keep = true;
   const hitLegs = sdPiece(hips, sdBoxG(0.44, 0.9, 0.34), hbMat, 0, -0.46, 0.02); hitLegs.name = 'hitLegs'; hitLegs.userData.keep = true;
   const mh = new THREE.Object3D(); mh.name = 'mHead'; mh.position.set(0, 0.1, 0.01); head.add(mh);
+  if (isFriendly) {
+    const iffMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, 0.72, 1.0).multiplyScalar(2.2) });
+    const iff = sdPiece(head, new THREE.OctahedronGeometry(0.045, 0), iffMat, 0, 0.34, 0);
+    iff.name = 'iffMarker';
+    iff.userData.keep = true;
+    iff.userData.iff = true;
+  }
   sdSkinRig(root);
   root.traverse(function (o) { if (o.isMesh && !o.userData.keep) { o.castShadow = true; o.receiveShadow = true; } });
   return root;
 }
-const SOLDIER_TEMPLATES = [];
+const SOLDIER_TEMPLATES = {};
 const RIG_JOINTS = ['hips', 'spine', 'neck', 'head', 'shL', 'elL', 'haL', 'shR', 'elR', 'haR', 'hipL', 'knL', 'anL', 'hipR', 'knR', 'anR', 'gun'];
-function buildSoldier(kind) {
-  if (!SOLDIER_TEMPLATES[kind]) SOLDIER_TEMPLATES[kind] = buildSoldierTemplate(kind);
-  const root = sdCloneRig(SOLDIER_TEMPLATES[kind]);
+function buildSoldier(kind, team) {
+  const tKey = (team === 'friendly') ? (kind + '_friendly') : (kind + '_enemy');
+  if (!SOLDIER_TEMPLATES[tKey]) SOLDIER_TEMPLATES[tKey] = buildSoldierTemplate(kind, team);
+  const root = sdCloneRig(SOLDIER_TEMPLATES[tKey]);
   const J = {};
   root.traverse(function (o) { if (o.name) J[o.name] = o; });
-  return { group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs, gun: (kind === 0 || kind === 4) ? J.knife : J.gun };
+  const iff = root.getObjectByName('iffMarker') || null;
+  return {
+    group: root, J: J, hitBody: J.hitBody, hitHead: J.hitHead, hitLegs: J.hitLegs,
+    gun: (kind === 0 || kind === 4) ? J.knife : J.gun,
+    team: team || 'enemy',
+    iff: iff
+  };
 }
 
 function sdSpring(s, k, c, dt) {
@@ -15841,10 +16536,11 @@ const E_DIM = {
   armH: 0.68, armR: 0.06
 };
 
-function makeEnemyMesh(kind) {
+function makeEnemyMesh(kind, team) {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), kind === 1 ? EMAT.cloth2 : EMAT.cloth);
+  const isFriendly = (team === 'friendly');
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), isFriendly ? EMAT.cloth2 : (kind === 1 ? EMAT.cloth2 : EMAT.cloth));
   torso.position.y = E_DIM.pelvisH + E_DIM.bodyH / 2;
   const vest = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.36), EMAT.vest);
   vest.position.y = E_DIM.pelvisH + 0.42;
@@ -15852,6 +16548,23 @@ function makeEnemyMesh(kind) {
   head.position.y = E_DIM.pelvisH + E_DIM.bodyH + E_DIM.headS / 2 + 0.03;
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.3), EMAT.helmet);
   helmet.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.26;
+  if (isFriendly) {
+    const friendlyTint = new THREE.Color(0x3880c8);
+    for (const m of [torso, vest, helmet]) {
+      if (m.material && typeof m.material.clone === 'function') {
+        m.material = m.material.clone();
+        if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+        m.userData.clonedTint = true;
+      }
+    }
+    const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+    const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.userData.clonedTint = true;
+    iff.name = 'iffMarker';
+    iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
+    body.add(iff);
+    g.userData.iff = iff;
+  }
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), EMAT.eye);
   eyeL.position.set(-0.06, E_DIM.pelvisH + E_DIM.bodyH + 0.07, -E_DIM.headS / 2 - 0.005);
   const eyeR = eyeL.clone(); eyeR.position.x = 0.06;
@@ -15893,11 +16606,12 @@ function spawnEnemy(kind, x, z, opts) {
   const detail = typeof graphicsAtBoot === 'function'
     ? graphicsAtBoot(IS_TOUCH).enemyDetailed
     : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  const spawnTeam = spawnOpts.team || 'enemy';
   if (detail) {
-    const sd = buildSoldier(kind);
-    parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
+    const sd = (typeof buildSoldier === 'function') ? buildSoldier(kind, spawnTeam) : null;
+    parts = sd ? { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true, iff: sd.iff } : makeEnemyMesh(kind, spawnTeam);
   } else {
-    parts = makeEnemyMesh(kind);
+    parts = makeEnemyMesh(kind, spawnTeam);
   }
   const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
@@ -15905,11 +16619,15 @@ function spawnEnemy(kind, x, z, opts) {
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, CFG.wave.victoryWave, diff().hp, specialHp, isElite);
+  const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
-    team: spawnOpts.team || 'enemy',
+    team: spawnTeam,
+    spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
+      ? spawnOpts.spawnProtection
+      : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     elite: isElite,
     kind: kind,
@@ -15958,22 +16676,40 @@ function spawnEnemy(kind, x, z, opts) {
   });
   parts.group.position.set(x, 0, z);
   parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
-  scene.add(parts.group);
+  if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') scene.add(parts.group);
   enemies.push(en);
   return en;
 }
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
-  if (en.parts.soldier) {
-    const sk = en.parts.group.userData.skeletons || [];
-    for (let i = 0; i < sk.length; i++) sk[i].dispose();
+  const p = en.parts ? en.parts : en;
+  if (!p || !p.group || p._geometryDisposed) return;
+  p._geometryDisposed = true;
+  if (p.soldier) {
+    const sk = (p.group.userData && p.group.userData.skeletons) || [];
+    for (let i = 0; i < sk.length; i++) {
+      if (sk[i] && !sk[i]._disposed) {
+        sk[i]._disposed = true;
+        if (typeof sk[i].dispose === 'function') sk[i].dispose();
+      }
+    }
     return;
   }
-  en.parts.group.traverse(function (o) {
-    if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
+  const disposedMats = new Set();
+  p.group.traverse(function (o) {
+    if (o.userData && o.userData.clonedTint && o.material && !disposedMats.has(o.material)) {
+      disposedMats.add(o.material);
+      if (typeof o.material.dispose === 'function') o.material.dispose();
+    }
   });
-  en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  const disposedGeos = new Set();
+  p.group.traverse(function (o) {
+    if (o.geometry && !disposedGeos.has(o.geometry)) {
+      disposedGeos.add(o.geometry);
+      if (typeof o.geometry.dispose === 'function') o.geometry.dispose();
+    }
+  });
 }
 
 function shieldMultiplier(en, point) {
@@ -15985,11 +16721,21 @@ const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  if (en.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (sourceActor) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(sourceActor, en)
+      : (((sourceActor.team || (sourceActor.isPlayer ? 'friendly' : (sourceActor.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
-  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
-    ? CORE.isHostile(sourceActor, en)
-    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
   en._lastHitNode = isHead ? 'head' : 'chest';
   if (point) {
     const hx = point.x - en.pos.x, hz = point.z - en.pos.z;
@@ -16004,12 +16750,12 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget && !isSourceDead) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
-  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && !isSourceDead && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  if (isPlayerSource && isHostileTarget) {
+  if (isPlayerSource && isHostileTarget && !isSourceDead) {
     const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
     showHitmarker(isHead, tier);
     addCredits(CORE.creditsForDamage(isKill, isHead));
@@ -16041,7 +16787,8 @@ function killEnemy(en, isHead, killer) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
-  const isQualifyingKill = isPlayerKiller && isHostileTarget;
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead;
   en.dead = true; en.deathT = 0;
   const impulse = CORE.enemyKillImpulse(en._lastHitForce, isHead, Math.random(), _killImpulseOut);
   spawnRagdoll(en, {
@@ -16065,6 +16812,7 @@ function killEnemy(en, isHead, killer) {
     playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
   if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 
@@ -16296,6 +17044,11 @@ function updateEnemies(dt) {
       enemies.splice(i, 1);
       continue;
     }
+    if (en.spawnProtectionT > 0) {
+      en.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+        ? CORE.stepSpawnProtection(en.spawnProtectionT, dt)
+        : Math.max(0, en.spawnProtectionT - dt);
+    }
     const target = findHostileTarget(en);
     en.target = target;
     const targetGone = !target || target.dead;
@@ -16353,15 +17106,17 @@ function updateEnemies(dt) {
     if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       en.swinging = CORE.enemyMeleeWindup(Math.random());
+      en.spawnProtectionT = 0;
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
+        en.spawnProtectionT = 0;
         if (CORE.withinReach(dist, vertGapToTarget(en, target), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !target.dead) {
           if (target === player || (target && target.isPlayer)) {
             if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
               const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
-              damagePlayer(meleeDmg, dirToDeg(en), 'melee');
+              damagePlayer(meleeDmg, dirToDeg(en), 'melee', en);
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
@@ -16454,6 +17209,7 @@ const _enemyGrenadeVelOut = { x: 0, y: 0, z: 0 };
 function throwEnemyGrenade(en, target) {
   const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
+  en.spawnProtectionT = 0;
   en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
@@ -16487,6 +17243,7 @@ const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  en.spawnProtectionT = 0;
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -16544,7 +17301,7 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet');
+        damagePlayer(dmg, hitDeg, 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
         damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
       }
@@ -16568,6 +17325,7 @@ const _breacherRolls = new Float32Array(8);
 function breacherShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;
+  en.spawnProtectionT = 0;
   en.lastShotT = gameT;
   playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -16593,7 +17351,7 @@ function breacherShoot(en, dist, target) {
     if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
-      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet', en);
       else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);
@@ -16655,6 +17413,7 @@ function noteBlast(pos) {
   sdRagdollBlast(pos, CFG.grenade.radius, 40);   // and shove the bodies already down
 }
 function spawnSoldierRagdoll(en) {
+  if (en && en.parts) en.parts._ragdolled = true;
   en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
   const blast = gameT - lastBlast.t < 0.05;
   let R;
@@ -16667,7 +17426,7 @@ function spawnSoldierRagdoll(en) {
     const hy = en._lastHitNode === 'head' ? 1.65 : 1.2;
     R = sdStartRagdoll(en, _rdShotDir, speed, _rdV.set(en.pos.x, en.pos.y + hy, en.pos.z), null);
   }
-  const entry = { en: en, rag: R, sd: R, t: 0, sunk: 0 };
+  const entry = { en: en, retiredParts: (en && en.parts) ? en.parts : null, rag: R, sd: R, t: 0, sunk: 0 };
   ragdolls.push(entry);
   while (ragdolls.length > RAGDOLL_MAX) removeRagdoll(ragdolls.shift());
   return entry;
@@ -16679,7 +17438,8 @@ function applyRagdollBudget() {
 }
 function spawnRagdoll(en, impulse) {
   applyRagdollBudget();
-  if (!RAGDOLL_MAX) { removeRagdoll({ en: en }); return; }
+  if (en && en.parts) en.parts._ragdolled = true;
+  if (!RAGDOLL_MAX) { removeRagdoll({ en: en, retiredParts: (en && en.parts) ? en.parts : null }); return; }
   if (en.parts && en.parts.soldier) return spawnSoldierRagdoll(en);
 
   en.parts.group.traverse(function (o) { if (o.isMesh) o.castShadow = false; });
@@ -16698,7 +17458,9 @@ function spawnRagdoll(en, impulse) {
   en.parts.group.traverse(function (o) { if (o.isBone && o.name === 'root' && !root) root = o; });
 
   const entry = {
-    en: en, rag: rag,
+    en: en,
+    retiredParts: (en && en.parts) ? en.parts : null,
+    rag: rag,
     bones: bones, root: root,
     useBones: boneCount >= 4 && !!root,
     box: en.parts.torso ? en.parts : null,
@@ -16808,17 +17570,23 @@ function updateRagdolls(dt) {
 }
 
 function removeRagdoll(e) {
-  if (e.sd) scene.remove(e.sd.container);
+  if (!e) return;
+  if (e.sd && e.sd.container && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(e.sd.container);
+  const rp = e.retiredParts || (e.en && (e.en.dead || e.en.dead === undefined) ? e.en.parts : null);
   if (e.boxParts) {
     for (let k = 0; k < e.boxParts.length; k++) {
       const obj = e.boxParts[k].obj;
-      scene.remove(obj);
-      if (e.en && e.en.parts && e.en.parts.group) e.en.parts.group.add(obj);
+      if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(obj);
+      if (rp && rp.group) rp.group.add(obj);
     }
   }
-  if (e.en && e.en.parts && e.en.parts.group) {
-    scene.remove(e.en.parts.group);
-    disposeEnemyGeometry(e.en);
+  if (rp && rp.group) {
+    if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(rp.group);
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
+  } else if (rp) {
+    if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(rp);
+    e.retiredParts = null;
   }
 }
 
@@ -18209,6 +18977,14 @@ function stopMusic() {
   }
 }
 
+function ensureMusicPlaying() {
+  if (typeof getSetting !== 'function') return;
+  if (getSetting('muted')) return;
+  if (getSetting('musicVolume') <= 0) return;
+  if (getSetting('masterVolume') <= 0) return;
+  if (!MUSIC.running) startMusic();
+}
+
 function updateMusic(dt, state) {
   if (!MUSIC.built || !MUSIC.running) return;
   const ctx = MUSIC.ctx;
@@ -18583,6 +19359,7 @@ function throwGrenade(customSpeed, def, wasCooked) {
     if (tacticalCount <= 0) return;
   } else if (grenades.count <= 0) return;
   if (grenades.cd > 0 || player.dead) return;
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = CORE.GRENADE_COOLDOWN;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
@@ -18966,7 +19743,7 @@ function explodeGrenade(pos, scale, owner) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-      damagePlayer(selfDmg, blastDeg, 'blast');
+      damagePlayer(selfDmg, blastDeg, 'blast', owner);
     }
   }
   const sk = CORE.explosionShotKick(playerDistToBlast, CORE.EXPLOSION_KICK_MAX_DIST, CORE.EXPLOSION_SHOT_KICK_MAX);
@@ -19514,13 +20291,15 @@ function usePlate() {
 }
 
 let downT = 0;
-function downPlayer() {
+function downPlayer(attacker) {
+  const killer = attacker || player.lastAttacker || null;
   const r = CORE.lethalOutcome(perks, player.downed);
-  if (r.outcome === 'dead') { killPlayer(); return; }
+  if (r.outcome === 'dead') { killPlayer(killer); return; }
   if (r.outcome === 'revive') {
     perks.splice(perks.indexOf(r.consume), 1);
     player.health = CORE.DOWN_REVIVE_HEALTH;
     player.armor = 0;
+    player.downedBy = null;
     updateHudHealth();
     updateHudPerks();
     showCenterMsg('SECOND WIND');
@@ -19528,6 +20307,7 @@ function downPlayer() {
     return;
   }
   player.downed = true;
+  player.downedBy = killer;
   downT = 0;
   if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
@@ -19558,12 +20338,18 @@ function updateDowned(dt) {
       _downTimerEl.textContent = CORE.downBleedoutLabel(left);
     }
   }
-  if (left <= 0) { clearDowned(); killPlayer(); }
+  if (left <= 0) {
+    const killer = player.downedBy || player.lastAttacker || null;
+    clearDowned();
+    killPlayer(killer);
+  }
 }
 
 function reviveFromDown() {
   if (!player.downed) return;
   clearDowned();
+  player.downedBy = null;
+  player.lastAttacker = null;
   player.health = CORE.DOWN_REVIVE_HEALTH;
   updateHudHealth();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
@@ -19770,7 +20556,9 @@ function deploySentry() {
   g.position.set(x, 0, z);
   g.castShadow = true;
   scene.add(g);
-  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0 });
+  const ownerActor = (typeof player !== 'undefined') ? player : null;
+  const ownerTeam = (ownerActor && ownerActor.team) ? ownerActor.team : 'friendly';
+  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0, owner: ownerActor, team: ownerTeam });
   showCenterMsg('SENTRY DEPLOYED');
 }
 
@@ -19784,10 +20572,16 @@ function updateSentries(dt) {
     s.cd = _sentryTimerOut.cd;
     if (_sentryTimerOut.expired) { scene.remove(s.m); sentries.splice(i, 1); continue; }
     let best = null, bestDSq = maxRangeSq;
+    const sentryOwner = s.owner || (typeof player !== 'undefined' ? player : null);
+    const sentryTeam = s.team || (sentryOwner && sentryOwner.team) || 'friendly';
     _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       if (en.dead) continue;
+      const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+        ? CORE.isFriendlyFire(sentryOwner, en)
+        : (en.team === sentryTeam);
+      if (isAlly) continue;
       const dx = en.pos.x - s.m.position.x, dz = en.pos.z - s.m.position.z;
       const dSq = dx * dx + dz * dz;
       if (!CORE.isSentryTargetInRange(dx, dz, bestDSq)) continue;
@@ -19812,7 +20606,7 @@ function updateSentries(dt) {
     }
     spawnTracer(_sentryMuzzle, _sentryTo, null, 'BR');
     _sentryHitPoint.copy(_sentryTo);
-    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
+    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false, false, 'SENTRY', sentryOwner);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }
@@ -20399,6 +21193,7 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    spawnProtectionT: 0,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -20839,7 +21634,9 @@ function drawMinimap() {
     if (e.dead) continue;
     CORE.minimapBlipOffset(e.pos.x, e.pos.z, px, pz, scale, _mmBlipOut);
     if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, maxEnemyDistSq)) continue;
-    mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
+    mmCtx.fillStyle = (typeof CORE !== 'undefined' && typeof CORE.minimapActorColor === 'function')
+      ? CORE.minimapActorColor(e)
+      : (MM_KIND_COLOR[e.kind] || '#ff4030');
     const rad = CORE.minimapEnemyRadius(e.kind);
     mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7); mmCtx.fill();
     if (e.elite) {
@@ -21102,39 +21899,54 @@ function resumeGame() {
   $id('pause-menu').style.display = 'none';
   canvas.requestPointerLock();
 }
-function killPlayer() {
+function killPlayer(killer) {
+  if (player.dead) return;
   player.dead = true;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, null);
+  const sourceActor = killer || player.downedBy || player.lastAttacker || null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
   if (typeof clearDowned === 'function') clearDowned();
-  stopMusic();
+  const deathEndsRun = !activeMode || activeMode.id === 'survival'
+    || (typeof gameEnded !== 'undefined' && gameEnded)
+    || (typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (deathEndsRun) stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
-  if (document.pointerLockElement) document.exitPointerLock();
+  if (!activeMode || activeMode.id === 'survival' || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
   paused = false;
-  $id('pause-menu').style.display = 'none';
+  const pm = $id('pause-menu');
+  if (pm) pm.style.display = 'none';
   updateHudHealth();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
   if (typeof applyTouchInput === 'function') applyTouchInput();
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  clearCheckpoint();   // a lost run is not resumable
-  const delta = settlementDelta();
-  const beat = recordRun({ score: delta.score, wave: delta.wave,
-    accuracy: delta.accuracy, recordScore: delta.recordScore,
-    recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
-    kills: delta.kills,
-    headshots: delta.headshots, streaks: delta.streaks,
-    countRun: !settlementSnapshot, victory: false });
-  $id('ds-stats').innerHTML =
-    'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
-    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
-    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
-  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+  if (!activeMode || activeMode.id === 'survival') {
+    const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+    const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+    clearCheckpoint();   // a lost run is not resumable
+    const delta = settlementDelta();
+    const beat = recordRun({ score: delta.score, wave: delta.wave,
+      accuracy: delta.accuracy, recordScore: delta.recordScore,
+      recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
+      kills: delta.kills,
+      headshots: delta.headshots, streaks: delta.streaks,
+      countRun: !settlementSnapshot, victory: false });
+    $id('ds-stats').innerHTML =
+      'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+      '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+      '<br><br><span style="font-size:13px;opacity:.8">' + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '') + '</span>';
+    setTimeout(function () { if (player.dead) { const ds = $id('death-screen'); if (ds) ds.style.display = 'flex'; } }, 900);
+  } else {
+    const ds = $id('death-screen');
+    if (ds) ds.style.display = 'none';
+    if (typeof showCenterMsgThrottled === 'function') showCenterMsgThrottled('RESPAWNING IN 3s…');
+  }
 }
 function victory() {
   if (gameEnded) return;
@@ -21162,10 +21974,27 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   paused = false;   // never reset into a paused state
-  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
+  if (typeof document !== 'undefined') {
+    if (!started && document.body) document.body.classList.remove('started');
+    if (!started && document.pointerLockElement) document.exitPointerLock();
+  }
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) {
+    for (let i = 0; i < MODES.tdm.roster.length; i++) {
+      const act = MODES.tdm.roster[i];
+      if (act && !act.isPlayer && act.parts && act.parts.group) {
+        if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(act.parts.group);
+        if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+      }
+    }
+    MODES.tdm.roster.length = 0;
+  }
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
+  if (typeof player !== 'undefined' && player) {
+    player.lastAttacker = null;
+    player.downedBy = null;
+  }
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;
   for (let i = pickups.length - 1; i >= 0; i--) scene.remove(pickups[i].m);
@@ -21182,56 +22011,66 @@ function resetGame() {
     }
   }
   liveGrenades.length = 0;
-  for (let i = vfx.tracers.length - 1; i >= 0; i--) {
-    const t = vfx.tracers[i];
-    scene.remove(t.m);
-    t.m.visible = false;
-    tracerPool.push(t.m);
-    if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
-  }
-  vfx.tracers.length = 0;
-  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
-    const im = vfx.impacts[i];
-    scene.remove(im.m);
-    im.m.visible = false;
-    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
-      impactPool.push(im.m);
-    } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
-      releaseBlastFlash(im.m);
-    } else {
-      if (im.m.geometry) im.m.geometry.dispose();
-      if (im.m.material) im.m.material.dispose();
+  if (typeof vfx !== 'undefined' && vfx) {
+    if (Array.isArray(vfx.tracers)) {
+      for (let i = vfx.tracers.length - 1; i >= 0; i--) {
+        const t = vfx.tracers[i];
+        scene.remove(t.m);
+        t.m.visible = false;
+        if (typeof tracerPool !== 'undefined' && tracerPool) tracerPool.push(t.m);
+        if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
+      }
+      vfx.tracers.length = 0;
     }
-    if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+    if (Array.isArray(vfx.impacts)) {
+      for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+        const im = vfx.impacts[i];
+        scene.remove(im.m);
+        im.m.visible = false;
+        if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+          if (typeof impactPool !== 'undefined' && impactPool) impactPool.push(im.m);
+        } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+          releaseBlastFlash(im.m);
+        } else {
+          if (im.m.geometry) im.m.geometry.dispose();
+          if (im.m.material) im.m.material.dispose();
+        }
+        if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+      }
+      vfx.impacts.length = 0;
+    }
+    if (Array.isArray(vfx.blood)) {
+      for (let i = vfx.blood.length - 1; i >= 0; i--) {
+        const b = vfx.blood[i];
+        scene.remove(b.m);
+        b.m.visible = false;
+        if (b.isSpark && typeof sparkPool !== 'undefined' && sparkPool) sparkPool.push(b.m);
+        else if (b.isBlood && typeof bloodPool !== 'undefined' && bloodPool) bloodPool.push(b.m);
+        else if (b.isDust && typeof dustPool !== 'undefined' && dustPool) dustPool.push(b.m);
+        if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
+      }
+      vfx.blood.length = 0;
+    }
   }
-  vfx.impacts.length = 0;
-  for (let i = vfx.blood.length - 1; i >= 0; i--) {
-    const b = vfx.blood[i];
-    scene.remove(b.m);
-    b.m.visible = false;
-    if (b.isSpark) sparkPool.push(b.m);
-    else if (b.isBlood) bloodPool.push(b.m);
-    else if (b.isDust) dustPool.push(b.m);
-    if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
-  }
-  vfx.blood.length = 0;
   if (typeof clearCasings === 'function') {
     clearCasings();
-  } else {
+  } else if (typeof casings !== 'undefined' && Array.isArray(casings)) {
     for (let i = casings.length - 1; i >= 0; i--) {
       const c = casings[i];
       scene.remove(c.m);
       c.m.visible = false;
-      casingPool.push(c.m);
+      if (typeof casingPool !== 'undefined' && casingPool) casingPool.push(c.m);
     }
     casings.length = 0;
   }
-  grenades.count = CFG.grenade.count;
-  grenades.cd = 0;
+  if (typeof grenades !== 'undefined' && grenades) {
+    grenades.count = (typeof CFG !== 'undefined' && CFG.grenade && CFG.grenade.count) || 2;
+    grenades.cd = 0;
+  }
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
-  clearParticles();
-  clearBloodPools();
-  clearInputState();
+  if (typeof clearParticles === 'function') clearParticles();
+  if (typeof clearBloodPools === 'function') clearBloodPools();
+  if (typeof clearInputState === 'function') clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
@@ -21239,31 +22078,52 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
+  player.spawnProtectionT = 0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
-  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
-  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
-  resetRagdolls();
+  if (typeof resetStations === 'function') resetStations();
+  if (typeof clearDowned === 'function') clearDowned();
+  if (typeof resetEquipment === 'function') resetEquipment();
+  if (typeof resetStreaks === 'function') resetStreaks();
+  if (typeof waveSpecial !== 'undefined') waveSpecial = null;
+  if (typeof applySpecialLighting === 'function') applySpecialLighting(null);
+  if (typeof resetDistricts === 'function') resetDistricts();
+  if (typeof clearObjective === 'function') clearObjective();
+  if (typeof resetRagdolls === 'function') resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
-  updateHudPlates(); updateHudPerks();
-  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
-  credits = 0;
-  powerUntil.double = -99; powerUntil.instakill = -99;
-  if (hud.credits) hud.credits.textContent = '0';
-  runId++;   // invalidate anything the previous run scheduled
-  waveNum = 0; score = 0; kills = 0; headshots = 0;
-  shotsFired = 0; shotsHit = 0;
-  steadyT = STEADY_MAX; steadyActive = false;
+  if (typeof updateHudPlates === 'function') updateHudPlates();
+  if (typeof updateHudPerks === 'function') updateHudPerks();
+  if (typeof recoilShot !== 'undefined') recoilShot = 0;
+  if (typeof lastShotT !== 'undefined') lastShotT = -99;
+  if (typeof bloom !== 'undefined') bloom = 0;
+  if (typeof meleeT !== 'undefined') meleeT = 0;
+  if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
+  if (typeof credits !== 'undefined') credits = 0;
+  if (typeof powerUntil !== 'undefined' && powerUntil) { powerUntil.double = -99; powerUntil.instakill = -99; }
+  if (typeof hud !== 'undefined' && hud && hud.credits) hud.credits.textContent = '0';
+  if (typeof runId !== 'undefined') runId++;   // invalidate anything the previous run scheduled
+  if (typeof waveNum !== 'undefined') waveNum = 0;
+  if (typeof score !== 'undefined') score = 0;
+  if (typeof kills !== 'undefined') kills = 0;
+  if (typeof headshots !== 'undefined') headshots = 0;
+  if (typeof shotsFired !== 'undefined') shotsFired = 0;
+  if (typeof shotsHit !== 'undefined') shotsHit = 0;
+  if (typeof steadyT !== 'undefined') steadyT = typeof STEADY_MAX !== 'undefined' ? STEADY_MAX : 5;
+  if (typeof steadyActive !== 'undefined') steadyActive = false;
   if (typeof _wasSteadyActive !== 'undefined') _wasSteadyActive = false;
-  adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof adsAmount !== 'undefined') adsAmount = 0;
+  if (typeof wasScoped !== 'undefined') wasScoped = false;
+  if (typeof shotKick !== 'undefined') shotKick = 0;
+  if (typeof slideFov !== 'undefined') slideFov = 0;
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
   if (typeof _grenadeChargeHudState !== 'undefined') { _grenadeChargeHudState.visible = null; _grenadeChargeHudState.pct = -1; _grenadeChargeHudState.speed = -1; }
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
-  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
-  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (typeof _slideVigOpacity !== 'undefined') _slideVigOpacity = 0;
+  if (typeof _lastSlideVigWritten !== 'undefined') _lastSlideVigWritten = -1;
+  if (typeof _slideOvEl === 'undefined') _slideOvEl = $id('slide-vignette');
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
   if (typeof _lastSx !== 'undefined') { _lastSx = null; _lastSy = null; }
@@ -21282,22 +22142,34 @@ function resetGame() {
   if (typeof _touchSwapCache !== 'undefined' && _touchSwapCache) _touchSwapCache.swapState = null;
   if (typeof _touchStreakCache !== 'undefined' && _touchStreakCache) _touchStreakCache.streakState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
-  waveQueue = 0; waveActive = false; gameEnded = false;
-  betweenWaveT = CFG.wave.startDelay;
-  killStreak = 0; lastKillT = -99;   // multi-kill streak state
-  hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
+  if (typeof waveQueue !== 'undefined') waveQueue = 0;
+  if (typeof waveActive !== 'undefined') waveActive = false;
+  if (typeof gameEnded !== 'undefined') gameEnded = false;
+  if (typeof betweenWaveT !== 'undefined') betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) || 3;
+  if (typeof killStreak !== 'undefined') killStreak = 0;
+  if (typeof lastKillT !== 'undefined') lastKillT = -99;   // multi-kill streak state
+  if (typeof hudRedrawT !== 'undefined') hudRedrawT = 1;
+  if (typeof lastHudYaw !== 'undefined') lastHudYaw = player.yaw;
+  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;   // force immediate HUD redraw on new run
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
-  curWeapon = 0;
-  fireClockT = 0;
-  initWeapons();
-  gunSwitchT = 1;
-  buildViewmodel();
-  updateHudHealth(); updateHudAmmo();
-  hud.scoreVal.textContent = '0';
-  hud.killfeed.innerHTML = '';
-  clearTimeout(hud.waveBanner._t);
-  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+  if (typeof curWeapon !== 'undefined') curWeapon = 0;
+  if (typeof fireClockT !== 'undefined') fireClockT = 0;
+  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof gunSwitchT !== 'undefined') gunSwitchT = 1;
+  if (typeof buildViewmodel === 'function') buildViewmodel();
+  if (typeof updateHudHealth === 'function') updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof hud !== 'undefined' && hud) {
+    if (hud.scoreVal) hud.scoreVal.textContent = '0';
+    if (hud.killfeed) hud.killfeed.innerHTML = '';
+    if (hud.waveBanner) {
+      if (typeof hud.waveBanner._t !== 'undefined') clearTimeout(hud.waveBanner._t);
+      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+    }
+  }
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
 }
 
 let gunsmithWeapon = 0;
@@ -21441,17 +22313,134 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  if (el) el.innerHTML = (typeof rankBarHtml === 'function' ? rankBarHtml() : '') + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '');
   const ch = $id('challenge-list');
-  if (ch) ch.innerHTML = challengesHtml();
+  if (ch) ch.innerHTML = typeof challengesHtml === 'function' ? challengesHtml() : '';
 }
 
 let pickingSlot = 0;
 let pendingSecondary = -1;
+function buildModePickerRow() {
+  const row = $id('mode-row');
+  if (!row) return;
+  row.innerHTML = '';
+  const availableModes = [
+    { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
+    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
+  ];
+  const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
+  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
+    if (typeof setActiveMode === 'function') setActiveMode(validSaved);
+    else activeModeId = validSaved;
+  }
+  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : validSaved;
+  availableModes.forEach(function (m) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn mode-btn' + (m.id === curMode ? ' on' : '');
+    b.id = 'mode-btn-' + m.id;
+    b.innerHTML = m.name + '<small>' + m.blurb + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      setActiveMode(m.id);
+      if (typeof setSetting === 'function') setSetting('gameMode', m.id);
+      buildModePickerRow();
+      buildDifficultyRow();
+      buildTdmSettingsRow();
+      const isTdm = (m.id === 'tdm');
+      $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+      const tr = $id('tdm-settings-row');
+      if (tr) tr.style.display = isTdm ? 'flex' : 'none';
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
+function buildTdmSettingsRow() {
+  const row = $id('tdm-settings-row');
+  if (!row) return;
+  const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+  if (!isTdm) {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = 'flex';
+  row.innerHTML = '';
+  const curScore = (typeof getSetting === 'function' ? getSetting('tdmScoreLimit') : null) || (MODES.tdm ? MODES.tdm.targetScore : 75) || 75;
+  const scoreGroup = document.createElement('div');
+  scoreGroup.style.display = 'flex';
+  scoreGroup.style.gap = '6px';
+  scoreGroup.style.alignItems = 'center';
+  const scoreLabel = document.createElement('span');
+  scoreLabel.style.fontSize = '12px';
+  scoreLabel.style.letterSpacing = '1px';
+  scoreLabel.style.color = '#ffdf8a';
+  scoreLabel.textContent = 'SCORE:';
+  scoreGroup.appendChild(scoreLabel);
+  [75, 50, 25, 10, 2].forEach(function (lim) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (lim === curScore ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-score-' + lim;
+    b.textContent = String(lim);
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.targetScore = lim;
+      if (typeof setSetting === 'function') setSetting('tdmScoreLimit', lim);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    scoreGroup.appendChild(b);
+  });
+  row.appendChild(scoreGroup);
+
+  const curTeam = (typeof getSetting === 'function' ? getSetting('tdmTeamSize') : null) || (MODES.tdm ? MODES.tdm.teamSize : 6) || 6;
+  const teamGroup = document.createElement('div');
+  teamGroup.style.display = 'flex';
+  teamGroup.style.gap = '6px';
+  teamGroup.style.alignItems = 'center';
+  teamGroup.style.marginLeft = '16px';
+  const teamLabel = document.createElement('span');
+  teamLabel.style.fontSize = '12px';
+  teamLabel.style.letterSpacing = '1px';
+  teamLabel.style.color = '#ffdf8a';
+  teamLabel.textContent = 'TEAM:';
+  teamGroup.appendChild(teamLabel);
+  [6, 4, 2].forEach(function (sz) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (sz === curTeam ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-team-' + sz;
+    b.textContent = sz + 'v' + sz;
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.teamSize = sz;
+      if (typeof setSetting === 'function') setSetting('tdmTeamSize', sz);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    teamGroup.appendChild(b);
+  });
+  row.appendChild(teamGroup);
+}
+
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
-  if (pickingSlot === 0) { pendingSecondary = -1; buildDifficultyRow(); }
-  $id('diff-row').style.display = pickingSlot === 0 ? 'flex' : 'none';
+  if (pickingSlot === 0) {
+    pendingSecondary = -1;
+    buildModePickerRow();
+    buildDifficultyRow();
+    buildTdmSettingsRow();
+    const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+    $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isTdm ? 'flex' : 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'flex';
+  } else {
+    $id('diff-row').style.display = 'none';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'none';
+  }
   document.querySelector('#gun-select h2').textContent =
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
@@ -21534,7 +22523,13 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
-  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || activeMode.id === 'survival') {
+    showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+    startMusic();
+  } else {
+    updateMatchHud(activeMode);
+  }
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
   startMusic();
@@ -21544,6 +22539,9 @@ function startGame() {
 function resumeRun() {
   const cp = loadCheckpoint();
   if (!cp || !assetsReady) return;
+  if (typeof setActiveMode === 'function') setActiveMode('survival');
+  else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
+  if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -21575,6 +22573,8 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  player.spawnProtectionT = cp.spawnProtectionT || 0;
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
   perks = (cp.perks || []).slice();
@@ -21600,7 +22600,7 @@ function resumeRun() {
 }
 
 function refreshResumeButton() {
-  const cp = loadCheckpoint();
+  const cp = typeof loadCheckpoint === 'function' ? loadCheckpoint() : null;
   const btn = $id('btn-resume-run');
   const note = $id('save-note');
   if (cp) {
@@ -21695,6 +22695,8 @@ $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
   stopMusic();
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
@@ -21718,6 +22720,8 @@ addEventListener('keydown', function (e) {
 });
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   refreshResumeButton();
@@ -21732,10 +22736,136 @@ $id('btn-v-restart').addEventListener('click', function () {
 });
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   resetGame(); started = false;
 });
+
+function showMatchEndScreen(mode) {
+  if (typeof document === 'undefined') return;
+  const es = $id('match-end-screen');
+  if (!es) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  stopMusic();
+  const fScore = mode.friendlyScore || 0;
+  const eScore = mode.enemyScore || 0;
+  const won = fScore > eScore;
+  const draw = fScore === eScore;
+  playSound(won ? 'victory' : 'death');
+  const titleEl = $id('match-end-title');
+  if (titleEl) {
+    titleEl.textContent = draw ? 'DRAW' : (won ? 'VICTORY' : 'DEFEAT');
+    titleEl.style.color = draw ? '#ffd24a' : (won ? '#7ee08a' : '#ff4030');
+  }
+  const scoreEl = $id('match-end-scores');
+  if (scoreEl) {
+    scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+  }
+  const statsEl = $id('match-end-stats');
+  if (statsEl) {
+    const pk = (typeof player !== 'undefined' && player) ? (player.kills || 0) : 0;
+    const pd = (typeof player !== 'undefined' && player) ? (player.deaths || 0) : 0;
+    const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
+    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>Target score: <b>' + (mode.targetScore || 75) + '</b>';
+  }
+  es.style.display = 'flex';
+}
+
+function restartMatch() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = true;
+  resetGame();
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && activeMode.id !== 'survival') {
+    if (typeof updateMatchHud === 'function') updateMatchHud(activeMode);
+  }
+  const audioDisabled = typeof getSetting === 'function' && (getSetting('muted') || getSetting('musicVolume') <= 0 || getSetting('masterVolume') <= 0);
+  if (!audioDisabled && typeof startMusic === 'function') {
+    startMusic();
+  }
+  if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
+    try { canvas.requestPointerLock(); } catch (e) {}
+  }
+}
+
+function quitMatchToMenu() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  const mh = $id('match-hud');
+  if (mh) mh.style.display = 'none';
+  const sb = $id('match-scoreboard');
+  if (sb) sb.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = false;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
+  setActiveMode('survival');
+  resetGame();
+  $id('start-screen').style.display = 'flex';
+  refreshResumeButton();
+  refreshMenuStats();
+}
+
+const btnMR = $id('btn-match-restart');
+if (btnMR) btnMR.addEventListener('click', restartMatch);
+const btnMQ = $id('btn-match-quit');
+if (btnMQ) btnMQ.addEventListener('click', quitMatchToMenu);
+
+function updateScoreboard() {
+  if (typeof document === 'undefined') return;
+  const sbEl = $id('match-scoreboard');
+  if (!sbEl) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || typeof activeMode.scoreboard !== 'function') return;
+  const data = activeMode.scoreboard();
+  if (data.mode === 'tdm') {
+    let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
+    html += '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#38b6ff;display:flex;justify-content:space-between;margin-bottom:8px"><span>ALLIES</span><span>' + (data.friendlyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const fMembers = (data.friendlyTeam && data.friendlyTeam.members) || [];
+    for (let i = 0; i < fMembers.length; i++) {
+      const m = fMembers[i];
+      const isYou = m.isPlayer;
+      html += '<tr style="' + (isYou ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div>';
+    html += '<div style="flex:1;background:rgba(50,20,20,0.92);border:1px solid #ff4030;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#ff4030;display:flex;justify-content:space-between;margin-bottom:8px"><span>HOSTILES</span><span>' + (data.enemyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const eMembers = (data.enemyTeam && data.enemyTeam.members) || [];
+    for (let i = 0; i < eMembers.length; i++) {
+      const m = eMembers[i];
+      html += '<tr><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div></div>';
+    sbEl.innerHTML = html;
+  }
+}
+
+let scoreboardOpen = false;
+function setScoreboardVisible(visible) {
+  scoreboardOpen = !!visible;
+  const sbEl = (typeof $id === 'function') ? $id('match-scoreboard') : null;
+  if (!sbEl) return;
+  if (scoreboardOpen) {
+    updateScoreboard();
+    sbEl.style.display = 'flex';
+  } else {
+    sbEl.style.display = 'none';
+  }
+}
 
 const runtimeTelemetry = CORE.createRuntimeTelemetry();
 if (typeof window !== 'undefined') {
@@ -21798,19 +22928,24 @@ function frame(now) {
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
-    updatePlayer(dt);
-    updateWeapons(dt);
-    updateEnemies(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    if (!isSettled) {
+      updatePlayer(dt);
+      updateWeapons(dt);
+      updateEnemies(dt);
+    }
     if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
     else updateWaves(dt);
     updateVfx(dt);
-    updateGrenades(dt);
-    updatePickups(dt);
-    updateAmmoRelief(dt);
-    updateStations(dt);
-    updateDowned(dt);
-    updateStreaks(dt);
+    if (!isSettled) {
+      updateGrenades(dt);
+      updatePickups(dt);
+      updateAmmoRelief(dt);
+      updateStations(dt);
+      updateDowned(dt);
+      updateStreaks(dt);
+    }
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);

@@ -1066,6 +1066,16 @@ function stopMusic() {
   }
 }
 
+// Restore the soundtrack after a nonterminal match respawn, but never override the
+// player's audio settings: mute and zeroed volumes keep the music silent.
+function ensureMusicPlaying() {
+  if (typeof getSetting !== 'function') return;
+  if (getSetting('muted')) return;
+  if (getSetting('musicVolume') <= 0) return;
+  if (getSetting('masterVolume') <= 0) return;
+  if (!MUSIC.running) startMusic();
+}
+
 // Called every frame while playing.
 function updateMusic(dt, state) {
   if (!MUSIC.built || !MUSIC.running) return;

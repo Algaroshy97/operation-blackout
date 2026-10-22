@@ -144,7 +144,9 @@ function deploySentry() {
   g.position.set(x, 0, z);
   g.castShadow = true;
   scene.add(g);
-  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0 });
+  const ownerActor = (typeof player !== 'undefined') ? player : null;
+  const ownerTeam = (ownerActor && ownerActor.team) ? ownerActor.team : 'friendly';
+  sentries.push({ m: g, barrel: barrel, t: CORE.streakByKey('sentry').dur, cd: 0, owner: ownerActor, team: ownerTeam });
   showCenterMsg('SENTRY DEPLOYED');
 }
 
@@ -160,10 +162,16 @@ function updateSentries(dt) {
     // Nearest enemy it can actually see. Same analytic slab test the AI uses,
     // pointed the other way — including through smoke, which cuts both ways.
     let best = null, bestDSq = maxRangeSq;
+    const sentryOwner = s.owner || (typeof player !== 'undefined' ? player : null);
+    const sentryTeam = s.team || (sentryOwner && sentryOwner.team) || 'friendly';
     _sentryFrom.set(s.m.position.x, 0.6, s.m.position.z);
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       if (en.dead) continue;
+      const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+        ? CORE.isFriendlyFire(sentryOwner, en)
+        : (en.team === sentryTeam);
+      if (isAlly) continue;
       const dx = en.pos.x - s.m.position.x, dz = en.pos.z - s.m.position.z;
       const dSq = dx * dx + dz * dz;
       if (!CORE.isSentryTargetInRange(dx, dz, bestDSq)) continue;
@@ -188,7 +196,7 @@ function updateSentries(dt) {
     }
     spawnTracer(_sentryMuzzle, _sentryTo, null, 'BR');
     _sentryHitPoint.copy(_sentryTo);
-    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false);
+    damageEnemy(best, SENTRY_DMG, _sentryHitPoint, false, false, 'SENTRY', sentryOwner);
     playSound3D(CORE.sentryFireSound(), s.m.position.x, s.m.position.y, s.m.position.z, CORE.SENTRY_AUDIO_MAX_DIST);
   }
 }

@@ -533,6 +533,7 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    spawnProtectionT: 0,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -1037,7 +1038,9 @@ function drawMinimap() {
     if (e.dead) continue;
     CORE.minimapBlipOffset(e.pos.x, e.pos.z, px, pz, scale, _mmBlipOut);
     if (!CORE.isMinimapBlipVisible(_mmBlipOut.x, _mmBlipOut.z, maxEnemyDistSq)) continue;
-    mmCtx.fillStyle = MM_KIND_COLOR[e.kind] || '#ff4030';
+    mmCtx.fillStyle = (typeof CORE !== 'undefined' && typeof CORE.minimapActorColor === 'function')
+      ? CORE.minimapActorColor(e)
+      : (MM_KIND_COLOR[e.kind] || '#ff4030');
     const rad = CORE.minimapEnemyRadius(e.kind);
     mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, rad, 0, 7); mmCtx.fill();
     if (e.elite) {

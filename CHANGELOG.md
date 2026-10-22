@@ -4,6 +4,183 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v173 — Team-aware aim assistance and nonterminal match music lifecycle repair
+
+- Aim assist and bullet magnetism only ever attract to hostiles (`src/30_weapons.js`):
+  - Added `isAssistAlly()` using the existing `CORE.isFriendlyFire` predicate, and applied it to the candidate loops in `applyAimAssist()` and `magnetizeBullet()`.
+  - TDM/FFA/Domination/Gun Game keep teammates inside the shared `enemies` roster; previously only `dead` actors were excluded, so friendly bots attracted the reticle and shots even though the friendly-fire guard rejected the resulting damage.
+  - Added enduring regressions in `tests/test_modes_and_teams.js` running the real production loops for ally-only, mixed ally/hostile, and dead-actor candidate sets.
+- Match soundtrack survives nonterminal deaths and respawns (`src/70_main.js`, `src/35_modes.js`, `src/50_vfx_audio.js`):
+  - `killPlayer()` no longer calls `stopMusic()` unconditionally: music stops only when the death is terminal for the run/match (Survival, `gameEnded`, or a settled match such as reaching the score limit).
+  - Added `ensureMusicPlaying()` and called it from the player respawn path in `defaultOnRespawn()`, restoring the soundtrack after a nonterminal respawn while still honouring mute and zeroed music/master volumes.
+  - Added a death-to-respawn audio regression plus terminal-settlement and muted-settings regressions in `tests/test_modes_and_teams.js`.
+
+## v172 — Survival mode posthumous combat damage and probe corpse lifecycle repair
+
+- Scope match settlement freeze to TDM match completion in `src/40_enemies.js`, `src/20_player.js`, and `src/70_main.js`:
+  - Fixed regression where `activeMode.isOver()` evaluated to true in Survival mode whenever `player.dead` was true (via `CORE.isModeOver('survival', ...)`), incorrectly gating `damageEnemy` and freezing combat simulation loops.
+  - The settlement freeze in `damageEnemy`, `damagePlayer`, and `frame()` now specifically checks for settled matches (`gameEnded || (activeMode && activeMode.id === 'tdm' && activeMode.isOver())`), preserving posthumous damage in Survival mode (such as delayed rounds, grenades, sentries, and probe check 8 assertions).
+  - Dead enemies in Survival mode continue to correctly take damage, trigger ragdoll creation capped at `RAGDOLL_MAX`, and get cleaned up from the active enemies roster by `updateEnemies()`.
+  - Added enduring regression tests in `tests/test_modes_and_teams.js` verifying combat damage applies and corpses cap/clean up with `player.dead = true` in Survival mode, while retaining strict combat freeze upon TDM match settlement and `gameEnded`.
+
+## v171 — Match end-screen restart audio lifecycle regression repair and audio settings gating
+
+- Match end-screen restart audio lifecycle repair in `src/70_main.js`:
+  - Fixed audio desynchronization where completing a match called `showMatchEndScreen()` (stopping music via `stopMusic()`), and restarting the match via `restartMatch()` or `#btn-match-restart` restarted gameplay without restarting music.
+  - `restartMatch()` now restarts music consistently with existing audio settings (`!getSetting('muted') && getSetting('musicVolume') > 0 && getSetting('masterVolume') > 0`), ensuring audio starts only when enabled.
+  - Avoids starting audio when muted or when volume is zero.
+  - Updates match HUD (`updateMatchHud(activeMode)`) on restart for non-survival modes and preserves TDM game mode, score reset, and 6v6 roster correctness.
+  - Added enduring actual-production end-screen -> restart lifecycle regression test in `tests/test_modes_and_teams.js` exercising real functions without replacement restart stubs.
+
+## v170 — Bot rig reconstruction upon respawn, restart idempotency, match completion freeze, Survival resume mode restoration, sentry hostility targeting, and spawn point candidate scoring
+
+- Rebuild live rig upon bot respawn and isolate corpse vs live-rig resource ownership in `src/35_modes.js`, `src/40_enemies.js`, and `src/45_ragdoll.js`:
+  - Fixed corpse resource abandonment on respawn: ragdolls snapshot their own retired parts (`retiredParts`), ensuring retiring corpses cleanly dispose old private box geometries (12/12) and cloned-tint materials exactly once upon retirement or reset.
+  - Skeletons and bone textures of detailed soldier corpses are freed on retirement while preserving shared template geometries and materials.
+  - Newly rebuilt live actor rigs, hitboxes, geometries, and skeletons remain untouched and active in the scene across corpse retirement and match resets.
+  - Both lifecycles isolated across death -> respawn before corpse retirement, corpse retirement before respawn, and repeated cycles without monotonic GPU geometry leaks.
+  - Implemented `rebuildEnemyRig(actor)` in `src/35_modes.js` called from `defaultOnRespawn(actor, pt)`: transfers retired rig ownership snapshot to active ragdolls, completely reconstructs live rigs via `buildSoldier` / `makeEnemyMesh`, restores meshes and hitboxes, and wires `hitBody`, `hitHead`, and `hitLegs`.
+  - Added enduring Node regression in `tests/test_modes_and_teams.js` and browser WebGL renderer probe in `tests/test_corpse_lifecycle_probe.py`.
+- Eliminate duplicate bot initialization and ensure idempotent match setup in `src/70_main.js` and `src/35_modes.js`:
+  - Removed duplicate `activeMode.setup()` invocation from `restartMatch()`, resolving the issue where `resetGame()` and `restartMatch()` each spawned 11 bots (22 total active bots vs 12 scoreboard participants).
+  - Made `MODES.tdm.setup()` idempotent: cleans up and disposes existing roster bots and meshes if invoked repeatedly, maintaining exact team counts and actor identity correspondence across restarts.
+- Freeze match combat and reject late damage and kill callbacks post-settlement in `src/20_player.js`, `src/35_modes.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Match completion now immediately halts combat updates (`updatePlayer`, `updateWeapons`, `updateEnemies`, `updateGrenades`) in `updateFrame()`.
+  - Added settlement guards across `damageEnemy`, `damagePlayer`, `MODES.tdm.onKill`, and `MODES.tdm.endMatch` (`_settled`, `_ended`, `gameEnded`, `activeMode.isOver()`), preventing delayed projectiles, grenades, or bot attacks from altering scores, K/D, or outcome after a settled victory/defeat.
+- Authoritatively restore Survival mode upon resuming runs across menu mode selections in `src/70_main.js`:
+  - `resumeRun()` explicitly sets mode to `'survival'` via `setActiveMode('survival')` and synchronizes `setSetting('gameMode', 'survival')` before calling `resetGame()`, preventing checkpoints from running under TDM mode with frozen waves and 11 bots.
+  - Added regression test covering victory and endless checkpoints resumed after switching menu selection to TDM.
+- Filter sentry targeting by owner team hostility in `src/58_streaks.js`:
+  - Sentry deployment stores `owner` and `team` on the sentry object.
+  - `updateSentries()` filters target candidates using `CORE.isFriendlyFire` / actor team, preventing friendly teammates from monopolizing sentry aim and allowing hostile targets to be fired upon immediately.
+- Candidate scoring for respawns isolates opponents and includes live player in `src/35_modes.js`:
+  - Implemented `getHostilesForActor(actor, candidateList, livePlayer)` for per-entry candidate evaluation in `pickBestSpawnPoint()`.
+  - Excludes friendly teammates so friendly proximity does not repel spawns; includes the live player when hostile to ensure player sightlines and proximity are accurately scored.
+- Persist and restore saved `gameMode` setting into `activeModeId` in `src/02_settings.js`, `src/35_modes.js`, and `src/70_main.js`:
+  - `activeModeId` initializes from validated `getSetting('gameMode')`.
+  - Added `'gameMode'` handler to `applySetting()` with safety guard preventing mid-match mode switching.
+  - Mode picker row synchronizes saved setting properly across page reloads and deployments.
+
+## v169 — Authoritative TDM player death attribution, stable scoreboard roster, pause safety, and bidirectional E2E match lifecycle
+
+- Authoritative player death and kill attribution in `src/20_player.js`, `src/40_enemies.js`, `src/57_stations.js`, `src/70_main.js`, and `src/35_modes.js`:
+  - Fix asymmetric TDM scoring defect where hostile lethal attacks against player left `enemyScore = 0`, `enemy.kills = 0`, and `player.deaths = 0`.
+  - Propagate attacker identity through `damagePlayer(amount, dirDeg, damageType, attacker)` into `player.lastAttacker` and `downPlayer(attacker)`.
+  - Pass attacker identity from `src/40_enemies.js` across melee, rifleman bullet, and breacher shotgun attacks.
+  - In `src/57_stations.js`, retain `player.downedBy = attacker || player.lastAttacker || null` during downed state and pass killer to `killPlayer(killer)` on immediate lethal down or bleedout timer expiration.
+  - In `src/70_main.js`, add idempotency guard to `killPlayer(killer)` (`if (player.dead) return;`) to prevent duplicate death events on repeated damage, and dispatch both `activeMode.onDeath(player, sourceActor)` and `activeMode.onKill(player, false, sourceActor)`.
+  - In `src/35_modes.js`, update `MODES.tdm.onKill` to attribute kills to the hostile killer, increment `enemyScore`, record `player.deaths` and `killer.kills`, and push authoritative killfeed messages. Attacker-absent, environmental, and self deaths are deterministic and grant no spurious enemy or friendly score credit.
+  - Verify player death that reaches target score limit ends match immediately and never subsequently queues respawn.
+  - Reset attribution cleanly across respawn, restart, and mode switch.
+- Stable match roster and scoreboard retention in `src/35_modes.js` and `src/70_main.js`:
+  - Back TDM scoreboard with a persistent actor roster (`MODES.tdm.roster`) initialized during `MODES.tdm.setup()` and cleared upon `resetGame()` and `quitMatchToMenu()`.
+  - Scoreboard queries `this.roster` with deduplication (`seenIds`), retaining participants through death and respawn without duplicate or lost rows even when `updateEnemies` temporarily drops dead corpses from the lexical `enemies` array.
+  - Mesh removal and geometry disposal in `resetGame()` clean up match roster objects without leaking Survival actors, scene meshes, or corpses.
+- Pause safety in `src/20_player.js`, `src/35_modes.js`:
+  - Gate match countdown timer, mode respawn queue timers, and player spawn protection duration so they do not elapse while `paused` is true.
+- Survival mode isolation:
+  - Preserve Survival mode down, revive, bleedout, Second Wind perk consumption, and checkpoint lifecycle completely unchanged without match immunities or score leakage.
+- Extend browser acceptance verification in `scripts/probe_live.py`:
+  - Extend real TDM browser E2E test to verify hostile bot attacking player with spawn protection immunity, downing, finishing kill, killer stats, enemy score increment, player deaths, killfeed announcement, player respawn with protection, and second hostile kill reaching score limit to trigger match completion, enemy victory, and `#match-end-title` `'DEFEAT'` display, followed by return to menu and clean settings restoration.
+
+## v168 — Production deployable TDM, review findings repairs, roster re-entry, and UI mode picker
+
+- Repair bot respawn roster re-entry in `src/35_modes.js`:
+  - Revived bot actors in `defaultOnRespawn` re-enter lexical `enemies` array with original identity, mesh, and position restored.
+  - Reset state to idle, reset timers, and ensure bots immediately pathfind, acquire hostile targets, engage, and take damage after respawn.
+  - Assert in tests that repeated deaths and respawns cleanly drop and re-insert the actor without creating duplicate entries in `enemies`.
+- Restrict checkpoints strictly to Survival mode in `src/01_core.js`, `src/02_settings.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Disallow saving checkpoints when in match modes (`saveCheckpoint` early-returns false if `activeModeId !== 'survival'`).
+  - Remove `modeRespawnQueue` serialization and deserialization from `CORE.makeCheckpoint` and `CORE.validateCheckpoint`.
+  - Remove detached stub replay from `resumeRun()`, ensuring Survival checkpoint restore remains clean, defensive, and free of phantom actors.
+- Preserve Survival gameplay baseline in `src/20_player.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Remove 2.0 s spawn immunity from Survival player deploy (`player.spawnProtectionT = 0` in `20_player.js` and `resetGame()`).
+  - Remove `spawnProtection: true` from Survival wave enemy spawning (`spawnWaveEnemy` in `60_hud_waves.js`).
+  - Maintain 2.0 s spawn protection strictly for match modes (TDM), verifying it negates bullets, melee, and explosive damage and breaks early on attack.
+- Implement production deploy mode picker and saved settings in `src/01_core.js`, `src/00_head.html`, and `src/70_main.js`:
+  - Add `#mode-row` to the deploy screen (`#gun-select`), exposing only implemented modes (`SURVIVAL` and `TEAM DEATHMATCH`).
+  - Add match settings row (`#tdm-settings-row`) for score limits (default 75, with 50, 25, 10, and short 2-kill acceptance options) and team size (default 6v6, with 4v4 and 2v2).
+  - Persist `gameMode`, `tdmScoreLimit`, and `tdmTeamSize` in `CORE.SETTINGS_SCHEMA`.
+- Implement full Team Deathmatch (TDM) match lifecycle in `src/35_modes.js`, `src/00_head.html`, and `src/70_main.js`:
+  - TDM setup spawns 6v6 roster: player + 5 friendly bots vs 6 enemy bots, with default first-to-75-kills or 10-minute (600 s) duration rules.
+  - Integrated kill attribution, deaths, respawn queuing, and killfeed announcements.
+  - Player deaths in TDM queue respawn after 3 s rather than triggering Survival game over.
+  - Tab scoreboard (`#match-scoreboard`) renders real-time team tables and actor K/D statistics upon holding Tab.
+  - Match conclusion triggers result screen (`#match-end-screen`) with victory/defeat/draw status, scores, player K/D, and restart/main-menu lifecycle.
+  - Defensively release pointer lock and clear `started` body state across all menu quit paths (`quitMatchToMenu`, `btn-quit`, `btn-death-quit`, `btn-v-quit`, and `resetGame`) to ensure clean menu transitions.
+- Update browser acceptance verification in `scripts/probe_live.py`:
+  - Isolate TDM acceptance in a dedicated browser page/context to prevent prior probes' pointer-lock and DOM state mutations from intercepting deployment UI clicks.
+  - Verify real default spawn immunity on hostile bot before waiting/expiring protection naturally via updates, corpse dropping and roster re-entry on respawn, 2-kill match completion vs normal 75, end screen presentation, restart lifecycle, and standard settings cleanup.
+
+## v167 — Posthumous reward gating, spawn protection wiring, mode respawn lifecycle, and browser verification
+
+- Restore dead-source gate on the player reward path in `src/40_enemies.js`:
+  - In `damageEnemy`, gate hitmarker display, credit accrual, and field charge accumulation on `!isSourceDead`. Posthumous non-lethal damage applies to enemy health but awards no player rewards.
+  - In `killEnemy`, gate score, credit multiplier, multi-kill streak bonuses, kill/headshot counters, killstreak registration, pickup/power-up drops, and kill confirmation audio on `isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead`. Posthumous kills continue to resolve physics, ragdolls, and mode death/kill hooks in the world without granting rewards to a dead player.
+  - Add regression coverage in `tests/test_modes_and_teams.js` asserting reward effects themselves (counters, credits, hitmarker, streaks, drops) are withheld when player is dead and awarded when alive.
+- Make spawn protection reachable in production gameplay in `src/20_player.js`, `src/60_hud_waves.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Initialize `player.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION` (2.0 s) on player deploy in `src/20_player.js` and reset it on redeploy in `resetGame()`.
+  - Pass `{ elite: elite, spawnProtection: true }` in `spawnWaveEnemy` (`src/60_hud_waves.js:808`), naturally granting wave-spawned enemies 2 s of spawn protection.
+  - Set 2 s spawn protection on mode-respawned actors in `src/35_modes.js`.
+  - Preserve attack-triggered early cancellation across all weapons and grenades.
+- Wire mode respawn framework into real production call paths in `src/35_modes.js`, `src/40_enemies.js`, and `src/70_main.js`:
+  - Hook `activeMode.onDeath` into `killPlayer()` and `killEnemy()`. In Survival mode, allied bot deaths invoke `queueModeRespawn(victim)`.
+  - In `MODES.survival.update(dt)` and `MODES.tdm.update(dt)`, invoke `updateModeRespawns(dt, ...)` each frame, decrementing respawn timers, selecting optimal cover spawn points via `CORE.pickBestSpawnPoint`, and reviving respawned actors with full health and spawn protection.
+  - Implement `MODES.tdm` (Team Deathmatch) complete with target score tracking, match timer countdown, scoreboard integration, and `#match-hud` overlay (`src/00_head.html`) displaying the score bar and match timer, and push killfeed announcements on eliminations.
+  - Add execution-level integration coverage in `tests/test_modes_and_teams.js` proving the production call path runs.
+- Checkpoint serialization and defensive loading for new module state in `src/01_core.js`, `src/60_hud_waves.js`, and `src/70_main.js`:
+  - Serialize `spawnProtectionT` and `modeRespawnQueue` in `CORE.makeCheckpoint`.
+  - Validate and sanitize both fields in `CORE.validateCheckpoint`, defaulting to `0` and `[]` respectively when loading legacy checkpoints written by older builds.
+  - Integrate save/resume roundtrip in `captureRunState` and `resumeRun`, asserting no duplicate and no lost respawns across save and restore boundaries.
+- Tighten `CORE.isFriendlyFire` heuristic in `src/01_core.js`:
+  - Require both actors to possess a genuine, identified matching team (`teamA === teamB`). Unidentified or team-less actors (no `team` property and not player) are never assumed friendly, preventing damage from team-less hostile actors against enemies or friendlies from being falsely negated.
+  - Add unit test coverage in `tests/test_modes_and_teams.js` verifying team-less hostiles do not trigger friendly-fire negation.
+- Extend bounded browser lifecycle verification in `scripts/probe_live.py`:
+  - Add check `survival-deploy-live-state` asserting live gameplay state immediately after DEPLOY and loadout selection.
+  - Add check `checkpoint-between-wave-save-resume` testing between-wave checkpoint write and state identity alongside defensive legacy save loading.
+  - Add check `checkpoint-settled-victory-and-endless` testing settled victory screen presentation and endless mode continuation persistence.
+  - Add check `friendly-bot-iff-and-friendly-fire-immunity` testing friendly bot team registration, IFF marker presence, minimap color, and mutual friendly-fire damage negation.
+  - Add check `tdm-end-to-end-match-lifecycle` running a short TDM match end-to-end verifying HUD score bar, match timer countdown, kill feed announcements, respawn queuing, and match completion.
+
+
+## v166 — Friendly bot visual kits, IFF markers, friendly fire immunity, and respawn lifecycle
+
+- Implement friendly bot visuals, kit tints, and IFF marker integration in `src/38_soldier.js` and `src/40_enemies.js`:
+  - `SOLDIER_FRIENDLY_KITS` provides tactical blue/navy camouflage uniforms across soldier archetypes.
+  - `buildSoldier(kind, team)` supports team selection (`'friendly'` vs `'enemy'`), caching skinned templates per team key (`kind + '_' + team`).
+  - Friendly soldiers spawn with an articulated, high-visibility cyan/blue IFF diamond marker (`iffMarker`, `0x38b6ff`) mounted above the head joint (`head`), tracking head kinematics and surviving rig cloning.
+  - In low-detail/touch mode (`makeEnemyMesh`), friendly units receive team-tinted armor materials and an IFF indicator.
+  - Minimap rendering in `src/60_hud_waves.js` maps friendly bot blips to friendly blue (`#4da6ff`) via `CORE.minimapActorColor(actor)` while preserving archetype colors for enemy hostiles.
+- Implement friendly-fire damage negation in `src/40_enemies.js` and `src/20_player.js`:
+  - `CORE.isFriendlyFire(attacker, target)` detects non-hostile interactions between allied actors.
+  - `damageEnemy` checks target hostility and negates friendly fire by default, ensuring teammates cannot be damaged by allied bullets, melee, or explosions unless explicitly allowed.
+  - `damagePlayer` prevents damage from allied sources.
+  - Friendly grenade detonations (`src/55_grenades.js`) do not inflict blast damage on friendly bots.
+- Implement tactical spawn-point scoring and respawn protection lifecycle in `src/01_core.js` and `src/35_modes.js`:
+  - `CORE.RESPAWN_DELAY = 3.0` (3 s respawn timer) and `CORE.SPAWN_PROTECTION_DURATION = 2.0` (2 s spawn protection).
+  - `CORE.scoreSpawnPoint(point, hostiles, colliders, opts)` evaluates spawn point safety away from hostile sight lines: penalizes close proximity (< 10 m), evaluates hostile yaw and forward field-of-view, applies heavy line-of-sight penalties for unobstructed hostiles facing candidate points, and scores points behind cover or outside hostile sight lines higher.
+  - `CORE.pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts)` selects the optimal spawn location from candidates.
+  - `CORE.stepRespawnTimer`, `CORE.canRespawn`, `CORE.stepSpawnProtection`, and `CORE.isSpawnProtected` manage timer and protection states.
+  - Mode respawn queue framework in `src/35_modes.js` (`queueModeRespawn`, `clearModeRespawns`, `updateModeRespawns`) manages actor respawn scheduling and spawn relocation; Survival mode preserves wave-based spawning and clears respawn queues on setup.
+  - Spawn protection grants temporary damage immunity upon spawn; attacking (shooting/melee) breaks protection early.
+- Fix friendly fire and hostility gating in `damageEnemy` (`src/40_enemies.js`), `damagePlayer` (`src/20_player.js`), and player weapon callers (`src/30_weapons.js`):
+  - In `CORE.isFriendlyFire(attacker, target)`, check direct team matching (`teamA === teamB`) rather than checking `!isHostile(attacker, target)`, which previously caused dead actors to be erroneously treated as friendly-fire immune.
+  - In `src/30_weapons.js`, propagate player identity through bullet and melee damage paths (`damageEnemy(..., player)`), preventing friendly bots from taking damage from production weapon callers.
+  - In `damageEnemy`, check friendly-fire negation for the active source actor (`attacker || player`), preventing omitted-attacker caller signatures from bypassing friendly fire while preserving legitimate environmental damage and posthumous damage against opposing hostiles.
+  - In `damagePlayer`, check friendly fire only when an allied `attacker` is provided, preventing incoming enemy projectiles fired before an enemy's death from being falsely negated.
+  - Resolves live probe Check 8 failures where `damageEnemy(en, 200, ...)` with omitted attacker failed to damage enemies when player was dead, restoring ragdoll spawning (`corpses-capped`) and AI list clearance (`dead-leave-the-ai-list`).
+- Fix `scoreSpawnPoint` obstacle cover evaluation in `src/01_core.js`:
+  - Pass proper 6 endpoint coordinates with actor eye heights (`hx, hy, hz, px, spawnEyeY, pz`) to `segmentBlocked` followed by the collider array and slack, resolving a `TypeError` when evaluating facing hostiles in nonempty collider environments and properly rewarding occluded spawn points behind cover.
+- Implement attack-triggered spawn protection cancellation across players and bots in `src/30_weapons.js`, `src/40_enemies.js`, and `src/55_grenades.js`:
+  - Firing a gun (`fireShot`, `enemyShoot`, `breacherShoot`), executing melee (`doMelee`, bot melee initiation/strike), or throwing a grenade (`throwGrenade`, `throwEnemyGrenade`) immediately clears `spawnProtectionT = 0`, ensuring attacking actors become vulnerable upon offensive action.
+- Add regression test suites in `tests/test_core.js` and `tests/test_modes_and_teams.js` covering friendly bot visual kits and IFF markers, friendly fire immunity across players, bots, and grenades (including production caller signatures with omitted attacker), attack-triggered spawn protection break-off for players and bots, occluded spawn scoring with real collider data without TypeError, mode respawn queues, and damage application regardless of dead attacker status or omitted attacker.
+- Fix grenade-owner propagation into player friendly-fire guard and test harness in `src/55_grenades.js`, `src/20_player.js`, and `tests/test_modes_and_teams.js`:
+  - In `explodeGrenade` (`src/55_grenades.js`), propagate the `owner` parameter to `damagePlayer(selfDmg, blastDeg, 'blast', owner)`, preventing allied bot grenade blasts from bypassing friendly-fire damage negation.
+  - In `damagePlayer` (`src/20_player.js`), restrict friendly-fire immunity to allied non-player actors (`attacker !== player && !attacker.isPlayer`), preserving intentional self-damage from player-owned explosives while negating allied bot damage.
+  - In `tests/test_modes_and_teams.js`, resolve vacuous grenade immunity verification by populating the production lexical `enemies` array directly rather than reassigning `c.enemies`, and include a hostile target that takes damage to prove blast damage execution.
+  - Add regression coverage in `tests/test_modes_and_teams.js` verifying player blast damage negation for allied grenades alongside damage application for hostile, self-owned (`player` and `isPlayer`), unowned, and `CFG.friendlyFire`-enabled explosions.
+- Local test verification: 526 Node tests passing (`node --test tests/*.js`), 15 release build tests passing (`python3 -m unittest tests.test_release_build`). The release artifact is 2,008,710 bytes (88,442 bytes under the 2 MiB budget limit). Bounded browser acceptance probe coverage gaps for Survival deployment, save/resume, checkpoints, and team interactions are retained in `ROADMAP.md`.
+
 ## v165 — Game modes foundation: MODES registry and team-aware AI targeting
 
 - Observe the live music sequencer immediately after real UI deployment, before destructive combat probes can end the run; retain the existing running/layer/step assertions and additionally require the audio-clock scheduler to advance. A browser regression covers real deployment, scheduler progress, and death stopping playback without flag-only revival restarting it.

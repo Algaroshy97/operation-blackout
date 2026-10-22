@@ -15,7 +15,7 @@ no new binary assets.
 | # | Milestone | Size | Depends on |
 |---|-----------|------|------------|
 | 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
-| 2 | Game modes: TDM, FFA, Domination, Gun Game (in progress: framework & team AI) | L | 1 (Gun Game ladder) |
+| 2 | Game modes: TDM, FFA, Domination, Gun Game (in progress: TDM delivered; FFA/Dom/Gun Game next) | L | 1 (Gun Game ladder) |
 | 3 | Second map: Snowy Compound | L | 2 (per-map spawns) |
 | 4 | Survival climax + wave objectives | M | 3 (per-map points) |
 | 5 | Feel & AI: audio, warnings, cover, weather | M | — |
@@ -107,8 +107,29 @@ short TDM match end to end.
   - Player rewards (kills, headshots, score, credits, streaks) and hitmarkers isolated exclusively to qualifying player kills against hostile targets; bot-to-bot kills and friendly-fire deaths do not modify player stats.
   - Delayed projectile and pellet impact callbacks (`enemyShoot`, `breacherShoot`) gate on paused/unstarted gameplay state consistently across player and non-player targets.
   - Execution-level regression test coverage in `tests/test_modes_and_teams.js` verifying bot-to-bot active combat, navigation vectors, pause impact gating, and kill attribution.
-- Next dependency: friendly bots (team tints & IFF), spawn scoring & respawn timers, match HUD (scoreboard, match timer, score bar), followed by TDM, FFA, Domination, and Gun Game mode implementations.
-- Evidence gaps: friendly bot visual rendering, respawn protection/scoring, multi-mode matches, and browser acceptance probe coverage for match modes.
+- Friendly bots & respawn framework landed:
+  - Friendly soldier kits (`SOLDIER_FRIENDLY_KITS`) with distinct blue/navy camouflage uniforms and overhead IFF marker mesh (`iffMarker`, cyan/blue `0x38b6ff`) tracking head kinematics.
+  - Friendly bot support in `buildSoldier(kind, team)` and `makeEnemyMesh(kind, team)`, with friendly blips on minimap (`CORE.minimapActorColor`).
+  - Friendly fire damage immunity across bullets, melee, and grenades (`CORE.isFriendlyFire`).
+  - Spawn-point scoring in core (`CORE.scoreSpawnPoint`, `CORE.pickBestSpawnPoint`) evaluating distance and hostile facing sight lines with obstacle occlusion.
+  - Revived bot roster re-entry into lexical `enemies` with identity, mesh, and position restored; verified to target, engage, take damage, and avoid duplicate entries over repeated deaths.
+  - Respawn timers (3 s) and match spawn protection (2 s) with damage immunity and attack-triggered break-off across all combat paths.
+  - Survival baseline preserved: wave enemy spawns and player deploy have zero spawn protection; checkpoints are strictly forbidden for matches and exclusive to Survival between-wave states without detached stubs.
+- Team Deathmatch (TDM) production release:
+  - Deploy mode picker (`SURVIVAL` vs `TEAM DEATHMATCH`) with saved settings (`gameMode`, `tdmScoreLimit` defaulting to 75, `tdmTeamSize` defaulting to 6).
+  - Production 6v6 roster setup (player + 5 friendly bots vs 6 enemy bots), 75 kills / 600 s default match rules, scorebar HUD and match countdown clock.
+  - Tab scoreboard displaying full K/D per actor across both teams, real killfeed announcements on eliminations, player death queuing respawn instead of Survival gameover, and result screen (`#match-end-screen`) with victory/defeat/draw and restart/main-menu lifecycle.
+  - Authoritative player death and kill attribution: hostile damage through down and finishing/bleedout attributes the killer, increments enemy score, records player deaths and killer kills, queues respawns, deduplicates repeated hits, and stops respawns on match-ending score limits. Attacker-absent and self deaths award no spurious credit.
+  - Stable match roster (`MODES.tdm.roster`) preserves all participants through death and respawn on the scoreboard without losing or duplicating rows when dead bots are dropped from `enemies`.
+  - Pause safety: match timer, respawn queue, and spawn protection do not elapse while paused.
+  - Corpse vs. live-rig resource ownership repair:
+    - Retiring corpses snapshot their own retired parts (`retiredParts`), ensuring all privately owned simple box geometries (12/12) and cloned-tint materials are disposed exactly once when corpses retire or reset.
+    - Skeletons and bone textures of detailed soldier corpses are freed on retirement while leaving shared template geometries and materials alive.
+    - Newly rebuilt live actor rigs, hitboxes, geometries, and skeletons remain untouched and active in the scene across corpse retirement and match resets.
+    - Full lifecycle isolation across death -> respawn before corpse retirement, corpse retirement before respawn, and repeated cycles with zero monotonic GPU geometry leak.
+    - Enduring Node regression in `tests/test_modes_and_teams.js` and real WebGL browser lifecycle probe in `tests/test_corpse_lifecycle_probe.py`.
+- Next dependency: remaining game modes (Free-for-All, Domination, and Gun Game mode rules). Milestone 2 remains in progress until all modes and acceptance are delivered.
+- Browser acceptance: verified in `scripts/probe_live.py` covering real UI deployment of TDM, 6v6 roster validation, HUD and Tab scoreboard presentation, live combat lifecycle with real actors, corpse removal and roster re-entry on respawn, friendly victory, restart lifecycle, hostile-to-player death attribution and respawn, enemy victory with defeat screen, and settings restoration. Remaining milestone 2 modes (FFA, Domination, Gun Game) remain future work.
 
 ---
 

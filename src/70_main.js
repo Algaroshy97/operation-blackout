@@ -38,43 +38,61 @@ function resumeGame() {
   $id('pause-menu').style.display = 'none';
   canvas.requestPointerLock();
 }
-function killPlayer() {
+function killPlayer(killer) {
+  if (player.dead) return;
   player.dead = true;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, null);
+  const sourceActor = killer || player.downedBy || player.lastAttacker || null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
   // A second lethal hit while already down comes straight here, so the bleed-out
   // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
   // stays on screen behind the death screen until the next deploy.
   if (typeof clearDowned === 'function') clearDowned();
-  stopMusic();
+  // Music stops only when the death is terminal for this run/match. A nonterminal
+  // match death (TDM/FFA/Domination/Gun Game) queues a respawn, so silencing the
+  // soundtrack there would leave the rest of the match silent.
+  const deathEndsRun = !activeMode || activeMode.id === 'survival'
+    || (typeof gameEnded !== 'undefined' && gameEnded)
+    || (typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (deathEndsRun) stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');
-  if (document.pointerLockElement) document.exitPointerLock();
+  if (!activeMode || activeMode.id === 'survival' || (activeMode && typeof activeMode.isOver === 'function' && activeMode.isOver())) {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
   // if death lands while paused (e.g. queued enemy bullet), drop the pause so REDEPLOY works
   paused = false;
-  $id('pause-menu').style.display = 'none';
+  const pm = $id('pause-menu');
+  if (pm) pm.style.display = 'none';
   updateHudHealth();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
   if (typeof applyTouchInput === 'function') applyTouchInput();
-  const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
-  const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-  clearCheckpoint();   // a lost run is not resumable
-  const delta = settlementDelta();
-  const beat = recordRun({ score: delta.score, wave: delta.wave,
-    accuracy: delta.accuracy, recordScore: delta.recordScore,
-    recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
-    kills: delta.kills,
-    headshots: delta.headshots, streaks: delta.streaks,
-    countRun: !settlementSnapshot, victory: false });
-  $id('ds-stats').innerHTML =
-    'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
-    '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
-    '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
-    '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
-  setTimeout(function () { if (player.dead) $id('death-screen').style.display = 'flex'; }, 900);
+  if (!activeMode || activeMode.id === 'survival') {
+    const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
+    const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
+    clearCheckpoint();   // a lost run is not resumable
+    const delta = settlementDelta();
+    const beat = recordRun({ score: delta.score, wave: delta.wave,
+      accuracy: delta.accuracy, recordScore: delta.recordScore,
+      recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
+      kills: delta.kills,
+      headshots: delta.headshots, streaks: delta.streaks,
+      countRun: !settlementSnapshot, victory: false });
+    $id('ds-stats').innerHTML =
+      'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
+      '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
+      '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
+      '<br><br><span style="font-size:13px;opacity:.8">' + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '') + '</span>';
+    setTimeout(function () { if (player.dead) { const ds = $id('death-screen'); if (ds) ds.style.display = 'flex'; } }, 900);
+  } else {
+    const ds = $id('death-screen');
+    if (ds) ds.style.display = 'none';
+    if (typeof showCenterMsgThrottled === 'function') showCenterMsgThrottled('RESPAWNING IN 3s…');
+  }
 }
 function victory() {
   if (gameEnded) return;
@@ -102,10 +120,27 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   paused = false;   // never reset into a paused state
-  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
+  if (typeof document !== 'undefined') {
+    if (!started && document.body) document.body.classList.remove('started');
+    if (!started && document.pointerLockElement) document.exitPointerLock();
+  }
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   suppression = 0;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) {
+    for (let i = 0; i < MODES.tdm.roster.length; i++) {
+      const act = MODES.tdm.roster[i];
+      if (act && !act.isPlayer && act.parts && act.parts.group) {
+        if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(act.parts.group);
+        if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+      }
+    }
+    MODES.tdm.roster.length = 0;
+  }
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
+  if (typeof player !== 'undefined' && player) {
+    player.lastAttacker = null;
+    player.downedBy = null;
+  }
   // remove all enemies + pickups + grenades
   for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i].parts.group); disposeEnemyGeometry(enemies[i]); }
   enemies.length = 0;
@@ -124,56 +159,66 @@ function resetGame() {
   }
   liveGrenades.length = 0;
   // clear vfx
-  for (let i = vfx.tracers.length - 1; i >= 0; i--) {
-    const t = vfx.tracers[i];
-    scene.remove(t.m);
-    t.m.visible = false;
-    tracerPool.push(t.m);
-    if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
-  }
-  vfx.tracers.length = 0;
-  for (let i = vfx.impacts.length - 1; i >= 0; i--) {
-    const im = vfx.impacts[i];
-    scene.remove(im.m);
-    im.m.visible = false;
-    if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
-      impactPool.push(im.m);
-    } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
-      releaseBlastFlash(im.m);
-    } else {
-      if (im.m.geometry) im.m.geometry.dispose();
-      if (im.m.material) im.m.material.dispose();
+  if (typeof vfx !== 'undefined' && vfx) {
+    if (Array.isArray(vfx.tracers)) {
+      for (let i = vfx.tracers.length - 1; i >= 0; i--) {
+        const t = vfx.tracers[i];
+        scene.remove(t.m);
+        t.m.visible = false;
+        if (typeof tracerPool !== 'undefined' && tracerPool) tracerPool.push(t.m);
+        if (typeof releaseTracerRecord === 'function') releaseTracerRecord(t);
+      }
+      vfx.tracers.length = 0;
     }
-    if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+    if (Array.isArray(vfx.impacts)) {
+      for (let i = vfx.impacts.length - 1; i >= 0; i--) {
+        const im = vfx.impacts[i];
+        scene.remove(im.m);
+        im.m.visible = false;
+        if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
+          if (typeof impactPool !== 'undefined' && impactPool) impactPool.push(im.m);
+        } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
+          releaseBlastFlash(im.m);
+        } else {
+          if (im.m.geometry) im.m.geometry.dispose();
+          if (im.m.material) im.m.material.dispose();
+        }
+        if (typeof releaseImpactRecord === 'function') releaseImpactRecord(im);
+      }
+      vfx.impacts.length = 0;
+    }
+    if (Array.isArray(vfx.blood)) {
+      for (let i = vfx.blood.length - 1; i >= 0; i--) {
+        const b = vfx.blood[i];
+        scene.remove(b.m);
+        b.m.visible = false;
+        if (b.isSpark && typeof sparkPool !== 'undefined' && sparkPool) sparkPool.push(b.m);
+        else if (b.isBlood && typeof bloodPool !== 'undefined' && bloodPool) bloodPool.push(b.m);
+        else if (b.isDust && typeof dustPool !== 'undefined' && dustPool) dustPool.push(b.m);
+        if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
+      }
+      vfx.blood.length = 0;
+    }
   }
-  vfx.impacts.length = 0;
-  for (let i = vfx.blood.length - 1; i >= 0; i--) {
-    const b = vfx.blood[i];
-    scene.remove(b.m);
-    b.m.visible = false;
-    if (b.isSpark) sparkPool.push(b.m);
-    else if (b.isBlood) bloodPool.push(b.m);
-    else if (b.isDust) dustPool.push(b.m);
-    if (typeof releaseParticleRecord === 'function') releaseParticleRecord(b);
-  }
-  vfx.blood.length = 0;
   if (typeof clearCasings === 'function') {
     clearCasings();
-  } else {
+  } else if (typeof casings !== 'undefined' && Array.isArray(casings)) {
     for (let i = casings.length - 1; i >= 0; i--) {
       const c = casings[i];
       scene.remove(c.m);
       c.m.visible = false;
-      casingPool.push(c.m);
+      if (typeof casingPool !== 'undefined' && casingPool) casingPool.push(c.m);
     }
     casings.length = 0;
   }
-  grenades.count = CFG.grenade.count;
-  grenades.cd = 0;
+  if (typeof grenades !== 'undefined' && grenades) {
+    grenades.count = (typeof CFG !== 'undefined' && CFG.grenade && CFG.grenade.count) || 2;
+    grenades.cd = 0;
+  }
   if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
-  clearParticles();
-  clearBloodPools();
-  clearInputState();
+  if (typeof clearParticles === 'function') clearParticles();
+  if (typeof clearBloodPools === 'function') clearBloodPools();
+  if (typeof clearInputState === 'function') clearInputState();
   player.pos.set(0, CFG.player.height, 24);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
@@ -181,31 +226,52 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.onGround = false;
+  player.spawnProtectionT = 0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
-  resetStations(); clearDowned(); resetEquipment(); resetStreaks();
-  waveSpecial = null; applySpecialLighting(null); resetDistricts(); clearObjective();
-  resetRagdolls();
+  if (typeof resetStations === 'function') resetStations();
+  if (typeof clearDowned === 'function') clearDowned();
+  if (typeof resetEquipment === 'function') resetEquipment();
+  if (typeof resetStreaks === 'function') resetStreaks();
+  if (typeof waveSpecial !== 'undefined') waveSpecial = null;
+  if (typeof applySpecialLighting === 'function') applySpecialLighting(null);
+  if (typeof resetDistricts === 'function') resetDistricts();
+  if (typeof clearObjective === 'function') clearObjective();
+  if (typeof resetRagdolls === 'function') resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
-  updateHudPlates(); updateHudPerks();
-  recoilShot = 0; lastShotT = -99; bloom = 0; meleeT = 0; meleeSwing = 0;
-  credits = 0;
-  powerUntil.double = -99; powerUntil.instakill = -99;
-  if (hud.credits) hud.credits.textContent = '0';
-  runId++;   // invalidate anything the previous run scheduled
-  waveNum = 0; score = 0; kills = 0; headshots = 0;
-  shotsFired = 0; shotsHit = 0;
-  steadyT = STEADY_MAX; steadyActive = false;
+  if (typeof updateHudPlates === 'function') updateHudPlates();
+  if (typeof updateHudPerks === 'function') updateHudPerks();
+  if (typeof recoilShot !== 'undefined') recoilShot = 0;
+  if (typeof lastShotT !== 'undefined') lastShotT = -99;
+  if (typeof bloom !== 'undefined') bloom = 0;
+  if (typeof meleeT !== 'undefined') meleeT = 0;
+  if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
+  if (typeof credits !== 'undefined') credits = 0;
+  if (typeof powerUntil !== 'undefined' && powerUntil) { powerUntil.double = -99; powerUntil.instakill = -99; }
+  if (typeof hud !== 'undefined' && hud && hud.credits) hud.credits.textContent = '0';
+  if (typeof runId !== 'undefined') runId++;   // invalidate anything the previous run scheduled
+  if (typeof waveNum !== 'undefined') waveNum = 0;
+  if (typeof score !== 'undefined') score = 0;
+  if (typeof kills !== 'undefined') kills = 0;
+  if (typeof headshots !== 'undefined') headshots = 0;
+  if (typeof shotsFired !== 'undefined') shotsFired = 0;
+  if (typeof shotsHit !== 'undefined') shotsHit = 0;
+  if (typeof steadyT !== 'undefined') steadyT = typeof STEADY_MAX !== 'undefined' ? STEADY_MAX : 5;
+  if (typeof steadyActive !== 'undefined') steadyActive = false;
   if (typeof _wasSteadyActive !== 'undefined') _wasSteadyActive = false;
-  adsAmount = 0; wasScoped = false; shotKick = 0; slideFov = 0;
+  if (typeof adsAmount !== 'undefined') adsAmount = 0;
+  if (typeof wasScoped !== 'undefined') wasScoped = false;
+  if (typeof shotKick !== 'undefined') shotKick = 0;
+  if (typeof slideFov !== 'undefined') slideFov = 0;
   if (typeof _lastMobilityState !== 'undefined') _lastMobilityState = null;
   if (typeof _hudHealthState !== 'undefined') _hudHealthState.hp = -1;
   if (typeof _grenadeChargeHudState !== 'undefined') { _grenadeChargeHudState.visible = null; _grenadeChargeHudState.pct = -1; _grenadeChargeHudState.speed = -1; }
   if (typeof _lastChOp !== 'undefined') { _lastChOp = -1; _lastChGap = -1; }
-  _slideVigOpacity = 0; _lastSlideVigWritten = -1;
-  if (!_slideOvEl) _slideOvEl = $id('slide-vignette');
+  if (typeof _slideVigOpacity !== 'undefined') _slideVigOpacity = 0;
+  if (typeof _lastSlideVigWritten !== 'undefined') _lastSlideVigWritten = -1;
+  if (typeof _slideOvEl === 'undefined') _slideOvEl = $id('slide-vignette');
   if (_slideOvEl) { _slideOvEl.style.opacity = '0'; _slideOvEl.style.boxShadow = 'none'; }
   if (typeof _scopeOvState !== 'undefined') { _scopeOvState.active = null; _scopeOvState.isSniper = null; }
   if (typeof _lastSx !== 'undefined') { _lastSx = null; _lastSy = null; }
@@ -224,22 +290,34 @@ function resetGame() {
   if (typeof _touchSwapCache !== 'undefined' && _touchSwapCache) _touchSwapCache.swapState = null;
   if (typeof _touchStreakCache !== 'undefined' && _touchStreakCache) _touchStreakCache.streakState = null;
   if (typeof resetObjectiveHudCache === 'function') resetObjectiveHudCache();
-  waveQueue = 0; waveActive = false; gameEnded = false;
-  betweenWaveT = CFG.wave.startDelay;
-  killStreak = 0; lastKillT = -99;   // multi-kill streak state
-  hudRedrawT = 1; lastHudYaw = player.yaw; hudFlickT = -9;   // force immediate HUD redraw on new run
+  if (typeof waveQueue !== 'undefined') waveQueue = 0;
+  if (typeof waveActive !== 'undefined') waveActive = false;
+  if (typeof gameEnded !== 'undefined') gameEnded = false;
+  if (typeof betweenWaveT !== 'undefined') betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) || 3;
+  if (typeof killStreak !== 'undefined') killStreak = 0;
+  if (typeof lastKillT !== 'undefined') lastKillT = -99;   // multi-kill streak state
+  if (typeof hudRedrawT !== 'undefined') hudRedrawT = 1;
+  if (typeof lastHudYaw !== 'undefined') lastHudYaw = player.yaw;
+  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;   // force immediate HUD redraw on new run
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
-  curWeapon = 0;
-  fireClockT = 0;
-  initWeapons();
-  gunSwitchT = 1;
-  buildViewmodel();
-  updateHudHealth(); updateHudAmmo();
-  hud.scoreVal.textContent = '0';
-  hud.killfeed.innerHTML = '';
-  clearTimeout(hud.waveBanner._t);
-  hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+  if (typeof curWeapon !== 'undefined') curWeapon = 0;
+  if (typeof fireClockT !== 'undefined') fireClockT = 0;
+  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof gunSwitchT !== 'undefined') gunSwitchT = 1;
+  if (typeof buildViewmodel === 'function') buildViewmodel();
+  if (typeof updateHudHealth === 'function') updateHudHealth();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof hud !== 'undefined' && hud) {
+    if (hud.scoreVal) hud.scoreVal.textContent = '0';
+    if (hud.killfeed) hud.killfeed.innerHTML = '';
+    if (hud.waveBanner) {
+      if (typeof hud.waveBanner._t !== 'undefined') clearTimeout(hud.waveBanner._t);
+      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+    }
+  }
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.setup === 'function') activeMode.setup();
 }
 
 // ---- Settings panel ---------------------------------------------------------
@@ -392,9 +470,9 @@ function closeSettings() {
 }
 function refreshMenuStats() {
   const el = $id('menu-stats');
-  if (el) el.innerHTML = rankBarHtml() + statsSummaryHtml();
+  if (el) el.innerHTML = (typeof rankBarHtml === 'function' ? rankBarHtml() : '') + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '');
   const ch = $id('challenge-list');
-  if (ch) ch.innerHTML = challengesHtml();
+  if (ch) ch.innerHTML = typeof challengesHtml === 'function' ? challengesHtml() : '';
 }
 
 // gun select UI
@@ -403,10 +481,127 @@ function refreshMenuStats() {
 // player never called.
 let pickingSlot = 0;
 let pendingSecondary = -1;
+function buildModePickerRow() {
+  const row = $id('mode-row');
+  if (!row) return;
+  row.innerHTML = '';
+  const availableModes = [
+    { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
+    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
+  ];
+  const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
+  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
+    if (typeof setActiveMode === 'function') setActiveMode(validSaved);
+    else activeModeId = validSaved;
+  }
+  const curMode = (typeof activeModeId !== 'undefined') ? activeModeId : validSaved;
+  availableModes.forEach(function (m) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn mode-btn' + (m.id === curMode ? ' on' : '');
+    b.id = 'mode-btn-' + m.id;
+    b.innerHTML = m.name + '<small>' + m.blurb + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      setActiveMode(m.id);
+      if (typeof setSetting === 'function') setSetting('gameMode', m.id);
+      buildModePickerRow();
+      buildDifficultyRow();
+      buildTdmSettingsRow();
+      const isTdm = (m.id === 'tdm');
+      $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+      const tr = $id('tdm-settings-row');
+      if (tr) tr.style.display = isTdm ? 'flex' : 'none';
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
+function buildTdmSettingsRow() {
+  const row = $id('tdm-settings-row');
+  if (!row) return;
+  const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+  if (!isTdm) {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = 'flex';
+  row.innerHTML = '';
+  const curScore = (typeof getSetting === 'function' ? getSetting('tdmScoreLimit') : null) || (MODES.tdm ? MODES.tdm.targetScore : 75) || 75;
+  const scoreGroup = document.createElement('div');
+  scoreGroup.style.display = 'flex';
+  scoreGroup.style.gap = '6px';
+  scoreGroup.style.alignItems = 'center';
+  const scoreLabel = document.createElement('span');
+  scoreLabel.style.fontSize = '12px';
+  scoreLabel.style.letterSpacing = '1px';
+  scoreLabel.style.color = '#ffdf8a';
+  scoreLabel.textContent = 'SCORE:';
+  scoreGroup.appendChild(scoreLabel);
+  [75, 50, 25, 10, 2].forEach(function (lim) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (lim === curScore ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-score-' + lim;
+    b.textContent = String(lim);
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.targetScore = lim;
+      if (typeof setSetting === 'function') setSetting('tdmScoreLimit', lim);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    scoreGroup.appendChild(b);
+  });
+  row.appendChild(scoreGroup);
+
+  const curTeam = (typeof getSetting === 'function' ? getSetting('tdmTeamSize') : null) || (MODES.tdm ? MODES.tdm.teamSize : 6) || 6;
+  const teamGroup = document.createElement('div');
+  teamGroup.style.display = 'flex';
+  teamGroup.style.gap = '6px';
+  teamGroup.style.alignItems = 'center';
+  teamGroup.style.marginLeft = '16px';
+  const teamLabel = document.createElement('span');
+  teamLabel.style.fontSize = '12px';
+  teamLabel.style.letterSpacing = '1px';
+  teamLabel.style.color = '#ffdf8a';
+  teamLabel.textContent = 'TEAM:';
+  teamGroup.appendChild(teamLabel);
+  [6, 4, 2].forEach(function (sz) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn' + (sz === curTeam ? ' on' : '');
+    b.style.padding = '6px 12px';
+    b.id = 'tdm-team-' + sz;
+    b.textContent = sz + 'v' + sz;
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      if (MODES.tdm) MODES.tdm.teamSize = sz;
+      if (typeof setSetting === 'function') setSetting('tdmTeamSize', sz);
+      buildTdmSettingsRow();
+      playSound('click');
+    });
+    teamGroup.appendChild(b);
+  });
+  row.appendChild(teamGroup);
+}
+
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
-  if (pickingSlot === 0) { pendingSecondary = -1; buildDifficultyRow(); }
-  $id('diff-row').style.display = pickingSlot === 0 ? 'flex' : 'none';
+  if (pickingSlot === 0) {
+    pendingSecondary = -1;
+    buildModePickerRow();
+    buildDifficultyRow();
+    buildTdmSettingsRow();
+    const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
+    $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isTdm ? 'flex' : 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'flex';
+  } else {
+    $id('diff-row').style.display = 'none';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = 'none';
+    if ($id('mode-row')) $id('mode-row').style.display = 'none';
+  }
   document.querySelector('#gun-select h2').textContent =
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';
   const wrap = $id('gun-cards');
@@ -494,7 +689,13 @@ function startGame() {
   started = true;
   paused = false;              // belt & suspenders
   resetGame();
-  showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || activeMode.id === 'survival') {
+    showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+    startMusic();
+  } else {
+    updateMatchHud(activeMode);
+  }
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
   startMusic();
@@ -506,6 +707,9 @@ function startGame() {
 function resumeRun() {
   const cp = loadCheckpoint();
   if (!cp || !assetsReady) return;
+  if (typeof setActiveMode === 'function') setActiveMode('survival');
+  else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
+  if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -537,6 +741,8 @@ function resumeRun() {
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;
   player.health = cp.health; player.armor = cp.armor;
+  player.spawnProtectionT = cp.spawnProtectionT || 0;
+  if (typeof clearModeRespawns === 'function') clearModeRespawns();
   credits = cp.credits || 0;
   if (hud.credits) hud.credits.textContent = credits;
   perks = (cp.perks || []).slice();
@@ -564,7 +770,7 @@ function resumeRun() {
 }
 
 function refreshResumeButton() {
-  const cp = loadCheckpoint();
+  const cp = typeof loadCheckpoint === 'function' ? loadCheckpoint() : null;
   const btn = $id('btn-resume-run');
   const note = $id('save-note');
   if (cp) {
@@ -672,6 +878,8 @@ $id('btn-resume').addEventListener('click', resumeGame);
 $id('btn-quit').addEventListener('click', function () {
   paused = false; started = false;
   stopMusic();
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('pause-menu').style.display = 'none';
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
@@ -696,6 +904,8 @@ addEventListener('keydown', function (e) {
 });
 $id('btn-death-quit').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   refreshResumeButton();
@@ -710,10 +920,136 @@ $id('btn-v-restart').addEventListener('click', function () {
 });
 $id('btn-v-quit').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   resetGame(); started = false;
 });
+
+function showMatchEndScreen(mode) {
+  if (typeof document === 'undefined') return;
+  const es = $id('match-end-screen');
+  if (!es) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  stopMusic();
+  const fScore = mode.friendlyScore || 0;
+  const eScore = mode.enemyScore || 0;
+  const won = fScore > eScore;
+  const draw = fScore === eScore;
+  playSound(won ? 'victory' : 'death');
+  const titleEl = $id('match-end-title');
+  if (titleEl) {
+    titleEl.textContent = draw ? 'DRAW' : (won ? 'VICTORY' : 'DEFEAT');
+    titleEl.style.color = draw ? '#ffd24a' : (won ? '#7ee08a' : '#ff4030');
+  }
+  const scoreEl = $id('match-end-scores');
+  if (scoreEl) {
+    scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+  }
+  const statsEl = $id('match-end-stats');
+  if (statsEl) {
+    const pk = (typeof player !== 'undefined' && player) ? (player.kills || 0) : 0;
+    const pd = (typeof player !== 'undefined' && player) ? (player.deaths || 0) : 0;
+    const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
+    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>Target score: <b>' + (mode.targetScore || 75) + '</b>';
+  }
+  es.style.display = 'flex';
+}
+
+function restartMatch() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = true;
+  resetGame();
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && activeMode.id !== 'survival') {
+    if (typeof updateMatchHud === 'function') updateMatchHud(activeMode);
+  }
+  const audioDisabled = typeof getSetting === 'function' && (getSetting('muted') || getSetting('musicVolume') <= 0 || getSetting('masterVolume') <= 0);
+  if (!audioDisabled && typeof startMusic === 'function') {
+    startMusic();
+  }
+  if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
+    try { canvas.requestPointerLock(); } catch (e) {}
+  }
+}
+
+function quitMatchToMenu() {
+  const es = $id('match-end-screen');
+  if (es) es.style.display = 'none';
+  const mh = $id('match-hud');
+  if (mh) mh.style.display = 'none';
+  const sb = $id('match-scoreboard');
+  if (sb) sb.style.display = 'none';
+  const ds = $id('death-screen');
+  if (ds) ds.style.display = 'none';
+  paused = false;
+  gameEnded = false;
+  started = false;
+  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+  if (document.body) document.body.classList.remove('started');
+  if (document.pointerLockElement) document.exitPointerLock();
+  setActiveMode('survival');
+  resetGame();
+  $id('start-screen').style.display = 'flex';
+  refreshResumeButton();
+  refreshMenuStats();
+}
+
+const btnMR = $id('btn-match-restart');
+if (btnMR) btnMR.addEventListener('click', restartMatch);
+const btnMQ = $id('btn-match-quit');
+if (btnMQ) btnMQ.addEventListener('click', quitMatchToMenu);
+
+function updateScoreboard() {
+  if (typeof document === 'undefined') return;
+  const sbEl = $id('match-scoreboard');
+  if (!sbEl) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!activeMode || typeof activeMode.scoreboard !== 'function') return;
+  const data = activeMode.scoreboard();
+  if (data.mode === 'tdm') {
+    let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
+    html += '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#38b6ff;display:flex;justify-content:space-between;margin-bottom:8px"><span>ALLIES</span><span>' + (data.friendlyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const fMembers = (data.friendlyTeam && data.friendlyTeam.members) || [];
+    for (let i = 0; i < fMembers.length; i++) {
+      const m = fMembers[i];
+      const isYou = m.isPlayer;
+      html += '<tr style="' + (isYou ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div>';
+    html += '<div style="flex:1;background:rgba(50,20,20,0.92);border:1px solid #ff4030;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#ff4030;display:flex;justify-content:space-between;margin-bottom:8px"><span>HOSTILES</span><span>' + (data.enemyScore || 0) + '</span></div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const eMembers = (data.enemyTeam && data.enemyTeam.members) || [];
+    for (let i = 0; i < eMembers.length; i++) {
+      const m = eMembers[i];
+      html += '<tr><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div></div>';
+    sbEl.innerHTML = html;
+  }
+}
+
+let scoreboardOpen = false;
+function setScoreboardVisible(visible) {
+  scoreboardOpen = !!visible;
+  const sbEl = (typeof $id === 'function') ? $id('match-scoreboard') : null;
+  if (!sbEl) return;
+  if (scoreboardOpen) {
+    updateScoreboard();
+    sbEl.style.display = 'flex';
+  } else {
+    sbEl.style.display = 'none';
+  }
+}
 
 // Runtime telemetry is disabled unless a local probe explicitly enables it.
 const runtimeTelemetry = CORE.createRuntimeTelemetry();
@@ -789,19 +1125,24 @@ function frame(now) {
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
-    updatePlayer(dt);
-    updateWeapons(dt);
-    updateEnemies(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    if (!isSettled) {
+      updatePlayer(dt);
+      updateWeapons(dt);
+      updateEnemies(dt);
+    }
     if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
     else updateWaves(dt);
     updateVfx(dt);
-    updateGrenades(dt);
-    updatePickups(dt);
-    updateAmmoRelief(dt);
-    updateStations(dt);
-    updateDowned(dt);
-    updateStreaks(dt);
+    if (!isSettled) {
+      updateGrenades(dt);
+      updatePickups(dt);
+      updateAmmoRelief(dt);
+      updateStations(dt);
+      updateDowned(dt);
+      updateStreaks(dt);
+    }
     updateRagdolls(dt);
     updateCasings(dt);
     updateMuzzleLight(dt);

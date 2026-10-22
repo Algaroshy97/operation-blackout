@@ -406,7 +406,10 @@ const CORE = (function () {
     postProcessing: { type: 'enum', def: 'auto', values: ['auto', 'off', 'on'], label: 'Bloom & colour grading', help: 'Applies now. On enables extra fullscreen GPU passes even on touch devices or low quality. Off frees render targets.' },
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
-    showFps: { type: 'bool', def: true, label: 'Show FPS counter' }
+    showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
+    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm'], label: 'Game mode' },
+    tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
+    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' }
   };
 
   function defaultSettings() {
@@ -1248,6 +1251,7 @@ const CORE = (function () {
       runStreaksEarned: state.runStreaksEarned || 0,
       weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
       openDistricts: (state.openDistricts || []).slice(),
+      spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
       equipment: {
         lethal: state.equipment && state.equipment.lethal || 'frag',
         tactical: state.equipment && state.equipment.tactical || null,
@@ -1333,6 +1337,7 @@ const CORE = (function () {
       weapons,
       openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
         .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
         tactical: typeof raw.equipment?.tactical === 'string' && equipmentByKey(raw.equipment.tactical) ? raw.equipment.tactical : null,
@@ -7164,17 +7169,164 @@ const CORE = (function () {
       score: _isNum(s.score) ? s.score : 0,
       kills: _isNum(s.kills) ? s.kills : 0,
       headshots: _isNum(s.headshots) ? s.headshots : 0,
-      credits: _isNum(s.credits) ? s.credits : 0
+      credits: _isNum(s.credits) ? s.credits : 0,
+      friendlyScore: _isNum(s.friendlyScore) ? s.friendlyScore : 0,
+      enemyScore: _isNum(s.enemyScore) ? s.enemyScore : 0,
+      targetScore: _isNum(s.targetScore) ? s.targetScore : 25,
+      timeLeft: _isNum(s.timeLeft) ? s.timeLeft : 0
     };
   }
 
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
+    if (modeId === 'tdm') {
+      const target = _isNum(s.targetScore) ? s.targetScore : 25;
+      if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
+          (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
+      if (_isNum(s.timeLeft) && s.timeLeft <= 0) return true;
+      return false;
+    }
     if (modeId === 'survival' || !modeId) {
       return !!(s.playerDead && !s.playerDowned);
     }
     return false;
+  }
+
+  const RESPAWN_DELAY = 3.0;
+  const SPAWN_PROTECTION_DURATION = 2.0;
+  const FRIENDLY_IFF_COLOR = 0x38b6ff;
+  const FRIENDLY_KIT_TINT = 0x3880c8;
+  const MINIMAP_FRIENDLY_COLOR = '#4da6ff';
+
+  function stepRespawnTimer(timer, dt) {
+    const t = _isNum(timer) ? timer : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, t - d);
+  }
+
+  function canRespawn(timer) {
+    return (_isNum(timer) ? timer : 0) <= 0;
+  }
+
+  function stepSpawnProtection(protectionT, dt) {
+    const p = _isNum(protectionT) ? protectionT : 0;
+    const d = _isNum(dt) ? dt : 0;
+    return Math.max(0, p - d);
+  }
+
+  function isSpawnProtected(protectionT) {
+    return (_isNum(protectionT) ? protectionT : 0) > 0;
+  }
+
+  // Friendly fire applies only when both actors are genuinely on the same identified team.
+  // Unknown or team-less actors (no team property, not player) are never assumed friendly.
+  function isFriendlyFire(attacker, target) {
+    if (!attacker || !target || attacker === target) return false;
+    const teamA = (typeof attacker.team === 'string' && attacker.team.length > 0)
+      ? attacker.team
+      : (attacker.isPlayer ? 'friendly' : null);
+    const teamB = (typeof target.team === 'string' && target.team.length > 0)
+      ? target.team
+      : (target.isPlayer ? 'friendly' : null);
+    if (!teamA || !teamB) return false;
+    return teamA === teamB;
+  }
+
+  function teamKitColor(team) {
+    return (team === 'friendly') ? FRIENDLY_KIT_TINT : null;
+  }
+
+  function teamIffColor(team) {
+    return (team === 'friendly') ? FRIENDLY_IFF_COLOR : null;
+  }
+
+  function minimapActorColor(actor) {
+    if (!actor) return '#ff4030';
+    if (actor.team === 'friendly' || actor.isPlayer) return MINIMAP_FRIENDLY_COLOR;
+    if (typeof MM_KIND_COLOR !== 'undefined' && actor.kind !== undefined && MM_KIND_COLOR[actor.kind]) {
+      return MM_KIND_COLOR[actor.kind];
+    }
+    return '#ff4030';
+  }
+
+  function scoreSpawnPoint(point, hostiles, colliders, opts) {
+    if (!point) return -Infinity;
+    const px = Array.isArray(point) ? point[0] : (point.x || 0);
+    const py = Array.isArray(point) ? (point.length >= 3 ? point[1] : 0) : (_isNum(point.y) ? point.y : 0);
+    const pz = Array.isArray(point) ? (point.length >= 3 ? point[2] : point[1]) : (point.z || 0);
+    const options = opts || {};
+    const sweetSpot = _isNum(options.sweetSpot) ? options.sweetSpot : 25;
+    const minSafeDist = _isNum(options.minSafeDist) ? options.minSafeDist : 10;
+    const maxSafeDist = _isNum(options.maxSafeDist) ? options.maxSafeDist : 60;
+
+    if (!Array.isArray(hostiles) || hostiles.length === 0) return 100;
+
+    let minHostileDist = Infinity;
+    let sightLinePenalty = 0;
+    let activeHostiles = 0;
+
+    for (let i = 0; i < hostiles.length; i++) {
+      const h = hostiles[i];
+      if (!h || h.dead) continue;
+      activeHostiles++;
+      const hx = (h.pos && _isNum(h.pos.x)) ? h.pos.x : 0;
+      const hz = (h.pos && _isNum(h.pos.z)) ? h.pos.z : 0;
+      const dx = px - hx, dz = pz - hz;
+      const dist = Math.hypot(dx, dz) || 0.001;
+      if (dist < minHostileDist) minHostileDist = dist;
+
+      const hyaw = _isNum(h.yaw) ? h.yaw : 0;
+      const dirX = Math.sin(hyaw), dirZ = Math.cos(hyaw);
+      const toSpawnX = dx / dist, toSpawnZ = dz / dist;
+      const dot = dirX * toSpawnX + dirZ * toSpawnZ;
+
+      if (dot > 0.25 && dist < maxSafeDist) {
+        let blocked = false;
+        if (Array.isArray(colliders) && colliders.length > 0) {
+          const hy = h.isPlayer
+            ? ((h.pos && _isNum(h.pos.y)) ? h.pos.y : 1.6)
+            : enemyEyeHeight((h.pos && _isNum(h.pos.y)) ? h.pos.y : 0, h.kind);
+          const spawnEyeY = py + 1.5;
+          blocked = segmentBlocked(hx, hy, hz, px, spawnEyeY, pz, colliders, 0.25);
+        }
+        if (!blocked) {
+          const directness = Math.max(0, dot);
+          const proxFactor = Math.max(0.1, 1 - (dist / maxSafeDist));
+          sightLinePenalty += directness * proxFactor * 100;
+        }
+      }
+    }
+
+    if (activeHostiles === 0) return 100;
+
+    let proxScore = 0;
+    if (minHostileDist < minSafeDist) {
+      proxScore = -200 * (1 - (minHostileDist / minSafeDist));
+    } else {
+      proxScore = 50 - Math.abs(minHostileDist - sweetSpot) * 1.5;
+    }
+
+    return proxScore - sightLinePenalty;
+  }
+
+  function pickBestSpawnPoint(spawnPoints, hostiles, colliders, opts) {
+    if (!Array.isArray(spawnPoints) || spawnPoints.length === 0) return null;
+    if (spawnPoints.length === 1) return spawnPoints[0];
+
+    let bestPoint = spawnPoints[0];
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < spawnPoints.length; i++) {
+      const pt = spawnPoints[i];
+      const score = scoreSpawnPoint(pt, hostiles, colliders, opts);
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
   }
 
   return {
@@ -7526,7 +7678,10 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
+    stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
   };
 
 

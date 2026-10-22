@@ -483,14 +483,16 @@ function usePlate() {
 
 // ---- Last stand -------------------------------------------------------------
 let downT = 0;
-function downPlayer() {
+function downPlayer(attacker) {
+  const killer = attacker || player.lastAttacker || null;
   const r = CORE.lethalOutcome(perks, player.downed);
-  if (r.outcome === 'dead') { killPlayer(); return; }
+  if (r.outcome === 'dead') { killPlayer(killer); return; }
   if (r.outcome === 'revive') {
     // Second Wind is spent, not kept: it answers exactly one mistake per run.
     perks.splice(perks.indexOf(r.consume), 1);
     player.health = CORE.DOWN_REVIVE_HEALTH;
     player.armor = 0;
+    player.downedBy = null;
     updateHudHealth();
     updateHudPerks();
     showCenterMsg('SECOND WIND');
@@ -498,6 +500,7 @@ function downPlayer() {
     return;
   }
   player.downed = true;
+  player.downedBy = killer;
   downT = 0;
   if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
@@ -528,13 +531,19 @@ function updateDowned(dt) {
       _downTimerEl.textContent = CORE.downBleedoutLabel(left);
     }
   }
-  if (left <= 0) { clearDowned(); killPlayer(); }
+  if (left <= 0) {
+    const killer = player.downedBy || player.lastAttacker || null;
+    clearDowned();
+    killPlayer(killer);
+  }
 }
 
 // Clearing the wave is the other way out, wired from updateWaves().
 function reviveFromDown() {
   if (!player.downed) return;
   clearDowned();
+  player.downedBy = null;
+  player.lastAttacker = null;
   player.health = CORE.DOWN_REVIVE_HEALTH;
   updateHudHealth();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();

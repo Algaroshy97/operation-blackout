@@ -107,6 +107,15 @@ function applySetting(key) {
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;
+    case 'gameMode':
+      if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
+        // do not switch an active match unexpectedly
+        break;
+      }
+      if (typeof setActiveMode === 'function' && (SETTINGS.gameMode === 'tdm' || SETTINGS.gameMode === 'survival')) {
+        setActiveMode(SETTINGS.gameMode);
+      }
+      break;
     // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }
@@ -193,6 +202,7 @@ function setAttachment(weaponIndex, slot, key) {
 // ---- Checkpoint --------------------------------------------------------------
 // Saved between waves only: mid-combat there is no clean state to restore to.
 function saveCheckpoint(state) {
+  if (typeof activeModeId !== 'undefined' && activeModeId !== 'survival') return false;
   state.savedAt = Date.now();
   return storageSet(STORE_KEY_SAVE, CORE.makeCheckpoint(state));
 }

@@ -24,10 +24,11 @@ const E_DIM = {
   armH: 0.68, armR: 0.06
 };
 
-function makeEnemyMesh(kind) {
+function makeEnemyMesh(kind, team) {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), kind === 1 ? EMAT.cloth2 : EMAT.cloth);
+  const isFriendly = (team === 'friendly');
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(E_DIM.bodyW, E_DIM.bodyH, E_DIM.bodyD), isFriendly ? EMAT.cloth2 : (kind === 1 ? EMAT.cloth2 : EMAT.cloth));
   torso.position.y = E_DIM.pelvisH + E_DIM.bodyH / 2;
   const vest = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.36), EMAT.vest);
   vest.position.y = E_DIM.pelvisH + 0.42;
@@ -35,6 +36,23 @@ function makeEnemyMesh(kind) {
   head.position.y = E_DIM.pelvisH + E_DIM.bodyH + E_DIM.headS / 2 + 0.03;
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.3), EMAT.helmet);
   helmet.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.26;
+  if (isFriendly) {
+    const friendlyTint = new THREE.Color(0x3880c8);
+    for (const m of [torso, vest, helmet]) {
+      if (m.material && typeof m.material.clone === 'function') {
+        m.material = m.material.clone();
+        if (m.material.color && typeof m.material.color.lerp === 'function') m.material.color.lerp(friendlyTint, 0.65);
+        m.userData.clonedTint = true;
+      }
+    }
+    const iffMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+    const iff = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), iffMat);
+    iff.userData.clonedTint = true;
+    iff.name = 'iffMarker';
+    iff.position.set(0, E_DIM.pelvisH + E_DIM.bodyH + 0.38, 0);
+    body.add(iff);
+    g.userData.iff = iff;
+  }
   // eyes (glow, creepy at dusk)
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), EMAT.eye);
   eyeL.position.set(-0.06, E_DIM.pelvisH + E_DIM.bodyH + 0.07, -E_DIM.headS / 2 - 0.005);
@@ -84,11 +102,12 @@ function spawnEnemy(kind, x, z, opts) {
   const detail = typeof graphicsAtBoot === 'function'
     ? graphicsAtBoot(IS_TOUCH).enemyDetailed
     : CORE.graphicsSettings({}, typeof IS_TOUCH !== 'undefined' && IS_TOUCH).enemyDetailed;
+  const spawnTeam = spawnOpts.team || 'enemy';
   if (detail) {
-    const sd = buildSoldier(kind);
-    parts = { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true };
+    const sd = (typeof buildSoldier === 'function') ? buildSoldier(kind, spawnTeam) : null;
+    parts = sd ? { group: sd.group, body: sd.group, J: sd.J, hitBody: sd.hitBody, hitHead: sd.hitHead, soldier: true, iff: sd.iff } : makeEnemyMesh(kind, spawnTeam);
   } else {
-    parts = makeEnemyMesh(kind);
+    parts = makeEnemyMesh(kind, spawnTeam);
   }
   const scale = CORE.enemyScale(kind);
   parts.group.scale.set(scale, scale, scale);
@@ -96,11 +115,15 @@ function spawnEnemy(kind, x, z, opts) {
   const specialHp = (typeof waveSpecial !== 'undefined' && waveSpecial && waveSpecial.hpMul)
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, CFG.wave.victoryWave, diff().hp, specialHp, isElite);
+  const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
-    team: spawnOpts.team || 'enemy',
+    team: spawnTeam,
+    spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
+      ? spawnOpts.spawnProtection
+      : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
     blindT: 0, stunT: 0,      // flashbang / stun grenade timers
     elite: isElite,
     kind: kind,
@@ -162,25 +185,43 @@ function spawnEnemy(kind, x, z, opts) {
   // Place the mesh immediately; otherwise it renders and raycasts at the world origin for its first frame.
   parts.group.position.set(x, 0, z);
   parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
-  scene.add(parts.group);
+  if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') scene.add(parts.group);
   enemies.push(en);
   return en;
 }
 
 function disposeEnemyGeometry(en) {
   if (!en) return;
+  const p = en.parts ? en.parts : en;
+  if (!p || !p.group || p._geometryDisposed) return;
+  p._geometryDisposed = true;
   // Soldier geometry is shared by every clone of its template; only the per-clone
   // skeleton (its bone texture) is freed.
-  if (en.parts.soldier) {
-    const sk = en.parts.group.userData.skeletons || [];
-    for (let i = 0; i < sk.length; i++) sk[i].dispose();
+  if (p.soldier) {
+    const sk = (p.group.userData && p.group.userData.skeletons) || [];
+    for (let i = 0; i < sk.length; i++) {
+      if (sk[i] && !sk[i]._disposed) {
+        sk[i]._disposed = true;
+        if (typeof sk[i].dispose === 'function') sk[i].dispose();
+      }
+    }
     return;
   }
   // Tinted shielded units own cloned materials; everything else shares them.
-  en.parts.group.traverse(function (o) {
-    if (o.userData && o.userData.clonedTint && o.material && o.material.dispose) o.material.dispose();
+  const disposedMats = new Set();
+  p.group.traverse(function (o) {
+    if (o.userData && o.userData.clonedTint && o.material && !disposedMats.has(o.material)) {
+      disposedMats.add(o.material);
+      if (typeof o.material.dispose === 'function') o.material.dispose();
+    }
   });
-  en.parts.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+  const disposedGeos = new Set();
+  p.group.traverse(function (o) {
+    if (o.geometry && !disposedGeos.has(o.geometry)) {
+      disposedGeos.add(o.geometry);
+      if (typeof o.geometry.dispose === 'function') o.geometry.dispose();
+    }
+  });
 }
 
 // Shielded advancers (kind 3) carry a frontal plate: shots into the front arc are
@@ -195,11 +236,21 @@ const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
+  if (en.spawnProtectionT > 0) return;
+  const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (isSettled) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
+  if (sourceActor) {
+    const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
+      ? CORE.isFriendlyFire(sourceActor, en)
+      : (((sourceActor.team || (sourceActor.isPlayer ? 'friendly' : (sourceActor.kind !== undefined ? 'enemy' : 'friendly'))) === (en.team || 'enemy')));
+    if (isAlly && !allowFriendlyFire) return;
+  }
   const isPlayerSource = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
-  const isHostileTarget = !sourceActor || (typeof CORE !== 'undefined' && typeof CORE.isHostile === 'function'
-    ? CORE.isHostile(sourceActor, en)
-    : (en.team ? en.team !== (sourceActor.team || 'friendly') : true));
+  const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
   // Remember where this shot came from and what it struck. If it turns out to be
   // the killing blow, the ragdoll is launched along it.
   en._lastHitNode = isHead ? 'head' : 'chest';
@@ -216,14 +267,14 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
     if (typeof fxShieldDeflect === 'function') fxShieldDeflect(point, _shieldNormOut);
     spawnImpact(point, _shieldNormOut, null, null, weaponType);
     if (point) playSound3D(CORE.shieldDeflectSound(), point.x, point.y, point.z, CORE.SPATIAL_IMPACT_MAX_DIST);
-    if (isPlayerSource && isHostileTarget) showCenterMsgThrottled('SHIELDED — FLANK IT');
+    if (isPlayerSource && isHostileTarget && !isSourceDead) showCenterMsgThrottled('SHIELDED — FLANK IT');
   }
   // INSTA-KILL turns any connecting shot lethal, including one that a shield
   // would otherwise have absorbed.
-  const lethal = isPlayerSource && isHostileTarget && typeof powerActive === 'function' && powerActive('instakill');
+  const lethal = isPlayerSource && isHostileTarget && !isSourceDead && typeof powerActive === 'function' && powerActive('instakill');
   en.health -= lethal ? en.health + 1 : dmg * shield;
   const isKill = en.health <= 0;
-  if (isPlayerSource && isHostileTarget) {
+  if (isPlayerSource && isHostileTarget && !isSourceDead) {
     const tier = CORE.hitmarkerTier(shield, throughCover, isKill);
     showHitmarker(isHead, tier);
     addCredits(CORE.creditsForDamage(isKill, isHead));
@@ -257,7 +308,8 @@ function killEnemy(en, isHead, killer) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
-  const isQualifyingKill = isPlayerKiller && isHostileTarget;
+  const isSourceDead = !!(sourceActor && sourceActor.dead);
+  const isQualifyingKill = isPlayerKiller && isHostileTarget && !isSourceDead;
   en.dead = true; en.deathT = 0;
   // Physics, not a clip. Impulse magnitude is capped so a heavy hit tumbles a body
   // rather than firing it across the arena.
@@ -285,6 +337,7 @@ function killEnemy(en, isHead, killer) {
     playSound(CORE.killConfirmationSound(isHead, en.elite, en.kind === 2));
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
   if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
 }
 
@@ -561,6 +614,11 @@ function updateEnemies(dt) {
       enemies.splice(i, 1);
       continue;
     }
+    if (en.spawnProtectionT > 0) {
+      en.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
+        ? CORE.stepSpawnProtection(en.spawnProtectionT, dt)
+        : Math.max(0, en.spawnProtectionT - dt);
+    }
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);
     en.target = target;
@@ -640,17 +698,19 @@ function updateEnemies(dt) {
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       en.swinging = CORE.enemyMeleeWindup(Math.random());
+      en.spawnProtectionT = 0;
     }
     if (en.swinging !== undefined) {
       en.swinging -= dt;
       if (en.swinging <= 0 && en.swinging > -1) {
+        en.spawnProtectionT = 0;
         // swing lands — only if still in reach and target alive
         if (CORE.withinReach(dist, vertGapToTarget(en, target), reach + CORE.ENEMY_MELEE_FOLLOW_REACH_PADDING) && !target.dead) {
           if (target === player || (target && target.isPlayer)) {
             // global melee damage cap: max 2 melee hits landing within any 0.8s window
             if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
               const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
-              damagePlayer(meleeDmg, dirToDeg(en), 'melee');
+              damagePlayer(meleeDmg, dirToDeg(en), 'melee', en);
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
@@ -758,6 +818,7 @@ const _enemyGrenadeVelOut = { x: 0, y: 0, z: 0 };
 function throwEnemyGrenade(en, target) {
   const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
+  en.spawnProtectionT = 0;
   en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
@@ -792,6 +853,7 @@ const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  en.spawnProtectionT = 0;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
@@ -856,7 +918,7 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet');
+        damagePlayer(dmg, hitDeg, 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
         damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
       }
@@ -884,6 +946,7 @@ const _breacherRolls = new Float32Array(8);
 function breacherShoot(en, dist, target) {
   const tgt = target || en.target || player;
   if (en.blindT > 0) return;
+  en.spawnProtectionT = 0;
   en.lastShotT = gameT;
   playSound3D('shotgun', en.pos.x, en.pos.y, en.pos.z);
   const from = _eshotFrom.set(en.pos.x, en.pos.y + E_DIM.pelvisH + 0.55, en.pos.z);
@@ -909,7 +972,7 @@ function breacherShoot(en, dist, target) {
     if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
-      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet');
+      if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet', en);
       else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);

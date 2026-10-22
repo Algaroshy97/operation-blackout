@@ -364,6 +364,7 @@ function throwGrenade(customSpeed, def, wasCooked) {
     if (tacticalCount <= 0) return;
   } else if (grenades.count <= 0) return;
   if (grenades.cd > 0 || player.dead) return;
+  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
   if (tactical) tacticalCount--; else grenades.count--;
   grenades.cd = CORE.GRENADE_COOLDOWN;
   const speed = typeof customSpeed === 'number' ? customSpeed : CFG.grenade.speed;
@@ -784,7 +785,7 @@ function explodeGrenade(pos, scale, owner) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-      damagePlayer(selfDmg, blastDeg, 'blast');
+      damagePlayer(selfDmg, blastDeg, 'blast', owner);
     }
   }
   // camera shake kick with distance attenuation
