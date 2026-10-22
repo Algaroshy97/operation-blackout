@@ -19,6 +19,10 @@ class Vector3 {
   add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
   sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
   distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
+  subVectors(a, b) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  lerp(v, a) { this.x += (v.x - this.x) * a; this.y += (v.y - this.y) * a; this.z += (v.z - this.z) * a; return this; }
+  crossVectors(a, b) { const x = a.y * b.z - a.z * b.y, y = a.z * b.x - a.x * b.z, z = a.x * b.y - a.y * b.x; return this.set(x, y, z); }
 }
 
 class Mesh {
@@ -3157,3 +3161,158 @@ if (typeof module !== 'undefined' && module.exports) {
 
 
 
+
+
+// ---- Milestone 2 review regressions: ally-aware assist targeting and match audio lifecycle ----
+
+// Loads the intact production aim-assist/magnetism block from 30_weapons.js so the
+// real candidate-selection loops run against the real CORE predicates.
+function createWeaponsAssistContext(overrides = {}) {
+  const weaponsSrc = source('30_weapons.js');
+  const start = weaponsSrc.indexOf('const _aimTgt = new THREE.Vector3();');
+  const end = weaponsSrc.indexOf('const _shotTargets = [];');
+  assert.ok(start > -1 && end > start, '30_weapons.js assist range anchors must exist');
+  const c = vm.createContext(Object.assign({
+    CORE,
+    THREE: { Vector3 },
+    keys: {},
+    player: { isPlayer: true, team: 'friendly', pos: new Vector3(0, 1.7, 0), dead: false },
+    enemies: [],
+    adsAmount: 1,
+    steadyActive: false,
+    CFG: { assist: { angle: 0.14, strength: 2.2, bulletAngle: 0.03, swayAmp: 0.0042, steadyMul: 0.14 } },
+    curW: () => null,
+    playSound: noop,
+    Math: Object.create(Math)
+  }, overrides));
+  vm.runInContext(weaponsSrc.slice(start, end), c);
+  // The sliced block declares adsAmount/steadyActive lexically, so set them after load.
+  vm.runInContext('adsAmount = 1; steadyActive = false;', c);
+  return c;
+}
+
+test('regression [P2]: aim assist and bullet magnetism never attract to friendly bots (ally-only and mixed candidate sets)', () => {
+  const c = createWeaponsAssistContext();
+  const from = new Vector3(0, 1.7, 0);
+  const dir = new Vector3(0, 0, -1);
+
+  // --- Ally-only candidate set: both systems must return the untouched direction ---
+  const allyAssist = { id: 'allyA', team: 'friendly', kind: 1, dead: false, pos: new Vector3(-0.3, 0.7, -10) };
+  c.enemies = [allyAssist];
+  const assistAllyOnly = c.applyAimAssist(new Vector3(0, 0, -1), from);
+  assert.strictEqual(assistAllyOnly.x, dir.x, 'ally-only aim assist must not pull the crosshair off-axis (x)');
+  assert.strictEqual(assistAllyOnly.y, dir.y, 'ally-only aim assist must not pull the crosshair off-axis (y)');
+  assert.strictEqual(assistAllyOnly.z, dir.z, 'ally-only aim assist must not pull the crosshair off-axis (z)');
+
+  const allyMagnet = { id: 'allyM', team: 'friendly', kind: 1, dead: false, pos: new Vector3(-0.05, 0.6, -10) };
+  c.enemies = [allyMagnet];
+  const magnetDir = new Vector3(0, 0, -1);
+  const magnetAllyOnly = c.magnetizeBullet(magnetDir, from);
+  assert.strictEqual(magnetAllyOnly, magnetDir, 'ally-only bullet magnetism must return the original direction object unchanged');
+
+  // --- Mixed candidate set: teammate is closer to the axis, hostile is the only legal target ---
+  const allyMixed = { id: 'allyX', team: 'friendly', kind: 1, dead: false, pos: new Vector3(-0.3, 0.7, -10) };
+  const hostileMixed = { id: 'hostileX', team: 'enemy', kind: 1, dead: false, pos: new Vector3(-1.5, 0.7, -30) };
+  c.enemies = [allyMixed, hostileMixed];
+  const toHostileChest = new Vector3(hostileMixed.pos.x, hostileMixed.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, hostileMixed.pos.z)
+    .sub(from).normalize();
+  const baseChestDot = dir.x * toHostileChest.x + dir.y * toHostileChest.y + dir.z * toHostileChest.z;
+  const assisted = c.applyAimAssist(new Vector3(0, 0, -1), from);
+  const assistedChestDot = assisted.x * toHostileChest.x + assisted.y * toHostileChest.y + assisted.z * toHostileChest.z;
+  assert.ok(assistedChestDot > baseChestDot,
+    'mixed ally/hostile aim assist must pull toward the hostile, not the closer teammate (dot ' + assistedChestDot.toFixed(6) + ' > ' + baseChestDot.toFixed(6) + ')');
+
+  // Magnet cone is much tighter: teammate sits closer to the axis, hostile is the only legal target.
+  const allyMagnetMixed = { id: 'allyMM', team: 'friendly', kind: 1, dead: false, pos: new Vector3(-0.02, 0.6, -10) };
+  const hostileMagnetMixed = { id: 'hostileMM', team: 'enemy', kind: 1, dead: false, pos: new Vector3(-0.1, 0.6, -30) };
+  c.enemies = [allyMagnetMixed, hostileMagnetMixed];
+  const expectedMagnet = new Vector3(hostileMagnetMixed.pos.x, hostileMagnetMixed.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, hostileMagnetMixed.pos.z)
+    .sub(from).normalize();
+  const magnetMixed = c.magnetizeBullet(new Vector3(0, 0, -1), from);
+  assert.ok(Math.abs(magnetMixed.x - expectedMagnet.x) < 1e-9 && Math.abs(magnetMixed.y - expectedMagnet.y) < 1e-9 && Math.abs(magnetMixed.z - expectedMagnet.z) < 1e-9,
+    'mixed ally/hostile bullet magnetism must snap to the hostile, not the closer teammate');
+
+  // --- Dead teammates and dead hostiles remain inert ---
+  c.enemies = [{ id: 'deadHostile', team: 'enemy', kind: 1, dead: true, pos: new Vector3(-0.05, 0.6, -10) }];
+  const deadDir = new Vector3(0, 0, -1);
+  assert.strictEqual(c.magnetizeBullet(deadDir, from), deadDir, 'dead actors must not attract bullet magnetism');
+});
+
+// Loads the real production soundtrack control block from 50_vfx_audio.js on top of the
+// full match context, so killPlayer/respawn run against real startMusic/stopMusic.
+function createMatchAudioContext(settings) {
+  const audioSrc = source('50_vfx_audio.js');
+  const start = audioSrc.indexOf('function startMusic()');
+  const end = audioSrc.indexOf('function updateMusic');
+  assert.ok(start > -1 && end > start, '50_vfx_audio.js music control anchors must exist');
+  const s = Object.assign({ tdmTeamSize: 6, tdmScoreLimit: 75, muted: false, musicVolume: 0.5, masterVolume: 0.9 }, settings);
+  const c = createFullMatchContext({
+    MUSIC: { running: false, ctx: { currentTime: 0 }, bus: { gain: { cancelScheduledValues: noop, setTargetAtTime: noop } } },
+    buildMusicGraph: () => true,
+    getSetting: k => (k in s ? s[k] : 1)
+  });
+  vm.runInContext(audioSrc.slice(start, end), c);
+  assert.strictEqual(vm.runInContext('typeof startMusic', c), 'function', 'real startMusic must be installed in the context');
+  assert.strictEqual(vm.runInContext('typeof stopMusic', c), 'function', 'real stopMusic must be installed in the context');
+  return c;
+}
+
+test('regression [P2]: match music survives a nonterminal TDM death and is restored on respawn, while terminal settlement still silences it', () => {
+  const c = createMatchAudioContext({});
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.startMusic();
+  assert.strictEqual(c.MUSIC.running, true, 'deploy must start the soundtrack');
+
+  const p = c.player;
+  p.spawnProtectionT = 0;
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  assert.ok(hostile, 'hostile bot must exist for the death lifecycle');
+
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(p.dead, true, 'lethal hits must kill the player in TDM');
+  assert.strictEqual(c.MODES.tdm.isOver(), false, 'this death must be nonterminal for the match');
+  assert.strictEqual(c.MUSIC.running, true, 'nonterminal TDM death must not silence the match soundtrack');
+
+  c.MODES.tdm.update(20);
+  assert.strictEqual(p.dead, false, 'player must return alive through the production TDM respawn path');
+  assert.strictEqual(c.MUSIC.running, true, 'soundtrack must be playing after a nonterminal respawn');
+
+  // Terminal match death: reaching the enemy score limit ends the match and stops music.
+  const c2 = createMatchAudioContext({});
+  c2.setActiveMode('tdm');
+  c2.MODES.tdm.setup();
+  c2.startMusic();
+  c2.MODES.tdm.enemyScore = 74;
+  c2.player.spawnProtectionT = 0;
+  const hostile2 = c2.enemies.find(e => e.team === 'enemy');
+  c2.damagePlayer(10000, 0, 'bullet', hostile2);
+  c2.damagePlayer(10000, 0, 'bullet', hostile2);
+  assert.strictEqual(c2.MODES.tdm.isOver(), true, 'score limit must settle the match');
+  assert.strictEqual(c2.MUSIC.running, false, 'a terminal settled death must still silence the soundtrack');
+});
+
+test('regression [P2]: muted settings keep match music silent across a nonterminal respawn', () => {
+  const c = createMatchAudioContext({ muted: true });
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  c.player.spawnProtectionT = 0;
+  const hostile = c.enemies.find(e => e.team === 'enemy');
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  c.damagePlayer(10000, 0, 'bullet', hostile);
+  assert.strictEqual(c.player.dead, true, 'player must die for the muted lifecycle check');
+  c.MODES.tdm.update(20);
+  assert.strictEqual(c.player.dead, false, 'muted player must still respawn');
+  assert.strictEqual(c.MUSIC.running, false, 'mute must keep the soundtrack silent after respawn');
+
+  const c2 = createMatchAudioContext({ muted: false, musicVolume: 0 });
+  c2.setActiveMode('tdm');
+  c2.MODES.tdm.setup();
+  c2.player.spawnProtectionT = 0;
+  const hostile2 = c2.enemies.find(e => e.team === 'enemy');
+  c2.damagePlayer(10000, 0, 'bullet', hostile2);
+  c2.damagePlayer(10000, 0, 'bullet', hostile2);
+  c2.MODES.tdm.update(20);
+  assert.strictEqual(c2.MUSIC.running, false, 'zero music volume must keep the soundtrack silent after respawn');
+});

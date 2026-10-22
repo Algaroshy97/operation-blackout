@@ -49,7 +49,13 @@ function killPlayer(killer) {
   // state has to be cleared on THIS path too — otherwise the "BLEEDING OUT" timer
   // stays on screen behind the death screen until the next deploy.
   if (typeof clearDowned === 'function') clearDowned();
-  stopMusic();
+  // Music stops only when the death is terminal for this run/match. A nonterminal
+  // match death (TDM/FFA/Domination/Gun Game) queues a respawn, so silencing the
+  // soundtrack there would leave the rest of the match silent.
+  const deathEndsRun = !activeMode || activeMode.id === 'survival'
+    || (typeof gameEnded !== 'undefined' && gameEnded)
+    || (typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (deathEndsRun) stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');

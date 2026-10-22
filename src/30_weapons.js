@@ -304,6 +304,15 @@ const _assistToH = new THREE.Vector3();
 const _assistBestTo = new THREE.Vector3();
 const _assistNudged = new THREE.Vector3();
 
+// Aim help may only ever pull toward an actor the shot could legitimately damage.
+// TDM/FFA/Domination keep teammates inside the shared `enemies` roster, and the
+// friendly-fire guard rejects damage on them — so they must not attract the reticle.
+function isAssistAlly(actor) {
+  if (!actor || typeof CORE === 'undefined' || typeof CORE.isFriendlyFire !== 'function') return false;
+  if (typeof player === 'undefined' || !player) return false;
+  return CORE.isFriendlyFire(player, actor);
+}
+
 // ---- Aim assist: when scoped (or ADS), drifting crosshair gently onto nearest enemy chest/head within a small angle ----
 function applyAimAssist(dir, from) {
   if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
@@ -313,6 +322,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInAimAssistRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
@@ -352,6 +362,7 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;

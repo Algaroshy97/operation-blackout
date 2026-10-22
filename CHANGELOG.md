@@ -4,6 +4,17 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v173 — Team-aware aim assistance and nonterminal match music lifecycle repair
+
+- Aim assist and bullet magnetism only ever attract to hostiles (`src/30_weapons.js`):
+  - Added `isAssistAlly()` using the existing `CORE.isFriendlyFire` predicate, and applied it to the candidate loops in `applyAimAssist()` and `magnetizeBullet()`.
+  - TDM/FFA/Domination/Gun Game keep teammates inside the shared `enemies` roster; previously only `dead` actors were excluded, so friendly bots attracted the reticle and shots even though the friendly-fire guard rejected the resulting damage.
+  - Added enduring regressions in `tests/test_modes_and_teams.js` running the real production loops for ally-only, mixed ally/hostile, and dead-actor candidate sets.
+- Match soundtrack survives nonterminal deaths and respawns (`src/70_main.js`, `src/35_modes.js`, `src/50_vfx_audio.js`):
+  - `killPlayer()` no longer calls `stopMusic()` unconditionally: music stops only when the death is terminal for the run/match (Survival, `gameEnded`, or a settled match such as reaching the score limit).
+  - Added `ensureMusicPlaying()` and called it from the player respawn path in `defaultOnRespawn()`, restoring the soundtrack after a nonterminal respawn while still honouring mute and zeroed music/master volumes.
+  - Added a death-to-respawn audio regression plus terminal-settlement and muted-settings regressions in `tests/test_modes_and_teams.js`.
+
 ## v172 — Survival mode posthumous combat damage and probe corpse lifecycle repair
 
 - Scope match settlement freeze to TDM match completion in `src/40_enemies.js`, `src/20_player.js`, and `src/70_main.js`:

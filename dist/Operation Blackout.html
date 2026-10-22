@@ -14236,6 +14236,12 @@ const _assistToH = new THREE.Vector3();
 const _assistBestTo = new THREE.Vector3();
 const _assistNudged = new THREE.Vector3();
 
+function isAssistAlly(actor) {
+  if (!actor || typeof CORE === 'undefined' || typeof CORE.isFriendlyFire !== 'function') return false;
+  if (typeof player === 'undefined' || !player) return false;
+  return CORE.isFriendlyFire(player, actor);
+}
+
 function applyAimAssist(dir, from) {
   if (adsAmount < CORE.ADS_SCOPE_THRESHOLD) return dir;
   let hasBest = false, bestCos = CORE.aimAssistMinCos(CFG.assist.angle, steadyActive, 1.6);
@@ -14244,6 +14250,7 @@ function applyAimAssist(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInAimAssistRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
@@ -14278,6 +14285,7 @@ function magnetizeBullet(dir, from) {
   for (let i = 0; i < enemies.length; i++) {
     const en = enemies[i];
     if (en.dead) continue;
+    if (isAssistAlly(en)) continue;
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
@@ -15457,6 +15465,7 @@ function defaultOnRespawn(actor, pt) {
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
     actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
     actor.spawnProtectionT = duration;
+    if (typeof ensureMusicPlaying === 'function') ensureMusicPlaying();
     if (typeof document !== 'undefined') {
       const ds = document.getElementById('death-screen');
       if (ds) ds.style.display = 'none';
@@ -18968,6 +18977,14 @@ function stopMusic() {
   }
 }
 
+function ensureMusicPlaying() {
+  if (typeof getSetting !== 'function') return;
+  if (getSetting('muted')) return;
+  if (getSetting('musicVolume') <= 0) return;
+  if (getSetting('masterVolume') <= 0) return;
+  if (!MUSIC.running) startMusic();
+}
+
 function updateMusic(dt, state) {
   if (!MUSIC.built || !MUSIC.running) return;
   const ctx = MUSIC.ctx;
@@ -21890,7 +21907,10 @@ function killPlayer(killer) {
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
   if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
   if (typeof clearDowned === 'function') clearDowned();
-  stopMusic();
+  const deathEndsRun = !activeMode || activeMode.id === 'survival'
+    || (typeof gameEnded !== 'undefined' && gameEnded)
+    || (typeof activeMode.isOver === 'function' && activeMode.isOver());
+  if (deathEndsRun) stopMusic();
   mouse1Down = false;
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('death');

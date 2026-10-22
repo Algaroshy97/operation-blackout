@@ -182,6 +182,8 @@ function defaultOnRespawn(actor, pt) {
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
     actor.health = (typeof CFG !== 'undefined' && CFG.player) ? CFG.player.health : 100;
     actor.spawnProtectionT = duration;
+    // Nonterminal respawns keep the match soundtrack alive; restore it if it went silent.
+    if (typeof ensureMusicPlaying === 'function') ensureMusicPlaying();
     if (typeof document !== 'undefined') {
       const ds = document.getElementById('death-screen');
       if (ds) ds.style.display = 'none';
