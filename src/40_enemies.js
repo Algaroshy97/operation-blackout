@@ -639,6 +639,13 @@ function objectiveSteerTarget(en, target) {
   };
 }
 
+// Resolve only in Gun Game; archetype combat remains unchanged in every other mode.
+function gunGameBotWeapon(en) {
+  const mode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!mode || mode.id !== 'gun-game') return null;
+  return en.ggWeapon < 0 ? { type: 'MELEE', range: CFG.ai.attackRange } : CFG.weapons[en.ggWeapon];
+}
+
 function updateEnemies(dt) {
   updateStatusEffects(dt);
   losFrame++;
@@ -684,7 +691,10 @@ function updateEnemies(dt) {
       animateEnemy(en, dt, dist);
       continue;
     }
-    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en, target), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    const ggWeapon = gunGameBotWeapon(en);
+    const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
+    const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+    const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
@@ -734,7 +744,7 @@ function updateEnemies(dt) {
     // keep enemies out of the target's body: stop-and-hold at melee distance
     // Applies to every kind, not a hand-kept list: anything that can reach the
     // target must be pushed back out, or it occupies the target's position.
-    const stopDist = CORE.enemyStopDistance(en.kind);
+    const stopDist = CORE.enemyStopDistance(attackKind);
     // Only hold and push out against a target on the same level. Without the
     // vertical gate a target upstairs shoves agents around on the floor below —
     // measured at 1.83 m of displacement through a concrete slab.
@@ -745,8 +755,8 @@ function updateEnemies(dt) {
       }
     }
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
-    const canMelee = CORE.canEnemyMelee(en.kind);
-    const reach = CORE.enemyMeleeReach(en.kind, CFG.ai.attackRange);
+    const canMelee = CORE.canEnemyMelee(attackKind);
+    const reach = CORE.enemyMeleeReach(attackKind, CFG.ai.attackRange);
     if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
@@ -779,16 +789,18 @@ function updateEnemies(dt) {
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
     // breacher: a shotgun blast whenever the target is inside its range
-    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
     // ranged attack (rifleman)
-    if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
+    if (attackKind === 1 && en.state === 'strafe' && dist < attackRange && gameT > en.nextShot) {
       if (hasLOS(en, target)) {
-        if (waveBehaviours.burstFire) {
+        if (ggWeapon) {
+          en.nextShot = gameT + 60 / ggWeapon.rpm;
+        } else if (waveBehaviours.burstFire) {
           // Bursts of 3 with a longer recovery: same average output, far more
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
@@ -805,13 +817,13 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+    if (!ggWeapon && en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en, target);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a target who is actually behind cover.
-    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
@@ -905,6 +917,10 @@ const _eshotDir = new THREE.Vector3();
 const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
+  const earnedWeapon = gunGameBotWeapon(en);
+  if (earnedWeapon && (earnedWeapon.type === 'MELEE' || dist > earnedWeapon.range)) return;
+  // Capture the fired weapon: an in-flight round cannot turn into a knife kill.
+  const shotType = earnedWeapon ? earnedWeapon.type : CORE.enemyWeaponType(en.kind, en.elite);
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   en.spawnProtectionT = 0;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
@@ -917,7 +933,7 @@ function enemyShoot(en, dist, target) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
     _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize();
   }
-  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, CORE.enemyWeaponType(en.kind, en.elite));
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, shotType);
   if (typeof flashLight === 'function') {
     const elp = CORE.enemyMuzzleLightParams(en.elite);
     flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
@@ -951,13 +967,14 @@ function enemyShoot(en, dist, target) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
-  spawnTracer(from, to, CORE.tracerColor(true), CORE.enemyWeaponType(en.kind, en.elite));
+  spawnTracer(from, to, CORE.tracerColor(true), shotType);
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1)
+      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (tgt.dead || !started || paused) return;
@@ -971,9 +988,9 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet', en);
+        damagePlayer(earnedWeapon ? dmg / actorDamageMul(en) : dmg, hitDeg, earnedWeapon ? shotType : 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
-        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
+        damageEnemy(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, tgt.pos, false, false, shotType, en);
       }
     }, travelDelay);
   } else if (isTargetPlayer) {

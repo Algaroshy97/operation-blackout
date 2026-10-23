@@ -5082,7 +5082,7 @@ const CORE = (function () {
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
     ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
-    ffaScoreLimit: { type: 'number', def: 30, min: 5, max: 100, step: 5, label: 'FFA score limit' },
+    ffaScoreLimit: { type: 'number', def: 30, min: 2, max: 100, step: 1, label: 'FFA score limit' },
     dominationScoreLimit: { type: 'number', def: 200, min: 50, max: 500, step: 25, label: 'Domination score limit' },
     gunGameActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'Gun Game actors' }
   };
@@ -14069,6 +14069,11 @@ let wState = [];                // per owned slot: {ammo, reserve, reloading, re
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
+const _KNIFE_WEAPON_SENTINEL = Object.freeze({
+  name: 'Knife', type: 'MELEE', dmg: 0, rpm: 0, mag: 0, reserveMax: 0,
+  reload: 0, spread: 0, adsSpread: 0, recoilV: 0, recoilH: 0, range: 0,
+  auto: false
+});
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
   return -1;
@@ -14103,8 +14108,8 @@ function syncSidearmSlot() {
   weaponsOwned[SIDEARM_SLOT] = pi;
   if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
-function initWeapons() {
-  syncMarksmanSlot();
+function initWeapons(options) {
+  if (!options || !options.restrictedSlots) syncMarksmanSlot();
   wState = [];
   for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
@@ -14122,7 +14127,9 @@ function initWeapons() {
 function curW() {
   const s = wState[curWeapon];
   if (s && s.eff) return s.eff;
-  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+  if (s && s.up) return s.up;
+  const gi = weaponsOwned[curWeapon];
+  return (gi >= 0) ? CFG.weapons[gi] : _KNIFE_WEAPON_SENTINEL;
 }
 function refreshWeaponStats(slot) {
   const s = wState[slot];
@@ -14592,12 +14599,22 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 let vmTune = null;
 
 function buildViewmodel() {
+  meleeSwing = 0;
+  if (typeof knifeGroup !== 'undefined' && knifeGroup) knifeGroup.visible = false;
   if (gunGroup) {
     gunCamera.remove(gunGroup);
     disposeGunModel(gunGroup);
+    gunGroup = null;
+    vmTune = null;
+    gunParts = { bolt: null, mag: null, handL: null, handR: null };
+    muzzleFlash = null;
+  }
+  const gi = weaponsOwned[curWeapon];
+  if (gi < 0) {
+    if (typeof buildKnife === 'function' && !knifeGroup) buildKnife();
+    return;
   }
   gunGroup = new THREE.Group();
-  const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
   vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
@@ -14607,6 +14624,7 @@ function buildViewmodel() {
 }
 
 function updateViewmodel(dt) {
+  if (typeof poseMeleeKnife === 'function') poseMeleeKnife();
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
@@ -15347,14 +15365,6 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
   CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
   py += _vmDodgeOut.posY; rx += _vmDodgeOut.rotX; rz += _vmDodgeOut.rotZ;
-  if (knifeGroup) {
-    knifeGroup.visible = meleeSwing > 0 && !player.dead;
-    if (knifeGroup.visible) {
-      CORE.stepMeleeKnifePose(mk, _vmKnifeOut);
-      knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
-      knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
-    }
-  }
   px -= CORE.viewmodelNarrowOffset(camera.aspect || 1, px, hipK);
   g.position.set(px, py, pz);
   g.rotation.set(rx, ry, rz);
@@ -15365,6 +15375,15 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
 }
 
 const _mzV = new THREE.Vector3();
+function poseMeleeKnife() {
+  if (!knifeGroup) return;
+  knifeGroup.visible = meleeSwing > 0 && !player.dead;
+  if (!knifeGroup.visible) return;
+  CORE.stepMeleeKnifePose(1 - meleeSwing, _vmKnifeOut);
+  knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
+  knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
+}
+
 function muzzleWorldPos(out) {
   if (!gunParts.muzzle || !gunGroup) return out.copy(camera.position);
   gunGroup.updateMatrixWorld(true);
@@ -16220,7 +16239,7 @@ MODES.ffa = {
   actors: 8,
   roster: [],
   setup: function () {
-    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 5, scoreMax: 100, actorsKey: 'ffaActorCount' });
+    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 2, scoreMax: 100, actorsKey: 'ffaActorCount' });
   },
   playerScore: ffaPlayerKills,
   leaderKills: function () { return ffaLeaderKills(this); },
@@ -16532,7 +16551,7 @@ function applyGunGamePlayerLoadout(mode) {
   if (weapon >= 0 && weaponsOwned.length > 0) weaponsOwned[0] = weapon;
   if (typeof curWeapon !== 'undefined') curWeapon = 0;
   if (typeof pendingSecondary !== 'undefined') pendingSecondary = -1;
-  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof initWeapons === 'function') initWeapons({ restrictedSlots: true });
   if (typeof buildViewmodel === 'function') buildViewmodel();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
 }
@@ -16593,7 +16612,7 @@ MODES['gun-game'] = {
     }
     if (r.credited && killer) {
       if (CORE.gunGameIsKnifeTier(this.tierOf(killer))) {
-        won = true;                       // the knife owner landed the final kill
+        won = r.isHostileKill && CORE.gunGameMeleeKill(r.damageType);
       } else {
         killer.tier = CORE.gunGameAdvance(this.tierOf(killer), 1);
         this.onRespawn(killer);
@@ -16639,7 +16658,11 @@ MODES['gun-game'] = {
       note: 'FINAL TIER IS THE KNIFE'
     };
   },
-  outcome: function () { return ffaOutcome(this, true); }
+  outcome: function () {
+    const result = ffaOutcome(this, true);
+    if (this.winner) result.title = this.winner === ffaPlayer() || this.winner.isPlayer ? 'VICTORY' : 'DEFEAT';
+    return result;
+  }
 };
 
 // ============ SOLDIER RIG: MODEL, PROCEDURAL ANIMATION, VERLET RAGDOLL ============
@@ -17909,6 +17932,12 @@ function objectiveSteerTarget(en, target) {
   };
 }
 
+function gunGameBotWeapon(en) {
+  const mode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!mode || mode.id !== 'gun-game') return null;
+  return en.ggWeapon < 0 ? { type: 'MELEE', range: CFG.ai.attackRange } : CFG.weapons[en.ggWeapon];
+}
+
 function updateEnemies(dt) {
   updateStatusEffects(dt);
   losFrame++;
@@ -17947,7 +17976,10 @@ function updateEnemies(dt) {
       animateEnemy(en, dt, dist);
       continue;
     }
-    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en, target), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    const ggWeapon = gunGameBotWeapon(en);
+    const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
+    const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+    const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
@@ -17982,15 +18014,15 @@ function updateEnemies(dt) {
     }
     const dx = target.pos.x - en.pos.x, dz = target.pos.z - en.pos.z;
     en.yaw = Math.atan2(dx, dz);
-    const stopDist = CORE.enemyStopDistance(en.kind);
+    const stopDist = CORE.enemyStopDistance(attackKind);
     if (CORE.withinReach(dist, vertGapToTarget(en, target), stopDist)) {
       if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, target.pos.x, target.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
         en.pos.x += _pushoutOut.pushX;
         en.pos.z += _pushoutOut.pushZ;
       }
     }
-    const canMelee = CORE.canEnemyMelee(en.kind);
-    const reach = CORE.enemyMeleeReach(en.kind, CFG.ai.attackRange);
+    const canMelee = CORE.canEnemyMelee(attackKind);
+    const reach = CORE.enemyMeleeReach(attackKind, CFG.ai.attackRange);
     if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       en.swinging = CORE.enemyMeleeWindup(Math.random());
@@ -18019,15 +18051,17 @@ function updateEnemies(dt) {
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
-    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
-    if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
+    if (attackKind === 1 && en.state === 'strafe' && dist < attackRange && gameT > en.nextShot) {
       if (hasLOS(en, target)) {
-        if (waveBehaviours.burstFire) {
+        if (ggWeapon) {
+          en.nextShot = gameT + 60 / ggWeapon.rpm;
+        } else if (waveBehaviours.burstFire) {
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
           en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
@@ -18040,11 +18074,11 @@ function updateEnemies(dt) {
         en.burst = 0;
       }
     }
-    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+    if (!ggWeapon && en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en, target);
     }
-    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
@@ -18130,6 +18164,9 @@ const _eshotDir = new THREE.Vector3();
 const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
+  const earnedWeapon = gunGameBotWeapon(en);
+  if (earnedWeapon && (earnedWeapon.type === 'MELEE' || dist > earnedWeapon.range)) return;
+  const shotType = earnedWeapon ? earnedWeapon.type : CORE.enemyWeaponType(en.kind, en.elite);
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   en.spawnProtectionT = 0;
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
@@ -18140,7 +18177,7 @@ function enemyShoot(en, dist, target) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
     _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize();
   }
-  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, CORE.enemyWeaponType(en.kind, en.elite));
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, shotType);
   if (typeof flashLight === 'function') {
     const elp = CORE.enemyMuzzleLightParams(en.elite);
     flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
@@ -18174,13 +18211,14 @@ function enemyShoot(en, dist, target) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
-  spawnTracer(from, to, CORE.tracerColor(true), CORE.enemyWeaponType(en.kind, en.elite));
+  spawnTracer(from, to, CORE.tracerColor(true), shotType);
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1)
+      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (tgt.dead || !started || paused) return;
@@ -18189,9 +18227,9 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet', en);
+        damagePlayer(earnedWeapon ? dmg / actorDamageMul(en) : dmg, hitDeg, earnedWeapon ? shotType : 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
-        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
+        damageEnemy(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, tgt.pos, false, false, shotType, en);
       }
     }, travelDelay);
   } else if (isTargetPlayer) {
@@ -22709,7 +22747,7 @@ function blurPass(src, tmp) {
 function postKick(amount) { POST.kick = Math.min(1, POST.kick + amount); }
 function renderWorld() {
   renderer.render(scene, camera);
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead && (gunGroup || (typeof knifeGroup !== 'undefined' && knifeGroup && knifeGroup.visible))) {
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(gunScene, gunCamera);
@@ -23300,7 +23338,7 @@ function buildTdmSettingsRow() {
       return (typeof v === 'number' && isFinite(v) && v >= min) ? v : fallback;
     };
     if (modeId === 'ffa') {
-      const curScore = setting('ffaScoreLimit', 30, 5);
+      const curScore = setting('ffaScoreLimit', 30, 2);
       const scoreGroup = groupLabel('SCORE:');
       choices(scoreGroup, 'ffa-score-', [30, 15, 5, 2], curScore, null, function (v) {
         if (MODES.ffa) MODES.ffa.targetScore = v;
@@ -24041,8 +24079,10 @@ function frame(now) {
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead) {
     updateViewmodel(dt);
+  } else if (typeof poseMeleeKnife === 'function') {
+    poseMeleeKnife();
   }
   renderer.autoClear = true;
   renderFrame(dt);

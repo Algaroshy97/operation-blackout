@@ -411,7 +411,7 @@ const CORE = (function () {
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
     ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
-    ffaScoreLimit: { type: 'number', def: 30, min: 5, max: 100, step: 5, label: 'FFA score limit' },
+    ffaScoreLimit: { type: 'number', def: 30, min: 2, max: 100, step: 1, label: 'FFA score limit' },
     dominationScoreLimit: { type: 'number', def: 200, min: 50, max: 500, step: 25, label: 'Domination score limit' },
     gunGameActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'Gun Game actors' }
   };

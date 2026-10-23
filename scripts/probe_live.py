@@ -5613,14 +5613,25 @@ def main() -> int:
             const mode = getActiveMode();
             const bots = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0);
             const deployOk = mode.id === 'ffa' && mode.roster.length === 8 && bots.length === 7 &&
-                             player.team === 'ffa_you' && mode.targetScore === 2;
+                             player.team === 'ffa_you' && mode.targetScore === 2 &&
+                             getSetting('ffaScoreLimit') === 2 && ffaPlayer() === player &&
+                             mode.roster.filter(a => a === player).length === 1;
             const factionOk = bots.every(b => b.team !== player.team) &&
                               CORE.isHostile(player, bots[0]) && CORE.isHostile(bots[0], bots[1]);
             const hudEl = document.getElementById('match-hud');
             const hudNote = document.getElementById('match-hud-note');
             const hudOk = hudEl && getComputedStyle(hudEl).display !== 'none' &&
                           hudNote && hudNote.textContent.indexOf('FIRST TO 2') >= 0;
-            const timerOk = document.getElementById('match-timer').textContent === '10:00';
+            // The real frame loop has run since deploy; compare the HUD with the
+            // live clock, then require an exact one-second tick (not a frozen label).
+            const timerText = t => String(Math.floor(t / 60)).padStart(2, '0') + ':' +
+                                   String(Math.floor(t % 60)).padStart(2, '0');
+            const timeBefore = mode.timeLeft;
+            const initialTimerOk = mode.matchDuration === 600 && timeBefore > 0 && timeBefore <= 600 &&
+                document.getElementById('match-timer').textContent === timerText(timeBefore);
+            mode.update(1);
+            const timerOk = initialTimerOk && mode.timeLeft === timeBefore - 1 &&
+                document.getElementById('match-timer').textContent === timerText(mode.timeLeft);
             setScoreboardVisible(true);
             const sbText = document.getElementById('match-scoreboard').textContent || '';
             const sbOk = sbText.indexOf('FREE-FOR-ALL') >= 0 && sbText.indexOf('YOU') >= 0;
@@ -5628,7 +5639,8 @@ def main() -> int:
 
             updateEnemies(1.0);
             updateEnemies(1.1);
-            damageEnemy(bots[0], 300, bots[0].pos, false, false, 'AR', player);
+            // Heavy bots have 320 HP: a fixed 300 is not a lethal fixture.
+            damageEnemy(bots[0], bots[0].health + 1, bots[0].pos, false, false, 'AR', player);
             const kill1Ok = mode.playerScore() === 1 && mode.leaderKills() === 1 && bots[0].dead === true;
             updateEnemies(1 / 60);
             const corpseDropped = enemies.indexOf(bots[0]) < 0;
@@ -5643,7 +5655,7 @@ def main() -> int:
             updateEnemies(1.0);
             updateEnemies(1.1);
             const second = enemies.filter(e => typeof e.team === 'string' && e.team.indexOf('ffa_') === 0 && !e.dead)[0];
-            damageEnemy(second, 300, second.pos, false, false, 'AR', player);
+            damageEnemy(second, second.health + 1, second.pos, false, false, 'AR', player);
             const overOk = mode.isOver() === true && mode.playerScore() === 2;
             mode.update(1 / 60);
             const endedOk = gameEnded === true &&
@@ -5790,7 +5802,9 @@ def main() -> int:
             const deployOk = mode.id === 'gun-game' && mode.roster.length === 8 && bots.length === 7 &&
                              mode.playerTier() === 0 && CORE.GUN_GAME_TIER_COUNT === 20 &&
                              CORE.GUN_GAME_LADDER[19] === -1 &&
-                             weaponsOwned[0] === CORE.GUN_GAME_LADDER[0];
+                             weaponsOwned[0] === CORE.GUN_GAME_LADDER[0] &&
+                             weaponsOwned.slice(1).every(i => i === -1) &&
+                             ffaPlayer() === player && mode.roster.filter(a => a === player).length === 1;
             const HUD = document.getElementById('match-hud-note').textContent || '';
             const scoreHud = document.getElementById('match-score-friendly').textContent || '';
             const hudOk = HUD.indexOf('KNIFE') >= 0 && scoreHud === 'TIER 1/20';
@@ -5800,25 +5814,25 @@ def main() -> int:
             updateEnemies(1.0);
             updateEnemies(1.1);
             const victim = bots[0];
-            damageEnemy(victim, 300, victim.pos, false, false, 'AR', player);
+            damageEnemy(victim, victim.health + 1, victim.pos, false, false, 'AR', player);
             const advanceOk = mode.playerTier() === 1 && victim.tier === 0 &&
                               weaponsOwned[0] === CORE.GUN_GAME_LADDER[1];
 
             const demote = bots[1];
             mode.setTier(demote, 3);
             const tierBefore = demote.tier;
-            damageEnemy(demote, 300, demote.pos, false, false, 'MELEE', player);
+            damageEnemy(demote, demote.health + 1, demote.pos, false, false, 'MELEE', player);
             const demoteOk = tierBefore === 3 && demote.tier === 2;
 
             const grenadeVictim = bots[2];
             const beforeGrenade = mode.playerTier();
-            damageEnemy(grenadeVictim, 300, grenadeVictim.pos, false, false, undefined, player);
+            damageEnemy(grenadeVictim, grenadeVictim.health + 1, grenadeVictim.pos, false, false, undefined, player);
             const grenadeOk = mode.playerTier() === beforeGrenade && grenadeVictim.dead === true;
 
             mode.setTier(player, 19);
             const knifeLoadoutOk = weaponsOwned.every(i => i === -1);
             const finalVictim = bots[3];
-            damageEnemy(finalVictim, 300, finalVictim.pos, false, false, 'MELEE', player);
+            damageEnemy(finalVictim, finalVictim.health + 1, finalVictim.pos, false, false, 'MELEE', player);
             const winOk = mode.isOver() === true && mode.playerTier() === 19 && mode.winner === player;
             mode.update(1 / 60);
             const endedOk = gameEnded === true &&

@@ -3385,6 +3385,58 @@ test('milestone2 [rules]: mode ids, settings schema and shared match-mode primit
   assert.strictEqual(CORE.clampSetting('dominationScoreLimit', 5000), 500, 'domination limit must be clamped');
 });
 
+test('regression [PR7 FFA picker]: a saved two-kill limit survives schema validation', () => {
+  assert.strictEqual(CORE.clampSetting('ffaScoreLimit', 2), 2);
+  assert.strictEqual(CORE.sanitizeSettings({ ffaScoreLimit: 2 }).ffaScoreLimit, 2);
+  assert.strictEqual(CORE.SETTINGS_SCHEMA.ffaScoreLimit.min, 2);
+  assert.strictEqual(CORE.SETTINGS_SCHEMA.ffaScoreLimit.step, 1);
+});
+
+test('regression [PR7 FFA deploy]: two kills settle the configured real actor lifecycle', () => {
+  const c = createFullMatchContext();
+  modeSettings(c, { ffaScoreLimit: 2 });
+  c.setActiveMode('ffa');
+  c.MODES.ffa.setup();
+  const mode = c.MODES.ffa;
+  assert.strictEqual(mode.targetScore, 2, 'deploy must not fall back to 30');
+  assert.strictEqual(mode.roster.filter(a => a === c.player).length, 1);
+  clearSpawnProtection(c);
+  const victim = ffaBots(c)[0];
+  c.damageEnemy(victim, victim.health + 1, victim.pos, false, false, 'AR', c.player);
+  assert.strictEqual(mode.playerScore(), 1);
+  assert.strictEqual(victim.dead, true);
+  assert.strictEqual(c.modeRespawnQueue.some(e => e.actor === victim), true);
+  mode.update(4);
+  assert.strictEqual(victim.dead, false);
+  assert.strictEqual(mode.roster.filter(a => a === victim).length, 1);
+  assert.strictEqual(c.enemies.filter(a => a === victim).length, 1);
+  clearSpawnProtection(c);
+  c.damageEnemy(victim, victim.health + 1, victim.pos, false, false, 'AR', c.player);
+  assert.strictEqual(mode.playerScore(), 2);
+  assert.strictEqual(mode.isOver(), true);
+  assert.strictEqual(c.$id('match-end-title').textContent, 'VICTORY');
+});
+
+test('regression [PR7 Gun Game integration]: real weapon initialization preserves every earned loadout', () => {
+  const c = createWeaponsContext();
+  vm.runInContext(source('35_modes.js'), c);
+  c.buildViewmodel = () => {};
+  c.updateHudAmmo = () => {};
+  for (let tier = 0; tier < CORE.GUN_GAME_TIER_COUNT; tier++) {
+    c.player.tier = tier;
+    c.MODES['gun-game'].onRespawn(c.player);
+    const owned = vm.runInContext('Array.from(weaponsOwned)', c);
+    const expected = [CORE.gunGameTierWeapon(tier), -1, -1, -1];
+    assert.deepStrictEqual(Array.from(owned), expected, 'only the earned tier weapon at tier ' + tier);
+    assert.deepStrictEqual(Array.from(vm.runInContext('wState.map(s => !!s)', c)),
+      expected.map(i => i >= 0), 'empty firearm slots must have no weapon state');
+    if (tier === 19) assert.strictEqual(c.curW().type, 'MELEE', 'knife sentinel remains usable');
+  }
+  c.initWeapons();
+  assert.ok(vm.runInContext('weaponsOwned[SIDEARM_SLOT] >= 0 && weaponsOwned[MARKSMAN_SLOT] >= 0', c),
+    'ordinary Survival/TDM initialization must still restore bonus slots');
+});
+
 test('milestone2 [domination rules]: capture, contestation and scoring are explicit and fractional-frame invariant', () => {
   assert.strictEqual(CORE.DOMINATION_CAPTURE_SECONDS, 5, 'capture time must be 5 seconds');
   assert.strictEqual(CORE.DOMINATION_FLAG_RADIUS, 4, 'capture radius must be 4 metres');
@@ -3910,4 +3962,483 @@ test('milestone2 [settings]: the saved match mode survives a reload and restores
   c.setSetting('gameMode', 'not-a-mode');
   c.buildModePickerRow();
   assert.strictEqual(c.activeModeId, 'survival', 'an unknown saved mode must fall back to Survival');
+});
+
+// ---------------------------------------------------------------------------
+// Regression: buildViewmodel knife-tier crash (CI failure PR7)
+// ---------------------------------------------------------------------------
+// These tests exercise the exact lifecycle that crashed in production:
+//   setTier(actor, 19) -> onRespawn -> applyGunGamePlayerLoadout ->
+//   buildViewmodel with weaponsOwned[0] === -1 -> CFG.weapons[-1] undefined
+//   -> TypeError: Cannot read properties of undefined (reading 'cls')
+// ---------------------------------------------------------------------------
+
+// Helper: create a minimal VM context that has just enough to run
+// 30_weapons.js (curW / buildViewmodel) with full CFG.weapons.
+function createWeaponsContext(overrideWeapons) {
+  const weapons = overrideWeapons || [
+    { name: 'M4 Carbine', type: 'AR', cls: undefined, dmg: 26, rpm: 750, mag: 30, reserveMax: 150, reload: 2.1, spread: 0.014, adsSpread: 0.004, recoilV: 0.014, recoilH: 0.006, range: 120, auto: true },
+    { name: 'MK18 Mod1',  type: 'SMG', dmg: 18, rpm: 900, mag: 32, reserveMax: 160, reload: 1.9, spread: 0.020, adsSpread: 0.008, recoilV: 0.009, recoilH: 0.005, range: 80, auto: true },
+    { name: 'SCAR-H',     type: 'BR',  dmg: 42, rpm: 620, mag: 20, reserveMax: 100, reload: 2.4, spread: 0.011, adsSpread: 0.003, recoilV: 0.020, recoilH: 0.008, range: 140, auto: true },
+    { name: 'SV-98 Marksman', type: 'SR', dmg: 120, rpm: 45, mag: 5, reserveMax: 35, reload: 3.4, spread: 0.055, adsSpread: 0.0006, recoilV: 0.055, recoilH: 0.012, range: 260, auto: false },
+    { name: 'M870 Express', type: 'AR', cls: 'SG', dmg: 16, pellets: 8, rpm: 68, mag: 6, reserveMax: 36, reload: 0.5, spread: 0.02, adsSpread: 0.01, recoilV: 0.05, recoilH: 0.014, range: 32, auto: false },
+    { name: 'M249 SAW',    type: 'AR', cls: 'LMG', dmg: 24, rpm: 760, mag: 100, reserveMax: 300, reload: 5.4, spread: 0.024, adsSpread: 0.006, recoilV: 0.0105, recoilH: 0.0075, range: 120, auto: true },
+    { name: 'M1911',       type: 'SMG', cls: 'PST', sidearm: true, dmg: 34, rpm: 420, mag: 8, reserveMax: 56, reload: 1.5, spread: 0.016, adsSpread: 0.005, recoilV: 0.02, recoilH: 0.006, range: 60, auto: false }
+  ];
+
+  // Minimal THREE stubs required by 30_weapons.js for its module-level
+  // declarations and by buildViewmodel().
+  const builtModels = [];
+  const removedGroups = [];
+  const gunCameraChildren = [];
+  const fakeGunCamera = {
+    add: g => gunCameraChildren.push(g),
+    remove: g => { const i = gunCameraChildren.indexOf(g); if (i >= 0) gunCameraChildren.splice(i, 1); removedGroups.push(g); }
+  };
+  let knifeGroupBuilt = false;
+
+  const ctx = vm.createContext({
+    CORE,
+    Math: Object.create(Math),
+    THREE: {
+      Group: Group,
+      Vector3: Vector3,
+      Raycaster: function () { return { set: noop, intersectObjects: () => [] }; }
+    },
+    CFG: {
+      weapons: weapons,
+      assist: { swayAmp: 0.001, steadyMul: 0.14 },
+      player: { height: 1.7 }
+    },
+    gunCamera: fakeGunCamera,
+    // Stubs for the functions buildViewmodel calls from 32_viewmodels.js —
+    // we only run 30_weapons.js here, so these must be injected manually.
+    buildGunModel: function (g, P, type) {
+      builtModels.push(type);
+      return { muzzleZ: -0.5, muzzleY: 0.05, kick: 1 };
+    },
+    disposeGunModel: function (g) { /* no-op in tests */ },
+    vmFlash: function () { return { visible: false }; },
+    // buildKnife is in 32_viewmodels.js; inject a spy so the knife-tier path
+    // verifies it is called exactly once to initialise knifeGroup.
+    buildKnife: function () { knifeGroupBuilt = true; },
+    knifeGroup: null,
+    // Stubs for everything else 30_weapons.js touches at module level.
+    player: { dead: false, sprinting: false, crouching: false, sliding: false, downed: false, onGround: true, recoilP: 0, recoilY: 0, yaw: 0, pitch: 0, tacT: 0, landStunT: 0, bobPhase: 0, bobAmp: 0 },
+    perks: [],
+    started: false,
+    paused: false,
+    adsDown: () => false,
+    mouse1Down: false,
+    bloom: 0,
+    hSpeedForSpread: 0,
+    adsAmount: 0,
+    gunSwitchT: 1,
+    flashT: 0,
+    swayX: 0,
+    swayY: 0,
+    swayPhase: 0,
+    steadyActive: false,
+    steadyT: 0,
+    _wasSteadyActive: false,
+    plateT: 0,
+    grenadeCharging: false,
+    dryPlayed: false,
+    shotsFired: 0,
+    fireClockT: 0,
+    playSound: noop,
+    playSound3D: noop,
+    updateHudAmmo: noop,
+    updateHudHealth: noop,
+    getLoadout: () => ({}),
+    $id: () => null,
+    keys: {},
+    pressed: {},
+    STEADY_MAX: 3,
+    STEADY_RECOVER: 1,
+    IS_TOUCH: false,
+    getSetting: () => false,
+    _test_builtModels: builtModels,
+    _test_removedGroups: removedGroups,
+    _test_gunCameraChildren: gunCameraChildren,
+    _test_knifeGroupBuilt: () => knifeGroupBuilt
+  });
+  vm.runInContext(source('30_weapons.js'), ctx);
+  return ctx;
+}
+
+test('regression [knife tier]: curW() returns a safe sentinel object (type MELEE, all numerics zero) when weaponsOwned slot is -1', () => {
+  const ctx = createWeaponsContext();
+  // Arm the knife tier: slot 0 = -1, curWeapon = 0.
+  vm.runInContext('weaponsOwned[0] = -1; curWeapon = 0; wState[0] = null;', ctx);
+  const w = vm.runInContext('curW()', ctx);
+  assert.ok(w !== undefined && w !== null, 'curW() must never return undefined or null on knife tier');
+  assert.strictEqual(w.type, 'MELEE', 'sentinel type must be MELEE');
+  assert.strictEqual(w.mag, 0, 'sentinel mag must be 0 (no ammo to display)');
+  assert.strictEqual(w.reserveMax, 0, 'sentinel reserveMax must be 0');
+  assert.strictEqual(w.rpm, 0, 'sentinel rpm must be 0 (no auto fire)');
+  assert.strictEqual(w.spread, 0, 'sentinel spread must be 0');
+  assert.strictEqual(w.adsSpread, 0, 'sentinel adsSpread must be 0');
+  assert.strictEqual(w.name, 'Knife', 'sentinel name must identify the weapon');
+  // Confirm it is frozen so callers cannot accidentally mutate the shared sentinel.
+  assert.strictEqual(Object.isFrozen(w), true, 'the knife sentinel must be frozen');
+});
+
+test('regression [knife tier]: buildViewmodel does not crash and clears the gun group when weaponsOwned[0] === -1', () => {
+  const ctx = createWeaponsContext();
+  // First, build a normal viewmodel so gunGroup is non-null.
+  vm.runInContext('weaponsOwned[0] = 0; curWeapon = 0; wState[0] = { ammo: 30, reserve: 150, reloading: false, reloadT: 0, nextShot: 0 };', ctx);
+  vm.runInContext('buildViewmodel();', ctx);
+  const afterFirstBuild = ctx._test_builtModels.length;
+  assert.strictEqual(afterFirstBuild, 1, 'first buildViewmodel must call buildGunModel once');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 1, 'gun group must be attached to gunCamera after first build');
+
+  // Now switch to knife tier (weaponsOwned[0] = -1).
+  vm.runInContext('weaponsOwned[0] = -1; curWeapon = 0; wState[0] = null;', ctx);
+  // This must not throw.
+  assert.doesNotThrow(() => {
+    vm.runInContext('buildViewmodel();', ctx);
+  }, 'buildViewmodel must not throw on the knife tier');
+
+  // The gun group must have been removed from the gun camera.
+  assert.strictEqual(ctx._test_removedGroups.length, 1, 'the previous gun group must be removed from gunCamera');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 0, 'gunCamera must have no children on the knife tier');
+
+  // buildGunModel must NOT have been called a second time (no gun for knife).
+  assert.strictEqual(ctx._test_builtModels.length, 1, 'buildGunModel must not be called for the knife tier');
+
+  // buildKnife must have been called to initialise the knife mesh.
+  assert.strictEqual(ctx._test_knifeGroupBuilt(), true, 'buildKnife must be called when the knifeGroup is uninitialised');
+});
+
+test('regression [knife tier]: buildViewmodel is idempotent on repeated calls at knife tier', () => {
+  const ctx = createWeaponsContext();
+  vm.runInContext('weaponsOwned[0] = -1; curWeapon = 0; wState[0] = null; knifeGroup = {}; /* already built */', ctx);
+  // Three consecutive knife-tier builds must never crash and must not attach anything.
+  for (let i = 0; i < 3; i++) {
+    assert.doesNotThrow(() => vm.runInContext('buildViewmodel();', ctx),
+      'buildViewmodel must be idempotent on the knife tier (call ' + (i + 1) + ')');
+  }
+  assert.strictEqual(ctx._test_builtModels.length, 0, 'no gun model must be built across all knife-tier calls');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 0, 'gunCamera must stay empty across all knife-tier calls');
+});
+
+test('regression [knife tier]: transitioning gun→knife→gun round-trips the viewmodel without crash or leak', () => {
+  const ctx = createWeaponsContext();
+
+  // Gun tier: build the model.
+  vm.runInContext('weaponsOwned[0] = 0; curWeapon = 0; wState[0] = { ammo: 30, reserve: 150, reloading: false, reloadT: 0, nextShot: 0 }; buildViewmodel();', ctx);
+  assert.strictEqual(ctx._test_builtModels.length, 1, 'gun tier must call buildGunModel once');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 1, 'gun group must be in gunCamera');
+
+  // Knife tier: clear the model.
+  vm.runInContext('weaponsOwned[0] = -1; wState[0] = null; buildViewmodel();', ctx);
+  assert.strictEqual(ctx._test_builtModels.length, 1, 'knife tier must not call buildGunModel again');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 0, 'gunCamera must be empty on knife tier');
+  assert.strictEqual(ctx._test_removedGroups.length, 1, 'old gun group must be detached');
+
+  // Back to a gun tier.
+  vm.runInContext('weaponsOwned[0] = 1; wState[0] = { ammo: 32, reserve: 160, reloading: false, reloadT: 0, nextShot: 0 }; buildViewmodel();', ctx);
+  assert.strictEqual(ctx._test_builtModels.length, 2, 'returning to a gun tier must call buildGunModel again');
+  assert.strictEqual(ctx._test_gunCameraChildren.length, 1, 'gun group must be back in gunCamera');
+});
+
+test('regression [knife tier]: all 20 Gun Game tiers produce valid weaponsOwned entries and correct sentinel/weapon for curW()', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+
+  for (let tier = 0; tier < 20; tier++) {
+    // Force the player to each tier.
+    mode.setTier(c.player, tier);
+    const ladder = CORE.GUN_GAME_LADDER[tier];
+    if (ladder === CORE.GUN_GAME_KNIFE) {
+      // Knife tier: slot 0 must be -1 and weaponsOwned must hold no firearm.
+      assert.strictEqual(c.weaponsOwned[0], -1,
+        'tier ' + (tier + 1) + ' (knife) must set weaponsOwned[0] to -1');
+    } else {
+      // Gun tier: slot 0 must hold the correct CFG.weapons index.
+      assert.strictEqual(c.weaponsOwned[0], ladder,
+        'tier ' + (tier + 1) + ' must equip weapon index ' + ladder);
+      assert.ok(c.CFG.weapons[ladder],
+        'tier ' + (tier + 1) + ' weapon index must resolve to a real CFG entry');
+    }
+  }
+});
+
+test('regression [knife tier]: all 20 bot tiers produce valid ggWeapon and sane dmgMul', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+  const bot = c.enemies.find(e => e.team && e.team.indexOf('ffa_') === 0);
+  assert.ok(bot, 'a bot must be present in the Gun Game roster');
+
+  for (let tier = 0; tier < 20; tier++) {
+    assert.doesNotThrow(() => mode.setTier(bot, tier),
+      'setTier must not throw for bot at tier ' + (tier + 1));
+    if (CORE.GUN_GAME_LADDER[tier] === CORE.GUN_GAME_KNIFE) {
+      // Knife tier for bots: ggWeapon must be the knife sentinel value.
+      assert.strictEqual(bot.ggWeapon, CORE.GUN_GAME_KNIFE,
+        'bot at knife tier must carry the knife sentinel weapon');
+      // At the knife tier bots receive GUN_GAME_KNIFE_DAMAGE_MUL (the design
+      // intent: a knife-tier bot is unusually dangerous in close quarters).
+      assert.strictEqual(bot.dmgMul, CORE.GUN_GAME_KNIFE_DAMAGE_MUL,
+        'bot dmgMul must equal GUN_GAME_KNIFE_DAMAGE_MUL at the knife tier');
+    } else {
+      // Gun tier for bots: ggWeapon must match the ladder entry and the
+      // weapon must exist in CFG.
+      assert.strictEqual(bot.ggWeapon, CORE.GUN_GAME_LADDER[tier],
+        'bot ggWeapon must match the ladder at tier ' + (tier + 1));
+      assert.ok(c.CFG.weapons[bot.ggWeapon],
+        'bot ggWeapon at tier ' + (tier + 1) + ' must resolve to a real CFG entry');
+      assert.ok(typeof bot.dmgMul === 'number' && bot.dmgMul > 0,
+        'bot dmgMul must be a positive number at gun tier ' + (tier + 1));
+    }
+  }
+});
+
+test('regression [knife tier]: repeated knife→gun→knife transitions never leave stale weaponsOwned entries', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+
+  const KNIFE_TIER = 19;
+  const GUN_TIER   = 5;
+
+  for (let round = 0; round < 4; round++) {
+    mode.setTier(c.player, KNIFE_TIER);
+    assert.strictEqual(c.weaponsOwned[0], -1, 'knife tier (round ' + round + ') must clear slot 0');
+
+    mode.setTier(c.player, GUN_TIER);
+    assert.strictEqual(c.weaponsOwned[0], CORE.GUN_GAME_LADDER[GUN_TIER],
+      'gun tier (round ' + round + ') must restore the correct weapon');
+    assert.notStrictEqual(c.weaponsOwned[0], -1, 'slot 0 must not remain -1 after returning to a gun tier');
+  }
+});
+
+test('regression [knife tier]: knife demotion at tier 0 stays at tier 0, not knife tier', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+  clearSpawnProtection(c);
+
+  const floorBot = c.enemies.find(e => e.team && e.team.indexOf('ffa_') === 0);
+  floorBot.spawnProtectionT = 0;
+  mode.setTier(floorBot, 0);
+  // Knife kill: demote victim from tier 0 — must stay at tier 0, never go negative.
+  c.damageEnemy(floorBot, 10000, floorBot.pos, false, false, 'MELEE', c.player);
+  assert.strictEqual(mode.tierOf(floorBot), 0,
+    'demotion at tier 0 must clamp at tier 0, never produce a negative tier');
+  assert.notStrictEqual(mode.tierOf(floorBot), CORE.GUN_GAME_KNIFE,
+    'demotion at tier 0 must never map to the knife sentinel value (-1)');
+});
+
+test('regression [knife tier]: terminal knife kill wins the match, not a gun-only kill at tier 19', () => {
+  // Reaching the knife tier is not enough; only a MELEE kill while holding the
+  // knife wins.  A gun kill (impossible in practice: no gun) or a grenade kill
+  // must not settle the match.
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+  clearSpawnProtection(c);
+
+  const bots = c.enemies.filter(e => e.team && e.team.indexOf('ffa_') === 0);
+  const prey = bots[0];
+  prey.spawnProtectionT = 0;
+
+  // Advance the player to tier 19 (knife).
+  mode.setTier(c.player, 19);
+  assert.strictEqual(mode.isOver(), false, 'being on the knife tier alone must not end the match');
+
+  // A non-credited (grenade) kill must not advance and must not win.
+  // Use prey[0] for the uncredited kill (bot dies, respawns with protection).
+  c.damageEnemy(prey, 10000, prey.pos, false, false, undefined, c.player);
+  assert.strictEqual(mode.tierOf(c.player), 19, 'an uncredited kill at knife tier must not overflow the ladder');
+  assert.strictEqual(mode.isOver(), false, 'an uncredited kill at knife tier must not settle the match');
+
+  // The melee (knife) kill wins — use a DIFFERENT bot (prey[0] is now dead/respawning).
+  const prey2 = bots[1];
+  prey2.spawnProtectionT = 0;
+  c.damageEnemy(prey2, 10000, prey2.pos, false, false, 'MELEE', c.player);
+  assert.strictEqual(mode.tierOf(c.player), 19, 'the ladder must never overflow past tier 19');
+  assert.strictEqual(mode.isOver(), true, 'a credited melee kill at tier 19 must win the match');
+});
+
+test('review R2: production bot update consumes earned gun cadence, damage and knife-only reach', () => {
+  const pending = [], traces = [];
+  const c = createFullMatchContext({ setTimeout: fn => pending.push(fn), spawnTracer: (...args) => traces.push(args), flashLight: noop });
+  addProductionWeapons(c);
+  c.CFG.weapons = vm.runInNewContext(source('10_config_world.js').match(/weapons:\s*(\[[\s\S]*?\n  \]),/)[1]);
+  modeSettings(c); c.setActiveMode('gun-game');
+  const m = c.MODES['gun-game']; m.setup(); clearSpawnProtection(c);
+  const [bot, target] = ffaBots(c);
+  for (const b of ffaBots(c)) if (b !== bot && b !== target) b.dead = true;
+  c.nextEstepT = Infinity; c.started = true; c.paused = false;
+  c.player.pos.set(45, 1.7, 45);
+  target.pos.set(0, 0, 10); target.health = 10000; target.nextShot = Infinity;
+  bot.pos.set(0, 0, 0); bot.state = 'strafe'; bot._losCache = true; bot.nextShot = 0;
+  c.Math.random = () => 0;
+  m.setTier(bot, 4);
+  c.gameT = 10; c.updateEnemies(0.016);
+  assert.equal(traces.length, 1, 'earned firearm must fire through production update ' + JSON.stringify({kind:bot.kind,state:bot.state,next:bot.nextShot,range:c.CFG.ai.rangedRange,los:bot._losCache}));
+  const w = c.CFG.weapons[bot.ggWeapon];
+  assert.ok(Math.abs(bot.nextShot - (10 + 60 / w.rpm)) < 1e-8, 'earned weapon RPM sets cadence');
+  const hp = target.health; pending.splice(0).forEach(fn => fn());
+  assert.equal(hp - target.health, w.dmg * (w.pellets || 1), 'earned weapon damage is applied, not archetype damage');
+  bot.nextShot = 0; bot.state = 'strafe';
+  c.gameT = 11; c.updateEnemies(0.016);
+  assert.equal(pending.length, 1, 'production gun shot must retain an in-flight impact');
+  m.setTier(bot, 19); bot.kind = 1; bot.nextShot = 0; bot.state = 'strafe';
+  target.health = 1; pending.splice(0).forEach(fn => fn());
+  assert.equal(target.dead, true);
+  assert.equal(m.winner, null, 'real delayed firearm impact cannot become terminal melee');
+  target.dead = false; target.health = 10000; target.respawnT = Infinity;
+  target.spawnProtectionT = 0;
+  const shotsBeforeKnife = traces.length;
+  c.gameT = 20; c.updateEnemies(0.016);
+  assert.equal(traces.length, shotsBeforeKnife, 'knife tier must never fire');
+  assert.equal(pending.length, 0, 'knife tier must not queue projectile damage');
+  assert.equal(bot.state, 'chase', 'knife bot must close distance rather than strafe at rifle range');
+  target.pos.set(bot.pos.x, bot.pos.y, bot.pos.z + 1.5); target.health = 1;
+  c.gameT = 21; c.updateEnemies(0.016);
+  c.gameT = 22; c.updateEnemies(0.5);
+  assert.equal(target.dead, true, 'knife bot must land actual close-range melee damage');
+  assert.equal(m.winner, bot, 'production melee kill must credit terminal win');
+});
+
+test('review R3: bot terminal knife win defeats player tied at tier 19', () => {
+  const c = createFullMatchContext(); addProductionWeapons(c); modeSettings(c); c.setActiveMode('gun-game');
+  const m = c.MODES['gun-game']; m.setup(); clearSpawnProtection(c);
+  const [killer, victim] = ffaBots(c); m.setTier(c.player, 19); m.setTier(killer, 19);
+  c.damageEnemy(victim, 10000, victim.pos, false, false, 'MELEE', killer);
+  assert.equal(m.winner, killer); assert.equal(m.isOver(), true);
+  assert.equal(m.outcome().title, 'DEFEAT');
+  assert.equal(c.$id('match-end-title').textContent, 'DEFEAT');
+});
+
+test('review R4: real knife pose updates without a gun and clears on transitions/death', () => {
+  const c = createWeaponsContext();
+  // Real animation module, with renderer-only material/mesh dependencies stubbed.
+  c.TEX = { gunNoise: {}, camo: {} }; c.SKY_ENV = null;
+  c.THREE.MeshStandardMaterial = function(p) { Object.assign(this,p); };
+  c.THREE.Vector2 = Vector3;
+  c.THREE.Color = function() { this.multiplyScalar = () => this; };
+  c.THREE.MeshBasicMaterial = c.THREE.MeshStandardMaterial;
+  c.THREE.Scene = Group; c.THREE.DirectionalLight = c.THREE.HemisphereLight = Group;
+  c.THREE.Quaternion = function() {}; c.LIGHT_COMPAT = 1;
+  const buildGun = c.buildGunModel, disposeGun = c.disposeGunModel, flash = c.vmFlash;
+  vm.runInContext(source('32_viewmodels.js'), c);
+  c.buildGunModel = buildGun; c.disposeGunModel = disposeGun; c.vmFlash = flash;
+  c._knife = new Group(); c._knife.visible = false;
+  c._knife.rotation.set = function(x,y,z) { Object.assign(this,{x,y,z}); };
+  vm.runInContext('knifeGroup=_knife; weaponsOwned[0]=-1; curWeapon=0; wState[0]=null; buildViewmodel(); meleeSwing=0.7;', c);
+  // Execute the real frame, not just the viewmodel helper: its gunGroup gate
+  // previously prevented the knife-only pose from ever being updated.
+  Object.assign(c, { requestAnimationFrame: noop, lastT: 0, contextLost: false,
+    runtimeTelemetry: { enabled: false }, fpsAcc: 0, fpsN: 0,
+    pressed: {}, started: true, paused: true, slideFov: 0,
+    renderer: {}, renderFrame: noop, _camPosOut: {}, swayX: 0,
+    window: { innerWidth: 1280, innerHeight: 720 },
+    getSetting: key => key === 'fov' ? 90 : false });
+  c.camera = { position: new Vector3(), fov: 90, rotation: {}, updateProjectionMatrix: noop };
+  Object.assign(c.player, { pos: new Vector3(), bobPhase: 0, bobAmp: 0, yaw: 0, pitch: 0, recoilY: 0 });
+  const main = source('70_main.js');
+  vm.runInContext(main.slice(main.indexOf('function frame(now)'), main.indexOf('\napplyAllSettings();')), c);
+  const rendered = [];
+  c.scene = {}; c.POST = { enabled: false, kick: 0 };
+  Object.assign(c.renderer, { setRenderTarget: noop, clearDepth: noop,
+    render: scene => rendered.push(scene) });
+  const postfx = source('65_postfx.js');
+  vm.runInContext(postfx.slice(postfx.indexOf('function renderWorld()')), c);
+  c.frame(16);
+  assert.equal(c._knife.visible, true, 'actual knife must be visible without gunGroup');
+  assert.ok(rendered.includes(vm.runInContext('gunScene', c)), 'real renderer must draw knife-only viewmodel scene');
+  const before = c._knife.position.x;
+  vm.runInContext('meleeSwing=0.4;', c); c.updateViewmodel(1/60);
+  assert.notEqual(c._knife.position.x, before, 'actual knife pose must animate');
+  c.player.dead = true; c.frame(32); assert.equal(c._knife.visible, false);
+  c.player.dead = false;
+  vm.runInContext('meleeSwing=0; weaponsOwned[0]=0; buildViewmodel();', c);
+  assert.equal(c._knife.visible, false, 'gun rebuild must not retain stale visible knife');
+  vm.runInContext('weaponsOwned[0]=-1; buildViewmodel();', c); c.updateViewmodel(1/60);
+  assert.equal(c._knife.visible, false, 'idle knife must not retain previous swing');
+});
+
+test('review R5: rebuilt real FFA menu selects persisted two-kill limit', () => {
+  const c = createFullMatchContext(), nodes = [];
+  const create = c.document.createElement;
+  c.document.createElement = tag => { const n = create(tag); nodes.push(n); return n; };
+  modeSettings(c, { ffaScoreLimit: 2 }); c.setActiveMode('ffa');
+  c.buildTdmSettingsRow(); c.buildTdmSettingsRow();
+  const picks = nodes.filter(n => n.id === 'ffa-score-2');
+  assert.equal(picks.length, 2, 'each rebuilt menu must contain the persisted option');
+  assert.ok(picks.every(n => n.className.split(' ').includes('on')), 'saved limit must be visibly selected');
+  assert.equal(c.getSetting('ffaScoreLimit'), 2);
+});
+
+test('review R1: terminal tier rejects firearm and delayed firearm kills', () => {
+  for (const type of ['AR', 'bullet', undefined]) {
+    const pending = [];
+    const c = createFullMatchContext({ setTimeout: fn => pending.push(fn) });
+    addProductionWeapons(c); modeSettings(c); c.setActiveMode('gun-game');
+    const m = c.MODES['gun-game']; m.setup(); clearSpawnProtection(c);
+    const victim = ffaBots(c)[0];
+    // A shot already in flight must retain its firearm identity at impact.
+    c.setTimeout(() => c.damageEnemy(victim, 10000, victim.pos, false, false, type, c.player));
+    m.setTier(c.player, 19);
+    pending.shift()();
+    assert.equal(victim.dead, true);
+    assert.equal(m.isOver(), false, String(type) + ' must not win the knife tier');
+    assert.equal(m.winner, null);
+    const next = ffaBots(c).find(b => !b.dead);
+    c.damageEnemy(next, 10000, next.pos, false, false, 'MELEE', c.player);
+    assert.equal(m.winner, c.player);
+    assert.equal(c.$id('match-end-title').textContent, 'VICTORY');
+  }
+});
+
+test('regression [knife tier]: match settlement freeze persists after knife-tier terminal kill', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c);
+  modeSettings(c);
+  c.setActiveMode('gun-game');
+  c.MODES['gun-game'].setup();
+  const mode = c.MODES['gun-game'];
+  clearSpawnProtection(c);
+
+  mode.setTier(c.player, 19);
+  const prey = c.enemies.find(e => e.team && e.team.indexOf('ffa_') === 0);
+  prey.spawnProtectionT = 0;
+  c.damageEnemy(prey, 10000, prey.pos, false, false, 'MELEE', c.player);
+  assert.strictEqual(mode.isOver(), true, 'match must be settled');
+
+  // Any further damage must be ignored.
+  const prey2 = c.enemies.find(e => e.team && e.team.indexOf('ffa_') === 0 && e !== prey);
+  if (prey2) {
+    prey2.spawnProtectionT = 0;
+    const healthBefore = prey2.health;
+    c.damageEnemy(prey2, 5000, prey2.pos, false, false, 'MELEE', c.player);
+    assert.strictEqual(prey2.health, healthBefore, 'damage must be frozen after terminal knife kill');
+    assert.strictEqual(prey2.dead, false, 'settled match must not allow further kills');
+  }
+
+  // Timer must stop.
+  const timeBefore = mode.timeLeft;
+  mode.update(5);
+  assert.strictEqual(mode.timeLeft, timeBefore, 'the timer must freeze after settlement');
 });

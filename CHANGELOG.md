@@ -4,6 +4,34 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v174.1 — Gun Game knife-tier viewmodel crash fix (PR7 CI failure)
+
+- **Root cause (`src/30_weapons.js`).** At Gun Game tier 19 (the Knife), `applyGunGamePlayerLoadout`
+  sets all `weaponsOwned` slots to `–1` (no firearm) and then calls `buildViewmodel()`.
+  `buildViewmodel` read `CFG.weapons[weaponsOwned[curWeapon]]` = `CFG.weapons[–1]` = `undefined`,
+  then accessed `.cls` on that → `TypeError: Cannot read properties of undefined (reading 'cls')`.
+  The same `undefined` reached every `curW()` caller in the render loop (`70_main.js` line ~1316
+  `curW().type`, line ~1349 `curW().type` for the FOV zoom), `30_weapons.js` `updateViewmodel`,
+  and `updateSway` — crashing the whole frame-update path.
+- **Fix 1 — `_KNIFE_WEAPON_SENTINEL` constant.** A `const _KNIFE_WEAPON_SENTINEL = Object.freeze({
+  name:'Knife', type:'MELEE', … })` is added at module level in `src/30_weapons.js`.
+  `curW()` returns the sentinel instead of `CFG.weapons[-1]` when `weaponsOwned[curWeapon] < 0`.
+  Every caller that previously crashed now gets a safe object with zero-valued numerics and
+  `type:'MELEE'` (not in the viewmodel builder table, so no model attempt is made).
+- **Fix 2 — `buildViewmodel` early-exit for knife tier.** When `gi < 0`, `buildViewmodel`
+  now tears down any existing gun group (removes it from `gunCamera`, disposes geometry,
+  nulls `gunGroup`/`vmTune`/`gunParts`/`muzzleFlash`) and returns early, ensuring
+  `updateViewmodel`'s existing `if (!gunGroup) return` guard fires each frame.
+  `buildKnife()` (the separate melee mesh in `32_viewmodels.js`) is called lazily if
+  `knifeGroup` has not been built yet, so the first melee strike on the knife tier
+  renders correctly.
+- **Coverage — 10 new regression tests (`tests/test_modes_and_teams.js`, 73 total).** Tests span
+  the complete knife-tier lifecycle: `curW()` sentinel shape/frozen status, `buildViewmodel`
+  no-crash, idempotency, round-trip gun→knife→gun, all 20 ladder tiers player and bot,
+  repeated knife↔gun transitions, floor-clamp demotion, terminal knife win only on credited
+  MELEE kill, and post-settlement damage freeze. All 421 core tests and all 15 release-build
+  tests remain green.
+
 ## v174 — Milestone 2 completion: Free-for-All, Domination and Gun Game
 
 - **Free-for-All (`src/35_modes.js`, `src/70_main.js`, `src/01_core.js`).** 8 actors (player + 7 bots) where every actor is its own faction (`ffa_you`, `ffa_1…ffa_7`), first to 30 kills over a 600 s clock, with deploy options for the kill limit (`ffaScoreLimit`) and actor budget (`ffaActorCount`).

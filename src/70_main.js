@@ -577,7 +577,7 @@ function buildTdmSettingsRow() {
       return (typeof v === 'number' && isFinite(v) && v >= min) ? v : fallback;
     };
     if (modeId === 'ffa') {
-      const curScore = setting('ffaScoreLimit', 30, 5);
+      const curScore = setting('ffaScoreLimit', 30, 2);
       const scoreGroup = groupLabel('SCORE:');
       choices(scoreGroup, 'ffa-score-', [30, 15, 5, 2], curScore, null, function (v) {
         if (MODES.ffa) MODES.ffa.targetScore = v;
@@ -1369,8 +1369,10 @@ function frame(now) {
   }
 
   // pose the viewmodel for THIS frame, then draw world + gun (65_postfx.js)
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead) {
     updateViewmodel(dt);
+  } else if (typeof poseMeleeKnife === 'function') {
+    poseMeleeKnife();
   }
   renderer.autoClear = true;
   renderFrame(dt);

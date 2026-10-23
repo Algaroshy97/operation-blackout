@@ -158,7 +158,7 @@ function postKick(amount) { POST.kick = Math.min(1, POST.kick + amount); }
 // World first, then the viewmodel over a cleared depth buffer (32_viewmodels.js).
 function renderWorld() {
   renderer.render(scene, camera);
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead && (gunGroup || (typeof knifeGroup !== 'undefined' && knifeGroup && knifeGroup.visible))) {
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(gunScene, gunCamera);

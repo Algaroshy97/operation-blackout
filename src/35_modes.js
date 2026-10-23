@@ -870,7 +870,7 @@ MODES.ffa = {
   actors: 8,
   roster: [],
   setup: function () {
-    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 5, scoreMax: 100, actorsKey: 'ffaActorCount' });
+    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 2, scoreMax: 100, actorsKey: 'ffaActorCount' });
   },
   playerScore: ffaPlayerKills,
   leaderKills: function () { return ffaLeaderKills(this); },
@@ -1192,7 +1192,7 @@ function applyGunGamePlayerLoadout(mode) {
   if (weapon >= 0 && weaponsOwned.length > 0) weaponsOwned[0] = weapon;
   if (typeof curWeapon !== 'undefined') curWeapon = 0;
   if (typeof pendingSecondary !== 'undefined') pendingSecondary = -1;
-  if (typeof initWeapons === 'function') initWeapons();
+  if (typeof initWeapons === 'function') initWeapons({ restrictedSlots: true });
   if (typeof buildViewmodel === 'function') buildViewmodel();
   if (typeof updateHudAmmo === 'function') updateHudAmmo();
 }
@@ -1255,7 +1255,7 @@ MODES['gun-game'] = {
     }
     if (r.credited && killer) {
       if (CORE.gunGameIsKnifeTier(this.tierOf(killer))) {
-        won = true;                       // the knife owner landed the final kill
+        won = r.isHostileKill && CORE.gunGameMeleeKill(r.damageType);
       } else {
         killer.tier = CORE.gunGameAdvance(this.tierOf(killer), 1);
         this.onRespawn(killer);
@@ -1302,5 +1302,9 @@ MODES['gun-game'] = {
       note: 'FINAL TIER IS THE KNIFE'
     };
   },
-  outcome: function () { return ffaOutcome(this, true); }
+  outcome: function () {
+    const result = ffaOutcome(this, true);
+    if (this.winner) result.title = this.winner === ffaPlayer() || this.winner.isPlayer ? 'VICTORY' : 'DEFEAT';
+    return result;
+  }
 };

@@ -12,6 +12,18 @@ let wState = [];                // per owned slot: {ammo, reserve, reloading, re
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
+// Sentinel returned by curW() when the player carries only the knife (Gun Game
+// tier 19).  Every consumer of curW() already does optional-chaining or uses
+// the value only for type/spread/recoil queries, all of which are safe with
+// these defaults.  The type 'MELEE' is not in the viewmodel builder table, so
+// buildGunModel falls back to vmBuildAR — but buildViewmodel() never calls it
+// for a knife slot (it tears down the gun group instead), so this entry is
+// purely for the HUD and gameplay-loop callers.
+const _KNIFE_WEAPON_SENTINEL = Object.freeze({
+  name: 'Knife', type: 'MELEE', dmg: 0, rpm: 0, mag: 0, reserveMax: 0,
+  reload: 0, spread: 0, adsSpread: 0, recoilV: 0, recoilH: 0, range: 0,
+  auto: false
+});
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
   return -1;
@@ -50,8 +62,9 @@ function syncSidearmSlot() {
   weaponsOwned[SIDEARM_SLOT] = pi;
   if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
-function initWeapons() {
-  syncMarksmanSlot();
+function initWeapons(options) {
+  // Ladder modes own every slot; ordinary deploys still receive bonus weapons.
+  if (!options || !options.restrictedSlots) syncMarksmanSlot();
   wState = [];
   for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
@@ -77,7 +90,11 @@ function initWeapons() {
 function curW() {
   const s = wState[curWeapon];
   if (s && s.eff) return s.eff;
-  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+  if (s && s.up) return s.up;
+  // Gun Game knife tier: all weapon slots are -1, so CFG.weapons[-1] is
+  // undefined.  Return the sentinel so every curW() caller has a safe object.
+  const gi = weaponsOwned[curWeapon];
+  return (gi >= 0) ? CFG.weapons[gi] : _KNIFE_WEAPON_SENTINEL;
 }
 // Recompute a slot's effective stats. Must be called whenever the loadout, the
 // weapon or the armory upgrade changes — there is no other path that updates it.
@@ -615,12 +632,26 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 let vmTune = null;
 
 function buildViewmodel() {
+  meleeSwing = 0;
+  if (typeof knifeGroup !== 'undefined' && knifeGroup) knifeGroup.visible = false;
   if (gunGroup) {
     gunCamera.remove(gunGroup);
     disposeGunModel(gunGroup);
+    gunGroup = null;
+    vmTune = null;
+    gunParts = { bolt: null, mag: null, handL: null, handR: null };
+    muzzleFlash = null;
+  }
+  const gi = weaponsOwned[curWeapon];
+  // Gun Game knife tier: no firearm to render.  The knife mesh lives in
+  // knifeGroup (built lazily in 32_viewmodels.js) and is shown by
+  // poseViewmodel during the melee swing.  Ensure it exists so the first
+  // melee strike on the knife tier does not silently fail.
+  if (gi < 0) {
+    if (typeof buildKnife === 'function' && !knifeGroup) buildKnife();
+    return;
   }
   gunGroup = new THREE.Group();
-  const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
   vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
@@ -631,6 +662,7 @@ function buildViewmodel() {
 
 // per-frame viewmodel pose
 function updateViewmodel(dt) {
+  if (typeof poseMeleeKnife === 'function') poseMeleeKnife();
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;

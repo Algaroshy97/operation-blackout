@@ -682,14 +682,6 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
   CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
   py += _vmDodgeOut.posY; rx += _vmDodgeOut.rotX; rz += _vmDodgeOut.rotZ;
-  if (knifeGroup) {
-    knifeGroup.visible = meleeSwing > 0 && !player.dead;
-    if (knifeGroup.visible) {
-      CORE.stepMeleeKnifePose(mk, _vmKnifeOut);
-      knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
-      knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
-    }
-  }
   // narrow screens: pull the hip pose toward the centre so the gun stays on screen
   px -= CORE.viewmodelNarrowOffset(camera.aspect || 1, px, hipK);
   g.position.set(px, py, pz);
@@ -704,6 +696,15 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
 // Muzzle position in world space. The gun is drawn by gunCamera with its own FOV,
 // so its view-space offset is rescaled into the world camera's frustum first.
 const _mzV = new THREE.Vector3();
+function poseMeleeKnife() {
+  if (!knifeGroup) return;
+  knifeGroup.visible = meleeSwing > 0 && !player.dead;
+  if (!knifeGroup.visible) return;
+  CORE.stepMeleeKnifePose(1 - meleeSwing, _vmKnifeOut);
+  knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
+  knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
+}
+
 function muzzleWorldPos(out) {
   if (!gunParts.muzzle || !gunGroup) return out.copy(camera.position);
   gunGroup.updateMatrixWorld(true);
