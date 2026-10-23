@@ -477,7 +477,7 @@
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>
-<div id="match-hud" class="hud" style="display:none;top:20px;left:50%;transform:translateX(-50%);text-align:center;color:#fff;text-shadow:0 1px 4px #000"><div id="match-timer" style="font-size:16px;letter-spacing:2px;font-weight:700">05:00</div><div id="match-score-bar" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:2px;font-size:24px;font-weight:800"><span id="match-score-friendly" style="color:#38b6ff">0</span><span style="opacity:.6;font-size:16px">—</span><span id="match-score-enemy" style="color:#ff4030">0</span></div></div>
+<div id="match-hud" class="hud" style="display:none;top:20px;left:50%;transform:translateX(-50%);text-align:center;color:#fff;text-shadow:0 1px 4px #000"><div id="match-timer" style="font-size:16px;letter-spacing:2px;font-weight:700">05:00</div><div id="match-score-bar" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:2px;font-size:24px;font-weight:800"><span id="match-score-friendly" style="color:#38b6ff">0</span><span style="opacity:.6;font-size:16px">—</span><span id="match-score-enemy" style="color:#ff4030">0</span></div><div id="match-hud-note" style="margin-top:2px;font-size:12px;letter-spacing:1px;opacity:.85">FIRST TO 75</div></div>
 <div id="killfeed" class="hud"></div>
 <div id="health-container" class="hud"><div class="health-bar-bg"><div id="health-bar"></div></div><span id="health-num">100</span></div>
 <div id="armor-container" class="hud"><div class="armor-bar-bg"><div id="armor-bar"></div></div></div>
@@ -5078,9 +5078,13 @@ const CORE = (function () {
     reducedMotion: { type: 'bool', def: false, label: 'Reduce camera motion' },
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
-    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm'], label: 'Game mode' },
+    gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
-    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' }
+    tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
+    ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
+    ffaScoreLimit: { type: 'number', def: 30, min: 2, max: 100, step: 1, label: 'FFA score limit' },
+    dominationScoreLimit: { type: 'number', def: 200, min: 50, max: 500, step: 25, label: 'Domination score limit' },
+    gunGameActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'Gun Game actors' }
   };
 
   function defaultSettings() {
@@ -11071,10 +11075,15 @@ const CORE = (function () {
     };
   }
 
+  const MATCH_MODE_IDS = ['tdm', 'ffa', 'domination', 'gun-game'];
+  function isMatchModeId(modeId) {
+    return MATCH_MODE_IDS.indexOf(modeId) >= 0;
+  }
+
   function isModeOver(modeId, state) {
     const s = state || {};
     if (s.gameEnded) return true;
-    if (modeId === 'tdm') {
+    if (isMatchModeId(modeId)) {
       const target = _isNum(s.targetScore) ? s.targetScore : 25;
       if ((_isNum(s.friendlyScore) && s.friendlyScore >= target) ||
           (_isNum(s.enemyScore) && s.enemyScore >= target)) return true;
@@ -11085,6 +11094,81 @@ const CORE = (function () {
       return !!(s.playerDead && !s.playerDowned);
     }
     return false;
+  }
+
+  const DOMINATION_FLAG_NAMES = ['A', 'B', 'C'];
+  const DOMINATION_FLAG_POINTS = [[-18, 0], [0, 18], [18, 0]];
+  const DOMINATION_CAPTURE_SECONDS = 5;
+  const DOMINATION_FLAG_RADIUS = 4;
+  const DOMINATION_POINTS_PER_FLAG_SEC = 1;
+  const DOMINATION_DEFEND_RADIUS = 12;
+
+  function flagCaptureStep(capture, dt, present, contested, seconds) {
+    const c = _isNum(capture) ? capture : 0;
+    const d = _isNum(dt) ? dt : 0;
+    const limit = _isNum(seconds) ? seconds : DOMINATION_CAPTURE_SECONDS;
+    const q = function (v) { return Math.round(v * 1000) / 1000; };
+    if (contested) return Math.min(limit, Math.max(0, c));
+    if (!present) return q(Math.max(0, c - d));   // abandoned: the partial capture decays
+    return Math.min(limit, q(c + d));
+  }
+
+  function flagScoreStep(acc, ownedCount, dt, perSecond) {
+    const a = _isNum(acc) ? acc : 0;
+    const n = _isNum(ownedCount) ? ownedCount : 0;
+    const d = _isNum(dt) ? dt : 0;
+    const per = _isNum(perSecond) ? perSecond : DOMINATION_POINTS_PER_FLAG_SEC;
+    const total = a + n * per * d;
+    const points = Math.floor(total);
+    return { points: points, acc: total - points };
+  }
+
+  const GUN_GAME_KNIFE = -1;
+  const GUN_GAME_TIER_COUNT = 20;
+  const GUN_GAME_LADDER = [
+    0, 1, 4, 6, 2, 5, 3,
+    0, 1, 4, 6, 2, 5, 3,
+    3, 5, 2, 3, 5,
+    GUN_GAME_KNIFE
+  ];
+  const GUN_GAME_BOT_DAMAGE_MIN = 0.6;
+  const GUN_GAME_BOT_DAMAGE_MAX = 1.6;
+  const GUN_GAME_KNIFE_DAMAGE_MUL = 1.6;
+  const FREE_FOR_ALL_MAX_ACTORS = 8;
+
+  function gunGameTierWeapon(tier) {
+    const t = _isNum(tier) ? Math.floor(tier) : 0;
+    if (t <= 0) return GUN_GAME_LADDER[0];
+    if (t >= GUN_GAME_LADDER.length) return GUN_GAME_LADDER[GUN_GAME_LADDER.length - 1];
+    return GUN_GAME_LADDER[t];
+  }
+
+  function gunGameIsKnifeTier(tier) {
+    const t = _isNum(tier) ? Math.floor(tier) : -1;
+    if (t === GUN_GAME_KNIFE) return true;
+    return gunGameTierWeapon(t) === GUN_GAME_KNIFE;
+  }
+
+  function gunGameAdvance(tier, delta) {
+    const t = _isNum(tier) ? Math.floor(tier) : 0;
+    const d = _isNum(delta) ? Math.floor(delta) : 0;
+    return Math.max(0, Math.min(GUN_GAME_TIER_COUNT - 1, t + d));
+  }
+
+  function gunGameCreditedKill(damageType) {
+    if (typeof damageType !== 'string' || !damageType) return false;
+    return !/GRENADE|FRAG|EXPLOSION|SENTRY|FIRE|BURN|FALL|ENV/i.test(damageType);
+  }
+
+  function gunGameMeleeKill(damageType) {
+    return typeof damageType === 'string' && damageType.toUpperCase() === 'MELEE';
+  }
+
+  function gunGameBotDamageMul(weaponDmg, baselineDmg) {
+    if (!_isNum(weaponDmg) || weaponDmg <= 0) return 1;
+    if (!_isNum(baselineDmg) || baselineDmg <= 0) return 1;
+    const raw = weaponDmg / baselineDmg;
+    return Math.min(GUN_GAME_BOT_DAMAGE_MAX, Math.max(GUN_GAME_BOT_DAMAGE_MIN, Math.round(raw * 100) / 100));
   }
 
   const RESPAWN_DELAY = 3.0;
@@ -11570,7 +11654,12 @@ const CORE = (function () {
     SIDEARM_QUICK_DRAW, shouldQuickDrawSidearm,
     BREACHER_RANGE, BREACHER_ROF, BREACHER_PELLETS, BREACHER_PELLET_SHARE,
     breacherPelletHitChance, canBreacherFire, breacherPelletHits,
-    isHostile, pickNearestHostile, modeScoreboardData, isModeOver,
+    isHostile, pickNearestHostile, modeScoreboardData, isModeOver, MATCH_MODE_IDS, isMatchModeId,
+    DOMINATION_FLAG_NAMES, DOMINATION_FLAG_POINTS, DOMINATION_CAPTURE_SECONDS, DOMINATION_FLAG_RADIUS,
+    DOMINATION_POINTS_PER_FLAG_SEC, DOMINATION_DEFEND_RADIUS, flagCaptureStep, flagScoreStep,
+    GUN_GAME_KNIFE, GUN_GAME_TIER_COUNT, GUN_GAME_LADDER, GUN_GAME_BOT_DAMAGE_MIN,
+    GUN_GAME_BOT_DAMAGE_MAX, GUN_GAME_KNIFE_DAMAGE_MUL, FREE_FOR_ALL_MAX_ACTORS, gunGameTierWeapon,
+    gunGameIsKnifeTier, gunGameAdvance, gunGameCreditedKill, gunGameMeleeKill, gunGameBotDamageMul,
     RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
     teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
@@ -11683,7 +11772,7 @@ function applySetting(key) {
       if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
         break;
       }
-      if (typeof setActiveMode === 'function' && (SETTINGS.gameMode === 'tdm' || SETTINGS.gameMode === 'survival')) {
+      if (typeof setActiveMode === 'function' && typeof MODES !== 'undefined' && MODES[SETTINGS.gameMode]) {
         setActiveMode(SETTINGS.gameMode);
       }
       break;
@@ -13303,8 +13392,13 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  const isSettled = (typeof matchSettled === 'function')
+    ? matchSettled()
+    : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
   if (isSettled) return;
+  const attackerMul = (typeof actorDamageMul === 'function') ? actorDamageMul(attacker) : 1;
+  if (attackerMul !== 1) amount = amount * attackerMul;
+  player.lastDamageType = (typeof damageType === 'string' && damageType) ? damageType : undefined;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
   if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -13975,6 +14069,11 @@ let wState = [];                // per owned slot: {ammo, reserve, reloading, re
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
+const _KNIFE_WEAPON_SENTINEL = Object.freeze({
+  name: 'Knife', type: 'MELEE', dmg: 0, rpm: 0, mag: 0, reserveMax: 0,
+  reload: 0, spread: 0, adsSpread: 0, recoilV: 0, recoilH: 0, range: 0,
+  auto: false
+});
 function marksmanIndex() {
   for (let i = 0; i < CFG.weapons.length; i++) if (CFG.weapons[i].type === 'SR') return i;
   return -1;
@@ -14009,8 +14108,8 @@ function syncSidearmSlot() {
   weaponsOwned[SIDEARM_SLOT] = pi;
   if (pi >= 0 && wState.length) freshWeaponState(SIDEARM_SLOT);
 }
-function initWeapons() {
-  syncMarksmanSlot();
+function initWeapons(options) {
+  if (!options || !options.restrictedSlots) syncMarksmanSlot();
   wState = [];
   for (let i = 0; i < weaponsOwned.length; i++) {
     const gi = weaponsOwned[i];
@@ -14028,7 +14127,9 @@ function initWeapons() {
 function curW() {
   const s = wState[curWeapon];
   if (s && s.eff) return s.eff;
-  return (s && s.up) ? s.up : CFG.weapons[weaponsOwned[curWeapon]];
+  if (s && s.up) return s.up;
+  const gi = weaponsOwned[curWeapon];
+  return (gi >= 0) ? CFG.weapons[gi] : _KNIFE_WEAPON_SENTINEL;
 }
 function refreshWeaponStats(slot) {
   const s = wState[slot];
@@ -14498,12 +14599,22 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 let vmTune = null;
 
 function buildViewmodel() {
+  meleeSwing = 0;
+  if (typeof knifeGroup !== 'undefined' && knifeGroup) knifeGroup.visible = false;
   if (gunGroup) {
     gunCamera.remove(gunGroup);
     disposeGunModel(gunGroup);
+    gunGroup = null;
+    vmTune = null;
+    gunParts = { bolt: null, mag: null, handL: null, handR: null };
+    muzzleFlash = null;
+  }
+  const gi = weaponsOwned[curWeapon];
+  if (gi < 0) {
+    if (typeof buildKnife === 'function' && !knifeGroup) buildKnife();
+    return;
   }
   gunGroup = new THREE.Group();
-  const gi = weaponsOwned[curWeapon];
   const P = { bolt: null, mag: null, handL: null, handR: null };
   vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
   gunParts = P;
@@ -14513,6 +14624,7 @@ function buildViewmodel() {
 }
 
 function updateViewmodel(dt) {
+  if (typeof poseMeleeKnife === 'function') poseMeleeKnife();
   if (!gunGroup) return;
   const w = curW();
   const aimAds = adsDown() && !player.sprinting && gunSwitchT >= 1;
@@ -15253,14 +15365,6 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
   CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
   py += _vmDodgeOut.posY; rx += _vmDodgeOut.rotX; rz += _vmDodgeOut.rotZ;
-  if (knifeGroup) {
-    knifeGroup.visible = meleeSwing > 0 && !player.dead;
-    if (knifeGroup.visible) {
-      CORE.stepMeleeKnifePose(mk, _vmKnifeOut);
-      knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
-      knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
-    }
-  }
   px -= CORE.viewmodelNarrowOffset(camera.aspect || 1, px, hipK);
   g.position.set(px, py, pz);
   g.rotation.set(rx, ry, rz);
@@ -15271,6 +15375,15 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
 }
 
 const _mzV = new THREE.Vector3();
+function poseMeleeKnife() {
+  if (!knifeGroup) return;
+  knifeGroup.visible = meleeSwing > 0 && !player.dead;
+  if (!knifeGroup.visible) return;
+  CORE.stepMeleeKnifePose(1 - meleeSwing, _vmKnifeOut);
+  knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);
+  knifeGroup.rotation.set(_vmKnifeOut.rotX, _vmKnifeOut.rotY, _vmKnifeOut.rotZ);
+}
+
 function muzzleWorldPos(out) {
   if (!gunParts.muzzle || !gunGroup) return out.copy(camera.position);
   gunGroup.updateMatrixWorld(true);
@@ -15285,7 +15398,42 @@ function muzzleWorldPos(out) {
 'use strict';
 
 var MODES = Object.create(null);
-var activeModeId = (typeof getSetting === 'function' && (getSetting('gameMode') === 'tdm' || getSetting('gameMode') === 'survival'))
+var MATCH_MODE_IDS = (typeof CORE !== 'undefined' && CORE.MATCH_MODE_IDS) ? CORE.MATCH_MODE_IDS : ['tdm', 'ffa', 'domination', 'gun-game'];
+
+function isKnownModeId(id) {
+  return id === 'survival' || MATCH_MODE_IDS.indexOf(id) >= 0;
+}
+
+function isMatchMode(mode) {
+  return !!(mode && mode.id && mode.id !== 'survival');
+}
+
+function matchSettled() {
+  if (typeof gameEnded !== 'undefined' && gameEnded) return true;
+  const active = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+  if (!isMatchMode(active)) return false;
+  return (typeof active.isOver === 'function') ? !!active.isOver() : false;
+}
+
+function matchHudView(mode) {
+  if (!isMatchMode(mode)) return null;
+  if (typeof mode.hudModel === 'function') return mode.hudModel();
+  return {
+    time: (typeof mode.timeLeft === 'number') ? mode.timeLeft : 0,
+    left: mode.friendlyScore || 0,
+    right: mode.enemyScore || 0,
+    note: ''
+  };
+}
+
+function modeSettingNum(key, fallback, min, max) {
+  if (typeof getSetting !== 'function') return fallback;
+  const v = getSetting(key);
+  if (typeof v !== 'number' || !isFinite(v) || v < min || v > max) return fallback;
+  return v;
+}
+
+var activeModeId = (typeof getSetting === 'function' && isKnownModeId(getSetting('gameMode')))
   ? getSetting('gameMode')
   : 'survival';
 
@@ -15302,7 +15450,8 @@ function updateMatchHud(mode) {
   const matchHud = (typeof $id === 'function') ? $id('match-hud') : document.getElementById('match-hud');
   const waveHud = (typeof $id === 'function') ? $id('wave-hud') : document.getElementById('wave-hud');
   if (!matchHud) return;
-  if (!mode || mode.id !== 'tdm') {
+  const view = matchHudView(mode);
+  if (!view) {
     matchHud.style.display = 'none';
     if (waveHud) waveHud.style.display = '';
     return;
@@ -15312,14 +15461,16 @@ function updateMatchHud(mode) {
   const timerEl = (typeof $id === 'function') ? $id('match-timer') : document.getElementById('match-timer');
   const fScoreEl = (typeof $id === 'function') ? $id('match-score-friendly') : document.getElementById('match-score-friendly');
   const eScoreEl = (typeof $id === 'function') ? $id('match-score-enemy') : document.getElementById('match-score-enemy');
+  const noteEl = (typeof $id === 'function') ? $id('match-hud-note') : document.getElementById('match-hud-note');
   if (timerEl) {
-    const t = Math.max(0, mode.timeLeft || 0);
+    const t = Math.max(0, view.time || 0);
     const mins = Math.floor(t / 60);
     const secs = Math.floor(t % 60);
     timerEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
   }
-  if (fScoreEl) fScoreEl.textContent = String(mode.friendlyScore || 0);
-  if (eScoreEl) eScoreEl.textContent = String(mode.enemyScore || 0);
+  if (fScoreEl) fScoreEl.textContent = String(view.left);
+  if (eScoreEl) eScoreEl.textContent = String(view.right);
+  if (noteEl) noteEl.textContent = String(view.note || '');
 }
 
 function setActiveMode(id) {
@@ -15792,6 +15943,725 @@ MODES.tdm = {
     if (typeof gameEnded !== 'undefined') gameEnded = true;
     clearModeRespawns();
     if (typeof showMatchEndScreen === 'function') showMatchEndScreen(this);
+  }
+};
+
+
+function purgeMatchBots(mode, prefix) {
+  if (!mode) return;
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  for (let i = 0; i < roster.length; i++) {
+    const act = roster[i];
+    if (act && !act.isPlayer) {
+      if (act.parts && act.parts.group && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(act.parts.group);
+      if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(act);
+    }
+  }
+  if (typeof enemies !== 'undefined' && Array.isArray(enemies)) {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (!en) continue;
+      const inRoster = roster.indexOf(en) >= 0;
+      const prefixed = prefix && typeof en.team === 'string' && en.team.indexOf(prefix) === 0;
+      const strayFriendly = (!prefix && en.team === 'friendly') || (typeof en.team === 'string' && en.team.indexOf('ffa_') === 0);
+      if (inRoster || prefixed || strayFriendly) {
+        if (en.parts && en.parts.group && typeof scene !== 'undefined' && scene && scene.remove) scene.remove(en.parts.group);
+        if (typeof disposeEnemyGeometry === 'function') disposeEnemyGeometry(en);
+        enemies.splice(i, 1);
+      }
+    }
+  }
+  mode.roster = [];
+}
+
+function clearAllMatchRosters() {
+  if (typeof MODES === 'undefined') return;
+  for (const id in MODES) {
+    const m = MODES[id];
+    if (!m || !Array.isArray(m.roster) || m.roster.length === 0) continue;
+    purgeMatchBots(m, null);
+  }
+}
+
+function matchSpawnPointAt(idx) {
+  const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints()
+    : ((typeof spawnPoints !== 'undefined' && Array.isArray(spawnPoints)) ? spawnPoints : []);
+  if (sp && sp.length > 0) return sp[idx % sp.length];
+  return [(idx % 4) * 6 - 9, ((idx / 4) | 0) * 6 + 10];
+}
+
+function ffaFactionTeam(index) {
+  return 'ffa_' + index;
+}
+
+function spawnFreeForAllRoster(mode, count) {
+  if (typeof spawnEnemy !== 'function') return;
+  const total = Math.max(2, Math.min(CORE.FREE_FOR_ALL_MAX_ACTORS, count | 0));
+  for (let i = 1; i < total; i++) {
+    const pt = matchSpawnPointAt(i - 1);
+    const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+    const bot = spawnEnemy(kind, pt[0], pt[1], { team: ffaFactionTeam(i), spawnProtection: true });
+    if (bot) {
+      bot.id = ffaFactionTeam(i);
+      bot.name = 'RIVAL ' + (i + 1);
+      bot.kills = 0;
+      bot.deaths = 0;
+      bot.tier = 0;
+      mode.roster.push(bot);
+    }
+  }
+}
+
+function actorTeamOf(actor) {
+  if (!actor) return 'enemy';
+  if (actor.team) return actor.team;
+  return actor.isPlayer ? 'friendly' : 'enemy';
+}
+
+function liveActors() {
+  const out = [];
+  const p = (typeof player !== 'undefined') ? player : null;
+  if (p && !p.dead) out.push(p);
+  const list = (typeof enemies !== 'undefined' && Array.isArray(enemies)) ? enemies : [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e && !e.dead && e !== p) out.push(e);
+  }
+  return out;
+}
+
+function actorInsideFlag(actor, flag, radius) {
+  if (!actor || !actor.pos || !flag) return false;
+  const dx = actor.pos.x - flag.x;
+  const dz = actor.pos.z - flag.z;
+  const r = (typeof radius === 'number') ? radius : CORE.DOMINATION_FLAG_RADIUS;
+  return (dx * dx + dz * dz) <= r * r;
+}
+
+function hideMatchOverlays() {
+  if (typeof document === 'undefined') return;
+  const endScreen = document.getElementById('match-end-screen');
+  if (endScreen) endScreen.style.display = 'none';
+  const deathScreen = document.getElementById('death-screen');
+  if (deathScreen) deathScreen.style.display = 'none';
+}
+
+function ffaDeploy(mode, def) {
+  clearModeRespawns();
+  mode._ended = false;
+  mode._settled = false;
+  mode.winner = null;
+  purgeMatchBots(mode, 'ffa_');
+  if (def.scoreKey) mode.targetScore = modeSettingNum(def.scoreKey, mode.targetScore, def.scoreMin, def.scoreMax);
+  mode.actors = modeSettingNum(def.actorsKey, CORE.FREE_FOR_ALL_MAX_ACTORS, 2, CORE.FREE_FOR_ALL_MAX_ACTORS);
+  mode.timeLeft = mode.matchDuration;
+  if (typeof gameEnded !== 'undefined') gameEnded = false;
+  const p = (typeof player !== 'undefined') ? player : null;
+  if (p) {
+    p.team = 'ffa_you';
+    p.isPlayer = true;
+    p.kills = 0;
+    p.deaths = 0;
+    p.downed = false;
+    p.downedBy = null;
+    p.lastAttacker = null;
+    p.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION;
+    if (def.prepareActor) def.prepareActor(p);
+    mode.roster.push(p);
+  }
+  spawnFreeForAllRoster(mode, mode.actors);
+  const roster = mode.roster;
+  for (let i = 0; i < roster.length; i++) {
+    const a = roster[i];
+    if (a && !a.isPlayer && def.prepareActor) def.prepareActor(a);
+  }
+  hideMatchOverlays();
+  updateMatchHud(mode);
+}
+
+function ffaStep(mode, dt) {
+  if (typeof paused !== 'undefined' && paused) return;
+  if (mode.isOver()) {
+    if (typeof gameEnded !== 'undefined' && !gameEnded) mode.endMatch();
+    return;
+  }
+  if (mode.timeLeft > 0) mode.timeLeft = Math.max(0, mode.timeLeft - dt);
+  if (typeof mode.tickExtra === 'function') mode.tickExtra(dt);
+  const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+  updateModeRespawns(dt, sp, (typeof enemies !== 'undefined') ? enemies : [], (typeof colliders !== 'undefined') ? colliders : []);
+  updateMatchHud(mode);
+  if (mode.isOver()) mode.endMatch();
+}
+
+function ffaOnDeath(mode, victim) {
+  if (mode.isOver() || (typeof gameEnded !== 'undefined' && gameEnded)) return;
+  if (victim) queueModeRespawn(victim, CORE.RESPAWN_DELAY);
+}
+
+function ffaSettle(mode) {
+  if (mode._ended) return;
+  mode._ended = true;
+  mode._settled = true;
+  if (typeof gameEnded !== 'undefined') gameEnded = true;
+  clearModeRespawns();
+  if (typeof showMatchEndScreen === 'function') showMatchEndScreen(mode);
+}
+
+function ffaPlayer() {
+  return (typeof player !== 'undefined') ? player : null;
+}
+
+function ffaPlayerKills() {
+  const p = ffaPlayer();
+  return (p && typeof p.kills === 'number') ? p.kills : 0;
+}
+
+function ffaLeaderKills(mode) {
+  let best = 0;
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  for (let i = 0; i < roster.length; i++) {
+    const k = roster[i] && typeof roster[i].kills === 'number' ? roster[i].kills : 0;
+    if (k > best) best = k;
+  }
+  return best;
+}
+
+function matchCreditKill(mode, victim, isHead, killer, damageType, victimsLabel, killerLabel) {
+  if (victim) victim.deaths = (victim.deaths || 0) + 1;
+  const p = ffaPlayer();
+  const isPlayerKiller = !!(killer && (killer.isPlayer || killer === p));
+  const isPlayerVictim = !!(victim && (victim.isPlayer || victim === p));
+  const victimTeam = actorTeamOf(victim);
+  const killerTeam = killer ? actorTeamOf(killer) : null;
+  const isSelfKill = !!(killer && victim && (killer === victim || (killer.id && victim.id && killer.id === victim.id) || (isPlayerKiller && isPlayerVictim)));
+  const isHostileKill = !!(killer && !isSelfKill && killerTeam && killerTeam !== victimTeam);
+  if (isHostileKill) killer.kills = (killer.kills || 0) + 1;
+  if (typeof pushKillfeed === 'function') {
+    const killerName = isPlayerKiller ? 'YOU' : ((killer && killer.name) ? killer.name : (killerLabel || 'RIVAL'));
+    const victimName = isPlayerVictim ? 'YOU' : ((victim && victim.name) ? victim.name : (victimsLabel || 'RIVAL'));
+    if (isHostileKill) {
+      const color = (typeof matchKillfeedColor === 'function') ? matchKillfeedColor(killerTeam) : '#ff4030';
+      pushKillfeed('<span style="color:' + color + '">' + killerName + '</span> eliminated ' + victimName + (isHead ? ' (HEADSHOT)' : ''));
+    } else if (isSelfKill) {
+      pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> eliminated themselves');
+    } else {
+      pushKillfeed('<span style="color:#ffdf8a">' + victimName + '</span> died');
+    }
+  }
+  const creditedType = (typeof damageType === 'string') ? damageType : victim && victim.lastDamageType;
+  return {
+    killer: killer,
+    victim: victim,
+    killerTeam: killerTeam,
+    victimTeam: victimTeam,
+    isSelfKill: isSelfKill,
+    isHostileKill: isHostileKill,
+    isPlayerKiller: isPlayerKiller,
+    credited: isHostileKill && CORE.gunGameCreditedKill(creditedType),
+    damageType: creditedType
+  };
+}
+
+function matchKillfeedColor(team) {
+  return (team === 'friendly' || team === 'ffa_you') ? '#38b6ff' : '#ff4030';
+}
+
+function ffaMembers(mode, gunGame) {
+  const p = ffaPlayer();
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  const members = [];
+  for (let i = 0; i < roster.length; i++) {
+    const actor = roster[i];
+    if (!actor) continue;
+    const isYou = !!(actor.isPlayer || actor === p);
+    const m = {
+      id: isYou ? 'player' : (actor.id || ('ffa_' + i)),
+      name: isYou ? 'YOU' : (actor.name || ('RIVAL ' + (i + 1))),
+      isPlayer: isYou,
+      team: isYou ? 'ffa_you' : actorTeamOf(actor),
+      kills: actor.kills || 0,
+      deaths: actor.deaths || 0
+    };
+    if (gunGame) {
+      m.tier = mode.tierOf(actor);
+      m.weapon = CORE.gunGameTierWeapon(m.tier);
+    }
+    members.push(m);
+  }
+  members.sort(function (a, b) {
+    return (gunGame ? (b.tier - a.tier || b.kills - a.kills) : (b.kills - a.kills));
+  });
+  return members;
+}
+
+function ffaSoleLeader(mode, gunGame) {
+  const p = ffaPlayer();
+  const roster = Array.isArray(mode.roster) ? mode.roster : [];
+  let best = 0;
+  let count = 0;
+  let playerBest = false;
+  for (let i = 0; i < roster.length; i++) {
+    const a = roster[i];
+    if (!a) continue;
+    const v = gunGame ? mode.tierOf(a) : (a.kills || 0);
+    const isP = !!(a.isPlayer || a === p);
+    if (v > best) { best = v; count = 1; playerBest = isP; }
+    else if (v === best) { count++; if (isP) playerBest = true; }
+  }
+  return best > 0 && count === 1 && playerBest;
+}
+
+function ffaOutcome(mode, gunGame) {
+  const mine = gunGame ? mode.playerTier() : ffaPlayerKills();
+  const best = gunGame ? mode.leaderTier() : ffaLeaderKills(mode);
+  const p = ffaPlayer();
+  let title = 'DEFEAT';
+  if (gunGame && mode.winner && (mode.winner.isPlayer || mode.winner === p)) title = 'VICTORY';
+  else if (mine > best) title = 'VICTORY';
+  else if (mine === best && best > 0) title = ffaSoleLeader(mode, gunGame) ? 'VICTORY' : 'DRAW';
+  return {
+    title: title,
+    leftLabel: 'YOU',
+    leftScore: gunGame ? ('TIER ' + (mine + 1)) : mine,
+    rightLabel: 'LEADER',
+    rightScore: gunGame ? ('TIER ' + (best + 1)) : best,
+    note: gunGame ? ('Knife take-all: final tier ' + CORE.GUN_GAME_TIER_COUNT)
+      : ('First to ' + mode.targetScore + ' kills')
+  };
+}
+
+MODES.ffa = {
+  id: 'ffa',
+  name: 'Free-for-All',
+  targetScore: 30,
+  matchDuration: 600,
+  timeLeft: 600,
+  actors: 8,
+  roster: [],
+  setup: function () {
+    ffaDeploy(this, { scoreKey: 'ffaScoreLimit', scoreMin: 2, scoreMax: 100, actorsKey: 'ffaActorCount' });
+  },
+  playerScore: ffaPlayerKills,
+  leaderKills: function () { return ffaLeaderKills(this); },
+  leaders: function () {
+    const best = ffaLeaderKills(this);
+    return (Array.isArray(this.roster) ? this.roster : []).filter(function (a) { return a && (a.kills || 0) === best && best > 0; });
+  },
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
+    matchCreditKill(this, victim, isHead, killer, damageType, 'RIVAL', 'RIVAL');
+    updateMatchHud(this);
+    if (this.isOver()) this.endMatch();
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  update: function (dt) { ffaStep(this, dt); },
+  scoreboard: function () {
+    return {
+      mode: 'ffa',
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      playerScore: ffaPlayerKills(),
+      leaderKills: ffaLeaderKills(this),
+      members: ffaMembers(this, false)
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return ffaLeaderKills(this) >= this.targetScore || this.timeLeft <= 0;
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    return {
+      time: this.timeLeft,
+      left: 'YOU ' + ffaPlayerKills(),
+      right: 'LEADER ' + ffaLeaderKills(this),
+      note: 'FIRST TO ' + this.targetScore + ' KILLS'
+    };
+  },
+  outcome: function () { return ffaOutcome(this, false); }
+};
+
+function buildDominationFlags() {
+  const out = [];
+  const names = CORE.DOMINATION_FLAG_NAMES || ['A', 'B', 'C'];
+  const pts = CORE.DOMINATION_FLAG_POINTS || [[-18, 0], [0, 18], [18, 0]];
+  for (let i = 0; i < names.length; i++) {
+    const pt = pts[i] || [0, 0];
+    out.push({ name: names[i], x: pt[0], z: pt[1], owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS });
+  }
+  return out;
+}
+
+MODES.domination = {
+  id: 'domination',
+  name: 'Domination',
+  targetScore: 200,
+  matchDuration: 600,
+  timeLeft: 600,
+  teamSize: 6,
+  friendlyScore: 0,
+  enemyScore: 0,
+  flags: [],
+  roster: [],
+  setup: function () {
+    clearModeRespawns();
+    this._ended = false;
+    this._settled = false;
+    purgeMatchBots(this, null);
+    this.teamSize = 6;
+    this.targetScore = modeSettingNum('dominationScoreLimit', 200, 50, 500);
+    this.friendlyScore = 0;
+    this.enemyScore = 0;
+    this._scoreAcc = { friendly: 0, enemy: 0 };
+    this.timeLeft = this.matchDuration;
+    this.flags = buildDominationFlags();
+    if (typeof gameEnded !== 'undefined') gameEnded = false;
+    const p = (typeof player !== 'undefined') ? player : null;
+    if (p) {
+      p.team = 'friendly';
+      p.isPlayer = true;
+      p.kills = 0;
+      p.deaths = 0;
+      p.downed = false;
+      p.downedBy = null;
+      p.lastAttacker = null;
+      p.spawnProtectionT = CORE.SPAWN_PROTECTION_DURATION;
+      this.roster.push(p);
+    }
+    if (typeof spawnEnemy === 'function') {
+      const count = this.teamSize;
+      const sides = [{ team: 'friendly', n: count - 1, tag: 'ALLY', prefix: 'ally_' }, { team: 'enemy', n: count, tag: 'HOSTILE', prefix: 'enemy_' }];
+      for (let s = 0; s < sides.length; s++) {
+        const side = sides[s];
+        for (let i = 0; i < side.n; i++) {
+          const pt = matchSpawnPointAt(s === 0 ? i : i + count);
+          const kind = (i % 3 === 0) ? 1 : ((i % 3 === 1) ? 2 : 0);
+          const bot = spawnEnemy(kind, pt[0], pt[1], { team: side.team, spawnProtection: true });
+          if (bot) {
+            bot.id = side.prefix + (i + 1);
+            bot.name = side.tag + ' ' + (i + 1);
+            bot.kills = 0;
+            bot.deaths = 0;
+            this.roster.push(bot);
+          }
+        }
+      }
+    }
+    hideMatchOverlays();
+    updateMatchHud(this);
+  },
+  flagHostileCount: function (flag, team, radius) {
+    let n = 0;
+    const actors = liveActors();
+    for (let i = 0; i < actors.length; i++) {
+      if (actorTeamOf(actors[i]) !== team && actorInsideFlag(actors[i], flag, radius)) n++;
+    }
+    return n;
+  },
+  flagDistance: function (actor, flag) {
+    if (!actor || !actor.pos || !flag) return Infinity;
+    const dx = actor.pos.x - flag.x;
+    const dz = actor.pos.z - flag.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  },
+  objectiveFor: function (actor) {
+    const team = actorTeamOf(actor);
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    let best = null;
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      if (f.owner === team && this.flagHostileCount(f, team, CORE.DOMINATION_DEFEND_RADIUS) > 0) {
+        const d = this.flagDistance(actor, f);
+        if (!best || d < best.d) best = { f: f, d: d, role: 'defend' };
+      }
+    }
+    if (!best) {
+      for (let i = 0; i < flags.length; i++) {
+        const f = flags[i];
+        if (f.owner === team) continue;
+        const d = this.flagDistance(actor, f);
+        if (!best || d < best.d) best = { f: f, d: d, role: 'attack' };
+      }
+    }
+    if (!best) {
+      for (let i = 0; i < flags.length; i++) {
+        const d = this.flagDistance(actor, flags[i]);
+        if (!best || d < best.d) best = { f: flags[i], d: d, role: 'hold' };
+      }
+    }
+    if (!best) return null;
+    return { name: best.f.name, point: [best.f.x, best.f.z], role: best.role };
+  },
+  updateFlags: function (dt) {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const actors = liveActors();
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      let friendly = 0;
+      let enemy = 0;
+      for (let j = 0; j < actors.length; j++) {
+        if (!actorInsideFlag(actors[j], f, CORE.DOMINATION_FLAG_RADIUS)) continue;
+        if (actorTeamOf(actors[j]) === 'friendly') friendly++;
+        else enemy++;
+      }
+      const contested = friendly > 0 && enemy > 0;
+      const attacker = contested ? null : (friendly > 0 ? 'friendly' : (enemy > 0 ? 'enemy' : null));
+      if (contested) {
+        f.capture = CORE.flagCaptureStep(f.capture, dt, true, true);
+      } else if (!attacker || attacker === f.owner) {
+        f.capture = CORE.flagCaptureStep(f.capture, dt, false, false);
+      } else {
+        f.capture = CORE.flagCaptureStep(f.capture, dt, true, false);
+        if (f.capture >= CORE.DOMINATION_CAPTURE_SECONDS) {
+          f.owner = attacker;
+          f.capture = 0;
+        }
+      }
+    }
+  },
+  updateScore: function (dt) {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    if (!this._scoreAcc) this._scoreAcc = { friendly: 0, enemy: 0 };
+    const owned = { friendly: 0, enemy: 0 };
+    for (let i = 0; i < flags.length; i++) {
+      if (owned[flags[i].owner] !== undefined) owned[flags[i].owner]++;
+    }
+    const fStep = CORE.flagScoreStep(this._scoreAcc.friendly, owned.friendly, dt);
+    this.friendlyScore += fStep.points;
+    this._scoreAcc.friendly = fStep.acc;
+    const eStep = CORE.flagScoreStep(this._scoreAcc.enemy, owned.enemy, dt);
+    this.enemyScore += eStep.points;
+    this._scoreAcc.enemy = eStep.acc;
+  },
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded) || this.isOver()) return;
+    matchCreditKill(this, victim, isHead, killer, damageType, 'ALLY BOT', 'HOSTILE BOT');
+    updateMatchHud(this);
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  update: function (dt) {
+    if (typeof paused !== 'undefined' && paused) return;
+    if (this.isOver()) {
+      if (typeof gameEnded !== 'undefined' && !gameEnded) this.endMatch();
+      return;
+    }
+    if (this.timeLeft > 0) this.timeLeft = Math.max(0, this.timeLeft - dt);
+    this.updateFlags(dt);
+    this.updateScore(dt);
+    const sp = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : (typeof spawnPoints !== 'undefined' ? spawnPoints : []);
+    updateModeRespawns(dt, sp, (typeof enemies !== 'undefined') ? enemies : [], (typeof colliders !== 'undefined') ? colliders : []);
+    updateMatchHud(this);
+    if (this.isOver()) this.endMatch();
+  },
+  flagStatus: function () {
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const label = { friendly: 'FRIENDLY', enemy: 'HOSTILE', neutral: 'NEUTRAL' };
+    const parts = [];
+    for (let i = 0; i < flags.length; i++) parts.push(flags[i].name + ' ' + (label[flags[i].owner] || 'NEUTRAL'));
+    return parts.join(' · ');
+  },
+  scoreboard: function () {
+    const p = (typeof player !== 'undefined') ? player : null;
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    const sides = { friendly: [], enemy: [] };
+    const seen = {};
+    for (let i = 0; i < roster.length; i++) {
+      const actor = roster[i];
+      if (!actor) continue;
+      const isYou = !!(actor.isPlayer || actor === p);
+      const actorId = isYou ? 'player' : (actor.id || ('bot_' + i));
+      if (seen[actorId]) continue;
+      seen[actorId] = true;
+      const team = (isYou || actorTeamOf(actor) === 'friendly') ? 'friendly' : 'enemy';
+      sides[team].push({
+        id: actorId,
+        name: isYou ? 'YOU' : (actor.name || (team === 'friendly' ? ('ALLY BOT ' + (i + 1)) : ('HOSTILE BOT ' + (i + 1)))),
+        isPlayer: isYou,
+        team: team,
+        kills: actor.kills || 0,
+        deaths: actor.deaths || 0
+      });
+    }
+    sides.friendly.sort(function (a, b) { return b.kills - a.kills; });
+    sides.enemy.sort(function (a, b) { return b.kills - a.kills; });
+    const flags = Array.isArray(this.flags) ? this.flags : [];
+    const flagRows = [];
+    for (let i = 0; i < flags.length; i++) flagRows.push({ name: flags[i].name, owner: flags[i].owner, capture: flags[i].capture });
+    return {
+      mode: 'domination',
+      friendlyScore: this.friendlyScore,
+      enemyScore: this.enemyScore,
+      targetScore: this.targetScore,
+      timeLeft: this.timeLeft,
+      flags: flagRows,
+      friendlyTeam: { name: 'FRIENDLY', score: this.friendlyScore, members: sides.friendly },
+      enemyTeam: { name: 'ENEMY', score: this.enemyScore, members: sides.enemy }
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return (this.friendlyScore >= this.targetScore) || (this.enemyScore >= this.targetScore) || (this.timeLeft <= 0);
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    return {
+      time: this.timeLeft,
+      left: this.friendlyScore,
+      right: this.enemyScore,
+      note: this.flagStatus() + ' · FIRST TO ' + this.targetScore
+    };
+  },
+  outcome: function () {
+    const draw = this.friendlyScore === this.enemyScore;
+    return {
+      title: draw ? 'DRAW' : (this.friendlyScore > this.enemyScore ? 'VICTORY' : 'DEFEAT'),
+      leftLabel: 'FRIENDLY',
+      leftScore: this.friendlyScore,
+      rightLabel: 'ENEMY',
+      rightScore: this.enemyScore,
+      note: this.flagStatus()
+    };
+  }
+};
+
+function gunGameBaselineDamage() {
+  if (typeof CFG === 'undefined' || !CFG || !Array.isArray(CFG.weapons) || !CFG.weapons[0]) return 26;
+  const dmg = CFG.weapons[0].dmg;
+  return (typeof dmg === 'number' && dmg > 0) ? dmg : 26;
+}
+
+function applyGunGameBotLoadout(actor) {
+  if (!actor) return;
+  const tier = (typeof actor.tier === 'number') ? actor.tier : 0;
+  const weapon = CORE.gunGameTierWeapon(tier);
+  actor.ggWeapon = weapon;
+  if (weapon < 0) {
+    actor.dmgMul = CORE.GUN_GAME_KNIFE_DAMAGE_MUL;
+    return;
+  }
+  const w = (typeof CFG !== 'undefined' && CFG && Array.isArray(CFG.weapons)) ? CFG.weapons[weapon] : null;
+  actor.dmgMul = CORE.gunGameBotDamageMul(w ? w.dmg : undefined, gunGameBaselineDamage());
+}
+
+function applyGunGamePlayerLoadout(mode) {
+  if (typeof weaponsOwned === 'undefined' || !Array.isArray(weaponsOwned)) return;
+  const p = (typeof player !== 'undefined') ? player : null;
+  const weapon = CORE.gunGameTierWeapon((p && typeof p.tier === 'number') ? p.tier : 0);
+  for (let i = 0; i < weaponsOwned.length; i++) weaponsOwned[i] = -1;
+  if (weapon >= 0 && weaponsOwned.length > 0) weaponsOwned[0] = weapon;
+  if (typeof curWeapon !== 'undefined') curWeapon = 0;
+  if (typeof pendingSecondary !== 'undefined') pendingSecondary = -1;
+  if (typeof initWeapons === 'function') initWeapons({ restrictedSlots: true });
+  if (typeof buildViewmodel === 'function') buildViewmodel();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+}
+
+MODES['gun-game'] = {
+  id: 'gun-game',
+  name: 'Gun Game',
+  matchDuration: 600,
+  timeLeft: 600,
+  actors: 8,
+  tierCount: 20,
+  winner: null,
+  roster: [],
+  setup: function () {
+    ffaDeploy(this, {
+      actorsKey: 'gunGameActorCount',
+      prepareActor: function (actor) { actor.tier = 0; }
+    });
+    const p = ffaPlayer();
+    if (p) applyGunGamePlayerLoadout(this);
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    for (let i = 0; i < roster.length; i++) {
+      if (roster[i] && !roster[i].isPlayer) applyGunGameBotLoadout(roster[i]);
+    }
+    updateMatchHud(this);
+  },
+  tierOf: function (actor) {
+    return (actor && typeof actor.tier === 'number') ? actor.tier : 0;
+  },
+  setTier: function (actor, tier) {
+    if (!actor) return 0;
+    actor.tier = CORE.gunGameAdvance(tier, 0);
+    this.onRespawn(actor);
+    updateMatchHud(this);
+    return actor.tier;
+  },
+  playerTier: function () { return this.tierOf(ffaPlayer()); },
+  leaderTier: function () {
+    let best = 0;
+    const roster = Array.isArray(this.roster) ? this.roster : [];
+    for (let i = 0; i < roster.length; i++) {
+      const t = this.tierOf(roster[i]);
+      if (t > best) best = t;
+    }
+    return best;
+  },
+  onKill: function (victim, isHead, killer, damageType) {
+    if (this._settled || (typeof gameEnded !== 'undefined' && gameEnded)) return;
+    const r = matchCreditKill(this, victim, isHead, killer, damageType, 'RIVAL', 'RIVAL');
+    let won = false;
+    if (r.isHostileKill && victim && CORE.gunGameMeleeKill(r.damageType)) {
+      const before = this.tierOf(victim);
+      const after = CORE.gunGameAdvance(before, -1);
+      if (after !== before) {
+        victim.tier = after;
+        this.onRespawn(victim);
+      }
+    }
+    if (r.credited && killer) {
+      if (CORE.gunGameIsKnifeTier(this.tierOf(killer))) {
+        won = r.isHostileKill && CORE.gunGameMeleeKill(r.damageType);
+      } else {
+        killer.tier = CORE.gunGameAdvance(this.tierOf(killer), 1);
+        this.onRespawn(killer);
+      }
+    }
+    updateMatchHud(this);
+    if (won) {
+      this.winner = killer;
+      this.endMatch();
+      return;
+    }
+    if (this.isOver()) this.endMatch();
+  },
+  onDeath: function (victim) { ffaOnDeath(this, victim); },
+  onRespawn: function (actor) {
+    if (!actor) return;
+    const p = ffaPlayer();
+    if (actor.isPlayer || actor === p) applyGunGamePlayerLoadout(this);
+    else applyGunGameBotLoadout(actor);
+  },
+  update: function (dt) { ffaStep(this, dt); },
+  scoreboard: function () {
+    return {
+      mode: 'gun-game',
+      tierCount: CORE.GUN_GAME_TIER_COUNT,
+      timeLeft: this.timeLeft,
+      playerTier: this.playerTier(),
+      leaderTier: this.leaderTier(),
+      members: ffaMembers(this, true)
+    };
+  },
+  isOver: function () {
+    if (this._settled || this._ended) return true;
+    return !!this.winner || this.timeLeft <= 0;
+  },
+  endMatch: function () { ffaSettle(this); },
+  hudModel: function () {
+    const total = CORE.GUN_GAME_TIER_COUNT;
+    return {
+      time: this.timeLeft,
+      left: 'TIER ' + (this.playerTier() + 1) + '/' + total,
+      right: 'LEADER ' + (this.leaderTier() + 1) + '/' + total,
+      note: 'FINAL TIER IS THE KNIFE'
+    };
+  },
+  outcome: function () {
+    const result = ffaOutcome(this, true);
+    if (this.winner) result.title = this.winner === ffaPlayer() || this.winner.isPlayer ? 'VICTORY' : 'DEFEAT';
+    return result;
   }
 };
 
@@ -16719,13 +17589,25 @@ function shieldMultiplier(en, point) {
 
 const _hitDir = new THREE.Vector3();
 const _shieldNormOut = { x: 0, y: 0, z: 0 };
+
+function actorDamageMul(actor) {
+  if (!actor) return 1;
+  const m = actor.dmgMul;
+  return (typeof m === 'number' && isFinite(m) && m > 0) ? m : 1;
+}
+
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  const isSettled = (typeof matchSettled === 'function')
+    ? matchSettled()
+    : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
   if (isSettled) return;
   const sourceActor = attacker || (typeof player !== 'undefined' ? player : null);
+  const attackerMul = (typeof actorDamageMul === 'function') ? actorDamageMul(sourceActor) : 1;
+  if (attackerMul !== 1) dmg = dmg * attackerMul;
+  en.lastDamageType = (typeof weaponType === 'string' && weaponType) ? weaponType : undefined;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -16774,7 +17656,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
       soldierHitReact(en, _hitDir, Math.min(1.5, dmg / 40), isHead);
     }
   }
-  if (isKill) killEnemy(en, isHead, sourceActor);
+  if (isKill) killEnemy(en, isHead, sourceActor, en.lastDamageType);
   else {
     en.stateT = 0;
     if (en.state === 'idle' || en.state === 'patrol') en.state = 'chase';
@@ -16783,7 +17665,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
 
 const _killImpulseOut = { force: 0, y: 0 };
 
-function killEnemy(en, isHead, killer) {
+function killEnemy(en, isHead, killer, damageType) {
   const sourceActor = killer || (typeof player !== 'undefined' ? player : null);
   const isPlayerKiller = !!(sourceActor && (sourceActor === player || sourceActor.isPlayer));
   const isHostileTarget = !sourceActor || (en.team ? en.team !== (sourceActor.team || 'friendly') : true);
@@ -16813,7 +17695,7 @@ function killEnemy(en, isHead, killer) {
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(en, sourceActor);
-  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(en, isHead, sourceActor, (typeof damageType === 'string') ? damageType : en.lastDamageType);
 }
 
 function distToPlayer(en) {
@@ -17032,6 +17914,30 @@ function vertGapToTarget(en, target) {
   return (target.pos.y - eyeH) - en.pos.y;
 }
 
+const OBJECTIVE_ENGAGE_RANGE = 30;
+function objectiveSteerTarget(en, target) {
+  if (!en || typeof getActiveMode !== 'function') return null;
+  const mode = getActiveMode();
+  if (!mode || mode.id !== 'domination' || typeof mode.objectiveFor !== 'function') return null;
+  if (target && !target.dead && distToTarget(en, target) <= OBJECTIVE_ENGAGE_RANGE) return null;
+  const order = mode.objectiveFor(en);
+  if (!order) return null;
+  return {
+    pos: { x: order.point[0], y: 0, z: order.point[1] },
+    isPlayer: false,
+    objective: true,
+    objectiveRole: order.role,
+    objectiveName: order.name,
+    dead: false
+  };
+}
+
+function gunGameBotWeapon(en) {
+  const mode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+  if (!mode || mode.id !== 'gun-game') return null;
+  return en.ggWeapon < 0 ? { type: 'MELEE', range: CFG.ai.attackRange } : CFG.weapons[en.ggWeapon];
+}
+
 function updateEnemies(dt) {
   updateStatusEffects(dt);
   losFrame++;
@@ -17054,12 +17960,26 @@ function updateEnemies(dt) {
     const targetGone = !target || target.dead;
     en.stateT += dt;
     const dist = target ? distToTarget(en, target) : distToPlayer(en);
+    const order = objectiveSteerTarget(en, target);
+    if (order) {
+      en.objectiveTarget = order;
+      en.target = order;
+      moveEnemy(en, dt, distToTarget(en, order));
+      en.target = null;
+      if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; }
+      en.swinging = undefined;
+      animateEnemy(en, dt, dist);
+      continue;
+    }
     if (targetGone) {
       if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
       animateEnemy(en, dt, dist);
       continue;
     }
-    const nxt = CORE.enemyAiNextState(en.kind, en.state, en.stateT, dist, hasLOS(en, target), CFG.ai.rangedRange, CORE.enemyPreferredRange(en.kind), _enemyStateOut);
+    const ggWeapon = gunGameBotWeapon(en);
+    const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
+    const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+    const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
@@ -17094,15 +18014,15 @@ function updateEnemies(dt) {
     }
     const dx = target.pos.x - en.pos.x, dz = target.pos.z - en.pos.z;
     en.yaw = Math.atan2(dx, dz);
-    const stopDist = CORE.enemyStopDistance(en.kind);
+    const stopDist = CORE.enemyStopDistance(attackKind);
     if (CORE.withinReach(dist, vertGapToTarget(en, target), stopDist)) {
       if (CORE.playerPushoutOffset(en.pos.x, en.pos.z, target.pos.x, target.pos.z, en.yaw, dist, stopDist, _pushoutOut).applied) {
         en.pos.x += _pushoutOut.pushX;
         en.pos.z += _pushoutOut.pushZ;
       }
     }
-    const canMelee = CORE.canEnemyMelee(en.kind);
-    const reach = CORE.enemyMeleeReach(en.kind, CFG.ai.attackRange);
+    const canMelee = CORE.canEnemyMelee(attackKind);
+    const reach = CORE.enemyMeleeReach(attackKind, CFG.ai.attackRange);
     if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       en.swinging = CORE.enemyMeleeWindup(Math.random());
@@ -17131,15 +18051,17 @@ function updateEnemies(dt) {
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
-    if (en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
-    if (en.kind === 1 && en.state === 'strafe' && dist < CFG.ai.rangedRange && gameT > en.nextShot) {
+    if (attackKind === 1 && en.state === 'strafe' && dist < attackRange && gameT > en.nextShot) {
       if (hasLOS(en, target)) {
-        if (waveBehaviours.burstFire) {
+        if (ggWeapon) {
+          en.nextShot = gameT + 60 / ggWeapon.rpm;
+        } else if (waveBehaviours.burstFire) {
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
           en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
@@ -17152,11 +18074,11 @@ function updateEnemies(dt) {
         en.burst = 0;
       }
     }
-    if (en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+    if (!ggWeapon && en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
       en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
       throwEnemyGrenade(en, target);
     }
-    if (waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
@@ -17242,6 +18164,9 @@ const _eshotDir = new THREE.Vector3();
 const _bulletMissOffset = { x: 0, y: 0, z: 0 };
 function enemyShoot(en, dist, target) {
   const tgt = target || en.target || player;
+  const earnedWeapon = gunGameBotWeapon(en);
+  if (earnedWeapon && (earnedWeapon.type === 'MELEE' || dist > earnedWeapon.range)) return;
+  const shotType = earnedWeapon ? earnedWeapon.type : CORE.enemyWeaponType(en.kind, en.elite);
   if (en.blindT > 0) return;   // cannot aim at what it cannot see
   en.spawnProtectionT = 0;
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
@@ -17252,7 +18177,7 @@ function enemyShoot(en, dist, target) {
     en.parts.J.gun.localToWorld(from.set(0, 0.015, 0.56));
     _eshotDir.set(tgt.pos.x - from.x, tgt.pos.y - from.y, tgt.pos.z - from.z).normalize();
   }
-  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, CORE.enemyWeaponType(en.kind, en.elite));
+  if (typeof fxMuzzle === 'function') fxMuzzle(from, _eshotDir, shotType);
   if (typeof flashLight === 'function') {
     const elp = CORE.enemyMuzzleLightParams(en.elite);
     flashLight(from, elp.color, elp.intensity, elp.distance, elp.duration);
@@ -17286,13 +18211,14 @@ function enemyShoot(en, dist, target) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
-  spawnTracer(from, to, CORE.tracerColor(true), CORE.enemyWeaponType(en.kind, en.elite));
+  spawnTracer(from, to, CORE.tracerColor(true), shotType);
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1)
+      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (tgt.dead || !started || paused) return;
@@ -17301,9 +18227,9 @@ function enemyShoot(en, dist, target) {
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
-        damagePlayer(dmg, hitDeg, 'bullet', en);
+        damagePlayer(earnedWeapon ? dmg / actorDamageMul(en) : dmg, hitDeg, earnedWeapon ? shotType : 'bullet', en);
       } else if (typeof damageEnemy === 'function') {
-        damageEnemy(tgt, dmg, tgt.pos, false, false, CORE.enemyWeaponType(en.kind, en.elite), en);
+        damageEnemy(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, tgt.pos, false, false, shotType, en);
       }
     }, travelDelay);
   } else if (isTargetPlayer) {
@@ -21821,7 +22747,7 @@ function blurPass(src, tmp) {
 function postKick(amount) { POST.kick = Math.min(1, POST.kick + amount); }
 function renderWorld() {
   renderer.render(scene, camera);
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead && (gunGroup || (typeof knifeGroup !== 'undefined' && knifeGroup && knifeGroup.visible))) {
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(gunScene, gunCamera);
@@ -21905,7 +22831,7 @@ function killPlayer(killer) {
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const sourceActor = killer || player.downedBy || player.lastAttacker || null;
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
-  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor);
+  if (activeMode && typeof activeMode.onKill === 'function') activeMode.onKill(player, false, sourceActor, player.lastDamageType);
   if (typeof clearDowned === 'function') clearDowned();
   const deathEndsRun = !activeMode || activeMode.id === 'survival'
     || (typeof gameEnded !== 'undefined' && gameEnded)
@@ -22326,10 +23252,13 @@ function buildModePickerRow() {
   row.innerHTML = '';
   const availableModes = [
     { id: 'survival', name: 'SURVIVAL', blurb: 'Wave defense' },
-    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' }
+    { id: 'tdm', name: 'TEAM DEATHMATCH', blurb: '6v6 match' },
+    { id: 'ffa', name: 'FREE-FOR-ALL', blurb: '8 actors, 30 kills' },
+    { id: 'domination', name: 'DOMINATION', blurb: '3 flags to 200' },
+    { id: 'gun-game', name: 'GUN GAME', blurb: '20-tier ladder' }
   ];
   const savedMode = (typeof getSetting === 'function') ? getSetting('gameMode') : null;
-  const validSaved = (savedMode === 'tdm' || savedMode === 'survival') ? savedMode : 'survival';
+  const validSaved = (typeof isKnownModeId === 'function' && isKnownModeId(savedMode)) ? savedMode : 'survival';
   if ((typeof started === 'undefined' || !started || (typeof gameEnded !== 'undefined' && gameEnded)) && typeof activeModeId !== 'undefined' && activeModeId !== validSaved) {
     if (typeof setActiveMode === 'function') setActiveMode(validSaved);
     else activeModeId = validSaved;
@@ -22347,10 +23276,10 @@ function buildModePickerRow() {
       buildModePickerRow();
       buildDifficultyRow();
       buildTdmSettingsRow();
-      const isTdm = (m.id === 'tdm');
-      $id('diff-row').style.display = isTdm ? 'none' : 'flex';
+      const isMatch = (m.id !== 'survival');
+      $id('diff-row').style.display = isMatch ? 'none' : 'flex';
       const tr = $id('tdm-settings-row');
-      if (tr) tr.style.display = isTdm ? 'flex' : 'none';
+      if (tr) tr.style.display = isMatch ? 'flex' : 'none';
       playSound('click');
     });
     row.appendChild(b);
@@ -22360,13 +23289,90 @@ function buildModePickerRow() {
 function buildTdmSettingsRow() {
   const row = $id('tdm-settings-row');
   if (!row) return;
-  const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
-  if (!isTdm) {
+  const modeId = (typeof activeModeId !== 'undefined') ? activeModeId : 'survival';
+  const isMatch = (typeof isMatchMode === 'function') ? isMatchMode(MODES[modeId]) : (modeId !== 'survival');
+  if (!isMatch) {
     row.style.display = 'none';
+    const diffRowHidden = $id('diff-row');
+    if (diffRowHidden) diffRowHidden.style.display = 'flex';
     return;
   }
   row.style.display = 'flex';
   row.innerHTML = '';
+  const diffRow = $id('diff-row');
+  if (diffRow) diffRow.style.display = 'none';
+  if (modeId !== 'tdm') {
+    const groupLabel = function (label, marginLeft) {
+      const g = document.createElement('div');
+      g.style.display = 'flex';
+      g.style.gap = '6px';
+      g.style.alignItems = 'center';
+      if (marginLeft) g.style.marginLeft = '16px';
+      const l = document.createElement('span');
+      l.style.fontSize = '12px';
+      l.style.letterSpacing = '1px';
+      l.style.color = '#ffdf8a';
+      l.textContent = label;
+      g.appendChild(l);
+      return g;
+    };
+    const choices = function (group, prefix, values, current, fmt, onPick) {
+      values.forEach(function (v) {
+        const b = document.createElement('div');
+        b.className = 'diff-btn' + (v === current ? ' on' : '');
+        b.style.padding = '6px 12px';
+        b.id = prefix + v;
+        b.textContent = fmt ? fmt(v) : String(v);
+        enableMenuKeyboard(b);
+        b.addEventListener('click', function () {
+          onPick(v);
+          buildTdmSettingsRow();
+          playSound('click');
+        });
+        group.appendChild(b);
+      });
+    };
+    const setting = function (key, fallback, min) {
+      if (typeof getSetting !== 'function') return fallback;
+      const v = getSetting(key);
+      return (typeof v === 'number' && isFinite(v) && v >= min) ? v : fallback;
+    };
+    if (modeId === 'ffa') {
+      const curScore = setting('ffaScoreLimit', 30, 2);
+      const scoreGroup = groupLabel('SCORE:');
+      choices(scoreGroup, 'ffa-score-', [30, 15, 5, 2], curScore, null, function (v) {
+        if (MODES.ffa) MODES.ffa.targetScore = v;
+        if (typeof setSetting === 'function') setSetting('ffaScoreLimit', v);
+      });
+      row.appendChild(scoreGroup);
+      const curActors = setting('ffaActorCount', CORE.FREE_FOR_ALL_MAX_ACTORS, 2);
+      const actorGroup = groupLabel('ACTORS:', true);
+      choices(actorGroup, 'ffa-actors-', [8, 6, 4, 2], curActors, null, function (v) {
+        if (MODES.ffa) MODES.ffa.actors = v;
+        if (typeof setSetting === 'function') setSetting('ffaActorCount', v);
+      });
+      row.appendChild(actorGroup);
+      return;
+    }
+    if (modeId === 'domination') {
+      const curScore = setting('dominationScoreLimit', 200, 50);
+      const scoreGroup = groupLabel('SCORE:');
+      choices(scoreGroup, 'domination-score-', [200, 150, 100, 50], curScore, null, function (v) {
+        if (MODES.domination) MODES.domination.targetScore = v;
+        if (typeof setSetting === 'function') setSetting('dominationScoreLimit', v);
+      });
+      row.appendChild(scoreGroup);
+      return;
+    }
+    const curActors = setting('gunGameActorCount', CORE.FREE_FOR_ALL_MAX_ACTORS, 2);
+    const actorGroup = groupLabel('ACTORS:');
+    choices(actorGroup, 'gg-actors-', [8, 6, 4, 2], curActors, null, function (v) {
+      if (MODES['gun-game']) MODES['gun-game'].actors = v;
+      if (typeof setSetting === 'function') setSetting('gunGameActorCount', v);
+    });
+    row.appendChild(actorGroup);
+    return;
+  }
   const curScore = (typeof getSetting === 'function' ? getSetting('tdmScoreLimit') : null) || (MODES.tdm ? MODES.tdm.targetScore : 75) || 75;
   const scoreGroup = document.createElement('div');
   scoreGroup.style.display = 'flex';
@@ -22749,26 +23755,33 @@ function showMatchEndScreen(mode) {
   if (!es) return;
   if (document.pointerLockElement) document.exitPointerLock();
   stopMusic();
-  const fScore = mode.friendlyScore || 0;
-  const eScore = mode.enemyScore || 0;
-  const won = fScore > eScore;
-  const draw = fScore === eScore;
+  const view = (mode && typeof mode.outcome === 'function') ? mode.outcome() : null;
+  const fScore = (mode && typeof mode.friendlyScore === 'number') ? mode.friendlyScore : 0;
+  const eScore = (mode && typeof mode.enemyScore === 'number') ? mode.enemyScore : 0;
+  const title = view ? view.title : (fScore > eScore ? 'VICTORY' : (fScore === eScore ? 'DRAW' : 'DEFEAT'));
+  const won = title === 'VICTORY';
+  const draw = title === 'DRAW';
   playSound(won ? 'victory' : 'death');
   const titleEl = $id('match-end-title');
   if (titleEl) {
-    titleEl.textContent = draw ? 'DRAW' : (won ? 'VICTORY' : 'DEFEAT');
+    titleEl.textContent = title;
     titleEl.style.color = draw ? '#ffd24a' : (won ? '#7ee08a' : '#ff4030');
   }
   const scoreEl = $id('match-end-scores');
   if (scoreEl) {
-    scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+    if (view) {
+      scoreEl.innerHTML = '<span style="color:#38b6ff">' + view.leftScore + '</span> — <span style="color:#ff4030">' + view.rightScore + '</span>';
+    } else {
+      scoreEl.innerHTML = '<span style="color:#38b6ff">' + fScore + '</span> — <span style="color:#ff4030">' + eScore + '</span>';
+    }
   }
   const statsEl = $id('match-end-stats');
   if (statsEl) {
     const pk = (typeof player !== 'undefined' && player) ? (player.kills || 0) : 0;
     const pd = (typeof player !== 'undefined' && player) ? (player.deaths || 0) : 0;
     const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
-    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>Target score: <b>' + (mode.targetScore || 75) + '</b>';
+    const detail = (view && view.note) ? view.note : ('Target score: <b>' + (mode.targetScore || 75) + '</b>');
+    statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>' + detail;
   }
   es.style.display = 'flex';
 }
@@ -22807,7 +23820,7 @@ function quitMatchToMenu() {
   paused = false;
   gameEnded = false;
   started = false;
-  if (typeof MODES !== 'undefined' && MODES.tdm && Array.isArray(MODES.tdm.roster)) MODES.tdm.roster.length = 0;
+  if (typeof clearAllMatchRosters === 'function') clearAllMatchRosters();
   if (document.body) document.body.classList.remove('started');
   if (document.pointerLockElement) document.exitPointerLock();
   setActiveMode('survival');
@@ -22829,6 +23842,50 @@ function updateScoreboard() {
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!activeMode || typeof activeMode.scoreboard !== 'function') return;
   const data = activeMode.scoreboard();
+  if (data.mode === 'ffa' || data.mode === 'gun-game') {
+    const gunGame = (data.mode === 'gun-game');
+    let html = '<div style="background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;min-width:300px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+    html += '<div style="font-weight:900;font-size:18px;color:#38b6ff;margin-bottom:8px">' + (gunGame ? 'GUN GAME — LADDER' : 'FREE-FOR-ALL — KILLS') + '</div>';
+    html += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th>' + (gunGame ? '<th style="text-align:right">TIER</th>' : '') + '<th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+    const members = data.members || [];
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i];
+      html += '<tr style="' + (m.isPlayer ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td>'
+        + (gunGame ? '<td style="text-align:right">' + ((m.tier || 0) + 1) + '/' + (data.tierCount || 20) + '</td>' : '')
+        + '<td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+    }
+    html += '</table></div>';
+    sbEl.innerHTML = html;
+    return;
+  }
+  if (data.mode === 'domination') {
+    const flags = data.flags || [];
+    let flagHtml = '';
+    for (let i = 0; i < flags.length; i++) {
+      const owner = flags[i].owner;
+      const color = (owner === 'friendly') ? '#38b6ff' : ((owner === 'enemy') ? '#ff4030' : '#cfd8e3');
+      flagHtml += '<span style="color:' + color + ';font-weight:900">' + flags[i].name + '</span> ';
+    }
+    const sideTable = function (title, color, team) {
+      let h = '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid ' + color + ';border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
+      h += '<div style="font-weight:900;font-size:18px;color:' + color + ';display:flex;justify-content:space-between;margin-bottom:8px"><span>' + title + '</span><span>' + ((team && team.score) || 0) + '</span></div>';
+      h += '<table style="width:100%;font-size:13px;text-align:left"><tr style="opacity:.6;border-bottom:1px solid rgba(255,255,255,.2)"><th>PLAYER</th><th style="text-align:right">K</th><th style="text-align:right">D</th></tr>';
+      const members = (team && team.members) || [];
+      for (let i = 0; i < members.length; i++) {
+        const m = members[i];
+        h += '<tr style="' + (m.isPlayer ? 'font-weight:bold;color:#ffdf8a;' : '') + '"><td>' + m.name + '</td><td style="text-align:right">' + m.kills + '</td><td style="text-align:right">' + m.deaths + '</td></tr>';
+      }
+      h += '</table></div>';
+      return h;
+    };
+    let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
+    html += sideTable('FRIENDLY', '#38b6ff', data.friendlyTeam);
+    html += '<div style="align-self:center;text-align:center;font-size:13px">FLAGS<br>' + flagHtml + '</div>';
+    html += sideTable('ENEMY', '#ff4030', data.enemyTeam);
+    html += '</div>';
+    sbEl.innerHTML = html;
+    return;
+  }
   if (data.mode === 'tdm') {
     let html = '<div style="display:flex;gap:30px;justify-content:center;width:90%;max-width:700px">';
     html += '<div style="flex:1;background:rgba(20,35,50,0.92);border:1px solid #38b6ff;border-radius:6px;padding:12px;box-shadow:0 0 15px rgba(0,0,0,.8)">';
@@ -22929,7 +23986,9 @@ function frame(now) {
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);
     updateSway(dt);
     const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-    const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+    const isSettled = (typeof matchSettled === 'function')
+      ? matchSettled()
+      : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
     if (!isSettled) {
       updatePlayer(dt);
       updateWeapons(dt);
@@ -23020,8 +24079,10 @@ function frame(now) {
     camera.rotation.z += (0.5 - camera.rotation.z) * Math.min(1, 2 * dt);
   }
 
-  if (started && !player.dead && gunGroup) {
+  if (started && !player.dead) {
     updateViewmodel(dt);
+  } else if (typeof poseMeleeKnife === 'function') {
+    poseMeleeKnife();
   }
   renderer.autoClear = true;
   renderFrame(dt);

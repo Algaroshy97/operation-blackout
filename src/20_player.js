@@ -453,8 +453,16 @@ function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
-  const isSettled = (typeof gameEnded !== 'undefined' && gameEnded) || (activeMode && activeMode.id === 'tdm' && typeof activeMode.isOver === 'function' && activeMode.isOver());
+  const isSettled = (typeof matchSettled === 'function')
+    ? matchSettled()
+    : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
   if (isSettled) return;
+  // Gun Game bots hit harder or softer depending on the tier weapon they earned.
+  const attackerMul = (typeof actorDamageMul === 'function') ? actorDamageMul(attacker) : 1;
+  if (attackerMul !== 1) amount = amount * attackerMul;
+  // Remember how this blow landed: the Gun Game ladder only credits weapon kills
+  // and only a knife kill demotes, so the type has to survive to killPlayer().
+  player.lastDamageType = (typeof damageType === 'string' && damageType) ? damageType : undefined;
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (attacker && attacker.friendlyFire === true) || player.friendlyFire === true;
   if (attacker && attacker !== player && !attacker.isPlayer) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
