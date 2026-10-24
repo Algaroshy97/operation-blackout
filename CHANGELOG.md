@@ -4,6 +4,31 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v177 — Milestone 3: Snowy textures, icy sky preset, and deploy map selector UI
+
+- **Snowy textures & visual assets (`src/08_textures.js`, `src/10_config_world.js`).**
+  - Added procedural canvas textures in `src/08_textures.js`:
+    - `TEX.snow`: undulating snowdrifts, powder speckle, and footprint impressions.
+    - `TEX.frostedMetal`: rime along seams, ice crystals, and cold steel highlights.
+    - `TEX.frostedWood`: frosted grain grooves and plank rime.
+  - Added `MAT.frostedMetal` and `MAT.frostedWood` in `src/10_config_world.js`.
+  - Sourced Snowy Compound arena models with frosted materials and dynamic ground texture swapping.
+- **Icy blue sky preset & low sun lighting (`src/01_core.js`, `src/10_config_world.js`).**
+  - Added pure `sky` definitions in `CORE.MAP_DEFS.urban` (warm sunset peach horizon, high sun `[45, 55, -30]`, dark slate fog) and `CORE.MAP_DEFS.snowy` (frosty white-blue horizon `0xd4e6f4`, low sun `[50, 24, -35]` casting long winter shadows, atmospheric fog `0x7892ad`).
+  - Added `applyMapSkyPreset(mapId)` dynamically updating `SKY_UNIFORMS`, `sun` color/position/offset, `scene.fog`, `scene.background`, and swapping `groundMat` between `TEX.asphalt` and `TEX.snow` (with roughness/tint adjustments). Integrated into `buildArena()` and `rebuildMapEnvironment()`.
+- **Deploy-screen map selector UI & per-map career stats (`src/00_head.html`, `src/70_main.js`, `src/01_core.js`).**
+  - Added `#map-row` to the deploy modal `#gun-select` with `#map-btn-urban` and `#map-btn-snowy` buttons.
+  - Implemented `buildMapPickerRow()` generating map selection buttons with active selection highlighting, keyboard support, and subtitle displaying per-map career best score (`· Best X`).
+  - Generalized career stats in `CORE.defaultStats()`, `CORE.sanitizeStats()`, and `CORE.mergeRunIntoStats()` to track `mapStats.urban` and `mapStats.snowy` independently (`bestScore` and `bestWave`).
+  - Sourced active map in `recordRun()` callers to update the corresponding map's career record upon gameover/settlement.
+- **Release build budget management (`scripts/build.py`).**
+  - Updated `scripts/build.py`'s `strip_line_comments` to strip leading indentation on bundled JavaScript code lines. This reduced the single-file release HTML build (`dist/Operation Blackout.html`) to 2,043,541 bytes (53,611 bytes below the 2 MiB ceiling) while preserving all code comments and formatting in source files.
+- **Coverage.**
+  - Added unit tests in `tests/test_core.js` verifying `CORE.MAP_DEFS` icy blue sky preset/low sun lighting for Snowy Compound and independent per-map career stats tracking.
+  - Added integration tests in `tests/test_modes_and_teams.js` verifying deploy-screen map selector UI, activeMap switching, per-map best score display, procedural snowy textures and sky preset application, and full Survival gameplay lifecycle on Snowy Compound with active combat, enemies, and per-map stat recording.
+  - 603/603 Node tests passing (`node --test tests/*.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v176 — Map-switch lifecycle, Snowy district barriers, and Survival checkpoint preservation
 
 - **Map-switch lifecycle (`src/10_config_world.js`, `src/02_settings.js`, `src/70_main.js`).**

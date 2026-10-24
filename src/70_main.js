@@ -81,6 +81,7 @@ function killPlayer(killer) {
       recordWave: delta.recordWave, recordAccuracy: delta.recordAccuracy,
       kills: delta.kills,
       headshots: delta.headshots, streaks: delta.streaks,
+      mapId: (typeof activeMapId !== 'undefined' ? activeMapId : (typeof activeMap !== 'undefined' && activeMap ? activeMap.id : 'urban')),
       countRun: !settlementSnapshot, victory: false });
     $id('ds-stats').innerHTML =
       'Waves survived: <b>' + waveNum + '</b>' + (beat.wave ? ' <span class="xp">NEW BEST</span>' : '') +
@@ -106,7 +107,9 @@ function victory() {
   const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
   const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
   const beat = recordRun({ score: score, wave: waveNum, accuracy: accuracy, kills: kills,
-    headshots: headshots, streaks: runStreaksEarned, victory: true });
+    headshots: headshots, streaks: runStreaksEarned,
+    mapId: (typeof activeMapId !== 'undefined' ? activeMapId : (typeof activeMap !== 'undefined' && activeMap ? activeMap.id : 'urban')),
+    victory: true });
   markSettlement();
   saveCheckpoint(captureRunState());
   $id('vs-stats').innerHTML =
@@ -489,6 +492,35 @@ function refreshMenuStats() {
 // player never called.
 let pickingSlot = 0;
 let pendingSecondary = -1;
+function buildMapPickerRow() {
+  const row = $id('map-row');
+  if (!row) return;
+  row.innerHTML = '';
+  const availableMaps = [
+    { id: 'urban', name: 'URBAN DISTRICT', blurb: 'Dense city perimeter' },
+    { id: 'snowy', name: 'SNOWY COMPOUND', blurb: 'Research outpost in snow' }
+  ];
+  const savedMap = (typeof getSetting === 'function') ? getSetting('gameMap') : null;
+  const validSaved = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(savedMap) : 'urban';
+  const curMap = (typeof activeMapId !== 'undefined') ? activeMapId : validSaved;
+  const mStats = (typeof STATS !== 'undefined' && STATS && STATS.mapStats) ? STATS.mapStats : {};
+  availableMaps.forEach(function (m) {
+    const b = document.createElement('div');
+    b.className = 'diff-btn mode-btn' + (m.id === curMap ? ' on' : '');
+    b.id = 'map-btn-' + m.id;
+    const best = (mStats[m.id] && mStats[m.id].bestScore) ? mStats[m.id].bestScore : 0;
+    b.innerHTML = m.name + '<small>' + m.blurb + (best > 0 ? ' · Best ' + best : '') + '</small>';
+    enableMenuKeyboard(b);
+    b.addEventListener('click', function () {
+      setActiveMap(m.id);
+      if (typeof setSetting === 'function') setSetting('gameMap', m.id);
+      buildMapPickerRow();
+      playSound('click');
+    });
+    row.appendChild(b);
+  });
+}
+
 function buildModePickerRow() {
   const row = $id('mode-row');
   if (!row) return;
@@ -682,6 +714,7 @@ function buildGunSelect(slot) {
   pickingSlot = slot || 0;
   if (pickingSlot === 0) {
     pendingSecondary = -1;
+    buildMapPickerRow();
     buildModePickerRow();
     buildDifficultyRow();
     buildTdmSettingsRow();
@@ -689,10 +722,12 @@ function buildGunSelect(slot) {
     $id('diff-row').style.display = isTdm ? 'none' : 'flex';
     if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isTdm ? 'flex' : 'none';
     if ($id('mode-row')) $id('mode-row').style.display = 'flex';
+    if ($id('map-row')) $id('map-row').style.display = 'flex';
   } else {
     $id('diff-row').style.display = 'none';
     if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = 'none';
     if ($id('mode-row')) $id('mode-row').style.display = 'none';
+    if ($id('map-row')) $id('map-row').style.display = 'none';
   }
   document.querySelector('#gun-select h2').textContent =
     pickingSlot === 0 ? 'SELECT PRIMARY' : 'SELECT SECONDARY';

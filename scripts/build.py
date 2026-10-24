@@ -43,7 +43,7 @@ def strip_line_comments(js: str) -> str:
     that parses the bundle would catch one that did.
     """
     lines = js.split(LF)
-    kept = lines[:1] + [ln for ln in lines[1:] if ln.strip() and not ln.lstrip().startswith("//")]
+    kept = lines[:1] + [ln.strip() for ln in lines[1:] if ln.strip() and not ln.lstrip().startswith("//")]
     return LF.join(kept)
 
 

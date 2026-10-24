@@ -387,6 +387,7 @@ function createCombatContext(overrides = {}) {
     spawnBlood: noop,
     spawnImpact: noop,
     addFieldCharge: noop,
+    playerRank: () => 1,
     updateHudHealth: noop,
     spawnBlood: noop,
     showHitmarker: noop,
@@ -1708,6 +1709,8 @@ function createFullMatchContext(overrides = {}) {
           innerHTML: '',
           dataset: {},
           classList: { add: noop, remove: noop, contains: () => false },
+          querySelector: () => null,
+          querySelectorAll: () => [],
           addEventListener: noop,
           removeEventListener: noop,
           click: function () {
@@ -1731,12 +1734,20 @@ function createFullMatchContext(overrides = {}) {
       textContent: '',
       style: { display: '' },
       classList: { add: noop, remove: noop, contains: () => false },
-      addEventListener: noop,
+      _listeners: {},
+      addEventListener: function (type, fn) {
+        (this._listeners[type] = this._listeners[type] || []).push(fn);
+      },
       removeEventListener: noop,
+      click: function () {
+        const cbs = this._listeners['click'] || [];
+        for (let i = 0; i < cbs.length; i++) cbs[i].call(this);
+      },
       appendChild: noop,
       setAttribute: noop
     }),
     querySelectorAll: () => [],
+    querySelector: () => ({ textContent: '' }),
     body: { classList: { remove: noop, add: noop, contains: () => false } },
     addEventListener: noop,
     removeEventListener: noop,
@@ -1779,6 +1790,7 @@ function createFullMatchContext(overrides = {}) {
     waveBehaviours: {},
     E_DIM: { pelvisH: 0.95 },
     losFrame: 0,
+    nextEstepT: 0,
     updateStatusEffects: noop,
     updateFlowField: noop,
     updateEnemyShadowBudget: noop,
@@ -1809,6 +1821,7 @@ function createFullMatchContext(overrides = {}) {
     spawnBlood: noop,
     spawnImpact: noop,
     addFieldCharge: noop,
+    playerRank: () => 1,
     updateHudHealth: noop,
     updateHudAmmo: noop,
     updateHudStreaks: noop,
@@ -1830,10 +1843,52 @@ function createFullMatchContext(overrides = {}) {
     colliders: [],
     smokeVolumes: () => [],
     activeMapId: 'urban',
+    TEX: {
+      snow: { map: { repeat: { set: noop } }, normalMap: { repeat: { set: noop } } },
+      asphalt: { map: { repeat: { set: noop } }, normalMap: { repeat: { set: noop } } },
+      frostedMetal: { map: {}, normalMap: {} },
+      frostedWood: { map: {}, normalMap: {} },
+      concrete: { map: {}, normalMap: {} },
+      metal: { map: {}, normalMap: {} },
+      wood: { map: {}, normalMap: {} }
+    },
+    groundMat: {
+      map: null,
+      normalMap: null,
+      color: { setHex: noop },
+      roughness: 0.92,
+      needsUpdate: false
+    },
+    SKY_UNIFORMS: {
+      top: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
+      mid: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
+      horizon: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
+      low: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
+      sunDir: { value: { set: function() { return { normalize: noop }; } } }
+    },
+    sun: {
+      color: { setHex: noop },
+      position: { set: noop }
+    },
+    SUN_OFFSET: { set: noop },
+    applyMapSkyPreset: function(mapId) {
+      const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(mapId) : 'urban';
+      const isSnow = (safe === 'snowy');
+      if (isSnow && c.TEX.snow) {
+        c.groundMat.map = c.TEX.snow.map;
+        c.groundMat.normalMap = c.TEX.snow.normalMap;
+        c.groundMat.roughness = 0.88;
+      } else if (c.TEX.asphalt) {
+        c.groundMat.map = c.TEX.asphalt.map;
+        c.groundMat.normalMap = c.TEX.asphalt.normalMap;
+        c.groundMat.roughness = 0.92;
+      }
+    },
     MAPS: {
       urban: {
         id: 'urban',
         name: 'Urban District',
+        get playerSpawn() { return CORE.getMapDef('urban').playerSpawn; },
         get spawnPoints() { return CORE.getMapDef('urban').spawnPoints; },
         get stationLayout() { return (typeof c !== 'undefined' && c.STATION_LAYOUT) ? c.STATION_LAYOUT : CORE.getMapDef('urban').stationLayout; },
         get dominationFlags() { return CORE.getMapDef('urban').dominationFlags; },
@@ -1844,6 +1899,7 @@ function createFullMatchContext(overrides = {}) {
       snowy: {
         id: 'snowy',
         name: 'Snowy Compound',
+        get playerSpawn() { return CORE.getMapDef('snowy').playerSpawn; },
         get spawnPoints() { return CORE.getMapDef('snowy').spawnPoints; },
         get stationLayout() { return CORE.getMapDef('snowy').stationLayout; },
         get dominationFlags() { return CORE.getMapDef('snowy').dominationFlags; },
@@ -1867,6 +1923,7 @@ function createFullMatchContext(overrides = {}) {
           }
           if (typeof c.buildStations === 'function') c.buildStations();
           if (typeof c.buildDistrictBarriers === 'function') c.buildDistrictBarriers();
+          if (typeof c.applyMapSkyPreset === 'function') c.applyMapSkyPreset(safe);
           if (typeof c.rebuildNavGrid === 'function') c.rebuildNavGrid();
           if (typeof c.rebuildWorldRayGrid === 'function') c.rebuildWorldRayGrid();
         }
@@ -1938,10 +1995,15 @@ function createFullMatchContext(overrides = {}) {
     },
     clearCheckpoint: () => { c._checkpoint = null; },
     loadCheckpoint: () => (c._checkpoint ? CORE.validateCheckpoint(c._checkpoint, c.CFG.weapons, c.CFG.player.health) : null),
-    recordRun: () => ({}),
+    STATS: CORE.defaultStats(),
+    recordRun: function (run) {
+      const merged = CORE.mergeRunIntoStats(c.STATS || CORE.defaultStats(), run);
+      c.STATS = merged.stats;
+      return merged.beat;
+    },
     spawnRagdoll: noop,
     disposeEnemyGeometry: noop,
-    addScore: noop,
+    addScore: function (pts) { c.score = (c.score || 0) + pts; },
     addCredits: noop,
     registerKillT: noop,
     registerStreakKill: noop,
@@ -2017,7 +2079,7 @@ function createFullMatchContext(overrides = {}) {
       wave: { startDelay: 3 },
       ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
       grenade: { radius: 6, dmg: 120 },
-      weapons: [{ mag: 30, reserveMax: 90 }]
+      weapons: [{ name: 'M4 Carbine', type: 'AR', dmg: 26, rpm: 750, mag: 30, reserveMax: 90 }]
     },
     dummyParts
   }, overrides));
@@ -4751,4 +4813,130 @@ test('regression [P1]: Survival checkpoint save/load/resume restores snowy arena
   const dHangar = CORE.navDistanceAt(nav, 26, -26);
   assert.ok(dHangar > 0 && dHangar < 1000, 'hangar interior must be reachable in resumed snowy run');
 });
+
+test('milestone 3: deploy-screen map selector UI, activeMap switching, and per-map best score display', () => {
+  const c = createFullMatchContext();
+
+  // 1. Initial state defaults to urban
+  assert.strictEqual(c.activeMapId, 'urban');
+
+  // Verify buildMapPickerRow is implemented and creates map buttons
+  assert.strictEqual(typeof c.buildMapPickerRow, 'function', 'buildMapPickerRow must be implemented');
+  c.buildMapPickerRow();
+
+  const urbanBtn = c.$id('map-btn-urban');
+  const snowyBtn = c.$id('map-btn-snowy');
+  assert.ok(urbanBtn, 'map-btn-urban must exist');
+  assert.ok(snowyBtn, 'map-btn-snowy must exist');
+
+  // Urban button is highlighted
+  assert.ok(urbanBtn.className.includes('on'), 'urban button must have on class initially');
+  assert.ok(!snowyBtn.className.includes('on'), 'snowy button must not have on class initially');
+
+  // 2. Click snowy button to switch map
+  snowyBtn.click();
+  assert.strictEqual(c.activeMapId, 'snowy', 'activeMapId must switch to snowy');
+  assert.strictEqual(c.getActiveMap().id, 'snowy', 'getActiveMap must return snowy');
+  assert.strictEqual(c._settings.gameMap, 'snowy', 'gameMap setting must be updated to snowy');
+
+  // UI state after switch
+  c.buildMapPickerRow();
+  assert.ok(!c.$id('map-btn-urban').className.includes('on'), 'urban button must no longer have on class');
+  assert.ok(c.$id('map-btn-snowy').className.includes('on'), 'snowy button must have on class');
+
+  // 3. Subtitle displays per-map best score when career stats exist
+  c.STATS = {
+    bestScore: 5000,
+    runs: 5,
+    mapStats: {
+      snowy: { bestScore: 3400, bestWave: 8 },
+      urban: { bestScore: 5000, bestWave: 12 }
+    }
+  };
+  c.buildMapPickerRow();
+  assert.ok(c.$id('map-btn-snowy').innerHTML.includes('3400'), 'snowy button must show snowy best score in subtitle');
+  assert.ok(c.$id('map-btn-urban').innerHTML.includes('5000'), 'urban button must show urban best score in subtitle');
+
+  // 4. Secondary weapon selection hides map-row
+  c.buildGunSelect(0);
+  assert.strictEqual(c.$id('map-row').style.display, 'flex', 'map-row must be visible when selecting primary');
+  c.buildGunSelect(1);
+  assert.strictEqual(c.$id('map-row').style.display, 'none', 'map-row must be hidden when selecting secondary');
+});
+
+test('milestone 3: procedural snowy textures and sky preset application on activeMap switch', () => {
+  const c = createFullMatchContext();
+
+  // Check texture exports in TEX
+  assert.ok(c.TEX.snow, 'TEX.snow must exist');
+  assert.ok(c.TEX.frostedMetal, 'TEX.frostedMetal must exist');
+  assert.ok(c.TEX.frostedWood, 'TEX.frostedWood must exist');
+
+  // Check sky preset application
+  assert.strictEqual(typeof c.applyMapSkyPreset, 'function', 'applyMapSkyPreset must be defined');
+
+  c.applyMapSkyPreset('snowy');
+  assert.strictEqual(c.groundMat.map, c.TEX.snow.map, 'snowy ground must use TEX.snow.map');
+  assert.strictEqual(c.groundMat.normalMap, c.TEX.snow.normalMap, 'snowy ground must use TEX.snow.normalMap');
+  assert.ok(c.groundMat.roughness < 0.90, 'snowy ground roughness must be tuned');
+
+  c.applyMapSkyPreset('urban');
+  assert.strictEqual(c.groundMat.map, c.TEX.asphalt.map, 'urban ground must restore TEX.asphalt.map');
+  assert.strictEqual(c.groundMat.normalMap, c.TEX.asphalt.normalMap, 'urban ground must restore TEX.asphalt.normalMap');
+});
+
+test('milestone 3: full Survival gameplay lifecycle on Snowy Compound with active combat, enemies, and per-map stat recording', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('snowy');
+  c.setActiveMode('survival');
+  c.resetGame();
+
+  // Player must spawn at Snowy spawn coordinates
+  const snowyDef = CORE.getMapDef('snowy');
+  assert.strictEqual(c.player.pos.x, snowyDef.playerSpawn.x);
+  assert.strictEqual(c.player.pos.z, snowyDef.playerSpawn.z);
+
+  // Spawn enemy and verify active combat
+  const enemy = {
+    id: 'snowy_enemy_1',
+    team: 'enemy',
+    kind: 0,
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    speedMul: 1,
+    pos: new Vector3(snowyDef.playerSpawn.x + 5, 0.9, snowyDef.playerSpawn.z),
+    vel: new Vector3(),
+    yaw: 0,
+    parts: c.dummyParts()
+  };
+  c.enemies.push(enemy);
+
+  // Hostile engagement: enemy detects player, has LOS, and attacks
+  c.updateEnemies(0.1);
+  assert.ok(enemy.target === c.player, 'enemy must acquire player as target on Snowy Compound');
+
+  // Player damages enemy on Snowy Compound
+  c.damageEnemy(enemy, 50, enemy.pos, false, false, 'AR', c.player);
+  assert.strictEqual(enemy.health, 50);
+
+  // Eliminate enemy
+  c.damageEnemy(enemy, 60, enemy.pos, false, false, 'AR', c.player);
+  assert.strictEqual(enemy.dead, true);
+  assert.strictEqual(c.kills, 1);
+  assert.ok(c.score > 0);
+
+  // Record run on Snowy Compound and verify map-specific career stats
+  c.recordRun({
+    mapId: 'snowy',
+    score: 1800,
+    wave: 4,
+    kills: 1,
+    accuracy: 60
+  });
+
+  assert.strictEqual(c.STATS.mapStats.snowy.bestScore, 1800, 'recordRun must store score under snowy mapStats');
+  assert.strictEqual(c.STATS.mapStats.snowy.bestWave, 4, 'recordRun must store wave under snowy mapStats');
+});
+
 

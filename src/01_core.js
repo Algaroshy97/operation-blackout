@@ -865,12 +865,31 @@ const CORE = (function () {
   // ---- Persistent career stats ------------------------------------------------
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
-             xp: 0, totalHeadshots: 0, totalStreaks: 0 };
+             xp: 0, totalHeadshots: 0, totalStreaks: 0,
+             mapStats: { urban: { bestScore: 0, bestWave: 0 }, snowy: { bestScore: 0, bestWave: 0 } } };
   }
   function sanitizeStats(stored) {
     const out = defaultStats();
     if (!stored || typeof stored !== 'object') return out;
     for (const k in out) {
+      if (k === 'mapStats') {
+        const ms = stored.mapStats;
+        if (ms && typeof ms === 'object') {
+          const mapList = (typeof MAP_IDS !== 'undefined') ? MAP_IDS : ['urban', 'snowy'];
+          for (let i = 0; i < mapList.length; i++) {
+            const m = mapList[i];
+            if (ms[m] && typeof ms[m] === 'object') {
+              const sc = typeof ms[m].bestScore === 'number' ? ms[m].bestScore : parseFloat(ms[m].bestScore);
+              const wv = typeof ms[m].bestWave === 'number' ? ms[m].bestWave : parseFloat(ms[m].bestWave);
+              out.mapStats[m] = {
+                bestScore: isFinite(sc) && sc >= 0 ? sc : 0,
+                bestWave: isFinite(wv) && wv >= 0 ? wv : 0
+              };
+            }
+          }
+        }
+        continue;
+      }
       const n = typeof stored[k] === 'number' ? stored[k] : parseFloat(stored[k]);
       if (isFinite(n) && n >= 0) out[k] = n;
     }
@@ -904,13 +923,24 @@ const CORE = (function () {
   }
   function mergeRunIntoStats(stats, run) {
     const next = sanitizeStats(stats);
-    const beat = { score: false, wave: false, accuracy: false };
+    const beat = { score: false, wave: false, accuracy: false, mapScore: false, mapWave: false };
     const recordScore = _isNum(run.recordScore) ? run.recordScore : run.score;
     const recordWave = _isNum(run.recordWave) ? run.recordWave : run.wave;
     const recordAccuracy = _isNum(run.recordAccuracy) ? run.recordAccuracy : run.accuracy;
     if (recordScore > next.bestScore) { next.bestScore = recordScore; beat.score = true; }
     if (recordWave > next.bestWave) { next.bestWave = recordWave; beat.wave = true; }
     if (recordAccuracy > next.bestAccuracy) { next.bestAccuracy = recordAccuracy; beat.accuracy = true; }
+    const mId = (typeof sanitizeMapId === 'function') ? sanitizeMapId(run && run.mapId) : ((run && run.mapId === 'snowy') ? 'snowy' : 'urban');
+    if (!next.mapStats) next.mapStats = { urban: { bestScore: 0, bestWave: 0 }, snowy: { bestScore: 0, bestWave: 0 } };
+    if (!next.mapStats[mId]) next.mapStats[mId] = { bestScore: 0, bestWave: 0 };
+    if (recordScore > (next.mapStats[mId].bestScore || 0)) {
+      next.mapStats[mId].bestScore = recordScore;
+      beat.mapScore = true;
+    }
+    if (recordWave > (next.mapStats[mId].bestWave || 0)) {
+      next.mapStats[mId].bestWave = recordWave;
+      beat.mapWave = true;
+    }
     // Endless continuation is still the same career run; callers mark its
     // incremental settlement with countRun:false to avoid double-counting it.
     if (run.countRun !== false) next.runs = next.runs + 1;
@@ -7618,6 +7648,11 @@ const CORE = (function () {
       dominationFlags: URBAN_DOMINATION_FLAGS,
       districts: DISTRICTS,
       barriers: URBAN_BARRIERS,
+      sky: {
+        top: 0x3d6cb0, mid: 0x8fa9d2, horizon: 0xf0b088, low: 0x4a4452,
+        fogColor: 0x1a1f2b, skyColor: 0x8aa4c8,
+        sunColor: 0xffd9b0, sunPos: [45, 55, -30], sunDir: [150, 170, -100]
+      },
       colliders: buildUrbanColliders()
     },
     snowy: {
@@ -7633,6 +7668,11 @@ const CORE = (function () {
         { key: 'depot', name: 'FUEL DEPOT', price: 750, minX: -36, maxX: -16, minZ: 18, maxZ: 36 }
       ],
       barriers: SNOWY_BARRIERS,
+      sky: {
+        top: 0x24528c, mid: 0x7aa5d2, horizon: 0xd4e6f4, low: 0x2e3846,
+        fogColor: 0x7892ad, skyColor: 0x8eb4d8,
+        sunColor: 0xfff2e0, sunPos: [50, 24, -35], sunDir: [160, 70, -120]
+      },
       colliders: buildSnowyColliders()
     }
   };

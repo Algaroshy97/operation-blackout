@@ -154,21 +154,21 @@ have long sightlines for the sniper, plus tight interiors for the new shotgun.
   - station layout (16 stations) and domination flags A/B/C
   - core tests verify nav grid reaches all 12 outer spawn points to anchor player position
 - **Look:**
-  - snow ground texture with footprints-style variation
-  - icy blue sky preset and a low sun
+  - ✅ snow ground texture with footprints-style variation (`TEX.snow`, done in v177)
+  - ✅ icy blue sky preset and low sun lighting (`CORE.MAP_DEFS.snowy.sky`, `applyMapSkyPreset`, done in v177)
+  - ✅ frosted metal and wood variants in `08_textures.js` (`TEX.frostedMetal`, `TEX.frostedWood`, done in v177)
   - snowfall particles on a `PFX` layer
   - breath-mist on the viewmodel
-  - frosted metal and wood variants in `08_textures.js`
 - **Feel:**
   - snow and ice footstep sounds
   - slightly longer slides on ice patches
   - powder puffs on impact instead of concrete chips
-- Map picker on the deploy screen. Each map keeps its own best score.
+- ✅ **Map picker on deploy screen** (done in v177): `#map-row` on deploy modal `#gun-select` with `#map-btn-urban` and `#map-btn-snowy`. Each map keeps its own independent career best score and wave (`mapStats.urban`, `mapStats.snowy`).
 
-**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation; v176 completes map-switch lifecycle, Snowy district barriers, and checkpoint preservation).
-**Next dependency:** Snowy textures and visual assets (`08_textures.js`), icy blue sky preset,
-and deploy-screen map selector UI.
-**Evidence:** Rendered-world and node regressions verify Snowy map switching (both directions), team deployment, district barrier purchase/opening/resetting, and Survival checkpoint save/load/resume with physical arena restoration.
+**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation; v176 completed map-switch lifecycle, Snowy district barriers, and checkpoint preservation; v177 completed Snowy textures, frosted materials, icy blue sky preset, and deploy map selector UI with per-map career stats).
+**Next dependency:** Snowfall particles on a `PFX` layer, breath-mist on viewmodel, snow/ice footstep audio, and slide physics on ice patches.
+**Evidence:** Unit and integration regressions in `tests/test_core.js` and `tests/test_modes_and_teams.js` verify Snowy textures, sky preset/lighting application, deploy map selector UI, activeMap switching, independent per-map career stats, and complete Survival lifecycle on Snowy Compound.
+**Evidence gaps:** Physical mobile device audio/performance, balance and feel unverified; browser acceptance and PR creation pending independent wrapper gates.
 
 **Done when:** every mode is playable on both maps. The nav grid reaches all spawns,
 which the existing core test is extended to check for both maps. The probe deploys on

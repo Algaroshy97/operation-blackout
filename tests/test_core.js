@@ -10424,3 +10424,76 @@ test('regression: CORE.districtByKey looks up active map districts and all defin
   assert.strictEqual(CORE.districtByKey('unknown_district'), null, 'unknown district returns null');
 });
 
+test('milestone 3: MAP_DEFS includes icy blue sky preset and low sun lighting for Snowy Compound', () => {
+  const urbanSky = CORE.getMapDef('urban').sky;
+  const snowySky = CORE.getMapDef('snowy').sky;
+
+  assert.ok(urbanSky, 'urban map def must include sky configuration');
+  assert.ok(snowySky, 'snowy map def must include sky configuration');
+
+  // Low sun lighting: snowy sun elevation (Y) is significantly lower than urban
+  assert.ok(Array.isArray(snowySky.sunPos) && snowySky.sunPos.length === 3, 'snowy sunPos must be a 3-element coordinate');
+  assert.ok(Array.isArray(urbanSky.sunPos) && urbanSky.sunPos.length === 3, 'urban sunPos must be a 3-element coordinate');
+  assert.ok(snowySky.sunPos[1] < urbanSky.sunPos[1], 'snowy sun elevation must be lower than urban sun elevation');
+  assert.ok(snowySky.sunPos[1] <= 30, 'snowy low sun elevation must be at most 30m');
+
+  // Sun direction
+  assert.ok(Array.isArray(snowySky.sunDir) && snowySky.sunDir.length === 3, 'snowy sunDir must be defined');
+
+  // Icy blue sky preset: frosty horizon distinct from urban warm sunset peach
+  assert.notStrictEqual(snowySky.horizon, urbanSky.horizon, 'snowy horizon must differ from urban sunset horizon');
+  assert.notStrictEqual(snowySky.fogColor, urbanSky.fogColor, 'snowy fogColor must differ from urban fogColor');
+  assert.strictEqual(typeof snowySky.top, 'number', 'snowy top sky color must be a hex number');
+  assert.strictEqual(typeof snowySky.mid, 'number', 'snowy mid sky color must be a hex number');
+});
+
+test('milestone 3: career stats tracks per-map best score and best wave independently', () => {
+  const initial = CORE.defaultStats();
+  assert.ok(initial.mapStats, 'defaultStats must include mapStats dictionary');
+  assert.ok(initial.mapStats.urban && initial.mapStats.snowy, 'mapStats must include urban and snowy entries');
+  assert.strictEqual(initial.mapStats.urban.bestScore, 0);
+  assert.strictEqual(initial.mapStats.snowy.bestScore, 0);
+
+  // 1. First run on Snowy Compound
+  const run1 = { mapId: 'snowy', score: 3200, wave: 7, accuracy: 45, kills: 28 };
+  const res1 = CORE.mergeRunIntoStats(initial, run1);
+  assert.strictEqual(res1.stats.mapStats.snowy.bestScore, 3200, 'snowy bestScore must be recorded');
+  assert.strictEqual(res1.stats.mapStats.snowy.bestWave, 7, 'snowy bestWave must be recorded');
+  assert.strictEqual(res1.stats.mapStats.urban.bestScore, 0, 'urban bestScore must remain untouched');
+  assert.strictEqual(res1.stats.bestScore, 3200, 'overall bestScore tracks the record');
+  assert.strictEqual(res1.beat.score, true);
+  assert.strictEqual(res1.beat.mapScore, true);
+
+  // 2. Second run on Urban District with lower score than snowy record
+  const run2 = { mapId: 'urban', score: 2100, wave: 5, accuracy: 50, kills: 18 };
+  const res2 = CORE.mergeRunIntoStats(res1.stats, run2);
+  assert.strictEqual(res2.stats.mapStats.urban.bestScore, 2100, 'urban bestScore must be recorded independently');
+  assert.strictEqual(res2.stats.mapStats.urban.bestWave, 5, 'urban bestWave must be recorded independently');
+  assert.strictEqual(res2.stats.mapStats.snowy.bestScore, 3200, 'snowy bestScore must be preserved');
+  assert.strictEqual(res2.stats.bestScore, 3200, 'overall bestScore remains snowy record');
+  assert.strictEqual(res2.beat.score, false, 'overall record was not beaten');
+  assert.strictEqual(res2.beat.mapScore, true, 'urban map record was beaten');
+
+  // 3. Third run on Urban beating overall record
+  const run3 = { mapId: 'urban', score: 4500, wave: 11, accuracy: 55, kills: 42 };
+  const res3 = CORE.mergeRunIntoStats(res2.stats, run3);
+  assert.strictEqual(res3.stats.mapStats.urban.bestScore, 4500);
+  assert.strictEqual(res3.stats.mapStats.snowy.bestScore, 3200);
+  assert.strictEqual(res3.stats.bestScore, 4500, 'overall bestScore updated to urban record');
+  assert.strictEqual(res3.beat.score, true);
+
+  // 4. sanitizeStats validates and preserves mapStats
+  const sanitized = CORE.sanitizeStats({
+    bestScore: 4500,
+    mapStats: {
+      snowy: { bestScore: '3200', bestWave: '7' },
+      urban: { bestScore: 4500, bestWave: 11 }
+    }
+  });
+  assert.strictEqual(sanitized.mapStats.snowy.bestScore, 3200);
+  assert.strictEqual(sanitized.mapStats.snowy.bestWave, 7);
+  assert.strictEqual(sanitized.mapStats.urban.bestScore, 4500);
+  assert.strictEqual(sanitized.mapStats.urban.bestWave, 11);
+});
+
+
