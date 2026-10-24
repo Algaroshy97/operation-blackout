@@ -4,6 +4,55 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v176 — Map-switch lifecycle, Snowy district barriers, and Survival checkpoint preservation
+
+- **Map-switch lifecycle (`src/10_config_world.js`, `src/02_settings.js`, `src/70_main.js`).**
+  - Completed `setActiveMap(id, force)` lifecycle to rebuild map-owned environment (`rebuildMapEnvironment()`) when map changes or is forced: clears old static batches, colliders, district barriers, stations, and open districts via `clearMapGeometry()`, rebuilds arena (`buildArena()`), stations (`buildStations()`), district barriers (`buildDistrictBarriers()`), flushes static batches, and rebuilds both `worldRayGrid` and `navGrid`.
+  - Props added during `scatterProps()` are tagged with `.isProp = true` so they persist through map transitions without leaking static batches.
+  - Sourced player spawn position dynamically from active map in `resetGame()`, ensuring player spawns at the correct coordinate on snowy compound and urban arena.
+  - Sourced map setting dynamically in `startGame()` and ensured `setSetting('gameMap', mapToRestore)` synchronizes settings with active map on checkpoint resume.
+- **Snowy district barriers & purchasing (`src/01_core.js`, `src/57_stations.js`).**
+  - Added barrier definitions for Snowy Compound in `CORE.SNOWY_BARRIERS` (`hangar` door and `depot` door/wall) and wired them into `CORE.MAP_DEFS.snowy.barriers`.
+  - Generalized `CORE.districtByKey(key, mapId)` to look up districts across map definitions and the active map, fixing lookup for `'hangar'` and `'depot'`.
+  - Updated `buildStations()` in `src/57_stations.js` to preserve station district identifiers (`district: def.district || null`) and clear previous stations on rebuild.
+  - Updated `buildDistrictBarriers()`, `getDistrictBarriers()`, and `resetDistricts()` to derive barriers dynamically from the active map instead of hardcoded urban barriers, and added `clearDistrictBarriers()` for clean map switching.
+- **Survival checkpoint mapId & district preservation (`src/01_core.js`, `src/70_main.js`).**
+  - Updated `CORE.makeCheckpoint` to serialize sanitized `mapId` (defaulting to `'urban'`).
+  - Updated `CORE.validateCheckpoint` to retain sanitized `mapId` (defaulting legacy checkpoints to `'urban'`), and validate `openDistricts` against the specific map's district keys (`getMapDef(mapId).districts`), safely filtering out cross-map invalid keys.
+  - Updated `resumeRun()` in `src/70_main.js` to restore `mapId` via `setActiveMap()`, update `gameMap` setting, reset `openDistricts`, and open purchased districts.
+- **Release build budget management (`scripts/build.py`).**
+  - Updated `scripts/build.py` to strip CSS block comments from `00_head.html` and drop empty lines in bundled JavaScript modules. This brought the release build (`dist/Operation Blackout.html`) down to 2,095,205 bytes (1,947 bytes below the 2 MiB budget) while keeping all comments intact in source files.
+- **Coverage.**
+  - Added new regression tests in `tests/test_core.js` and `tests/test_modes_and_teams.js` verifying:
+    - Map-switch lifecycle rebuilding geometry, stations, barriers, navigation in both directions, and team deployment (TDM and Domination).
+    - Snowy district barrier purchasing, opening, resetting for both hangar and depot gates with real colliders, door meshes, and navigation updates.
+    - Survival checkpoint serialization, validation, and resume on Snowy compound with physical arena restoration and district unlocking.
+  - Added browser acceptance checks in `scripts/probe_live.py`:
+    - `snowy-survival-checkpoint-and-arena-restoration`: verifies checkpoint round-trip and `resumeRun()` on Snowy Compound with physical arena colliders, station layout, door collider/mesh removal, and nav grid reachability into the purchased hangar district.
+    - `snowy-map-switch-lifecycle-and-team-mode`: verifies switching in both directions (urban -> snowy -> urban), barrier/station/collider restoration, purchasing/resetting depot and hangar gates, and team-mode deployment (TDM 12-actor roster and spawn sourcing, Domination flags and objective steering) under Snowy Compound.
+    - Enhanced `checkpoint-between-wave-save-resume` to verify mapId preservation and legacy checkpoint defaults to urban.
+  - 598/598 Node tests passing (`node --test tests/*.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
+## v175 — Milestone 3: Map registry framework and Snowy Compound layout foundation
+
+- **Map registry framework (`src/10_config_world.js`, `src/01_core.js`).**
+  - Modularized arena generation behind `MAPS[id].build()`, with runtime map switching via `getActiveMap()` and `setActiveMap(id)`.
+  - Added pure map definitions in `src/01_core.js` (`CORE.MAP_IDS`, `CORE.DEFAULT_MAP_ID`, `CORE.sanitizeMapId`, `CORE.getMapDef`, `CORE.MAP_DEFS` for `urban` and `snowy`), abstracting per-map world dimensions, player spawns, colliders, enemy spawn rings, station layouts, Domination flag points, and gated districts.
+  - Sourced stations (`src/57_stations.js`), spawn rings and district filtering (`src/60_hud_waves.js`), and Domination flag entities (`src/35_modes.js`) from active map definitions.
+- **Snowy Compound layout (`src/01_core.js`, `src/10_config_world.js`).**
+  - Added `snowy` compound layout with two-storey command anchor building, vehicle hangar, fuel depot, watchtower, trenches, and sandbag perimeter.
+  - Sourced `buildSnowyArena()` meshes from the defined collider bounds, and added Snowy station layout (16 stations) and 3 Domination capture flags (`A`, `B`, `C`).
+- **Survival checkpoint compatibility (`src/60_hud_waves.js`, `src/70_main.js`, `src/02_settings.js`).**
+  - `captureRunState()` captures `mapId`, and `resumeRun()` restores the active map via `setActiveMap()`, safely defaulting legacy checkpoints to `'urban'`.
+  - Added `gameMap` setting schema entry with runtime dispatch in `applySetting()`.
+- **Release build budget management (`scripts/build.py`, `src/*.js`).**
+  - Relocated inline trailing comments across JavaScript modules onto preceding dedicated `//` comment lines, preserving full documentation in source while allowing `scripts/build.py` line-comment stripping to reduce the self-contained single-file HTML release to 2,094,911 bytes (2,241 bytes under the 2 MiB ceiling).
+- **Coverage.**
+  - 7 new regression tests (4 in `tests/test_core.js`, 3 in `tests/test_modes_and_teams.js`) verifying map registry lookups, nav grid reachability from player spawn to all 12 outer spawn points on both maps, Domination flag clearances, station stand-point walkability, runtime map switching, and Survival checkpoint save/resume round-trip.
+  - 593/593 Node regression tests passing (`node --test tests/*.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v174.1 — Gun Game knife-tier viewmodel crash fix (PR7 CI failure)
 
 - **Root cause (`src/30_weapons.js`).** At Gun Game tier 19 (the Knife), `applyGunGamePlayerLoadout`

@@ -7,8 +7,10 @@
 const weaponsOwned = [0, -1, -1, -1];
 const MARKSMAN_SLOT = 2;
 const SIDEARM_SLOT = 3;
-let curWeapon = 0;              // 0..3 (slot)
-let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
+// 0..3 (slot)
+let curWeapon = 0;
+// per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
+let wState = [];
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
@@ -141,7 +143,8 @@ function switchWeapon(slot) {
   const prev = curS();
   if (prev && prev.reloading) {
     prev.reloading = false;
-    prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
+    // keep reloadT; tryReload() picks it back up
+    prev.reloadPaused = true;
   }
   if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
@@ -150,10 +153,12 @@ function switchWeapon(slot) {
   if (next) next.nextShot = CORE.shotScheduleAfterInactive();
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
-    next.reloading = true;           // resume where it left off
+    // resume where it left off
+    next.reloading = true;
     playSound(CORE.reloadMagazineOutSound(curWpn ? curWpn.type : ''));
   }
-  gunSwitchT = 0;   // raise animation timer
+  // raise animation timer
+  gunSwitchT = 0;
   buildViewmodel();
   updateHudAmmo();
   playSound(CORE.weaponDrawSound(curWpn ? curWpn.type : ''));
@@ -287,13 +292,16 @@ function adsDown() {
     ? CORE.canPlayerAds(isDead, isDowned, isSprint)
     : (!isSprint && !isDead && !isDowned));
 }
-let adsAmount = 0;   // 0..1 smooth
-let gunSwitchT = 1;  // 1 = fully raised
+// 0..1 smooth
+let adsAmount = 0;
+// 1 = fully raised
+let gunSwitchT = 1;
 
 // ---- Sniper scope state ----
 const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.STEADY_MAX;
 let swayPhase = 0, swayX = 0, swayY = 0;
-let steadyT = STEADY_MAX; // remaining breath-hold time
+// remaining breath-hold time
+let steadyT = STEADY_MAX;
 let steadyActive = false;
 let _wasSteadyActive = false;
 const _swayOut = { x: 0, y: 0 };
@@ -343,7 +351,8 @@ function applyAimAssist(dir, from) {
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInAimAssistRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
+    // chest centre of the corrected box
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);
     _assistTo.subVectors(_aimTgt, from).normalize();
     const chestDot = dir.dot(_assistTo);
     if (CORE.isAimAssistCandidateCloser(chestDot, bestCos)) {
@@ -352,7 +361,8 @@ function applyAimAssist(dir, from) {
       hasBest = true;
     }
     // head magnet (smaller box)
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);   // head centre
+    // head centre
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);
     _assistToH.subVectors(_aimTgt, from).normalize();
     const headDot = dir.dot(_assistToH);
     if (CORE.isAimAssistHeadCandidateCos(headDot, bestCos, minCos, CORE.AIM_ASSIST_HEAD_PRIORITY)) {
@@ -383,7 +393,8 @@ function magnetizeBullet(dir, from) {
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
+    // centre mass
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);
     _magTo.subVectors(_aimTgt, from).normalize();
     const dotVal = dir.dot(_magTo);
     if (CORE.isMagnetCandidateCloser(dotVal, bestCos)) {
@@ -417,7 +428,8 @@ function fireShot(preserveSchedule) {
   // shot 30, so there was no reason to ever tap-fire and no cost to holding.
   const ads = adsDown();
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
-  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  // STEADY AIM
+  bp.perShot *= CORE.perkBloomMul(perks);
   bp.cap *= CORE.perkBloomMul(perks);
   const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
@@ -508,7 +520,8 @@ function traceRound(w, spreadNow, magnetize) {
     }
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, null, w ? w.type : 'AR');
-    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
+    // v41: persistent bullet hole
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
   _roundOut.hit = hit; _roundOut.enemy = isEnemy;
@@ -616,8 +629,10 @@ let _lastChOp = -1, _lastChGap = -1;
 let _scopeOvEl = null, _chEl = null, _steadyIndEl = null;
 const _scopeOvState = { active: null, isSniper: null };
 const _steadyIndState = { visible: null, steadyActive: null, label: null };
-let meleeT = 0;        // cooldown / lockout
-let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
+// cooldown / lockout
+let meleeT = 0;
+// 1 -> 0 viewmodel thrust
+let meleeSwing = 0;
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
 const _meleeDir = new THREE.Vector3();

@@ -65,7 +65,8 @@ function sdCapsule(r0, r1, len, seg) {
   pts.sort(function (p, q) { return p.y - q.y; });
   return new THREE.LatheGeometry(pts, seg || 14);
 }
-function sdLathe(profile, seg) {   // profile: [[radius, y], ...] bottom -> top
+// profile: [[radius, y], ...] bottom -> top
+function sdLathe(profile, seg) {
   return new THREE.LatheGeometry(profile.map(function (p) { return new THREE.Vector2(p[0] + 1e-4, p[1]); }), seg || 14);
 }
 const _sdBoxCache = {};
@@ -131,15 +132,18 @@ function sdSkinRig(root) {
   const byMat = new Map();
   for (let i = 0; i < pieces.length; i++) {
     const c = pieces[i];
-    const g = c.geometry.clone().applyMatrix4(c.matrixWorld);   // root sits at the origin
+    // root sits at the origin
+    const g = c.geometry.clone().applyMatrix4(c.matrixWorld);
     if (!byMat.has(c.material)) byMat.set(c.material, []);
     byMat.get(c.material).push({ g: g, bone: boneIdx.has(c.parent) ? boneIdx.get(c.parent) : 0 });
     c.parent.remove(c);
   }
-  const skeleton = new THREE.Skeleton(bones);   // inverses from this rest pose
+  // inverses from this rest pose
+  const skeleton = new THREE.Skeleton(bones);
   byMat.forEach(function (list, mat) {
     const sm = new THREE.SkinnedMesh(sdMergeSkinGeo(list), mat);
-    sm.frustumCulled = false;   // bind-pose bounds go stale as soon as it moves
+    // bind-pose bounds go stale as soon as it moves
+    sm.frustumCulled = false;
     sm.castShadow = true; sm.receiveShadow = true;
     root.add(sm);
     sm.bind(skeleton, new THREE.Matrix4());
@@ -192,8 +196,10 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(spine, sdBoxG(0.086, 0.02, 0.064), SDM.strap, i * 0.095, 0.27, 0.186 * vestS);
   }
   sdPiece(spine, sdBoxG(0.06, 0.13, 0.05), SDM.pouch, 0.15, 0.4, 0.12);
-  sdPiece(spine, sdCapsule(0.008, 0.008, 0.14, 5), SDM.gunMetal, 0.16, 0.6, 0.12);   // radio antenna
-  sdPiece(spine, sdBoxG(0.3, 0.28, 0.05), K.vest, 0, 0.3, -0.15 * vestS);             // back plate
+  // radio antenna
+  sdPiece(spine, sdCapsule(0.008, 0.008, 0.14, 5), SDM.gunMetal, 0.16, 0.6, 0.12);
+  // back plate
+  sdPiece(spine, sdBoxG(0.3, 0.28, 0.05), K.vest, 0, 0.3, -0.15 * vestS);
   if (heavy) {
     // bulky pauldrons, collar, groin plate
     for (const sx of [-1, 1]) sdPiece(spine, sdLathe([[0.02, -0.05], [0.12, 0.0], [0.11, 0.05], [0.02, 0.08]], 12), SDM.plate, sx * 0.25, 0.44, 0, 0, 0, sx * 0.4, 1, 1, 1.1);
@@ -209,14 +215,16 @@ function buildSoldierTemplate(kind, team) {
       sdPiece(spine, new THREE.SphereGeometry(0.042, 10, 8), SDM.nade, -0.13 + t * 0.26, 0.42 - t * 0.28, 0.2);
     }
   }
-  if (kind === 0 || kind === 4) sdPiece(spine, sdLathe([[0.2, 0.3], [0.21, 0.36]], 16), SDM.strap, 0, 0, 0, 0, 0, 0, 1, 1, 0.72);   // chest rig strap only
+  // chest rig strap only
+  if (kind === 0 || kind === 4) sdPiece(spine, sdLathe([[0.2, 0.3], [0.21, 0.36]], 16), SDM.strap, 0, 0, 0, 0, 0, 0, 1, 1, 0.72);
   // neck + head
   const neck = sdJoint(spine, 'neck', 0, 0.5, 0.0);
   const bare = !K.helmet;
   sdPiece(neck, sdCapsule(0.05, 0.055, 0.09, 8), bare ? SDM.skin : SDM.mask, 0, 0.09, 0, Math.PI, 0, 0);
   const head = sdJoint(neck, 'head', 0, 0.09, 0.01);
   sdPiece(head, new THREE.SphereGeometry(1, 16, 12), bare ? SDM.skin : SDM.mask, 0, 0.1, 0.01, 0, 0, 0, 0.1, 0.125, 0.115);
-  sdPiece(head, new THREE.SphereGeometry(1, 12, 8), SDM.mask, 0, 0.06, 0.08, 0, 0, 0, 0.07, 0.06, 0.05);   // jaw / lower face
+  // jaw / lower face
+  sdPiece(head, new THREE.SphereGeometry(1, 12, 8), SDM.mask, 0, 0.06, 0.08, 0, 0, 0, 0.07, 0.06, 0.05);
   if (K.helmet) {
     // helmet shell (open hemisphere), rim, ear cups, NVG or visor
     const shell = new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55);
@@ -228,12 +236,14 @@ function buildSoldierTemplate(kind, team) {
       const slit = sdPiece(head, sdBoxG(0.16, 0.012, 0.01), SDM.slit, 0, 0.115, 0.148);
       slit.userData.keep = false;
     } else {
-      sdPiece(head, sdBoxG(0.05, 0.035, 0.04), SDM.gunMetal, 0, 0.19, 0.135);        // NVG mount
+      // NVG mount
+      sdPiece(head, sdBoxG(0.05, 0.035, 0.04), SDM.gunMetal, 0, 0.19, 0.135);
       for (const sx of [-0.035, 0.035]) {
         sdPiece(head, new THREE.CylinderGeometry(0.02, 0.024, 0.07, 10), SDM.gun, sx, 0.15, 0.17, Math.PI / 2 - 0.2, 0, 0);
         sdPiece(head, new THREE.CircleGeometry(0.018, 12), SDM.nvg, sx, 0.158, 0.206, -0.2, 0, 0);
       }
-      if (kind === 5 || kind === 3) sdPiece(head, sdBoxG(0.2, 0.05, 0.02), SDM.lens, 0, 0.12, 0.118);   // goggles
+      // goggles
+      if (kind === 5 || kind === 3) sdPiece(head, sdBoxG(0.2, 0.05, 0.02), SDM.lens, 0, 0.12, 0.118);
     }
   } else {
     // runner: balaclava with an eye slot, soft cap with a brim
@@ -247,13 +257,15 @@ function buildSoldierTemplate(kind, team) {
     const S = side > 0 ? 'L' : 'R';
     const sh = sdJoint(spine, 'sh' + S, side * 0.2, 0.44, 0);
     sdPiece(sh, sdCapsule(0.062, 0.05, 0.27, 10), K.cloth, 0, 0, 0);
-    if (!heavy) sdPiece(sh, sdCapsule(0.066, 0.062, 0.06, 10), K.vest, 0, 0.0, 0);    // shoulder pad
+    // shoulder pad
+    if (!heavy) sdPiece(sh, sdCapsule(0.066, 0.062, 0.06, 10), K.vest, 0, 0.0, 0);
     const el = sdJoint(sh, 'el' + S, 0, -0.29, 0);
     sdPiece(el, sdCapsule(0.048, 0.042, 0.24, 10), K.cloth, 0, 0, 0);
     if (heavy) sdPiece(el, sdCapsule(0.056, 0.05, 0.14, 10), SDM.plate, 0, -0.02, 0.01);
     const ha = sdJoint(el, 'ha' + S, 0, -0.26, 0);
     sdPiece(ha, sdCapsule(0.042, 0.036, 0.07, 8), SDM.glove, 0, 0.02, 0, 0, 0, 0, 1, 1, 0.8);
-    sdPiece(ha, sdBoxG(0.06, 0.05, 0.035), SDM.glove, 0, -0.07, 0.015);             // fingers
+    // fingers
+    sdPiece(ha, sdBoxG(0.06, 0.05, 0.035), SDM.glove, 0, -0.07, 0.015);
     const m = new THREE.Object3D(); m.name = 'mHand' + S; m.position.set(0, -0.06, 0); ha.add(m);
   }
   // legs: hip -> knee -> ankle
@@ -261,13 +273,17 @@ function buildSoldierTemplate(kind, team) {
     const S = side > 0 ? 'L' : 'R';
     const hp = sdJoint(hips, 'hip' + S, side * 0.1, -0.05, 0);
     sdPiece(hp, sdCapsule(0.085, 0.064, 0.4, 10), K.pants, 0, 0, 0);
-    sdPiece(hp, sdBoxG(0.05, 0.12, 0.09), K.pants, side * 0.085, -0.2, 0.0);       // cargo pocket
-    sdPiece(hp, sdBoxG(0.012, 0.03, 0.12), SDM.strap, side * 0.075, -0.12, 0.0);   // thigh strap
+    // cargo pocket
+    sdPiece(hp, sdBoxG(0.05, 0.12, 0.09), K.pants, side * 0.085, -0.2, 0.0);
+    // thigh strap
+    sdPiece(hp, sdBoxG(0.012, 0.03, 0.12), SDM.strap, side * 0.075, -0.12, 0.0);
     const kn = sdJoint(hp, 'kn' + S, 0, -0.43, 0);
     sdPiece(kn, sdCapsule(0.062, 0.05, 0.36, 10), K.pants, 0, 0, 0);
-    sdPiece(kn, sdLathe([[0.02, -0.05], [0.07, -0.02], [0.07, 0.05], [0.02, 0.08]], 10), heavy ? SDM.plate : SDM.strap, 0, -0.02, 0.045, 0, 0, 0, 1, 1, 0.6);   // knee pad
+    // knee pad
+    sdPiece(kn, sdLathe([[0.02, -0.05], [0.07, -0.02], [0.07, 0.05], [0.02, 0.08]], 10), heavy ? SDM.plate : SDM.strap, 0, -0.02, 0.045, 0, 0, 0, 1, 1, 0.6);
     const an = sdJoint(kn, 'an' + S, 0, -0.41, 0);
-    sdPiece(an, sdCapsule(0.055, 0.05, 0.1, 10), SDM.boot, 0, 0.08, 0);          // boot shaft
+    // boot shaft
+    sdPiece(an, sdCapsule(0.055, 0.05, 0.1, 10), SDM.boot, 0, 0.08, 0);
     sdPiece(an, sdBoxG(0.1, 0.07, 0.24), SDM.boot, 0, -0.01, 0.055);
     sdPiece(an, sdBoxG(0.105, 0.025, 0.25), SDM.sole, 0, -0.05, 0.057);
     const m = new THREE.Object3D(); m.name = 'mFoot' + S; m.position.set(0, -0.03, 0.04); an.add(m);
@@ -282,22 +298,36 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(knife, sdBoxG(0.025, 0.04, 0.09), SDM.gun, 0, 0, -0.03);
   } else if (kind === 6) {
     // breacher: pump shotgun, tube under the barrel, shell carrier on the stock
-    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);                      // receiver
-    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);   // barrel
-    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0); // tube
-    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);               // pump
-    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);               // stock
-    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);   // shells
-    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);    // grip
+    // receiver
+    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);
+    // barrel
+    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);
+    // tube
+    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0);
+    // pump
+    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);
+    // stock
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);
+    // shells
+    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);
+    // grip
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);
   } else {
     const lmg = heavy;
-    sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);                    // receiver
-    sdPiece(gun, sdBoxG(0.05, 0.05, 0.22), SDM.gun, 0, 0.012, 0.32);                  // handguard
-    sdPiece(gun, sdCapsule(0.012, 0.012, 0.22, 8), SDM.gunMetal, 0, 0.015, 0.43, Math.PI / 2, 0, 0);   // barrel
-    sdPiece(gun, sdBoxG(0.045, 0.08, 0.2), SDM.gun, 0, -0.01, -0.22);                 // stock
-    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.02, -0.3, 0, 0);    // grip
-    sdPiece(gun, lmg ? sdBoxG(0.1, 0.12, 0.12) : sdBoxG(0.04, 0.13, 0.07), lmg ? SDM.pouch : SDM.gun, lmg ? 0.05 : 0, -0.1, 0.12, lmg ? 0 : 0.15, 0, 0);   // mag / box
-    sdPiece(gun, sdCapsule(0.02, 0.02, 0.06, 10), SDM.gun, 0, 0.075, 0.06, Math.PI / 2, 0, 0);   // optic
+    // receiver
+    sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);
+    // handguard
+    sdPiece(gun, sdBoxG(0.05, 0.05, 0.22), SDM.gun, 0, 0.012, 0.32);
+    // barrel
+    sdPiece(gun, sdCapsule(0.012, 0.012, 0.22, 8), SDM.gunMetal, 0, 0.015, 0.43, Math.PI / 2, 0, 0);
+    // stock
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.2), SDM.gun, 0, -0.01, -0.22);
+    // grip
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.02, -0.3, 0, 0);
+    // mag / box
+    sdPiece(gun, lmg ? sdBoxG(0.1, 0.12, 0.12) : sdBoxG(0.04, 0.13, 0.07), lmg ? SDM.pouch : SDM.gun, lmg ? 0.05 : 0, -0.1, 0.12, lmg ? 0 : 0.15, 0, 0);
+    // optic
+    sdPiece(gun, sdCapsule(0.02, 0.02, 0.06, 10), SDM.gun, 0, 0.075, 0.06, Math.PI / 2, 0, 0);
     sdPiece(gun, new THREE.CircleGeometry(0.018, 10), SDM.lens, 0, 0.075, 0.121);
   }
   if (kind === 3) {
@@ -307,7 +337,8 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(shd, sdBoxG(0.6, 0.04, 0.05), SDM.strap, 0, 0.47, 0);
     sdPiece(shd, sdBoxG(0.6, 0.04, 0.05), SDM.strap, 0, -0.47, 0);
     sdPiece(shd, sdBoxG(0.3, 0.09, 0.04), SDM_SHIELD_GLASS, 0, 0.3, 0.004);
-    sdPiece(shd, sdBoxG(0.08, 0.03, 0.04), SDM.slit, 0.2, 0.4, 0.01);            // strobe
+    // strobe
+    sdPiece(shd, sdBoxG(0.08, 0.03, 0.04), SDM.slit, 0.2, 0.4, 0.01);
   }
   // hit boxes follow the joints (invisible)
   const hbMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -355,7 +386,8 @@ function sdSpring(s, k, c, dt) {
 function soldierHitReact(en, dir, strength, isHead) {
   if (!en.react) return;
   const fx = Math.sin(en.bodyYaw || en.yaw), fz = Math.cos(en.bodyYaw || en.yaw);
-  const along = dir ? dir.x * fx + dir.z * fz : -1;          // + = pushed toward the back? (dir points away from shooter)
+  // + = pushed toward the back? (dir points away from shooter)
+  const along = dir ? dir.x * fx + dir.z * fz : -1;
   const side = dir ? dir.x * fz - dir.z * fx : 0;
   const s = Math.min(1.5, strength);
   (isHead ? en.reactHead : en.react).vx += along * 9 * s;
@@ -408,7 +440,8 @@ function animateSoldier(en, dt, dist) {
   const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe') || (en.kind === 6 && dist < CORE.BREACHER_RANGE + 4);
   const pitch = Math.atan2(player.pos.y - (en.pos.y + 1.45), Math.max(0.5, dist));
   let lean = 0.08 * moveK + run * 0.2 + cr * 0.25 + ((en.kind === 0 || en.kind === 4) && en.state === 'chase' ? 0.15 : 0);
-  if (en.kind === 3) lean += 0.12;   // shoulder into the shield
+  // shoulder into the shield
+  if (en.kind === 3) lean += 0.12;
   J.spine.rotation.set(lean + en.react.x - (aiming ? pitch * 0.45 : 0), twist * 0.7 - J.hips.rotation.y, en.react.z + Math.sin(ph + 0.5) * 0.03 * moveK);
   J.neck.rotation.set(-(aiming ? pitch * 0.4 : pitch * 0.2) - lean * 0.5, twist * 0.3, 0);
   J.head.rotation.set(en.reactHead.x, 0, en.reactHead.z * 0.5);

@@ -408,6 +408,7 @@ const CORE = (function () {
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
+    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
     ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
@@ -1098,7 +1099,8 @@ const CORE = (function () {
   // Flanking has to END. A permanent sideways bias makes a fast agent arc around
   // the player indefinitely — measured at only 75% of scouts ever arriving. Give
   // every flanker a window, then commit straight in.
-  const FLANK_WINDOW = [5, 9];   // seconds, randomised per agent
+  // seconds, randomised per agent
+  const FLANK_WINDOW = [5, 9];
   function flankWindow(rand) { return FLANK_WINDOW[0] + (rand || 0) * (FLANK_WINDOW[1] - FLANK_WINDOW[0]); }
   function flankBiasNow(flankT, dist) {
     if (!(flankT > 0)) return 0;
@@ -1106,8 +1108,10 @@ const CORE = (function () {
   }
 
   function flankBias(dist, full, none) {
-    const f = full === undefined ? 18 : full;    // full bias at/beyond this range
-    const n = none === undefined ? 6 : none;     // no bias inside this range
+    // full bias at/beyond this range
+    const f = full === undefined ? 18 : full;
+    // no bias inside this range
+    const n = none === undefined ? 6 : none;
     if (dist <= n) return 0;
     if (dist >= f) return 1;
     return (dist - n) / (f - n);
@@ -1156,8 +1160,10 @@ const CORE = (function () {
     const base = baseChance === undefined ? 0.30 : baseChance;
     const mag = magSize > 0 ? magSize : 30;
     const magsLeft = roundsLeft / mag;
-    if (magsLeft <= 0.5) return 1;              // effectively dry: always drop
-    if (magsLeft >= 3) return base;             // comfortable: normal odds
+    // effectively dry: always drop
+    if (magsLeft <= 0.5) return 1;
+    // comfortable: normal odds
+    if (magsLeft >= 3) return base;
     // ramp between
     const t = (3 - magsLeft) / 2.5;
     return Math.min(1, base + (1 - base) * t * t);
@@ -1238,6 +1244,7 @@ const CORE = (function () {
   function makeCheckpoint(state) {
     return {
       v: SAVE_VERSION,
+      mapId: sanitizeMapId(state.mapId || DEFAULT_MAP_ID),
       wave: state.wave, score: state.score, kills: state.kills, headshots: state.headshots,
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
@@ -1253,7 +1260,8 @@ const CORE = (function () {
       } : null,
       streakKills: state.streakKills || 0,
       runStreaksEarned: state.runStreaksEarned || 0,
-      weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
+      // [{gi, ammo, reserve, up}, ...]
+      weapons: state.weapons,
       openDistricts: (state.openDistricts || []).slice(),
       spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
       equipment: {
@@ -1269,7 +1277,8 @@ const CORE = (function () {
   // Returns a usable checkpoint or null. Never throws on malformed input.
   function validateCheckpoint(raw, weaponCount, baseHealth) {
     if (!raw || typeof raw !== 'object') return null;
-    if (raw.v !== SAVE_VERSION) return null;          // old saves are dropped, not guessed at
+    // old saves are dropped, not guessed at
+    if (raw.v !== SAVE_VERSION) return null;
     // The browser passes CFG.weapons here. Keep accepting a numeric count for
     // headless callers and older tests, but when definitions are available the
     // saved upgrade is only a delta: every runtime field comes from the current
@@ -1304,7 +1313,8 @@ const CORE = (function () {
       }
       weapons.push({ gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up });
     }
-    if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
+    // a run needs a primary
+    if (!weapons.length || !weapons[0]) return null;
     const phase = raw.runPhase === 'victory' || raw.runPhase === 'endless' ? raw.runPhase : 'active';
     const snap = _isObj(raw.settlementSnapshot) ? {
       kills: Math.round(num(raw.settlementSnapshot.kills, 0, 1e6, 0)),
@@ -1317,8 +1327,12 @@ const CORE = (function () {
       _isPos(baseHealth) ? baseHealth : 100,
       perks
     );
+    const mapId = sanitizeMapId(raw.mapId || DEFAULT_MAP_ID);
+    const validDistricts = (getMapDef(mapId)?.districts || DISTRICTS).map(d => d.key);
+    const openDistricts = (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
+      .filter(k => validDistricts.includes(k));
     return {
-      v: SAVE_VERSION, wave,
+      v: SAVE_VERSION, wave, mapId,
       score: Math.round(num(raw.score, 0, 1e9, 0)),
       kills: Math.round(num(raw.kills, 0, 1e6, 0)),
       headshots: Math.round(num(raw.headshots, 0, 1e6, 0)),
@@ -1339,8 +1353,7 @@ const CORE = (function () {
       streakKills: Math.round(num(raw.streakKills, 0, 1e6, 0)),
       runStreaksEarned: Math.round(num(raw.runStreaksEarned, 0, 1e6, 0)),
       weapons,
-      openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
-        .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      openDistricts,
       spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
@@ -1565,7 +1578,8 @@ const CORE = (function () {
           if (stamp[v] !== id) { stamp[v] = id; out.push(v); }
         }
       } else if (t > 0) {
-        break;   // left the grid for good
+        // left the grid for good
+        break;
       }
       if (tMaxX < tMaxZ) { t = tMaxX; tMaxX += tDeltaX; gx += stepX; }
       else { t = tMaxZ; tMaxZ += tDeltaZ; gz += stepZ; }
@@ -1644,7 +1658,8 @@ const CORE = (function () {
     for (let r = 1; r <= lim; r++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
-          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;   // ring only
+          // ring only
+          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
           const nx = gx + dx, nz = gz + dz;
           if (nx < 0 || nz < 0 || nx >= nav.dim || nz >= nav.dim) continue;
           const ni = nz * nav.dim + nx;
@@ -1763,7 +1778,8 @@ const CORE = (function () {
       i = nearestWalkable(nav, i);
       if (i < 0 || nav.dist[i] === UNREACHABLE) return null;
     }
-    if (nav.dist[i] === 0) return null;   // already at the goal cell
+    // already at the goal cell
+    if (nav.dist[i] === 0) return null;
     const dim = nav.dim, cx = i % dim, cz = (i / dim) | 0;
     let best = nav.dist[i], bestIdx = -1;
 
@@ -1892,8 +1908,10 @@ const CORE = (function () {
     // so there is no pattern to learn and none is invented.
     sr:  [[0, 1]]
   };
-  const RECOIL_JITTER = 0.15;   // +/- 15%: learnable, but not robotic
-  const RECOIL_RESET = 0.35;    // seconds off the trigger before shot 1 is shot 1
+  // +/- 15%: learnable, but not robotic
+  const RECOIL_JITTER = 0.15;
+  // seconds off the trigger before shot 1 is shot 1
+  const RECOIL_RESET = 0.35;
   function recoilPatternFor(type) {
     const k = String(type || '').toLowerCase();
     return RECOIL_PATTERNS[k] ? k : 'ar';
@@ -1962,10 +1980,14 @@ const CORE = (function () {
   // Parameters are derived from each weapon's own spread rather than stored as
   // four more CFG columns: the ratios are what make a weapon feel controllable,
   // and deriving them means a spread retune cannot leave a stale bloom cap behind.
-  const BLOOM_PER_SHOT = 0.18;   // base spreads added per shot
-  const BLOOM_CAP_HIP = 1.6;     // hipfire ceiling, in base spreads
-  const BLOOM_CAP_ADS = 0.35;    // ADS ceiling — far tighter, which is the point
-  const BLOOM_RECOVER = 2.2;     // base spreads per second once the trigger is up
+  // base spreads added per shot
+  const BLOOM_PER_SHOT = 0.18;
+  // hipfire ceiling, in base spreads
+  const BLOOM_CAP_HIP = 1.6;
+  // ADS ceiling — far tighter, which is the point
+  const BLOOM_CAP_ADS = 0.35;
+  // base spreads per second once the trigger is up
+  const BLOOM_RECOVER = 2.2;
   const BLOOM_RECOVER_SMG = 1.30;
   const BLOOM_RECOVER_AR = 1.00;
   const BLOOM_RECOVER_BR = 0.85;
@@ -2154,7 +2176,8 @@ const CORE = (function () {
     return best;
   }
   const MELEE_REACH = 2.2;
-  const MELEE_CONE = Math.cos(Math.PI / 4);   // 45 degrees either side
+  // 45 degrees either side
+  const MELEE_CONE = Math.cos(Math.PI / 4);
   const MELEE_DAMAGE = 150;
   const MELEE_COOLDOWN = 0.9;
   const MELEE_BACKSTAB_MUL = 2.4;
@@ -3452,17 +3475,26 @@ const CORE = (function () {
   // Archetype base health scaling multipliers relative to CFG.ai.maxHealth.
   // Standardizes kind 2 (Tank) from a hardcoded 320 to 3.2x base health.
   const ENEMY_HEALTH_SCALE = {
-    0: 1.0,   // runner
-    1: 1.35,  // rifleman
-    2: 3.2,   // tank
-    3: 2.2,   // shielded advancer
-    4: 0.55,  // scout
-    5: 1.2,   // grenadier
-    6: 1.5    // breacher
+    // runner
+    0: 1.0,
+    // rifleman
+    1: 1.35,
+    // tank
+    2: 3.2,
+    // shielded advancer
+    3: 2.2,
+    // scout
+    4: 0.55,
+    // grenadier
+    5: 1.2,
+    // breacher
+    6: 1.5
   };
 
-  const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
-  const SHIELD_ABSORB_RATIO = 0.85;    // 85% absorbed head-on (0.15 damage multiplier)
+  // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
+  const SHIELD_ARC_COS = 0.5;
+  // 85% absorbed head-on (0.15 damage multiplier)
+  const SHIELD_ABSORB_RATIO = 0.85;
 
   function enemyBaseHealth(kind, baseMaxHealth) {
     const base = _isPos(baseMaxHealth) ? baseMaxHealth : 100;
@@ -3648,17 +3680,31 @@ const CORE = (function () {
     { key: 'sw', name: 'SOUTH-WEST DISTRICT', price: 750,
       minX: -46, maxX: -18, minZ: 15, maxZ: 46 }
   ];
-  function districtByKey(key) {
-    for (let i = 0; i < DISTRICTS.length; i++) if (DISTRICTS[i].key === key) return DISTRICTS[i];
-    return null;
+  function districtByKey(key, mapId) {
+    if (!key) return null;
+    if (mapId && typeof MAP_DEFS !== 'undefined' && MAP_DEFS[mapId]) {
+      return (MAP_DEFS[mapId].districts || []).find(d => d.key === key) || null;
+    }
+    if (typeof getActiveMap === 'function') {
+      const m = getActiveMap();
+      const found = m && (m.districts || []).find(d => d.key === key);
+      if (found) return found;
+    }
+    const defs = typeof MAP_DEFS !== 'undefined' ? Object.values(MAP_DEFS) : [{ districts: DISTRICTS }];
+    for (let i = 0; i < defs.length; i++) {
+      const found = (defs[i].districts || []).find(d => d.key === key);
+      if (found) return found;
+    }
+    return DISTRICTS.find(d => d.key === key) || null;
   }
   function insideDistrict(d, x, z) {
     return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
   }
   // `openKeys` is the list of districts already bought.
-  function spawnPointSealed(x, z, openKeys) {
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      const d = DISTRICTS[i];
+  function spawnPointSealed(x, z, openKeys, districts) {
+    const list = Array.isArray(districts) ? districts : DISTRICTS;
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
       if (openKeys && openKeys.indexOf(d.key) >= 0) continue;
       if (insideDistrict(d, x, z)) return true;
     }
@@ -3666,10 +3712,11 @@ const CORE = (function () {
   }
   // At least one spawn point must always survive the filter, or a wave can never
   // start. Callers pass the ring; this is the assertion that it is still usable.
-  function usableSpawnPoints(points, openKeys) {
+  function usableSpawnPoints(points, openKeys, districts) {
+    const list = Array.isArray(districts) ? districts : DISTRICTS;
     const out = [];
     for (let i = 0; i < points.length; i++) {
-      if (!spawnPointSealed(points[i][0], points[i][1], openKeys)) out.push(points[i]);
+      if (!spawnPointSealed(points[i][0], points[i][1], openKeys, list)) out.push(points[i]);
     }
     return out;
   }
@@ -3907,8 +3954,10 @@ const CORE = (function () {
   // being flat the moment mantling let the player onto crates and roofs, and a
   // 6.9 m drop off the central building costing nothing is the kind of thing that
   // makes a world feel like a diagram.
-  const FALL_SAFE_SPEED = 9.5;      // m/s: about a 4.6 m drop, survivable
-  const FALL_LETHAL_SPEED = 22;     // terminal for these purposes
+  // m/s: about a 4.6 m drop, survivable
+  const FALL_SAFE_SPEED = 9.5;
+  // terminal for these purposes
+  const FALL_LETHAL_SPEED = 22;
   function fallDamage(impactSpeed) {
     if (impactSpeed <= FALL_SAFE_SPEED) return 0;
     const t = (impactSpeed - FALL_SAFE_SPEED) / (FALL_LETHAL_SPEED - FALL_SAFE_SPEED);
@@ -4056,7 +4105,8 @@ const CORE = (function () {
   // Never on a special wave: two announced modifiers at once reads as noise, and the
   // player would not know which one killed them.
   const OBJECTIVE_EVERY = 4;
-  const OBJECTIVE_HOLD = 25;        // seconds of occupancy to complete
+  // seconds of occupancy to complete
+  const OBJECTIVE_HOLD = 25;
   const OBJECTIVE_RADIUS = 5.5;
   const OBJECTIVE_CREDITS = 900;
   function objectiveWaveAt(n) {
@@ -5120,7 +5170,8 @@ const CORE = (function () {
     { name: 'Dm', root: 38, notes: [50, 53, 57] },
     { name: 'Bb', root: 34, notes: [46, 50, 53] },
     { name: 'Gm', root: 31, notes: [43, 46, 50] },
-    { name: 'A',  root: 33, notes: [45, 49, 52] }    // major V: the C# pulls back home
+    // major V: the C# pulls back home
+    { name: 'A',  root: 33, notes: [45, 49, 52] }
   ];
   const MUSIC_PHRASE_BARS = MUSIC_CHART.length * MUSIC_BARS_PER_CHORD;
   const MUSIC_ARP_SHAPE = [0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 4, 3, 2, 1, 2, 3];
@@ -6038,9 +6089,12 @@ const CORE = (function () {
   }
 
   // ---- HUD canvas redraw throttling & alive enemy counting (perf win) --------
-  const HUD_REDRAW_INTERVAL = 0.05;      // 20 Hz base throttle
-  const HUD_FLICK_YAW_THRESHOLD = 0.15;   // ~8.6 degrees rotation flick trigger
-  const HUD_FLICK_COOLDOWN = 0.12;       // minimum interval between flick-forced redraws
+  // 20 Hz base throttle
+  const HUD_REDRAW_INTERVAL = 0.05;
+  // ~8.6 degrees rotation flick trigger
+  const HUD_FLICK_YAW_THRESHOLD = 0.15;
+  // minimum interval between flick-forced redraws
+  const HUD_FLICK_COOLDOWN = 0.12;
 
   function shouldRedrawHudCanvas(elapsedT, yawMoved, flickElapsed, interval, flickThreshold, flickCooldown) {
     const elapsed = _isNum(elapsedT) ? elapsedT : 0;
@@ -7093,7 +7147,8 @@ const CORE = (function () {
   // Sidearm: the trigger on a completely dry gun (mag and reserve) draws the
   // pistol instead of clicking. A gun with reserve left still auto-reloads, and
   // the sidearm itself never swaps away from itself.
-  const SIDEARM_QUICK_DRAW = 0.5;   // gunSwitchT head start: about half the raise
+  // gunSwitchT head start: about half the raise
+  const SIDEARM_QUICK_DRAW = 0.5;
 
   function shouldQuickDrawSidearm(ammo, reserve, curSlot, sidearmSlot, sidearmOwned) {
     if (!sidearmOwned || curSlot === sidearmSlot) return false;
@@ -7107,7 +7162,8 @@ const CORE = (function () {
   const BREACHER_RANGE = 12;
   const BREACHER_ROF = 1.6;
   const BREACHER_PELLETS = 8;
-  const BREACHER_PELLET_SHARE = 0.6;   // of the rifleman's per-round damage
+  // of the rifleman's per-round damage
+  const BREACHER_PELLET_SHARE = 0.6;
 
   function breacherPelletHitChance(dist) {
     const d = _isNum(dist) ? Math.max(0, dist) : BREACHER_RANGE;
@@ -7224,7 +7280,8 @@ const CORE = (function () {
     const q = function (v) { return Math.round(v * 1000) / 1000; };
     // A contested flag pauses where it stands: neither side gains or loses ground.
     if (contested) return Math.min(limit, Math.max(0, c));
-    if (!present) return q(Math.max(0, c - d));   // abandoned: the partial capture decays
+    // abandoned: the partial capture decays
+    if (!present) return q(Math.max(0, c - d));
     return Math.min(limit, q(c + d));
   }
 
@@ -7433,6 +7490,163 @@ const CORE = (function () {
     }
 
     return bestPoint;
+  }
+
+  // ---- Map Registry & Per-Map Data -------------------------------------------
+  const _MAP_MATS = ['concrete', 'brick', 'metal', 'wood', 'concrete2'];
+  function _bDef(x, y, z, w, h, d, m) {
+    return {
+      min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 },
+      max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 },
+      mat: typeof m === 'number' ? _MAP_MATS[m] : (m || 'concrete')
+    };
+  }
+
+  function _unpackBoxes(arr) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += 7) {
+      out.push(_bDef(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5], arr[i + 6]));
+    }
+    return out;
+  }
+
+  function _addPerimeter(out) {
+    out.push(_bDef(0, 3, -45, 94, 6, 1, 1), _bDef(0, 3, 45, 94, 6, 1, 1),
+             _bDef(-45, 3, 0, 1, 6, 94, 1), _bDef(45, 3, 0, 1, 6, 94, 1));
+  }
+
+  function _addCenterPillars(out, zOff, m) {
+    out.push(_bDef(0, 3.9, zOff, 18.6, 0.5, 14.6, m), _bDef(0, 6.65, zOff, 18, 0.5, 14, m),
+             _bDef(-9, 4.55, zOff, 0.8, 0.9, 14, m), _bDef(9, 4.55, zOff, 0.8, 0.9, 14, m));
+    [[-5.5, -7], [5.5, -7], [-5.5, 7], [5.5, 7]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 7, 3.4, 0.8, m)));
+    [[-9, -4.5], [-9, 4.5], [9, -4.5], [9, 4.5]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 0.8, 3.4, 5, m)));
+    [[-6, -4], [6, -4], [-6, 4], [6, 4]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 1.2, 3.4, 1.2, m)));
+    [[-5.4, -7], [5.4, -7], [-5.4, 7], [5.4, 7]].forEach(p => out.push(_bDef(p[0], 4.55, p[1] + zOff, 7.2, 0.9, 0.8, m)));
+    for (let i = 0; i < 10; i++) {
+      const top = (i + 1) * 0.4;
+      out.push(_bDef(0, top / 2, zOff + 13.6 - i * 0.8, 3.2, top, 0.82, m),
+               _bDef(0, top / 2, zOff - 13.6 + i * 0.8, 3.2, top, 0.82, m));
+    }
+  }
+
+  function buildUrbanColliders() {
+    const out = [];
+    _addPerimeter(out);
+    _addCenterPillars(out, 0, 4);
+    _unpackBoxes([
+      28, 2.5, -28, 16, 5, 12, 2, -28, 2, 28, 12, 4, 12, 2, 26, 3, 30, 10, 6, 10, 0,
+      -28, 1.5, -28, 14, 3, 1, 1, -33.5, 1.5, -22, 1, 3, 13, 1, -24, 1.5, -30, 8, 3, 1, 1
+    ]).forEach(b => out.push(b));
+    return out;
+  }
+
+  function buildSnowyColliders() {
+    const out = [];
+    _addPerimeter(out);
+    _addCenterPillars(out, -4, 0);
+    _unpackBoxes([
+      26, 3, -33, 16, 6, 1, 2, 34, 3, -26, 1, 6, 14, 2, 18, 3, -26, 1, 6, 14, 2,
+      20, 3, -19, 4, 6, 1, 2, 32, 3, -19, 4, 6, 1, 2, 26, 6.2, -26, 17, 0.4, 15, 2, 26, 2.8, -31.5, 15, 0.3, 2, 2,
+      -28, 4.1, -28, 6, 0.3, 6, 3, -28, 4.6, -30.8, 5.8, 0.8, 0.4, 3, -28, 4.6, -25.2, 5.8, 0.8, 0.4, 3,
+      -30.8, 4.6, -28, 0.4, 0.8, 5.8, 3, -25.2, 4.6, -28, 0.4, 0.8, 5.8, 3,
+      -25, 0.75, 32, 18, 1.5, 0.8, 0, -35, 0.75, 26, 0.8, 1.5, 12, 0,
+      22, 0.6, 22, 8, 1.2, 0.8, 3, 30, 0.6, 28, 0.8, 1.2, 10, 3,
+      22, 0.6, 34, 8, 1.2, 0.8, 3, 18, 0.6, 28, 0.8, 1.2, 10, 3, -12, 1.5, 12, 2, 3, 2, 2
+    ]).forEach(b => out.push(b));
+    [[-30, -30], [-26, -30], [-30, -26], [-26, -26]].forEach(p => out.push(_bDef(p[0], 2, p[1], 0.8, 4, 0.8, 3)));
+    [[-31, 26], [-25, 26], [-19, 26]].forEach(p => out.push(_bDef(p[0], 2, p[1], 4, 4, 4, 2)));
+    [[14, 10], [-14, -14], [14, -14], [-14, 14]].forEach(p => out.push(_bDef(p[0], 0.75, p[1], 2.4, 1.5, 2.4, 0)));
+    return out;
+  }
+
+  function _ringSpawns(r) {
+    const pts = [];
+    for (let a = 0; a < 12; a++) {
+      const ang = a * Math.PI / 6;
+      pts.push([Math.round(Math.cos(ang) * r * 10) / 10, Math.round(Math.sin(ang) * r * 10) / 10]);
+    }
+    return pts;
+  }
+  const URBAN_SPAWN_POINTS = _ringSpawns(33);
+  const SNOWY_SPAWN_POINTS = _ringSpawns(32);
+
+  function _st(k, x, z, w, p, d) { return { kind: k, x: x, z: z, weapon: w !== undefined ? w : -1, perk: p || null, district: d || null }; }
+  const URBAN_STATION_LAYOUT = [
+    _st('wall', -37, 30, 1), _st('wall', 34, 30, 0), _st('wall', -30, -32, 2), _st('wall', 31, -37, 3),
+    _st('wall', -40, -4, 4), _st('wall', 40, 4, 5), _st('armory', 0, -22), _st('plate', 0, 20),
+    _st('perk', -21, 10, -1, 'jugg'), _st('perk', 21, 10, -1, 'reload'), _st('perk', -21, -10, -1, 'steady'),
+    _st('perk', 21, -10, -1, 'scav'), _st('perk', 0, 34, -1, 'wind'), _st('lethal', -12, 20), _st('tactical', 12, 20),
+    _st('door', 31, -11, -1, null, 'ne'), _st('door', -31, 11, -1, null, 'sw')
+  ];
+  const SNOWY_STATION_LAYOUT = [
+    _st('wall', -38, 0, 1), _st('wall', 38, 0, 0), _st('wall', 0, -38, 2), _st('wall', -28, -20, 3),
+    _st('wall', 14, -26, 4), _st('wall', 26, 16, 5), _st('armory', 0, -14), _st('plate', 0, 6),
+    _st('perk', -16, 6, -1, 'jugg'), _st('perk', 16, 6, -1, 'reload'), _st('perk', -16, -14, -1, 'steady'),
+    _st('perk', 16, -14, -1, 'scav'), _st('perk', 0, 20, -1, 'wind'), _st('lethal', -8, 6), _st('tactical', 8, 6),
+    _st('door', 18, -27, -1, null, 'hangar'), _st('door', -26, 18, -1, null, 'depot')
+  ];
+
+  const URBAN_DOMINATION_FLAGS = [
+    { name: 'A', x: -18, z: 0 },
+    { name: 'B', x: 0, z: 18 },
+    { name: 'C', x: 18, z: 0 }
+  ];
+
+  const SNOWY_DOMINATION_FLAGS = [
+    { name: 'A', x: 0, z: -4 },
+    { name: 'B', x: 26, z: -24 },
+    { name: 'C', x: -20, z: 14 }
+  ];
+
+  const URBAN_BARRIERS = {
+    ne: { wall: [18, 1.6, -30, 0.8, 3.2, 30], door: [31, 1.6, -15, 26, 3.2, 0.8] },
+    sw: { wall: [-18, 1.6, 30, 0.8, 3.2, 30], door: [-31, 1.6, 15, 26, 3.2, 0.8] }
+  };
+  const SNOWY_BARRIERS = {
+    hangar: { door: [26, 1.6, -19, 8, 3.2, 0.8] },
+    depot: { wall: [-16, 1.6, 26, 0.8, 3.2, 16], door: [-26, 1.6, 18, 18, 3.2, 0.8] }
+  };
+
+  const MAP_DEFS = {
+    urban: {
+      id: 'urban',
+      name: 'Urban District',
+      worldSize: 90,
+      playerSpawn: { x: 0, y: 0.9, z: 0 },
+      spawnPoints: URBAN_SPAWN_POINTS,
+      stationLayout: URBAN_STATION_LAYOUT,
+      dominationFlags: URBAN_DOMINATION_FLAGS,
+      districts: DISTRICTS,
+      barriers: URBAN_BARRIERS,
+      colliders: buildUrbanColliders()
+    },
+    snowy: {
+      id: 'snowy',
+      name: 'Snowy Compound',
+      worldSize: 90,
+      playerSpawn: { x: 0, y: 0.9, z: -4 },
+      spawnPoints: SNOWY_SPAWN_POINTS,
+      stationLayout: SNOWY_STATION_LAYOUT,
+      dominationFlags: SNOWY_DOMINATION_FLAGS,
+      districts: [
+        { key: 'hangar', name: 'VEHICLE HANGAR', price: 1500, minX: 18, maxX: 36, minZ: -36, maxZ: -18 },
+        { key: 'depot', name: 'FUEL DEPOT', price: 750, minX: -36, maxX: -16, minZ: 18, maxZ: 36 }
+      ],
+      barriers: SNOWY_BARRIERS,
+      colliders: buildSnowyColliders()
+    }
+  };
+
+  const MAP_IDS = ['urban', 'snowy'];
+  const DEFAULT_MAP_ID = 'urban';
+
+  function sanitizeMapId(id) {
+    return (typeof id === 'string' && MAP_IDS.indexOf(id) >= 0) ? id : DEFAULT_MAP_ID;
+  }
+
+  function getMapDef(id) {
+    const safe = sanitizeMapId(id);
+    return MAP_DEFS[safe] || MAP_DEFS.urban;
   }
 
   return {
@@ -7792,7 +8006,9 @@ const CORE = (function () {
     gunGameIsKnifeTier, gunGameAdvance, gunGameCreditedKill, gunGameMeleeKill, gunGameBotDamageMul,
     RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
-    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint,
+    MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS,
+    URBAN_BARRIERS, SNOWY_BARRIERS
   };
 
 

@@ -134,11 +134,14 @@ function vmCurvedMag(parent, x, y, z, w, segs, segH, depth, curve, mat) {
 
 // ---- optics (return the sight line: y and the eye-relief z of the rear aperture) ----
 function vmIrons(g, frontZ, rearZ, railY) {
-  vmBox(g, 0.014, 0.03, 0.014, 0, railY + 0.02, frontZ, VMAT.metal);           // front sight tower
-  vmBox(g, 0.003, 0.012, 0.003, 0, railY + 0.041, frontZ, VMAT.metal);          // post
+  // front sight tower
+  vmBox(g, 0.014, 0.03, 0.014, 0, railY + 0.02, frontZ, VMAT.metal);
+  // post
+  vmBox(g, 0.003, 0.012, 0.003, 0, railY + 0.041, frontZ, VMAT.metal);
   const tri = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 6, 4), VM_TRITIUM);
   tri.position.set(0, railY + 0.047, frontZ); g.add(tri);
-  vmBox(g, 0.03, 0.026, 0.018, 0, railY + 0.018, rearZ, VMAT.metal);            // rear aperture housing
+  // rear aperture housing
+  vmBox(g, 0.03, 0.026, 0.018, 0, railY + 0.018, rearZ, VMAT.metal);
   vmBox(g, 0.008, 0.014, 0.02, -0.008, railY + 0.036, rearZ, VMAT.metal);
   vmBox(g, 0.008, 0.014, 0.02, 0.008, railY + 0.036, rearZ, VMAT.metal);
   return { y: railY + 0.047, z: rearZ };
@@ -160,7 +163,8 @@ function vmAcog(g, z, railY) {
   vmCyl(g, 0.022, 0.03, 0, y, z + 0.075, VMAT.tube, 16, undefined, 'z', true);
   const lens = vmCyl(g, 0.024, 0.002, 0, y, z - 0.1, VMAT.glass, 16); lens.renderOrder = 5;
   vmBox(g, 0.03, 0.022, 0.08, 0, railY + 0.017, z, VMAT.metal);
-  vmBox(g, 0.008, 0.008, 0.06, 0, y + 0.024, z, VM_TRITIUM);                     // fibre on top
+  // fibre on top
+  vmBox(g, 0.008, 0.008, 0.06, 0, y + 0.024, z, VM_TRITIUM);
   const chev = new THREE.Mesh(new THREE.ConeGeometry(0.0022, 0.004, 3), VM_DOT);
   chev.scale.setScalar(0.5); chev.position.set(0, y - 0.0007, z - 0.05); g.add(chev);
   return { y: y, z: z + 0.075 };
@@ -199,16 +203,23 @@ function vmUnder(g, P, att, z, y) {
 // ---- weapon models. Each returns tuning: sight line, muzzle, hip pose, kick ----
 function vmBuildAR(g, P, att, fde) {
   const R = fde ? VMAT.fde : VMAT.polymer;
-  vmBox(g, 0.05, 0.05, 0.27, 0, 0.032, -0.07, VMAT.metal);                    // upper receiver
-  vmBox(g, 0.046, 0.045, 0.2, 0, -0.012, -0.03, R);                           // lower receiver
-  vmBox(g, 0.012, 0.03, 0.05, 0.028, 0.03, -0.05, VMAT.metal);                // ejection port cover
-  vmBox(g, 0.02, 0.018, 0.035, 0.03, 0.04, 0.03, VMAT.steel);                 // forward assist
+  // upper receiver
+  vmBox(g, 0.05, 0.05, 0.27, 0, 0.032, -0.07, VMAT.metal);
+  // lower receiver
+  vmBox(g, 0.046, 0.045, 0.2, 0, -0.012, -0.03, R);
+  // ejection port cover
+  vmBox(g, 0.012, 0.03, 0.05, 0.028, 0.03, -0.05, VMAT.metal);
+  // forward assist
+  vmBox(g, 0.02, 0.018, 0.035, 0.03, 0.04, 0.03, VMAT.steel);
   vmRail(g, 0.25, 0, 0.061, -0.08);
-  vmBox(g, 0.056, 0.056, 0.25, 0, 0.028, -0.33, R);                           // handguard
+  // handguard
+  vmBox(g, 0.056, 0.056, 0.25, 0, 0.028, -0.33, R);
   for (let i = 0; i < 5; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.012, 0.03, sx * 0.029, 0.03, -0.25 - i * 0.045, VMAT.knuckle);
   vmRail(g, 0.22, 0, 0.061, -0.33);
-  vmCyl(g, 0.009, 0.16, 0, 0.03, -0.53, VMAT.steel);                          // barrel
-  vmCyl(g, 0.014, 0.012, 0, 0.03, -0.47, VMAT.metal);                         // gas block
+  // barrel
+  vmCyl(g, 0.009, 0.16, 0, 0.03, -0.53, VMAT.steel);
+  // gas block
+  vmCyl(g, 0.014, 0.012, 0, 0.03, -0.47, VMAT.metal);
   const muzzleZ = vmMuzzleDevice(g, att, -0.61, 0.03, 0.055);
   // stock: buffer tube + collapsible stock (heavy = padded, light = skeleton)
   vmCyl(g, 0.015, 0.14, 0, 0.022, 0.13, VMAT.metal);
@@ -217,16 +228,22 @@ function vmBuildAR(g, P, att, fde) {
     vmBox(g, 0.042, 0.012, 0.11, 0, 0.03, 0.2, R);
   } else {
     vmBox(g, 0.042, 0.075, 0.13, 0, 0.0, 0.2, R);
-    if (att.stock === 'heavystock') vmBox(g, 0.046, 0.03, 0.12, 0, 0.05, 0.2, VMAT.olive);   // cheek riser
+    // cheek riser
+    if (att.stock === 'heavystock') vmBox(g, 0.046, 0.03, 0.12, 0, 0.05, 0.2, VMAT.olive);
   }
   vmBox(g, 0.046, 0.085, 0.02, 0, -0.002, 0.27, VMAT.knuckle);
-  vmBox(g, 0.032, 0.095, 0.042, 0, -0.075, 0.04, R, 0.28);                    // pistol grip
-  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.01, VMAT.metal);                 // trigger guard
-  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.012, VMAT.steel, 0.3);            // trigger
+  // pistol grip
+  vmBox(g, 0.032, 0.095, 0.042, 0, -0.075, 0.04, R, 0.28);
+  // trigger guard
+  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.01, VMAT.metal);
+  // trigger
+  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.012, VMAT.steel, 0.3);
   const segs = att.mag === 'extmag' ? 7 : att.mag === 'fastmag' ? 4 : 5;
   P.mag = vmCurvedMag(g, 0, -0.035, -0.07, 0.034, segs, 0.03, 0.06, 0.07, VMAT.metal);
-  if (att.mag === 'fastmag') vmBox(P.mag, 0.012, 0.03, 0.02, 0, -segs * 0.03 - 0.02, 0, VMAT.olive);   // pull tab
-  P.bolt = vmBox(g, 0.04, 0.012, 0.03, 0, 0.055, 0.06, VMAT.metal);            // charging handle
+  // pull tab
+  if (att.mag === 'fastmag') vmBox(P.mag, 0.012, 0.03, 0.02, 0, -segs * 0.03 - 0.02, 0, VMAT.olive);
+  // charging handle
+  P.bolt = vmBox(g, 0.04, 0.012, 0.03, 0, 0.055, 0.06, VMAT.metal);
   P.boltRest = 0.06;
   let sight;
   if (att.optic === 'reddot') sight = vmRedDot(g, -0.05, 0.061);
@@ -247,18 +264,24 @@ function vmBuildAR(g, P, att, fde) {
 }
 function vmBuildSMG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.048, 0.075, 0.26, 0, 0.02, -0.08, R);                            // boxy upper
-  vmBox(g, 0.046, 0.08, 0.12, 0, -0.035, -0.11, R, -0.35);                    // angled lower
+  // boxy upper
+  vmBox(g, 0.048, 0.075, 0.26, 0, 0.02, -0.08, R);
+  // angled lower
+  vmBox(g, 0.046, 0.08, 0.12, 0, -0.035, -0.11, R, -0.35);
   vmRail(g, 0.24, 0, 0.061, -0.09);
-  vmCyl(g, 0.012, 0.06, 0, 0.03, -0.24, VMAT.metal, 12);                      // barrel shroud
+  // barrel shroud
+  vmCyl(g, 0.012, 0.06, 0, 0.03, -0.24, VMAT.metal, 12);
   const muzzleZ = att.barrel === 'suppressor' ? vmMuzzleDevice(g, att, -0.27, 0.03, 0.04)
     : vmMuzzleDevice(g, att, -0.27, 0.03, 0.04);
-  vmCyl(g, 0.015, 0.12, 0, 0.022, 0.1, VMAT.metal);                           // folding stock tube
+  // folding stock tube
+  vmCyl(g, 0.015, 0.12, 0, 0.022, 0.1, VMAT.metal);
   if (att.stock !== 'lightstock') vmBox(g, 0.03, 0.07, 0.1, 0, 0.0, 0.17, R);
   else vmBox(g, 0.012, 0.06, 0.08, 0, 0.0, 0.17, R);
   if (att.stock === 'heavystock') vmBox(g, 0.034, 0.028, 0.09, 0, 0.045, 0.17, VMAT.olive);
-  vmBox(g, 0.03, 0.09, 0.04, 0, -0.07, 0.03, R, 0.22);                        // grip
-  vmBox(g, 0.03, 0.02, 0.07, 0, -0.03, -0.2, R);                              // front grip mount
+  // grip
+  vmBox(g, 0.03, 0.09, 0.04, 0, -0.07, 0.03, R, 0.22);
+  // front grip mount
+  vmBox(g, 0.03, 0.02, 0.07, 0, -0.03, -0.2, R);
   const segs = att.mag === 'extmag' ? 6 : att.mag === 'fastmag' ? 3 : 4;
   P.mag = vmCurvedMag(g, 0, -0.06, -0.03, 0.03, segs, 0.03, 0.045, 0.0, VMAT.polymer);
   P.bolt = vmBox(g, 0.012, 0.018, 0.03, -0.028, 0.035, 0.0, VMAT.steel); P.boltRest = 0.0;
@@ -276,7 +299,8 @@ function vmBuildSMG(g, P, att) {
     sight = { y: 0.093, z: -0.035 };
   } else sight = vmIrons(g, -0.2, 0.03, 0.061);
   const grip = vmUnder(g, P, att, -0.21, -0.03) || { gripZ: -0.21, gripY: -0.07 };
-  if (att.under !== 'foregrip') vmBox(g, 0.022, 0.07, 0.03, 0, -0.07, -0.21, R, -0.2);   // stock vertical grip
+  // stock vertical grip
+  if (att.under !== 'foregrip') vmBox(g, 0.022, 0.07, 0.03, 0, -0.07, -0.21, R, -0.2);
   P.handR = vmHand(g, 0, -0.065, 0.03, 1, 0.22);
   vmForearm(g, 0.02, -0.115, 0.06, 0.1, -0.24, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
@@ -402,13 +426,19 @@ function buildKnife() {
 // the loading port under the receiver (P.loadPort, where reloads reach).
 function vmBuildSG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.05, 0.062, 0.24, 0, 0.026, -0.05, VMAT.metal);                    // receiver
-  vmBox(g, 0.012, 0.026, 0.06, 0.026, 0.034, -0.06, VMAT.steel);               // ejection port
-  vmBox(g, 0.03, 0.01, 0.07, 0, -0.008, -0.07, VMAT.knuckle);                  // loading port
+  // receiver
+  vmBox(g, 0.05, 0.062, 0.24, 0, 0.026, -0.05, VMAT.metal);
+  // ejection port
+  vmBox(g, 0.012, 0.026, 0.06, 0.026, 0.034, -0.06, VMAT.steel);
+  // loading port
+  vmBox(g, 0.03, 0.01, 0.07, 0, -0.008, -0.07, VMAT.knuckle);
   const bl = att.barrel === 'longbarrel' ? 0.6 : 0.5;
-  vmCyl(g, 0.012, bl, 0, 0.04, -0.17 - bl / 2, VMAT.metal, 16);                // barrel
-  vmCyl(g, 0.011, bl * 0.78, 0, 0.012, -0.17 - bl * 0.39, VMAT.metal, 14);     // magazine tube
-  vmBox(g, 0.026, 0.03, 0.012, 0, 0.026, -0.17 - bl * 0.78, VMAT.metal);       // barrel clamp
+  // barrel
+  vmCyl(g, 0.012, bl, 0, 0.04, -0.17 - bl / 2, VMAT.metal, 16);
+  // magazine tube
+  vmCyl(g, 0.011, bl * 0.78, 0, 0.012, -0.17 - bl * 0.39, VMAT.metal, 14);
+  // barrel clamp
+  vmBox(g, 0.026, 0.03, 0.012, 0, 0.026, -0.17 - bl * 0.78, VMAT.metal);
   const pump = new THREE.Group(); g.add(pump);
   pump.position.set(0, 0.012, -0.32);
   vmBox(pump, 0.05, 0.046, 0.15, 0, 0, 0, R);
@@ -451,18 +481,26 @@ function vmBuildSG(g, P, att) {
 // folded bipod and a side-hung ammo box that the reload drops (P.mag).
 function vmBuildLMG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);                    // receiver
-  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);                     // feed cover
-  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);               // feed tray
+  // receiver
+  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);
+  // feed cover
+  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);
+  // feed tray
+  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);
   P.heatMat = vmMat({ color: 0x2c2d30, roughness: 0.45, metalness: 0.8, emissive: 0xff4a12, emissiveIntensity: 0 });
   P.heatMat.userData.perModel = true;
   const bl = att.barrel === 'longbarrel' ? 0.62 : 0.52;
-  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);                // barrel
-  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);     // heat shroud
+  // barrel
+  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);
+  // heat shroud
+  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);
   for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.01, 0.022, sx * 0.022, 0.03, -0.27 - i * bl * 0.09, VMAT.knuckle);
-  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);                // carry handle post, off the sight line
-  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);                // carry handle
-  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05); // bipod legs, folded
+  // carry handle post, off the sight line
+  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);
+  // carry handle
+  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);
+  // bipod legs, folded
+  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
   vmBox(g, 0.01, 0.01, 0.2, 0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
   const muzzleZ = vmMuzzleDevice(g, att, -0.2 - bl, 0.03, 0.05);
   // stock and grip
@@ -497,17 +535,22 @@ function vmBuildLMG(g, P, att) {
 // M1911: slide (P.bolt, locks back with the existing bolt motion), frame, a
 // magazine in the grip (P.mag) and a two-handed cup grip.
 function vmBuildPST(g, P, att) {
-  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);                     // frame / dust cover
+  // frame / dust cover
+  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);
   const slide = new THREE.Group(); g.add(slide);
   slide.position.set(0, 0.04, -0.12);
   vmBox(slide, 0.03, 0.03, 0.21, 0, 0, 0, VMAT.steel);
   for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(slide, 0.002, 0.022, 0.004, sx * 0.0155, 0, 0.07 + i * 0.006, VMAT.knuckle);
-  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);          // ejection port
+  // ejection port
+  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);
   P.bolt = slide; P.boltRest = -0.12;
-  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);                    // bushing / muzzle
-  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);                 // trigger guard
+  // bushing / muzzle
+  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);
+  // trigger guard
+  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);
   vmBox(g, 0.004, 0.016, 0.005, 0, -0.004, -0.05, VMAT.steel, 0.3);
-  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);           // walnut grip
+  // walnut grip
+  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);
   P.mag = new THREE.Group(); g.add(P.mag);
   P.mag.position.set(0, -0.01, -0.005);
   vmBox(P.mag, 0.022, 0.1, 0.034, 0, -0.06, 0.012, VMAT.metal, 0.22);

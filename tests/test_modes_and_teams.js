@@ -1783,8 +1783,14 @@ function createFullMatchContext(overrides = {}) {
     updateFlowField: noop,
     updateEnemyShadowBudget: noop,
     flushStaticBatches: noop,
-    rebuildWorldRayGrid: noop,
-    rebuildNavGrid: noop,
+    rebuildWorldRayGrid: function () {
+      c.worldRayGrid = CORE.buildRayGrid({ cell: 8, halfExtent: 50 });
+      return c.worldRayGrid;
+    },
+    rebuildNavGrid: function () {
+      c.navGrid = CORE.buildNavGrid(c.colliders, { cell: 1, halfExtent: 50, stepH: 0.6, walkerHeight: 1.8, agentRadius: 0.5 });
+      return c.navGrid;
+    },
     document: doc,
     $id: id => doc.getElementById(id),
     canvas: { addEventListener: noop, requestPointerLock: noop },
@@ -1813,18 +1819,69 @@ function createFullMatchContext(overrides = {}) {
     killfeedMessages: [],
     pushKillfeed: function (msg) { c.killfeedMessages.push(msg); },
     breakStreak: noop,
-    addBox: noop,
+    addBox: function (x, y, z, w, h, d, mat) {
+      c.colliders.push({
+        min: new Vector3(x - w/2, y - h/2, z - d/2),
+        max: new Vector3(x + w/2, y + h/2, z + d/2),
+        mat: 'concrete'
+      });
+    },
     scene: { add: noop, remove: noop },
     colliders: [],
     smokeVolumes: () => [],
+    activeMapId: 'urban',
+    MAPS: {
+      urban: {
+        id: 'urban',
+        name: 'Urban District',
+        get spawnPoints() { return CORE.getMapDef('urban').spawnPoints; },
+        get stationLayout() { return (typeof c !== 'undefined' && c.STATION_LAYOUT) ? c.STATION_LAYOUT : CORE.getMapDef('urban').stationLayout; },
+        get dominationFlags() { return CORE.getMapDef('urban').dominationFlags; },
+        get districts() { return CORE.getMapDef('urban').districts; },
+        get barriers() { return CORE.getMapDef('urban').barriers; },
+        build: noop
+      },
+      snowy: {
+        id: 'snowy',
+        name: 'Snowy Compound',
+        get spawnPoints() { return CORE.getMapDef('snowy').spawnPoints; },
+        get stationLayout() { return CORE.getMapDef('snowy').stationLayout; },
+        get dominationFlags() { return CORE.getMapDef('snowy').dominationFlags; },
+        get districts() { return CORE.getMapDef('snowy').districts; },
+        get barriers() { return CORE.getMapDef('snowy').barriers; },
+        build: noop
+      }
+    },
+    getActiveMap: function () { return (c && c.MAPS) ? (c.MAPS[c.activeMapId] || c.MAPS.urban) : null; },
+    setActiveMap: function (id, force) {
+      const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : 'urban';
+      if (c) {
+        const changed = (c.activeMapId !== safe);
+        c.activeMapId = safe;
+        c.activeMap = c.MAPS[safe] || c.MAPS.urban;
+        if (changed || force) {
+          const def = CORE.getMapDef(safe);
+          c.colliders.length = 0;
+          if (def && def.colliders) {
+            for (let i = 0; i < def.colliders.length; i++) c.colliders.push(def.colliders[i]);
+          }
+          if (typeof c.buildStations === 'function') c.buildStations();
+          if (typeof c.buildDistrictBarriers === 'function') c.buildDistrictBarriers();
+          if (typeof c.rebuildNavGrid === 'function') c.rebuildNavGrid();
+          if (typeof c.rebuildWorldRayGrid === 'function') c.rebuildWorldRayGrid();
+        }
+        return c.activeMap;
+      }
+      return null;
+    },
     spawnPoints: [
       [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
       [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
     ],
-    openSpawnPoints: () => [
-      [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
-      [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
-    ],
+    openSpawnPoints: function () {
+      const cur = (c && typeof c.getActiveMap === 'function') ? c.getActiveMap() : null;
+      return (cur && cur.spawnPoints && cur.spawnPoints.length) ? cur.spawnPoints : c.spawnPoints;
+    },
     perks: [],
     godMode: false,
     startMusic: noop,
@@ -1865,9 +1922,22 @@ function createFullMatchContext(overrides = {}) {
     waveNum: 0,
     runStreaksEarned: 0,
     settlementSnapshot: null,
-    captureRunState: () => ({}),
-    saveCheckpoint: cp => { c._checkpoint = cp; },
+    captureRunState: () => ({
+      wave: c.waveNum,
+      score: c.score,
+      difficulty: c.runDifficulty,
+      endless: c.endlessMode,
+      mapId: c.activeMapId || 'urban',
+      weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+      openDistricts: (c.openDistricts || []).slice(),
+      equipment: { lethal: c.equippedLethal, tactical: c.equippedTactical, streakBank: [] }
+    }),
+    saveCheckpoint: state => {
+      c._checkpoint = CORE.makeCheckpoint(state);
+      return true;
+    },
     clearCheckpoint: () => { c._checkpoint = null; },
+    loadCheckpoint: () => (c._checkpoint ? CORE.validateCheckpoint(c._checkpoint, c.CFG.weapons, c.CFG.player.health) : null),
     recordRun: () => ({}),
     spawnRagdoll: noop,
     disposeEnemyGeometry: noop,
@@ -1977,6 +2047,18 @@ function createFullMatchContext(overrides = {}) {
     set: v => { vm.runInContext('perks = ' + JSON.stringify(v), c); },
     configurable: true
   });
+  c.stations = vm.runInContext('stations', c);
+  c.doorMeshes = vm.runInContext('doorMeshes', c);
+  c.doorColliders = vm.runInContext('doorColliders', c);
+  c.openDistrict = vm.runInContext('openDistrict', c);
+  c.resetDistricts = vm.runInContext('resetDistricts', c);
+  c.buildStations = vm.runInContext('buildStations', c);
+  c.buildDistrictBarriers = vm.runInContext('buildDistrictBarriers', c);
+  c.openDistricts = vm.runInContext('openDistricts', c);
+  c.matchSpawnPointAt = vm.runInContext('matchSpawnPointAt', c);
+  c.activeMap = c.MAPS.urban;
+  c.buildStations();
+  c.buildDistrictBarriers();
 
   return c;
 }
@@ -4442,3 +4524,231 @@ test('regression [knife tier]: match settlement freeze persists after knife-tier
   mode.update(5);
   assert.strictEqual(mode.timeLeft, timeBefore, 'the timer must freeze after settlement');
 });
+
+// ---------------------------------------------------------------- Milestone 3: Map Registry
+test('milestone 3: runtime MAPS registry and activeMap switching', () => {
+  const c = createFullMatchContext();
+  assert.ok(c.MAPS, 'c.MAPS registry must exist');
+  assert.ok(c.MAPS.urban, 'c.MAPS.urban must be registered');
+  assert.ok(c.MAPS.snowy, 'c.MAPS.snowy must be registered');
+  assert.strictEqual(typeof c.getActiveMap, 'function');
+  assert.strictEqual(typeof c.setActiveMap, 'function');
+
+  // Initial active map defaults to urban
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+
+  // Switch to snowy
+  const snowy = c.setActiveMap('snowy');
+  assert.strictEqual(snowy.id, 'snowy');
+  assert.strictEqual(c.getActiveMap().id, 'snowy');
+
+  // Switch back to urban
+  const urban = c.setActiveMap('urban');
+  assert.strictEqual(urban.id, 'urban');
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+
+  // Invalid map falls back to urban
+  const fallback = c.setActiveMap('nonexistent');
+  assert.strictEqual(fallback.id, 'urban');
+});
+
+test('milestone 3: Survival checkpoint preserves mapId and resumes under activeMap safely', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('urban');
+  c.waveNum = 5;
+  c.score = 1200;
+
+  const cp = c.captureRunState();
+  assert.ok(cp, 'checkpoint must be captured');
+  assert.strictEqual(cp.mapId, 'urban', 'checkpoint must record active mapId');
+
+  // Resume checkpoint
+  c.loadCheckpoint = () => cp;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'urban', 'resumed run must maintain urban map');
+  assert.strictEqual(c.activeModeId, 'survival', 'resumed run must maintain survival mode');
+
+  // Checkpoint with snowy map
+  const cpSnowy = Object.assign({}, cp, { mapId: 'snowy' });
+  c.loadCheckpoint = () => cpSnowy;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'snowy', 'resumed run must restore snowy map');
+
+  // Legacy checkpoint without mapId restores urban
+  const cpLegacy = Object.assign({}, cp);
+  delete cpLegacy.mapId;
+  c.loadCheckpoint = () => cpLegacy;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'urban', 'legacy checkpoint must default to urban map');
+});
+
+test('milestone 3: Domination flags and openSpawnPoints source from activeMap', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('urban');
+  const urbanFlags = c.buildDominationFlags();
+  assert.strictEqual(urbanFlags.length, 3);
+  assert.deepStrictEqual([urbanFlags[0].x, urbanFlags[0].z], [-18, 0]);
+
+  c.setActiveMap('snowy');
+  const snowyFlags = c.buildDominationFlags();
+  assert.strictEqual(snowyFlags.length, 3);
+  const snowyDef = CORE.getMapDef('snowy');
+  assert.deepStrictEqual([snowyFlags[0].x, snowyFlags[0].z], [snowyDef.dominationFlags[0].x, snowyDef.dominationFlags[0].z]);
+
+  // Spawns
+  const spawns = c.openSpawnPoints();
+  assert.ok(Array.isArray(spawns) && spawns.length >= 12);
+  assert.deepStrictEqual(spawns[0], snowyDef.spawnPoints[0]);
+});
+
+test('regression [P1]: map-switch lifecycle rebuilds geometry, stations, barriers, nav in both directions and team deployment', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('urban', true);
+
+  // Initially on urban
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+  assert.strictEqual(c.stations.length, 17, 'stations must exist');
+  assert.ok(c.stations.some(s => s.district === 'ne'), 'urban stations include ne door station');
+
+  // Switch urban -> snowy
+  c.setActiveMap('snowy');
+  assert.strictEqual(c.getActiveMap().id, 'snowy');
+  assert.strictEqual(c.stations.length, 17, 'snowy station layout must have 17 stations');
+  const hangarStation = c.stations.find(s => s.district === 'hangar');
+  const depotStation = c.stations.find(s => s.district === 'depot');
+  assert.ok(hangarStation, 'snowy stations must preserve hangar district identifier');
+  assert.ok(depotStation, 'snowy stations must preserve depot district identifier');
+
+  // Verify snowy barriers and colliders rebuilt
+  const snowyDef = CORE.getMapDef('snowy');
+  const urbanDef = CORE.getMapDef('urban');
+  // Check colliders reflect snowy, not urban: snowy anchor center slab at (0, -4)
+  assert.ok(c.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 && (b.max.x - b.min.x) > 15),
+    'colliders must include snowy anchor center slab at (0, -4)');
+  // Check urban warehouse at (28, -28) is NOT in colliders
+  assert.ok(!c.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 && (b.max.x - b.min.x) > 10),
+    'colliders must not retain urban warehouse after switching to snowy');
+
+  // Team-mode deployment under snowy (TDM)
+  c.setActiveMode('tdm');
+  c.MODES.tdm.setup();
+  assert.ok(c.MODES.tdm.roster.length > 0, 'tdm roster must be populated');
+  // Spawns used by bots must come from snowy
+  const snowySpawns = snowyDef.spawnPoints;
+  const botSpawn = c.matchSpawnPointAt(0);
+  assert.deepStrictEqual(botSpawn, snowySpawns[0], 'bot spawn must match snowy spawn point');
+
+  // Team-mode deployment under snowy (Domination)
+  c.setActiveMode('domination');
+  c.MODES.domination.setup();
+  assert.strictEqual(c.MODES.domination.flags.length, 3, 'domination must have 3 flags');
+  assert.deepStrictEqual([c.MODES.domination.flags[0].x, c.MODES.domination.flags[0].z], [snowyDef.dominationFlags[0].x, snowyDef.dominationFlags[0].z]);
+  assert.deepStrictEqual([c.MODES.domination.flags[1].x, c.MODES.domination.flags[1].z], [snowyDef.dominationFlags[1].x, snowyDef.dominationFlags[1].z]);
+  assert.deepStrictEqual([c.MODES.domination.flags[2].x, c.MODES.domination.flags[2].z], [snowyDef.dominationFlags[2].x, snowyDef.dominationFlags[2].z]);
+
+  // Switch snowy -> urban
+  c.setActiveMap('urban');
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+  assert.strictEqual(c.stations.length, 17, 'urban station layout must have 17 stations');
+  assert.ok(c.stations.some(s => s.district === 'ne'), 'urban stations restored');
+  assert.ok(!c.stations.some(s => s.district === 'hangar'), 'snowy hangar station removed');
+
+  // Verify urban colliders restored
+  assert.ok(c.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 && (b.max.x - b.min.x) > 10),
+    'colliders must restore urban warehouse when switching back to urban');
+  assert.ok(!c.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 && (b.max.x - b.min.x) > 15),
+    'snowy anchor slab must not exist in urban colliders');
+});
+
+test('regression [P1]: snowy district barriers wire into purchase, opening, resetting with real colliders and navigation', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('snowy');
+
+  // Verify hangar and depot stations exist with district tags
+  const hangarSt = c.stations.find(s => s.district === 'hangar');
+  const depotSt = c.stations.find(s => s.district === 'depot');
+  assert.ok(hangarSt && depotSt, 'both hangar and depot stations must exist');
+
+  // Initial state: districts are closed
+  assert.ok(c.doorMeshes['hangar'], 'hangar door mesh must exist');
+  assert.ok(c.doorMeshes['depot'], 'depot door mesh must exist');
+  assert.ok(c.doorColliders['hangar'], 'hangar door collider must exist');
+  assert.ok(c.doorColliders['depot'], 'depot door collider must exist');
+
+  // Navigation into hangar and depot is blocked when closed
+  const nav1 = c.rebuildNavGrid();
+  CORE.computeFlowField(nav1, 0, -4);
+  const dHangarClosed = CORE.navDistanceAt(nav1, 26, -26);
+  assert.strictEqual(dHangarClosed, CORE.UNREACHABLE, 'hangar interior must be unreachable when door is closed');
+  const dDepotClosed = CORE.navDistanceAt(nav1, -26, 21);
+  assert.strictEqual(dDepotClosed, CORE.UNREACHABLE, 'depot interior must be unreachable when door is closed');
+
+  // Purchase/open hangar
+  c.openDistrict('hangar');
+  assert.ok(c.openDistricts.includes('hangar'), 'hangar is open');
+  assert.ok(!c.colliders.includes(c.doorColliders['hangar']), 'hangar door collider removed from colliders');
+
+  // Navigation into hangar is now reachable
+  const nav2 = c.rebuildNavGrid();
+  CORE.computeFlowField(nav2, 0, -4);
+  const dHangarOpen = CORE.navDistanceAt(nav2, 26, -26);
+  assert.ok(dHangarOpen > 0 && dHangarOpen < 1000, 'hangar interior must be reachable when door is open');
+  assert.strictEqual(CORE.navDistanceAt(nav2, -26, 21), CORE.UNREACHABLE, 'depot must still be unreachable');
+
+  // Purchase/open depot
+  c.openDistrict('depot');
+  assert.ok(c.openDistricts.includes('depot'), 'depot is open');
+  assert.ok(!c.colliders.includes(c.doorColliders['depot']), 'depot door collider removed from colliders');
+
+  // Navigation into depot is now reachable
+  const nav3 = c.rebuildNavGrid();
+  CORE.computeFlowField(nav3, 0, -4);
+  const dDepotOpen = CORE.navDistanceAt(nav3, -26, 21);
+  assert.ok(dDepotOpen > 0 && dDepotOpen < 1000, 'depot interior must be reachable when door is open');
+
+  // Reset districts: both doors restored and nav blocked again
+  c.resetDistricts();
+  assert.strictEqual(c.openDistricts.length, 0, 'openDistricts cleared on reset');
+  assert.ok(c.colliders.includes(c.doorColliders['hangar']), 'hangar door collider restored to colliders');
+  assert.ok(c.colliders.includes(c.doorColliders['depot']), 'depot door collider restored to colliders');
+  const nav4 = c.rebuildNavGrid();
+  CORE.computeFlowField(nav4, 0, -4);
+  assert.strictEqual(CORE.navDistanceAt(nav4, 26, -26), CORE.UNREACHABLE, 'hangar interior blocked again after reset');
+  assert.strictEqual(CORE.navDistanceAt(nav4, -26, 21), CORE.UNREACHABLE, 'depot interior blocked again after reset');
+});
+
+test('regression [P1]: Survival checkpoint save/load/resume restores snowy arena and purchased districts', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('snowy');
+  c.openDistrict('hangar');
+  c.waveNum = 6;
+  c.score = 2500;
+
+  const cp = c.captureRunState();
+  assert.strictEqual(cp.mapId, 'snowy', 'captured state mapId must be snowy');
+  assert.ok(cp.openDistricts.includes('hangar'), 'captured state openDistricts must include hangar');
+
+  // Simulate starting from fresh urban environment and resuming checkpoint
+  const c2 = createFullMatchContext();
+  assert.strictEqual(c2.getActiveMap().id, 'urban', 'fresh context starts at urban');
+
+  c2.loadCheckpoint = () => cp;
+  c2.resumeRun();
+
+  assert.strictEqual(c2.getActiveMap().id, 'snowy', 'resumed run must restore snowy map');
+  assert.ok(c2.openDistricts.includes('hangar'), 'resumed run must restore openDistricts with hangar');
+  // Check physical arena restoration: Snowy anchor slab present, urban warehouse absent
+  assert.ok(c2.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 && (b.max.x - b.min.x) > 15),
+    'resumed run must restore snowy anchor slab in colliders');
+  assert.ok(!c2.colliders.some(b => Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 && Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 && (b.max.x - b.min.x) > 10),
+    'resumed run must not retain urban warehouse in colliders');
+  // Check that hangar door collider is open (not in colliders)
+  assert.ok(c2.doorColliders['hangar'], 'hangar door collider definition exists');
+  assert.ok(!c2.colliders.includes(c2.doorColliders['hangar']), 'hangar door collider must be open in real colliders');
+  // Check nav grid reachable into hangar
+  const nav = c2.rebuildNavGrid();
+  CORE.computeFlowField(nav, 0, -4);
+  const dHangar = CORE.navDistanceAt(nav, 26, -26);
+  assert.ok(dHangar > 0 && dHangar < 1000, 'hangar interior must be reachable in resumed snowy run');
+});
+

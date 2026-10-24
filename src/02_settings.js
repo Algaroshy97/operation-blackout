@@ -116,6 +116,14 @@ function applySetting(key) {
         setActiveMode(SETTINGS.gameMode);
       }
       break;
+    case 'gameMap':
+      if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
+        break;
+      }
+      if (typeof setActiveMap === 'function') {
+        setActiveMap(SETTINGS.gameMap);
+      }
+      break;
     // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
 }

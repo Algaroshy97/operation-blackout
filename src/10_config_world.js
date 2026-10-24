@@ -66,7 +66,8 @@ try {
 // Mobile browsers drop WebGL contexts routinely on tab-switch. Without these the
 // game renders black forever with no way back.
 canvas.addEventListener('webglcontextlost', function (e) {
-  e.preventDefault();                       // required, or the context never restores
+  // required, or the context never restores
+  e.preventDefault();
   contextLost = true;
   if (typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
     if (typeof pauseGame === 'function') pauseGame();
@@ -275,8 +276,10 @@ groundMat.onBeforeCompile = function (shader) {
     .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gv = gn(vGroundW.xz * 0.06) * 0.6 + gn(vGroundW.xz * 0.21) * 0.4;\ndiffuseColor.rgb *= mix(0.74, 1.16, gv);');
 };
 // ---- Collision data ----
-const colliders = [];   // static AABBs {min,max}
-const raycastColliders = []; // world geometry meshes for scoped raycasting
+// static AABBs {min,max}
+const colliders = [];
+// world geometry meshes for scoped raycasting
+const raycastColliders = [];
 const mapBounds = CFG.world.size / 2 - 2;
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
@@ -358,7 +361,8 @@ function mergeGeometries(geos) {
     if (gi) { for (let i = 0; i < gi.count; i++) idx[io + i] = gi.array[i] + vo; io += gi.count; }
     else { for (let i = 0; i < p.count; i++) idx[io + i] = i + vo; io += p.count; }
     vo += p.count;
-    geo.dispose();   // the per-box source geometry never reaches the GPU
+    // the per-box source geometry never reaches the GPU
+    geo.dispose();
   }
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -461,7 +465,7 @@ PEN_MATERIAL.set(MAT.accent, 'metal');
 PEN_MATERIAL.set(MAT.red, 'metal');
 
 // ---- Build urban arena ----
-function buildArena() {
+function buildUrbanArena() {
   const S = CFG.world.size;
   // perimeter walls
   addBox(0, 3, -S/2, S+4, 6, 1, MAT.brick);
@@ -473,8 +477,10 @@ function buildArena() {
   // Ground-floor perimeter walls are segmented to leave doors on every side.
   [[-5.5,-7],[5.5,-7],[-5.5,7],[5.5,7]].forEach(function(p) { addBox(p[0], 1.7, p[1], 7, 3.4, 0.8, MAT.concrete); });
   [[-9,-4.5],[-9,4.5],[9,-4.5],[9,4.5]].forEach(function(p) { addBox(p[0], 1.7, p[1], 0.8, 3.4, 5, MAT.concrete); });
-  addBox(0, 3.9, 0, 18.6, 0.5, 14.6, MAT.concrete2);           // 2nd-floor slab
-  addBox(0, 6.65, 0, 18, 0.5, 14, MAT.concrete2);              // roof
+  // 2nd-floor slab
+  addBox(0, 3.9, 0, 18.6, 0.5, 14.6, MAT.concrete2);
+  // roof
+  addBox(0, 6.65, 0, 18, 0.5, 14, MAT.concrete2);
   // 1st floor pillars
   [[-6,-4],[6,-4],[-6,4],[6,4]].forEach(function(p) { addBox(p[0], 1.7, p[1], 1.2, 3.4, 1.2, MAT.concrete2); });
   // 2nd floor parapets
@@ -493,12 +499,15 @@ function buildArena() {
   // NE district: warehouse
   addBox(28, 2.5, -28, 16, 5, 12, MAT.metal);
   addBox(28, 5.6, -28, 16.4, 0.4, 12.4, MAT.metal);
-  addBox(20.2, 1, -22, 1.4, 2, 8, MAT.brick);      // side wall w/ gap
+  // side wall w/ gap
+  addBox(20.2, 1, -22, 1.4, 2, 8, MAT.brick);
   addBox(28, 1, -34, 6, 2, 1.4, MAT.brick);
-  addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);  // crates
+  // crates
+  addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);
   addBox(34, 3.3, -20.5, 2.2, 2.2, 2.2, MAT.wood, {noShadow:false});
   addBox(31.5, 1.1, -18, 2.2, 2.2, 2.2, MAT.wood);
-  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);   // container
+  // container
+  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);
   // High-contrast entrance marker for the warehouse district. These slim bars
   // frame the text panel and remain visual-only (no new collision surface).
   addBox(28, 5.18, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
@@ -518,7 +527,8 @@ function buildArena() {
   addBox(-28, 2, 28, 12, 4, 12, MAT.metal);
   addBox(-28, 4.4, 28, 12.4, 0.5, 12.4, MAT.metal);
   for (let i = 0; i < 3; i++) {
-    addBox(-33 + i * 5, 1.5, 22, 3, 3, 3, MAT.red);   // fuel tanks
+    // fuel tanks
+    addBox(-33 + i * 5, 1.5, 22, 3, 3, 3, MAT.red);
     addBox(-33 + i * 5, 4.5, 22, 3, 3, 3, MAT.red);
   }
   addBox(-20, 0.7, 34, 1.4, 1.4, 1.4, MAT.wood);
@@ -527,9 +537,11 @@ function buildArena() {
   // SE district: construction site
   addBox(26, 3, 30, 10, 6, 10, MAT.concrete);
   addBox(26, 6.4, 30, 10.5, 0.4, 10.5, MAT.concrete2);
-  addBox(33, 2, 24, 1.4, 4, 1.4, MAT.wood);          // scaffold legs
+  // scaffold legs
+  addBox(33, 2, 24, 1.4, 4, 1.4, MAT.wood);
   addBox(33, 2, 26.5, 1.4, 4, 1.4, MAT.wood);
-  addBox(33, 4.05, 25.25, 1.6, 0.2, 4, MAT.wood);    // scaffold platform
+  // scaffold platform
+  addBox(33, 4.05, 25.25, 1.6, 0.2, 4, MAT.wood);
   addBox(26, 1, 38, 4, 2, 1.5, MAT.brick);
   addBox(21, 0.75, 36, 1.5, 1.5, 1.5, MAT.wood);
   addBox(31, 0.75, 37, 1.5, 1.5, 1.5, MAT.wood);
@@ -573,10 +585,12 @@ function buildArena() {
   addBox(-14, 1, 14, 2.4, 2, 2.4, MAT.concrete2);
   addBox(14, 1, -14, 2.4, 2, 2.4, MAT.concrete2);
   addBox(-14, 1, -14, 2.4, 2, 2.2, MAT.concrete2);
-  addBox(0, 0.75, 30, 3, 1.5, 1.5, MAT.wood);         // south barricade
+  // south barricade
+  addBox(0, 0.75, 30, 3, 1.5, 1.5, MAT.wood);
   addBox(4, 0.75, 30, 3, 1.5, 1.5, MAT.wood);
   addBox(2, 2.25, 30, 3, 1.5, 1.5, MAT.wood);
-  addBox(0, 0.75, -30, 3, 1.5, 1.5, MAT.wood);  // north barricade
+  // north barricade
+  addBox(0, 0.75, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(4, 0.75, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(2, 2.25, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(30, 0.75, 8, 1.5, 1.5, 1.5, MAT.wood);
@@ -601,6 +615,95 @@ function buildArena() {
   barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
   barrel(22, 12); barrel(-22, 12); barrel(22, -12); barrel(-22, -12);
   barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
+}
+
+// ---- Build Snowy Compound arena ----
+function buildSnowyArena() {
+  const S = CFG.world.size;
+  addBox(0, 3, -S/2, S+4, 6, 1, MAT.brick);
+  addBox(0, 3, S/2, S+4, 6, 1, MAT.brick);
+  addBox(-S/2, 3, 0, 1, 6, S+4, MAT.brick);
+  addBox(S/2, 3, 0, 1, 6, S+4, MAT.brick);
+  const boxes = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('snowy').colliders : [];
+  for (let i = 4; i < boxes.length; i++) {
+    const b = boxes[i];
+    addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
+           +(b.max.x - b.min.x).toFixed(2), +(b.max.y - b.min.y).toFixed(2), +(b.max.z - b.min.z).toFixed(2),
+           MAT[b.mat] || MAT.concrete);
+  }
+}
+
+// ---- Map Registry ----
+function _regMap(id, fn) {
+  const d = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef(id) : {};
+  return {
+    id: id, name: d.name || id, worldSize: CFG.world.size, playerSpawn: d.playerSpawn || { x: 0, y: 0.9, z: 0 },
+    get spawnPoints() { return CORE.getMapDef(id).spawnPoints; },
+    get stationLayout() { return CORE.getMapDef(id).stationLayout; },
+    get dominationFlags() { return CORE.getMapDef(id).dominationFlags; },
+    get districts() { return CORE.getMapDef(id).districts; },
+    get barriers() { return CORE.getMapDef(id).barriers; },
+    build: fn
+  };
+}
+const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena) };
+
+let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefined' && CORE.sanitizeMapId(getSetting('gameMap'))) || 'urban';
+let activeMap = MAPS[activeMapId] || MAPS.urban;
+
+function getActiveMap() { return activeMap; }
+
+function clearMapGeometry() {
+  if (typeof scene !== 'undefined' && scene && scene.children) {
+    for (let i = scene.children.length - 1; i >= 0; i--) {
+      const obj = scene.children[i];
+      if (obj && obj.userData && (obj.userData.staticBatch || obj.userData.oldBarrel)) {
+        scene.remove(obj);
+        if (typeof raycastColliders !== 'undefined') {
+          const ri = raycastColliders.indexOf(obj);
+          if (ri >= 0) raycastColliders.splice(ri, 1);
+        }
+        if (obj.geometry) obj.geometry.dispose();
+      }
+    }
+  }
+  staticQueue.length = 0;
+  if (typeof colliders !== 'undefined') {
+    for (let i = colliders.length - 1; i >= 0; i--) {
+      if (!colliders[i].isProp) colliders.splice(i, 1);
+    }
+  }
+  if (typeof clearDistrictBarriers === 'function') clearDistrictBarriers();
+  if (typeof stations !== 'undefined') stations.length = 0;
+  if (typeof openDistricts !== 'undefined') openDistricts.length = 0;
+}
+
+function rebuildMapEnvironment() {
+  clearMapGeometry();
+  buildArena();
+  if (typeof buildStations === 'function') buildStations();
+  if (typeof buildDistrictBarriers === 'function') buildDistrictBarriers();
+  if (typeof flushStaticBatches === 'function') flushStaticBatches();
+  if (typeof rebuildWorldRayGrid === 'function') rebuildWorldRayGrid();
+  if (typeof rebuildNavGrid === 'function') rebuildNavGrid();
+  if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
+}
+
+function setActiveMap(id, force) {
+  const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : (id === 'snowy' ? 'snowy' : 'urban');
+  const changed = (activeMapId !== safe);
+  activeMapId = safe;
+  activeMap = MAPS[safe] || MAPS.urban;
+  if ((changed || force) && typeof buildStations === 'function') {
+    rebuildMapEnvironment();
+  }
+  return activeMap;
+}
+
+function buildArena() {
+  const m = getActiveMap();
+  if (m && typeof m.build === 'function') m.build();
+  else buildUrbanArena();
 }
 buildArena();
 console.log('static batches:', flushStaticBatches(), 'meshes');
@@ -668,6 +771,7 @@ function scatterProps() {
     raycastColliders.push(m);
     const d = dims[s[0]];
     addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
+    if (colliders.length) colliders[colliders.length - 1].isProp = true;
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
@@ -686,6 +790,7 @@ function scatterProps() {
       scene.add(m);
       raycastColliders.push(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
+      if (colliders.length) colliders[colliders.length - 1].isProp = true;
   });
   placed += 3;
   // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the
@@ -706,7 +811,8 @@ function scatterProps() {
       const b = GLB_PARSED.BARREL.scene.clone(true);
       b.scale.setScalar(4.4);
       b.position.set(p.x, 0, p.z);
-      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);  // varied, deterministic
+      // varied, deterministic
+      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);
       b.castShadow = true; b.receiveShadow = true;
       b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
       scene.add(b);
@@ -714,9 +820,12 @@ function scatterProps() {
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
-  batchScatteredProps();   // 48 GLB clones -> a handful of merged meshes
-  rebuildNavGrid();        // props add colliders; the AI grid must see them
-  rebuildWorldRayGrid();   // props/barrels changed raycastColliders
+  // 48 GLB clones -> a handful of merged meshes
+  batchScatteredProps();
+  // props add colliders; the AI grid must see them
+  rebuildNavGrid();
+  // props/barrels changed raycastColliders
+  rebuildWorldRayGrid();
   return placed;
 }
 

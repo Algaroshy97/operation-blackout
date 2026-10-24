@@ -914,14 +914,12 @@ MODES.ffa = {
 
 // ============ DOMINATION ============
 function buildDominationFlags() {
-  const out = [];
-  const names = CORE.DOMINATION_FLAG_NAMES || ['A', 'B', 'C'];
-  const pts = CORE.DOMINATION_FLAG_POINTS || [[-18, 0], [0, 18], [18, 0]];
-  for (let i = 0; i < names.length; i++) {
-    const pt = pts[i] || [0, 0];
-    out.push({ name: names[i], x: pt[0], z: pt[1], owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS });
-  }
-  return out;
+  const flags = (typeof getActiveMap === 'function' && getActiveMap().dominationFlags) ||
+                (typeof CORE !== 'undefined' && CORE.getMapDef && CORE.getMapDef('urban').dominationFlags) ||
+                [{ name: 'A', x: -18, z: 0 }, { name: 'B', x: 0, z: 18 }, { name: 'C', x: 18, z: 0 }];
+  return flags.map(function (f) {
+    return { name: f.name, x: f.x, z: f.z, owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS };
+  });
 }
 
 MODES.domination = {
