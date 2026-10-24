@@ -1697,6 +1697,101 @@ test('production UI menu quit and reset lifecycle: exits pointer lock and cleans
     'btn-v-quit must remove started class from body');
 });
 
+function createTextureCanvas(w, h) {
+  const data = new Uint8ClampedArray(w * h * 4);
+  let fillStyle = '#000000';
+  let strokeStyle = '#000000';
+  let path = [];
+  function parseColor(str) {
+    if (typeof str !== 'string') return [128, 128, 128, 255];
+    if (str.startsWith('#')) {
+      const hex = str.slice(1);
+      if (hex.length === 6) return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16), 255];
+      if (hex.length === 3) return [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16), 255];
+    }
+    const m = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (m) {
+      const a = m[4] !== undefined ? Math.round(parseFloat(m[4]) * 255) : 255;
+      return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), a];
+    }
+    return [128, 128, 128, 255];
+  }
+  const ctx = {
+    get fillStyle() { return fillStyle; },
+    set fillStyle(v) { fillStyle = v; },
+    get strokeStyle() { return strokeStyle; },
+    set strokeStyle(v) { strokeStyle = v; },
+    font: '', textAlign: '', textBaseline: '', lineCap: '', lineWidth: 1,
+    fillRect(x, y, rw, rh) {
+      const col = parseColor(fillStyle);
+      const x0 = Math.max(0, Math.floor(x)), x1 = Math.min(w, Math.ceil(x + rw));
+      const y0 = Math.max(0, Math.floor(y)), y1 = Math.min(h, Math.ceil(y + rh));
+      for (let cy = y0; cy < y1; cy++) {
+        for (let cx = x0; cx < x1; cx++) {
+          const idx = (cy * w + cx) * 4;
+          data[idx] = col[0]; data[idx + 1] = col[1]; data[idx + 2] = col[2]; data[idx + 3] = col[3];
+        }
+      }
+    },
+    strokeRect: noop, fillText: noop,
+    beginPath() { path = []; }, closePath: noop, moveTo: noop, lineTo: noop, stroke: noop,
+    quadraticCurveTo: noop, rotate: noop, translate: noop,
+    arc(x, y, r) { path.push({ type: 'ellipse', x, y, rx: r, ry: r, rot: 0 }); },
+    ellipse(x, y, rx, ry, rot) { path.push({ type: 'ellipse', x, y, rx, ry, rot }); },
+    fill() {
+      const col = parseColor(fillStyle);
+      for (const item of path) {
+        if (item.type === 'ellipse') {
+          const { x, y, rx, ry, rot } = item;
+          const maxR = Math.max(rx, ry);
+          const x0 = Math.max(0, Math.floor(x - maxR)), x1 = Math.min(w, Math.ceil(x + maxR));
+          const y0 = Math.max(0, Math.floor(y - maxR)), y1 = Math.min(h, Math.ceil(y + maxR));
+          const cos = Math.cos(-rot), sin = Math.sin(-rot);
+          for (let cy = y0; cy < y1; cy++) {
+            for (let cx = x0; cx < x1; cx++) {
+              const dx = cx - x, dy = cy - y;
+              const ex = dx * cos - dy * sin;
+              const ey = dx * sin + dy * cos;
+              if ((ex / rx) ** 2 + (ey / ry) ** 2 <= 1) {
+                const idx = (cy * w + cx) * 4;
+                data[idx] = col[0]; data[idx + 1] = col[1]; data[idx + 2] = col[2]; data[idx + 3] = col[3];
+              }
+            }
+          }
+        }
+      }
+    },
+    createRadialGradient: () => ({ addColorStop: noop }),
+    createLinearGradient: () => ({ addColorStop: noop }),
+    getImageData: (x, y, sw, sh) => ({ data }),
+    createImageData: (sw, sh) => ({ data: new Uint8ClampedArray(sw * sh * 4) }),
+    putImageData(img) { data.set(img.data); }
+  };
+  return { width: w, height: h, getContext: () => ctx, _data: data };
+}
+
+let _cachedProductionTex = null;
+function getProductionTex() {
+  if (!_cachedProductionTex) {
+    const texContext = vm.createContext({
+      document: {
+        createElement: (tag) => tag === 'canvas' ? createTextureCanvas(512, 512) : {}
+      },
+      THREE: {
+        CanvasTexture: function (c) {
+          this.image = c;
+          this.repeat = { set: (x, y) => { this.repeatX = x; this.repeatY = y; } };
+        },
+        RepeatWrapping: 1000
+      },
+      Math
+    });
+    vm.runInContext(source('08_textures.js'), texContext);
+    _cachedProductionTex = vm.runInContext('TEX', texContext);
+  }
+  return _cachedProductionTex;
+}
+
 function createFullMatchContext(overrides = {}) {
   const docElements = new Map();
   const doc = {
@@ -1839,51 +1934,35 @@ function createFullMatchContext(overrides = {}) {
         mat: 'concrete'
       });
     },
-    scene: { add: noop, remove: noop },
+    scene: {
+      add: noop,
+      remove: noop,
+      background: { hex: 0, setHex: function (h) { this.hex = h; return this; } },
+      fog: { color: { hex: 0, setHex: function (h) { this.hex = h; return this; } } }
+    },
     colliders: [],
     smokeVolumes: () => [],
     activeMapId: 'urban',
-    TEX: {
-      snow: { map: { repeat: { set: noop } }, normalMap: { repeat: { set: noop } } },
-      asphalt: { map: { repeat: { set: noop } }, normalMap: { repeat: { set: noop } } },
-      frostedMetal: { map: {}, normalMap: {} },
-      frostedWood: { map: {}, normalMap: {} },
-      concrete: { map: {}, normalMap: {} },
-      metal: { map: {}, normalMap: {} },
-      wood: { map: {}, normalMap: {} }
-    },
+    get TEX() { return getProductionTex(); },
     groundMat: {
       map: null,
       normalMap: null,
-      color: { setHex: noop },
+      color: { hex: 0, setHex: function (h) { this.hex = h; return this; } },
       roughness: 0.92,
       needsUpdate: false
     },
     SKY_UNIFORMS: {
-      top: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
-      mid: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
-      horizon: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
-      low: { value: { setHex: function() { return { convertSRGBToLinear: noop }; } } },
-      sunDir: { value: { set: function() { return { normalize: noop }; } } }
+      top: { value: { hex: 0, setHex: function (h) { this.hex = h; return this; }, convertSRGBToLinear: function () { return this; } } },
+      mid: { value: { hex: 0, setHex: function (h) { this.hex = h; return this; }, convertSRGBToLinear: function () { return this; } } },
+      horizon: { value: { hex: 0, setHex: function (h) { this.hex = h; return this; }, convertSRGBToLinear: function () { return this; } } },
+      low: { value: { hex: 0, setHex: function (h) { this.hex = h; return this; }, convertSRGBToLinear: function () { return this; } } },
+      sunDir: { value: { x: 0, y: 0, z: 0, set: function (x, y, z) { this.x = x; this.y = y; this.z = z; return this; }, normalize: function () { return this; } } }
     },
     sun: {
-      color: { setHex: noop },
-      position: { set: noop }
+      color: { hex: 0, setHex: function (h) { this.hex = h; return this; } },
+      position: { x: 0, y: 0, z: 0, set: function (x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
     },
-    SUN_OFFSET: { set: noop },
-    applyMapSkyPreset: function(mapId) {
-      const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(mapId) : 'urban';
-      const isSnow = (safe === 'snowy');
-      if (isSnow && c.TEX.snow) {
-        c.groundMat.map = c.TEX.snow.map;
-        c.groundMat.normalMap = c.TEX.snow.normalMap;
-        c.groundMat.roughness = 0.88;
-      } else if (c.TEX.asphalt) {
-        c.groundMat.map = c.TEX.asphalt.map;
-        c.groundMat.normalMap = c.TEX.asphalt.normalMap;
-        c.groundMat.roughness = 0.92;
-      }
-    },
+    SUN_OFFSET: { x: 0, y: 0, z: 0, set: function (x, y, z) { this.x = x; this.y = y; this.z = z; return this; } },
     MAPS: {
       urban: {
         id: 'urban',
@@ -2091,12 +2170,19 @@ function createFullMatchContext(overrides = {}) {
   const mainSrc = source('70_main.js');
   const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
   vm.runInContext(mainSlice, c);
+  const worldSrc = source('10_config_world.js');
+  const skyPresetSlice = worldSrc.slice(
+    worldSrc.indexOf('function applyMapSkyPreset('),
+    worldSrc.indexOf('function clearMapGeometry(')
+  );
+  vm.runInContext(skyPresetSlice, c);
   vm.runInContext('assetsReady = true;', c);
 
   c.player = vm.runInContext('player', c);
   c.enemies = vm.runInContext('enemies', c);
   c.modeRespawnQueue = vm.runInContext('modeRespawnQueue', c);
   c.MODES = vm.runInContext('MODES', c);
+  c.applyMapSkyPreset = vm.runInContext('applyMapSkyPreset', c);
   ['paused', 'started', 'pointerLocked'].forEach(prop => {
     Object.defineProperty(c, prop, {
       get: () => vm.runInContext(prop, c),
@@ -2119,6 +2205,7 @@ function createFullMatchContext(overrides = {}) {
   c.openDistricts = vm.runInContext('openDistricts', c);
   c.matchSpawnPointAt = vm.runInContext('matchSpawnPointAt', c);
   c.activeMap = c.MAPS.urban;
+  c.applyMapSkyPreset(c.activeMapId);
   c.buildStations();
   c.buildDistrictBarriers();
 
@@ -4867,22 +4954,102 @@ test('milestone 3: deploy-screen map selector UI, activeMap switching, and per-m
 test('milestone 3: procedural snowy textures and sky preset application on activeMap switch', () => {
   const c = createFullMatchContext();
 
-  // Check texture exports in TEX
+  // 1. Verify production texture implementations generated from src/08_textures.js
   assert.ok(c.TEX.snow, 'TEX.snow must exist');
-  assert.ok(c.TEX.frostedMetal, 'TEX.frostedMetal must exist');
-  assert.ok(c.TEX.frostedWood, 'TEX.frostedWood must exist');
+  assert.ok(c.TEX.snow.map && c.TEX.snow.map.image, 'TEX.snow.map with canvas image must exist');
+  assert.ok(c.TEX.snow.normalMap && c.TEX.snow.normalMap.image, 'TEX.snow.normalMap with canvas image must exist');
+  assert.ok(c.TEX.frostedMetal && c.TEX.frostedMetal.map, 'TEX.frostedMetal must exist');
+  assert.ok(c.TEX.frostedWood && c.TEX.frostedWood.map, 'TEX.frostedWood must exist');
+  assert.ok(c.TEX.asphalt && c.TEX.asphalt.map, 'TEX.asphalt must exist');
 
-  // Check sky preset application
+  // Verify snow footprint generation in height data
+  assert.ok(c.TEX.snow.heightCanvas, 'TEX.snow must expose generated height canvas');
+  const hData = c.TEX.snow.heightCanvas.getContext('2d').getImageData(0, 0, 512, 512).data;
+  let footprintPixels = 0;
+  for (let i = 0; i < hData.length; i += 4) {
+    if (hData[i] === 0x68) footprintPixels++; // #686868 = 104
+  }
+  assert.ok(footprintPixels > 500, `TEX.snow height data must contain footprint depression pixels (#686868), got ${footprintPixels}`);
+
+  // Check normal map generated from height field
+  const normalData = c.TEX.snow.normalMap.image.getContext('2d').getImageData(0, 0, 512, 512).data;
+  let normalDeviations = 0;
+  for (let i = 0; i < normalData.length; i += 4) {
+    if (Math.abs(normalData[i] - 128) > 10 || Math.abs(normalData[i + 1] - 128) > 10) normalDeviations++;
+  }
+  assert.ok(normalDeviations > 1000, `TEX.snow normal map must reflect surface variations, got ${normalDeviations}`);
+
+  // 2. Exercise production applyMapSkyPreset from src/10_config_world.js in snowy direction
   assert.strictEqual(typeof c.applyMapSkyPreset, 'function', 'applyMapSkyPreset must be defined');
+  const snowyDef = CORE.getMapDef('snowy');
+  const urbanDef = CORE.getMapDef('urban');
 
   c.applyMapSkyPreset('snowy');
+  // Ground material
   assert.strictEqual(c.groundMat.map, c.TEX.snow.map, 'snowy ground must use TEX.snow.map');
   assert.strictEqual(c.groundMat.normalMap, c.TEX.snow.normalMap, 'snowy ground must use TEX.snow.normalMap');
-  assert.ok(c.groundMat.roughness < 0.90, 'snowy ground roughness must be tuned');
+  assert.strictEqual(c.groundMat.color.hex, 0xe8f0f8, 'snowy ground color must be tuned');
+  assert.strictEqual(c.groundMat.roughness, 0.88, 'snowy ground roughness must be tuned');
+  assert.strictEqual(c.groundMat.needsUpdate, true);
+  // Sky uniforms
+  assert.strictEqual(c.SKY_UNIFORMS.top.value.hex, snowyDef.sky.top, 'snowy sky top uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.mid.value.hex, snowyDef.sky.mid, 'snowy sky mid uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.horizon.value.hex, snowyDef.sky.horizon, 'snowy sky horizon uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.low.value.hex, snowyDef.sky.low, 'snowy sky low uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.x, snowyDef.sky.sunDir[0]);
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.y, snowyDef.sky.sunDir[1]);
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.z, snowyDef.sky.sunDir[2]);
+  // Background and Fog
+  assert.strictEqual(c.scene.background.hex, snowyDef.sky.skyColor, 'snowy scene background must match skyColor');
+  assert.strictEqual(c.scene.fog.color.hex, snowyDef.sky.fogColor, 'snowy fog color must match fogColor');
+  // Sun and SUN_OFFSET
+  assert.strictEqual(c.sun.color.hex, snowyDef.sky.sunColor, 'snowy sun color must match sunColor');
+  assert.strictEqual(c.sun.position.x, snowyDef.sky.sunPos[0], 'snowy sun position x must match sunPos');
+  assert.strictEqual(c.sun.position.y, snowyDef.sky.sunPos[1], 'snowy sun position y must match sunPos');
+  assert.strictEqual(c.sun.position.z, snowyDef.sky.sunPos[2], 'snowy sun position z must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.x, snowyDef.sky.sunPos[0], 'snowy SUN_OFFSET x must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.y, snowyDef.sky.sunPos[1], 'snowy SUN_OFFSET y must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.z, snowyDef.sky.sunPos[2], 'snowy SUN_OFFSET z must match sunPos');
 
+  // 3. Exercise production applyMapSkyPreset from src/10_config_world.js in urban direction
   c.applyMapSkyPreset('urban');
+  // Ground material
   assert.strictEqual(c.groundMat.map, c.TEX.asphalt.map, 'urban ground must restore TEX.asphalt.map');
   assert.strictEqual(c.groundMat.normalMap, c.TEX.asphalt.normalMap, 'urban ground must restore TEX.asphalt.normalMap');
+  assert.strictEqual(c.groundMat.color.hex, 0x767c8e, 'urban ground color must be restored');
+  assert.strictEqual(c.groundMat.roughness, 0.92, 'urban ground roughness must be restored');
+  assert.strictEqual(c.groundMat.needsUpdate, true);
+  // Sky uniforms
+  assert.strictEqual(c.SKY_UNIFORMS.top.value.hex, urbanDef.sky.top, 'urban sky top uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.mid.value.hex, urbanDef.sky.mid, 'urban sky mid uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.horizon.value.hex, urbanDef.sky.horizon, 'urban sky horizon uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.low.value.hex, urbanDef.sky.low, 'urban sky low uniform must match map definition');
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.x, urbanDef.sky.sunDir[0]);
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.y, urbanDef.sky.sunDir[1]);
+  assert.strictEqual(c.SKY_UNIFORMS.sunDir.value.z, urbanDef.sky.sunDir[2]);
+  // Background and Fog
+  assert.strictEqual(c.scene.background.hex, urbanDef.sky.skyColor, 'urban scene background must match skyColor');
+  assert.strictEqual(c.scene.fog.color.hex, urbanDef.sky.fogColor, 'urban fog color must match fogColor');
+  // Sun and SUN_OFFSET
+  assert.strictEqual(c.sun.color.hex, urbanDef.sky.sunColor, 'urban sun color must match sunColor');
+  assert.strictEqual(c.sun.position.x, urbanDef.sky.sunPos[0], 'urban sun position x must match sunPos');
+  assert.strictEqual(c.sun.position.y, urbanDef.sky.sunPos[1], 'urban sun position y must match sunPos');
+  assert.strictEqual(c.sun.position.z, urbanDef.sky.sunPos[2], 'urban sun position z must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.x, urbanDef.sky.sunPos[0], 'urban SUN_OFFSET x must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.y, urbanDef.sky.sunPos[1], 'urban SUN_OFFSET y must match sunPos');
+  assert.strictEqual(c.SUN_OFFSET.z, urbanDef.sky.sunPos[2], 'urban SUN_OFFSET z must match sunPos');
+});
+
+test('regression [P2]: src/08_textures.js snow footprint generation draws on height canvas and produces depression height data', () => {
+  const c = createFullMatchContext();
+  assert.ok(c.TEX.snow, 'TEX.snow must exist');
+  assert.ok(c.TEX.snow.heightCanvas, 'TEX.snow.heightCanvas must exist');
+  const hData = c.TEX.snow.heightCanvas.getContext('2d').getImageData(0, 0, 512, 512).data;
+  let count104 = 0;
+  for (let i = 0; i < hData.length; i += 4) {
+    if (hData[i] === 0x68) count104++; // #686868
+  }
+  assert.ok(count104 > 500, `Footprint depressions (#686868) must reach height field, found ${count104}`);
 });
 
 test('milestone 3: full Survival gameplay lifecycle on Snowy Compound with active combat, enemies, and per-map stat recording', () => {

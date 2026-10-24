@@ -4,6 +4,24 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v177.1 — Snow footprint height depression fix and production texture/sky test execution
+
+- **Snow footprint generation fix (`src/08_textures.js`).**
+  - Fixed snow footprint generation in `src/08_textures.js`: changed `g.ellipse(px, py, 7, 3.5, a, 0, 7)` to `h.ellipse(px, py, 7, 3.5, a, 0, 7)` following `h.beginPath()`. Previously, `h.fill()` filled an empty path so the `#686868` (height value 104) footprint depressions never reached the height field or the derived tangent-space normal map.
+  - Added `heightCanvas: hgt.c` export on `makeSurface` so generated height field data is accessible for testing and verification.
+- **Production texture and sky preset integration in tests (`tests/test_modes_and_teams.js`).**
+  - Replaced manually supplied `TEX` stubs and hand-written `applyMapSkyPreset` mock in `createFullMatchContext()` with production implementations:
+    - Executed production `src/08_textures.js` with an in-memory software 2D canvas context, generating real procedural textures (`TEX.snow`, `TEX.frostedMetal`, `TEX.frostedWood`, `TEX.asphalt`).
+    - Executed production `applyMapSkyPreset` from `src/10_config_world.js` and wired `c.scene` (background and fog), `c.SKY_UNIFORMS`, `c.sun`, `c.SUN_OFFSET`, and `c.groundMat`.
+  - Updated integration test `milestone 3: procedural snowy textures and sky preset application on activeMap switch` to assert:
+    - Generated texture data: verified presence of `TEX.snow.map`, `TEX.snow.normalMap`, `TEX.frostedMetal`, `TEX.frostedWood`, `TEX.asphalt`, and asserted footprint depression height data (`#686868` / value 104) and normal map deviations.
+    - Bidirectional sky, fog, sun, and ground material changes when switching between `'snowy'` and `'urban'`.
+  - Added regression test `regression [P2]: src/08_textures.js snow footprint generation draws on height canvas and produces depression height data`.
+- **Release build budget & coverage.**
+  - Rebuilt single-file release HTML (`dist/Operation Blackout.html`) at 2,043,562 bytes (53,590 bytes below the 2 MiB budget).
+  - 604/604 Node tests passing across `tests/*.js` (429 in `test_core.js`, 91 in `test_modes_and_teams.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v177 — Milestone 3: Snowy textures, icy sky preset, and deploy map selector UI
 
 - **Snowy textures & visual assets (`src/08_textures.js`, `src/10_config_world.js`).**

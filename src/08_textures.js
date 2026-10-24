@@ -102,7 +102,7 @@ function makeSurface(size, seed, normalStrength, draw) {
   const col = texCanvas(size), hgt = texCanvas(size);
   hgt.g.fillStyle = '#808080'; hgt.g.fillRect(0, 0, size, size);
   draw(col.g, hgt.g, size, texRng(seed));
-  return { map: toTex(col.c), normalMap: toTex(heightToNormal(hgt.c, normalStrength)) };
+  return { map: toTex(col.c), normalMap: toTex(heightToNormal(hgt.c, normalStrength)), heightCanvas: hgt.c };
 }
 
 const TEX = {};
@@ -312,7 +312,7 @@ TEX.snow = makeSurface(512, 79, 2.0, function (g, h, S, rnd) {
       g.fillStyle = 'rgba(160,178,198,0.22)';
       g.beginPath(); g.ellipse(px, py, 7, 3.5, a, 0, 7); g.fill();
       h.fillStyle = '#686868';
-      h.beginPath(); g.ellipse(px, py, 7, 3.5, a, 0, 7); h.fill();
+      h.beginPath(); h.ellipse(px, py, 7, 3.5, a, 0, 7); h.fill();
     });
   }
 });
