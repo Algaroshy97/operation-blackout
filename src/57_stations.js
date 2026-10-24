@@ -36,25 +36,61 @@ const doorMat = new THREE.MeshStandardMaterial({ color: 0x6a5a2a, roughness: 0.8
 const doorMeshes = {};
 const doorColliders = {};
 
+function getDistrictBarriers() {
+  const m = (typeof getActiveMap === 'function') ? getActiveMap() : null;
+  if (m && m.barriers) return m.barriers;
+  const def = (typeof CORE !== 'undefined' && CORE.getMapDef)
+    ? CORE.getMapDef((m && m.id) || (typeof activeMapId !== 'undefined' ? activeMapId : 'urban'))
+    : null;
+  return (def && def.barriers) || DISTRICT_BARRIERS;
+}
+
+function clearDistrictBarriers() {
+  for (const key in doorMeshes) {
+    const mesh = doorMeshes[key];
+    if (mesh) {
+      if (typeof scene !== 'undefined' && scene && scene.remove) scene.remove(mesh);
+      if (typeof raycastColliders !== 'undefined') {
+        const ri = raycastColliders.indexOf(mesh);
+        if (ri >= 0) raycastColliders.splice(ri, 1);
+      }
+      if (mesh.geometry) mesh.geometry.dispose();
+    }
+  }
+  for (const key in doorColliders) {
+    const col = doorColliders[key];
+    if (col && typeof colliders !== 'undefined') {
+      const ci = colliders.indexOf(col);
+      if (ci >= 0) colliders.splice(ci, 1);
+    }
+  }
+  for (const k of Object.keys(doorMeshes)) delete doorMeshes[k];
+  for (const k of Object.keys(doorColliders)) delete doorColliders[k];
+}
+
 function buildDistrictBarriers() {
-  for (const key in DISTRICT_BARRIERS) {
-    const b = DISTRICT_BARRIERS[key];
+  clearDistrictBarriers();
+  const barriers = getDistrictBarriers();
+  for (const key in barriers) {
+    const b = barriers[key];
     const w = b.wall;
-    addBox(w[0], w[1], w[2], w[3], w[4], w[5], MAT.concrete2, { pen: 'concrete' });
+    if (w && typeof addBox === 'function') addBox(w[0], w[1], w[2], w[3], w[4], w[5], MAT.concrete2, { pen: 'concrete' });
     const d = b.door;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(d[3], d[4], d[5]), doorMat);
-    mesh.position.set(d[0], d[1], d[2]);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    scene.add(mesh);
-    raycastColliders.push(mesh);
-    const col = {
-      min: new THREE.Vector3(d[0] - d[3] / 2, d[1] - d[4] / 2, d[2] - d[5] / 2),
-      max: new THREE.Vector3(d[0] + d[3] / 2, d[1] + d[4] / 2, d[2] + d[5] / 2),
-      mat: 'concrete'
-    };
-    colliders.push(col);
-    doorMeshes[key] = mesh;
-    doorColliders[key] = col;
+    if (d) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(d[3], d[4], d[5]), doorMat);
+      mesh.position.set(d[0], d[1], d[2]);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      if (typeof scene !== 'undefined' && scene && scene.add) scene.add(mesh);
+      if (typeof raycastColliders !== 'undefined') raycastColliders.push(mesh);
+      const col = {
+        min: new THREE.Vector3(d[0] - d[3] / 2, d[1] - d[4] / 2, d[2] - d[5] / 2),
+        max: new THREE.Vector3(d[0] + d[3] / 2, d[1] + d[4] / 2, d[2] + d[5] / 2),
+        mat: 'concrete'
+      };
+      if (typeof colliders !== 'undefined') colliders.push(col);
+      doorMeshes[key] = mesh;
+      doorColliders[key] = col;
+    }
   }
 }
 
@@ -80,12 +116,13 @@ function openDistrict(key) {
 
 function resetDistricts() {
   openDistricts.length = 0;
-  for (const key in DISTRICT_BARRIERS) {
-    if (doorMeshes[key] && !doorMeshes[key].parent) {
+  const barriers = getDistrictBarriers();
+  for (const key in barriers) {
+    if (doorMeshes[key] && !doorMeshes[key].parent && typeof scene !== 'undefined' && scene && scene.add) {
       scene.add(doorMeshes[key]);
-      raycastColliders.push(doorMeshes[key]);
+      if (typeof raycastColliders !== 'undefined') raycastColliders.push(doorMeshes[key]);
     }
-    if (doorColliders[key] && colliders.indexOf(doorColliders[key]) < 0) {
+    if (doorColliders[key] && typeof colliders !== 'undefined' && colliders.indexOf(doorColliders[key]) < 0) {
       colliders.push(doorColliders[key]);
     }
   }
@@ -115,6 +152,7 @@ function stationMaterial(kind) {
 }
 
 function buildStations() {
+  stations.length = 0;
   const layout = (typeof getActiveMap === 'function' && getActiveMap().stationLayout) || STATION_LAYOUT;
   for (let i = 0; i < layout.length; i++) {
     const def = layout[i];
@@ -127,6 +165,7 @@ function buildStations() {
       kind: def.kind, x: def.x, z: def.z,
       weapon: def.weapon === undefined ? -1 : def.weapon,
       perk: def.perk || null,
+      district: def.district || null,
       holdT: 0
     });
   }

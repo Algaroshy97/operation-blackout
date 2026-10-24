@@ -222,7 +222,8 @@ function resetGame() {
   if (typeof clearParticles === 'function') clearParticles();
   if (typeof clearBloodPools === 'function') clearBloodPools();
   if (typeof clearInputState === 'function') clearInputState();
-  player.pos.set(0, CFG.player.height, 24);
+  const pSpawn = (typeof getActiveMap === 'function' && getActiveMap().playerSpawn) || { x: 0, y: CFG.player.height, z: 24 };
+  player.pos.set(pSpawn.x, pSpawn.y || CFG.player.height, pSpawn.z);
   player.vel.set(0, 0, 0);
   player.yaw = Math.PI; player.pitch = 0;
   player.health = CFG.player.health; player.armor = CFG.player.armor;
@@ -782,6 +783,9 @@ function startGame() {
       }
     });
   }
+  if (typeof SETTINGS !== 'undefined' && SETTINGS.gameMap && typeof setActiveMap === 'function') {
+    setActiveMap(SETTINGS.gameMap);
+  }
   started = true;
   // belt & suspenders
   paused = false;
@@ -809,7 +813,8 @@ function resumeRun() {
   else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
   if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   const mapToRestore = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(cp.mapId) : (cp.mapId || 'urban');
-  if (typeof setActiveMap === 'function') setActiveMap(mapToRestore);
+  if (typeof setActiveMap === 'function') setActiveMap(mapToRestore, true);
+  if (typeof setSetting === 'function') setSetting('gameMap', mapToRestore);
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -828,7 +833,7 @@ function resumeRun() {
     wState[i].ammo = Math.min(eff.mag, cp.weapons[i].ammo);
     wState[i].reserve = Math.min(eff.reserveMax, cp.weapons[i].reserve);
   }
-  openDistricts = [];
+  openDistricts.length = 0;
   for (let i = 0; i < (cp.openDistricts || []).length; i++) openDistrict(cp.openDistricts[i]);
   equippedLethal = cp.equipment.lethal;
   equippedTactical = cp.equipment.tactical;

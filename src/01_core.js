@@ -1244,6 +1244,7 @@ const CORE = (function () {
   function makeCheckpoint(state) {
     return {
       v: SAVE_VERSION,
+      mapId: sanitizeMapId(state.mapId || DEFAULT_MAP_ID),
       wave: state.wave, score: state.score, kills: state.kills, headshots: state.headshots,
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
@@ -1326,8 +1327,12 @@ const CORE = (function () {
       _isPos(baseHealth) ? baseHealth : 100,
       perks
     );
+    const mapId = sanitizeMapId(raw.mapId || DEFAULT_MAP_ID);
+    const validDistricts = (getMapDef(mapId)?.districts || DISTRICTS).map(d => d.key);
+    const openDistricts = (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
+      .filter(k => validDistricts.includes(k));
     return {
-      v: SAVE_VERSION, wave,
+      v: SAVE_VERSION, wave, mapId,
       score: Math.round(num(raw.score, 0, 1e9, 0)),
       kills: Math.round(num(raw.kills, 0, 1e6, 0)),
       headshots: Math.round(num(raw.headshots, 0, 1e6, 0)),
@@ -1348,8 +1353,7 @@ const CORE = (function () {
       streakKills: Math.round(num(raw.streakKills, 0, 1e6, 0)),
       runStreaksEarned: Math.round(num(raw.runStreaksEarned, 0, 1e6, 0)),
       weapons,
-      openDistricts: (Array.isArray(raw.openDistricts) ? raw.openDistricts : [])
-        .filter(function (k) { return k === 'ne' || k === 'sw'; }),
+      openDistricts,
       spawnProtectionT: num(raw.spawnProtectionT, 0, 60, 0),
       equipment: {
         lethal: typeof raw.equipment?.lethal === 'string' && equipmentByKey(raw.equipment.lethal) ? raw.equipment.lethal : 'frag',
@@ -3676,9 +3680,22 @@ const CORE = (function () {
     { key: 'sw', name: 'SOUTH-WEST DISTRICT', price: 750,
       minX: -46, maxX: -18, minZ: 15, maxZ: 46 }
   ];
-  function districtByKey(key) {
-    for (let i = 0; i < DISTRICTS.length; i++) if (DISTRICTS[i].key === key) return DISTRICTS[i];
-    return null;
+  function districtByKey(key, mapId) {
+    if (!key) return null;
+    if (mapId && typeof MAP_DEFS !== 'undefined' && MAP_DEFS[mapId]) {
+      return (MAP_DEFS[mapId].districts || []).find(d => d.key === key) || null;
+    }
+    if (typeof getActiveMap === 'function') {
+      const m = getActiveMap();
+      const found = m && (m.districts || []).find(d => d.key === key);
+      if (found) return found;
+    }
+    const defs = typeof MAP_DEFS !== 'undefined' ? Object.values(MAP_DEFS) : [{ districts: DISTRICTS }];
+    for (let i = 0; i < defs.length; i++) {
+      const found = (defs[i].districts || []).find(d => d.key === key);
+      if (found) return found;
+    }
+    return DISTRICTS.find(d => d.key === key) || null;
   }
   function insideDistrict(d, x, z) {
     return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
@@ -7581,6 +7598,15 @@ const CORE = (function () {
     { name: 'C', x: -20, z: 14 }
   ];
 
+  const URBAN_BARRIERS = {
+    ne: { wall: [18, 1.6, -30, 0.8, 3.2, 30], door: [31, 1.6, -15, 26, 3.2, 0.8] },
+    sw: { wall: [-18, 1.6, 30, 0.8, 3.2, 30], door: [-31, 1.6, 15, 26, 3.2, 0.8] }
+  };
+  const SNOWY_BARRIERS = {
+    hangar: { door: [26, 1.6, -19, 8, 3.2, 0.8] },
+    depot: { wall: [-16, 1.6, 26, 0.8, 3.2, 16], door: [-26, 1.6, 18, 18, 3.2, 0.8] }
+  };
+
   const MAP_DEFS = {
     urban: {
       id: 'urban',
@@ -7591,6 +7617,7 @@ const CORE = (function () {
       stationLayout: URBAN_STATION_LAYOUT,
       dominationFlags: URBAN_DOMINATION_FLAGS,
       districts: DISTRICTS,
+      barriers: URBAN_BARRIERS,
       colliders: buildUrbanColliders()
     },
     snowy: {
@@ -7605,6 +7632,7 @@ const CORE = (function () {
         { key: 'hangar', name: 'VEHICLE HANGAR', price: 1500, minX: 18, maxX: 36, minZ: -36, maxZ: -18 },
         { key: 'depot', name: 'FUEL DEPOT', price: 750, minX: -36, maxX: -16, minZ: 18, maxZ: 36 }
       ],
+      barriers: SNOWY_BARRIERS,
       colliders: buildSnowyColliders()
     }
   };
@@ -7979,7 +8007,8 @@ const CORE = (function () {
     RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
     teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint,
-    MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS
+    MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS,
+    URBAN_BARRIERS, SNOWY_BARRIERS
   };
 
 

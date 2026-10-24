@@ -10365,5 +10365,62 @@ test('milestone 3: settings schema includes gameMap enum defaulting to urban', (
   assert.strictEqual(fallback.gameMap, 'urban');
 });
 
+test('regression: CORE.makeCheckpoint and validateCheckpoint preserve mapId and validate map-specific districts', () => {
+  const dummyState = {
+    wave: 3, score: 500, kills: 10, headshots: 2,
+    shotsFired: 50, shotsHit: 30, health: 100, armor: 50, grenades: 2,
+    credits: 1500, perks: ['jugg'], plates: 2, difficulty: 'regular',
+    endless: false, runPhase: 'active', weapons: [{ gi: 0, ammo: 30, reserve: 90, up: null }],
+    openDistricts: ['hangar'], mapId: 'snowy'
+  };
 
+  const cp = CORE.makeCheckpoint(dummyState);
+  assert.strictEqual(cp.mapId, 'snowy', 'makeCheckpoint must serialize mapId');
+  assert.deepStrictEqual(cp.openDistricts, ['hangar'], 'makeCheckpoint must serialize openDistricts');
+
+  const validated = CORE.validateCheckpoint(cp, 4, 100);
+  assert.ok(validated, 'checkpoint must validate');
+  assert.strictEqual(validated.mapId, 'snowy', 'validateCheckpoint must retain mapId');
+  assert.deepStrictEqual(validated.openDistricts, ['hangar'], 'validateCheckpoint must retain valid snowy district');
+
+  // Discards districts invalid for the map
+  const cpCrossMap = Object.assign({}, cp, { mapId: 'snowy', openDistricts: ['hangar', 'ne'] });
+  const validatedCross = CORE.validateCheckpoint(cpCrossMap, 4, 100);
+  assert.deepStrictEqual(validatedCross.openDistricts, ['hangar'], 'must discard urban district ne on snowy map');
+
+  // Urban map validates urban districts and discards snowy districts
+  const cpUrban = Object.assign({}, cp, { mapId: 'urban', openDistricts: ['hangar', 'ne', 'sw'] });
+  const validatedUrban = CORE.validateCheckpoint(cpUrban, 4, 100);
+  assert.strictEqual(validatedUrban.mapId, 'urban');
+  assert.deepStrictEqual(validatedUrban.openDistricts, ['ne', 'sw'], 'must discard snowy district on urban map');
+
+  // Legacy checkpoints without mapId default to urban
+  const cpLegacy = Object.assign({}, cp);
+  delete cpLegacy.mapId;
+  const validatedLegacy = CORE.validateCheckpoint(cpLegacy, 4, 100);
+  assert.strictEqual(validatedLegacy.mapId, 'urban', 'legacy checkpoint without mapId must default to urban');
+  assert.deepStrictEqual(validatedLegacy.openDistricts, [], 'legacy checkpoint with hangar on urban must discard hangar');
+});
+
+test('regression: CORE.districtByKey looks up active map districts and all defined districts', () => {
+  const hangar = CORE.districtByKey('hangar');
+  assert.ok(hangar, 'CORE.districtByKey("hangar") must return district definition');
+  assert.strictEqual(hangar.key, 'hangar');
+  assert.strictEqual(hangar.name, 'VEHICLE HANGAR');
+
+  const depot = CORE.districtByKey('depot');
+  assert.ok(depot, 'CORE.districtByKey("depot") must return district definition');
+  assert.strictEqual(depot.key, 'depot');
+
+  const ne = CORE.districtByKey('ne');
+  assert.ok(ne, 'CORE.districtByKey("ne") must return district definition');
+  assert.strictEqual(ne.key, 'ne');
+
+  // Per-map filter
+  assert.ok(CORE.districtByKey('hangar', 'snowy'), 'hangar exists on snowy');
+  assert.strictEqual(CORE.districtByKey('hangar', 'urban'), null, 'hangar does not exist on urban');
+  assert.ok(CORE.districtByKey('ne', 'urban'), 'ne exists on urban');
+  assert.strictEqual(CORE.districtByKey('ne', 'snowy'), null, 'ne does not exist on snowy');
+  assert.strictEqual(CORE.districtByKey('unknown_district'), null, 'unknown district returns null');
+});
 

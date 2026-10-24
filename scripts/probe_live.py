@@ -5233,6 +5233,7 @@ def main() -> int:
             saveCheckpoint(savedState);
             const loaded = loadCheckpoint();
             const identityOk = loaded &&
+                loaded.mapId === 'urban' &&
                 loaded.wave === 3 &&
                 loaded.score === 6400 &&
                 loaded.kills === 16 &&
@@ -5254,6 +5255,7 @@ def main() -> int:
             };
             const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
             const defensiveOk = legacyLoaded &&
+                legacyLoaded.mapId === 'urban' &&
                 legacyLoaded.spawnProtectionT === 0 &&
                 legacyLoaded.modeRespawnQueue === undefined;
 
@@ -5339,6 +5341,172 @@ def main() -> int:
                        bool(fb_check["hasTeam"] and fb_check["hasIff"] and
                             fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
                             fb_check["playerImmuneToAlly"])))
+
+        # 113k-2) Snowy Survival checkpoint save, validate, and resume restoring arena and purchased districts
+        snowy_resume = page.evaluate("""() => {
+            // Save state on Snowy with purchased hangar district
+            const savedState = captureRunState();
+            savedState.mapId = 'snowy';
+            savedState.openDistricts = ['hangar'];
+            savedState.wave = 4;
+            savedState.score = 3200;
+            saveCheckpoint(savedState);
+
+            const loaded = loadCheckpoint();
+            const saveIdentityOk = loaded && loaded.mapId === 'snowy' &&
+                                  Array.isArray(loaded.openDistricts) &&
+                                  loaded.openDistricts.includes('hangar');
+
+            // Legacy checkpoint without mapId defaults to urban and filters non-urban districts
+            const legacyRaw = {
+                v: 3, wave: 2, score: 500, kills: 5, headshots: 1,
+                shotsFired: 20, shotsHit: 10,
+                health: 100, armor: 0, grenades: 2, credits: 100,
+                openDistricts: ['hangar', 'ne'],
+                weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+            };
+            const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+            const legacyDefaultOk = legacyLoaded &&
+                                   legacyLoaded.mapId === 'urban' &&
+                                   legacyLoaded.openDistricts.length === 1 &&
+                                   legacyLoaded.openDistricts[0] === 'ne';
+
+            // Start from fresh urban context, then resume the snowy checkpoint
+            setActiveMap('urban', true);
+            const urbanBeforeResume = getActiveMap().id === 'urban';
+
+            resumeRun();
+
+            const resumedMapOk = getActiveMap().id === 'snowy' && getSetting('gameMap') === 'snowy';
+            const resumedDistrictsOk = Array.isArray(openDistricts) && openDistricts.includes('hangar');
+
+            // Rendered world verification:
+            // 1. Snowy anchor slab at (0, -4) present in colliders
+            const hasSnowyAnchor = colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                (b.max.x - b.min.x) > 15
+            );
+            // 2. Urban warehouse at (28, -28) NOT in colliders
+            const hasNoUrbanWarehouse = !colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                (b.max.x - b.min.x) > 10
+            );
+            // 3. Snowy stations present including hangar and depot door stations
+            const stationsOk = stations.length === 17 &&
+                               stations.some(s => s.district === 'hangar') &&
+                               stations.some(s => s.district === 'depot');
+            // 4. Hangar door collider removed from colliders (door open)
+            const doorOpened = doorColliders['hangar'] && !colliders.includes(doorColliders['hangar']);
+            // 5. Door mesh removed from scene
+            const doorMeshRemoved = doorMeshes['hangar'] && !doorMeshes['hangar'].parent;
+            // 6. Navigation grid reaches hangar interior
+            const navGridHangar = rebuildNavGrid();
+            CORE.computeFlowField(navGridHangar, 0, -4);
+            const hangarDist = CORE.navDistanceAt(navGridHangar, 26, -26);
+            const navHangarReachable = hangarDist > 0 && hangarDist < 1000;
+
+            return {
+                saveIdentityOk, legacyDefaultOk, urbanBeforeResume, resumedMapOk,
+                resumedDistrictsOk, hasSnowyAnchor, hasNoUrbanWarehouse,
+                stationsOk, doorOpened, doorMeshRemoved, navHangarReachable
+            };
+        }""")
+        checks.append(("snowy-survival-checkpoint-and-arena-restoration",
+                       bool(snowy_resume["saveIdentityOk"] and snowy_resume["legacyDefaultOk"] and
+                            snowy_resume["urbanBeforeResume"] and snowy_resume["resumedMapOk"] and
+                            snowy_resume["resumedDistrictsOk"] and snowy_resume["hasSnowyAnchor"] and
+                            snowy_resume["hasNoUrbanWarehouse"] and snowy_resume["stationsOk"] and
+                            snowy_resume["doorOpened"] and snowy_resume["doorMeshRemoved"] and
+                            snowy_resume["navHangarReachable"])))
+
+        # 113k-3) Map-switch lifecycle in both directions and team-mode deployment under Snowy
+        snowy_switch_teams = page.evaluate("""() => {
+            // Direction 1: switch snowy -> urban
+            setActiveMap('urban');
+            const urbanActive = getActiveMap().id === 'urban';
+            const urbanStations = stations.length === 17 && stations.some(s => s.district === 'ne');
+            const urbanWarehouseRestored = colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                (b.max.x - b.min.x) > 10
+            );
+            const snowyAnchorRemoved = !colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                (b.max.x - b.min.x) > 15
+            );
+            const urbanBarriersRestored = !!doorMeshes['ne'] && !!doorColliders['ne'];
+
+            // Direction 2: switch urban -> snowy
+            setActiveMap('snowy');
+            const snowyActive = getActiveMap().id === 'snowy';
+            const snowyStations = stations.length === 17 && stations.some(s => s.district === 'hangar');
+            const snowyAnchorRestored = colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                (b.max.x - b.min.x) > 15
+            );
+            const urbanWarehouseRemoved = !colliders.some(b =>
+                Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                (b.max.x - b.min.x) > 10
+            );
+
+            // Also test opening and resetting Snowy depot gate
+            openDistrict('depot');
+            const depotOpened = doorColliders['depot'] && !colliders.includes(doorColliders['depot']);
+            const navDepot = rebuildNavGrid();
+            CORE.computeFlowField(navDepot, 0, -4);
+            const depotOpenDist = CORE.navDistanceAt(navDepot, -26, 21);
+            const depotReachable = depotOpenDist > 0 && depotOpenDist < 1000;
+
+            // Reset districts restores both doors
+            resetDistricts();
+            const depotResetCollider = colliders.includes(doorColliders['depot']);
+            const hangarResetCollider = colliders.includes(doorColliders['hangar']);
+
+            // Team-mode deployment under Snowy: TDM
+            setActiveMode('tdm');
+            MODES.tdm.setup();
+            const tdmRosterOk = MODES.tdm.roster.length === 12;
+            const snowySpawns = CORE.getMapDef('snowy').spawnPoints;
+            const botSpawn = matchSpawnPointAt(0);
+            const tdmSpawnOk = botSpawn[0] === snowySpawns[0][0] && botSpawn[1] === snowySpawns[0][1];
+
+            // Team-mode deployment under Snowy: Domination
+            setActiveMode('domination');
+            MODES.domination.setup();
+            const snowyFlags = CORE.getMapDef('snowy').dominationFlags;
+            const domFlagsOk = MODES.domination.flags.length === 3 &&
+                              MODES.domination.flags[0].x === snowyFlags[0].x &&
+                              MODES.domination.flags[0].z === snowyFlags[0].z &&
+                              MODES.domination.flags[1].x === snowyFlags[1].x &&
+                              MODES.domination.flags[1].z === snowyFlags[1].z;
+
+            // Cleanup back to clean survival/urban state
+            clearAllMatchRosters();
+            setActiveMode('survival');
+            setActiveMap('urban');
+            resetGame();
+
+            return {
+                urbanActive, urbanStations, urbanWarehouseRestored, snowyAnchorRemoved,
+                urbanBarriersRestored, snowyActive, snowyStations, snowyAnchorRestored,
+                urbanWarehouseRemoved, depotOpened, depotReachable, depotResetCollider,
+                hangarResetCollider, tdmRosterOk, tdmSpawnOk, domFlagsOk
+            };
+        }""")
+        checks.append(("snowy-map-switch-lifecycle-and-team-mode",
+                       bool(snowy_switch_teams["urbanActive"] and snowy_switch_teams["urbanStations"] and
+                            snowy_switch_teams["urbanWarehouseRestored"] and snowy_switch_teams["snowyAnchorRemoved"] and
+                            snowy_switch_teams["urbanBarriersRestored"] and snowy_switch_teams["snowyActive"] and
+                            snowy_switch_teams["snowyStations"] and snowy_switch_teams["snowyAnchorRestored"] and
+                            snowy_switch_teams["urbanWarehouseRemoved"] and snowy_switch_teams["depotOpened"] and
+                            snowy_switch_teams["depotReachable"] and snowy_switch_teams["depotResetCollider"] and
+                            snowy_switch_teams["hangarResetCollider"] and snowy_switch_teams["tdmRosterOk"] and
+                            snowy_switch_teams["tdmSpawnOk"] and snowy_switch_teams["domFlagsOk"])))
 
         # Previous acceptance contexts have finished; retire their render loops
         # before the independent TDM and graphics UI runs compete for software GPU time.

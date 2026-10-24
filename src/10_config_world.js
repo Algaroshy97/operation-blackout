@@ -642,6 +642,7 @@ function _regMap(id, fn) {
     get stationLayout() { return CORE.getMapDef(id).stationLayout; },
     get dominationFlags() { return CORE.getMapDef(id).dominationFlags; },
     get districts() { return CORE.getMapDef(id).districts; },
+    get barriers() { return CORE.getMapDef(id).barriers; },
     build: fn
   };
 }
@@ -651,10 +652,51 @@ let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefine
 let activeMap = MAPS[activeMapId] || MAPS.urban;
 
 function getActiveMap() { return activeMap; }
-function setActiveMap(id) {
+
+function clearMapGeometry() {
+  if (typeof scene !== 'undefined' && scene && scene.children) {
+    for (let i = scene.children.length - 1; i >= 0; i--) {
+      const obj = scene.children[i];
+      if (obj && obj.userData && (obj.userData.staticBatch || obj.userData.oldBarrel)) {
+        scene.remove(obj);
+        if (typeof raycastColliders !== 'undefined') {
+          const ri = raycastColliders.indexOf(obj);
+          if (ri >= 0) raycastColliders.splice(ri, 1);
+        }
+        if (obj.geometry) obj.geometry.dispose();
+      }
+    }
+  }
+  staticQueue.length = 0;
+  if (typeof colliders !== 'undefined') {
+    for (let i = colliders.length - 1; i >= 0; i--) {
+      if (!colliders[i].isProp) colliders.splice(i, 1);
+    }
+  }
+  if (typeof clearDistrictBarriers === 'function') clearDistrictBarriers();
+  if (typeof stations !== 'undefined') stations.length = 0;
+  if (typeof openDistricts !== 'undefined') openDistricts.length = 0;
+}
+
+function rebuildMapEnvironment() {
+  clearMapGeometry();
+  buildArena();
+  if (typeof buildStations === 'function') buildStations();
+  if (typeof buildDistrictBarriers === 'function') buildDistrictBarriers();
+  if (typeof flushStaticBatches === 'function') flushStaticBatches();
+  if (typeof rebuildWorldRayGrid === 'function') rebuildWorldRayGrid();
+  if (typeof rebuildNavGrid === 'function') rebuildNavGrid();
+  if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
+}
+
+function setActiveMap(id, force) {
   const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : (id === 'snowy' ? 'snowy' : 'urban');
+  const changed = (activeMapId !== safe);
   activeMapId = safe;
   activeMap = MAPS[safe] || MAPS.urban;
+  if ((changed || force) && typeof buildStations === 'function') {
+    rebuildMapEnvironment();
+  }
   return activeMap;
 }
 
@@ -729,6 +771,7 @@ function scatterProps() {
     raycastColliders.push(m);
     const d = dims[s[0]];
     addCollider(s[1], d[1] / 2, s[2], d[0], d[1], d[2]);
+    if (colliders.length) colliders[colliders.length - 1].isProp = true;
     placed++;
   }
   // one stacked-crate cluster (two base + one top) for 2m-high cover
@@ -747,6 +790,7 @@ function scatterProps() {
       scene.add(m);
       raycastColliders.push(m);
       addCollider(c[0], c[2] + 0.55, c[1], 1.1, 1.1, 1.1);
+      if (colliders.length) colliders[colliders.length - 1].isProp = true;
   });
   placed += 3;
   // ---- Desktop barrel upgrade: swap the 16 procedural red cylinders for the

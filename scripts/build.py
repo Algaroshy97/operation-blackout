@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 LF = "\n"
@@ -23,6 +24,12 @@ def read_lf(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace(CRLF, LF)
 
 
+def strip_css_comments(html: str) -> str:
+    """Drop CSS block comments from HTML head for the shipped release."""
+    cleaned = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    return LF.join(ln.rstrip() for ln in cleaned.split(LF))
+
+
 def strip_line_comments(js: str) -> str:
     """Drop full-line `//` comments from a source module for the shipped file.
 
@@ -36,7 +43,7 @@ def strip_line_comments(js: str) -> str:
     that parses the bundle would catch one that did.
     """
     lines = js.split(LF)
-    kept = lines[:1] + [ln for ln in lines[1:] if not ln.lstrip().startswith("//")]
+    kept = lines[:1] + [ln for ln in lines[1:] if ln.strip() and not ln.lstrip().startswith("//")]
     return LF.join(kept)
 
 
@@ -67,7 +74,7 @@ def main() -> None:
     if missing:
         parser.error("; ".join(missing))
 
-    parts = [read_lf(head_path), "\n"]
+    parts = [strip_css_comments(read_lf(head_path)), "\n"]
     for library in libraries:
         parts.extend(["<script>\n", read_lf(library), "\n</script>\n"])
     parts.extend([

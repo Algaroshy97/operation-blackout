@@ -165,10 +165,10 @@ have long sightlines for the sniper, plus tight interiors for the new shotgun.
   - powder puffs on impact instead of concrete chips
 - Map picker on the deploy screen. Each map keeps its own best score.
 
-**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation).
+**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation; v176 completes map-switch lifecycle, Snowy district barriers, and checkpoint preservation).
 **Next dependency:** Snowy textures and visual assets (`08_textures.js`), icy blue sky preset,
 and deploy-screen map selector UI.
-**Evidence gaps:** Browser acceptance probe deployment on Snowy Compound, device frame rate verification on new map.
+**Evidence:** Rendered-world and node regressions verify Snowy map switching (both directions), team deployment, district barrier purchase/opening/resetting, and Survival checkpoint save/load/resume with physical arena restoration.
 
 **Done when:** every mode is playable on both maps. The nav grid reaches all spawns,
 which the existing core test is extended to check for both maps. The probe deploys on
