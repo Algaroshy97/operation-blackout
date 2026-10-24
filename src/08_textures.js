@@ -102,7 +102,7 @@ function makeSurface(size, seed, normalStrength, draw) {
   const col = texCanvas(size), hgt = texCanvas(size);
   hgt.g.fillStyle = '#808080'; hgt.g.fillRect(0, 0, size, size);
   draw(col.g, hgt.g, size, texRng(seed));
-  return { map: toTex(col.c), normalMap: toTex(heightToNormal(hgt.c, normalStrength)) };
+  return { map: toTex(col.c), normalMap: toTex(heightToNormal(hgt.c, normalStrength)), heightCanvas: hgt.c };
 }
 
 const TEX = {};
@@ -291,6 +291,70 @@ TEX.skyline = (function () {
   }
   return toTex(cv.c);
 })();
+
+// ---- Snow ground: undulating drifts, powder speckle, footprints-style variation ----
+TEX.snow = makeSurface(512, 79, 2.0, function (g, h, S, rnd) {
+  g.fillStyle = '#edf2f7'; g.fillRect(0, 0, S, S);
+  h.fillStyle = '#b0b0b0'; h.fillRect(0, 0, S, S);
+  for (let i = 0; i < 50; i++) {
+    const col = rnd() < 0.5 ? '200,214,228' : '255,255,255';
+    blob(g, S, rnd() * S, rnd() * S, 25 + rnd() * 80, 'rgba(' + col + ',' + (0.08 + rnd() * 0.15) + ')');
+  }
+  speckle(g, S, rnd, 12000, 1, 2, function (r) {
+    const v = 220 + r() * 35 | 0; return 'rgba(' + v + ',' + v + ',' + (v + 5) + ',0.4)';
+  });
+  speckle(h, S, rnd, 8000, 1, 2, function (r) {
+    const v = 150 + r() * 70 | 0; return 'rgb(' + v + ',' + v + ',' + v + ')';
+  });
+  for (let i = 0; i < 28; i++) {
+    const x = rnd() * S, y = rnd() * S, a = rnd() * Math.PI * 2;
+    wrapDraw(S, x, y, 10, function (px, py) {
+      g.fillStyle = 'rgba(160,178,198,0.22)';
+      g.beginPath(); g.ellipse(px, py, 7, 3.5, a, 0, 7); g.fill();
+      h.fillStyle = '#686868';
+      h.beginPath(); h.ellipse(px, py, 7, 3.5, a, 0, 7); h.fill();
+    });
+  }
+});
+
+// ---- Frosted corrugated sheet metal ----
+TEX.frostedMetal = makeSurface(256, 89, 5.0, function (g, h, S, rnd) {
+  for (let x = 0; x < S; x++) {
+    const s = Math.sin(x / S * Math.PI * 2 * 12);
+    const v = 120 + s * 16 | 0;
+    g.fillStyle = 'rgb(' + (v - 2) + ',' + (v + 4) + ',' + (v + 12) + ')'; g.fillRect(x, 0, 1, S);
+    const hv = 128 + s * 100 | 0;
+    h.fillStyle = 'rgb(' + hv + ',' + hv + ',' + hv + ')'; h.fillRect(x, 0, 1, S);
+  }
+  speckle(g, S, rnd, 4000, 1, 2, function (r) {
+    const v = 230 + r() * 25 | 0; return 'rgba(' + (v - 5) + ',' + v + ',255,' + (0.2 + r() * 0.35) + ')';
+  });
+  speckle(h, S, rnd, 2500, 1, 2, function () { return '#e8e8e8'; });
+  for (let i = 0; i < 14; i++) blob(g, S, rnd() * S, rnd() * S, 12 + rnd() * 28, 'rgba(210,230,250,' + (0.15 + rnd() * 0.2) + ')');
+  g.fillStyle = 'rgba(200,220,240,0.5)'; g.fillRect(0, S - 4, S, 3);
+  h.fillStyle = '#606060'; h.fillRect(0, S - 4, S, 3);
+  for (let x = 8; x < S; x += 21) { h.fillStyle = '#ffffff'; h.beginPath(); h.arc(x, S - 10, 2.5, 0, 7); h.fill(); }
+});
+
+// ---- Frosted weathered wood planks ----
+TEX.frostedWood = makeSurface(256, 93, 2.8, function (g, h, S, rnd) {
+  const planks = 4, ph = S / planks;
+  for (let p = 0; p < planks; p++) {
+    const base = [140 + rnd() * 20, 142 + rnd() * 20, 145 + rnd() * 20];
+    g.fillStyle = 'rgb(' + (base[0] | 0) + ',' + (base[1] | 0) + ',' + (base[2] | 0) + ')';
+    g.fillRect(0, p * ph, S, ph);
+    for (let i = 0; i < 35; i++) {
+      const y = p * ph + rnd() * ph;
+      g.strokeStyle = 'rgba(80,85,95,' + (0.08 + rnd() * 0.15) + ')'; g.lineWidth = 1 + rnd() * 1.5;
+      g.beginPath(); g.moveTo(0, y);
+      for (let x = 0; x <= S; x += 16) g.lineTo(x, y + Math.sin(x * 0.03 + i) * 2);
+      g.stroke();
+    }
+    g.fillStyle = 'rgba(230,240,255,0.45)'; g.fillRect(0, p * ph, S, 2);
+    h.fillStyle = '#303030'; h.fillRect(0, p * ph, S, 3);
+  }
+  speckle(g, S, rnd, 3000, 1, 2, function (r) { return 'rgba(235,245,255,' + (0.15 + r() * 0.25) + ')'; });
+});
 
 // ---- Particle sprites (alpha in the red channel is unnecessary: RGBA canvases) ----
 function spriteTex(size, draw) {

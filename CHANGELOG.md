@@ -4,6 +4,49 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v177.1 — Snow footprint height depression fix and production texture/sky test execution
+
+- **Snow footprint generation fix (`src/08_textures.js`).**
+  - Fixed snow footprint generation in `src/08_textures.js`: changed `g.ellipse(px, py, 7, 3.5, a, 0, 7)` to `h.ellipse(px, py, 7, 3.5, a, 0, 7)` following `h.beginPath()`. Previously, `h.fill()` filled an empty path so the `#686868` (height value 104) footprint depressions never reached the height field or the derived tangent-space normal map.
+  - Added `heightCanvas: hgt.c` export on `makeSurface` so generated height field data is accessible for testing and verification.
+- **Production texture and sky preset integration in tests (`tests/test_modes_and_teams.js`).**
+  - Replaced manually supplied `TEX` stubs and hand-written `applyMapSkyPreset` mock in `createFullMatchContext()` with production implementations:
+    - Executed production `src/08_textures.js` with an in-memory software 2D canvas context, generating real procedural textures (`TEX.snow`, `TEX.frostedMetal`, `TEX.frostedWood`, `TEX.asphalt`).
+    - Executed production `applyMapSkyPreset` from `src/10_config_world.js` and wired `c.scene` (background and fog), `c.SKY_UNIFORMS`, `c.sun`, `c.SUN_OFFSET`, and `c.groundMat`.
+  - Updated integration test `milestone 3: procedural snowy textures and sky preset application on activeMap switch` to assert:
+    - Generated texture data: verified presence of `TEX.snow.map`, `TEX.snow.normalMap`, `TEX.frostedMetal`, `TEX.frostedWood`, `TEX.asphalt`, and asserted footprint depression height data (`#686868` / value 104) and normal map deviations.
+    - Bidirectional sky, fog, sun, and ground material changes when switching between `'snowy'` and `'urban'`.
+  - Added regression test `regression [P2]: src/08_textures.js snow footprint generation draws on height canvas and produces depression height data`.
+- **Release build budget & coverage.**
+  - Rebuilt single-file release HTML (`dist/Operation Blackout.html`) at 2,043,562 bytes (53,590 bytes below the 2 MiB budget).
+  - 604/604 Node tests passing across `tests/*.js` (429 in `test_core.js`, 91 in `test_modes_and_teams.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
+## v177 — Milestone 3: Snowy textures, icy sky preset, and deploy map selector UI
+
+- **Snowy textures & visual assets (`src/08_textures.js`, `src/10_config_world.js`).**
+  - Added procedural canvas textures in `src/08_textures.js`:
+    - `TEX.snow`: undulating snowdrifts, powder speckle, and footprint impressions.
+    - `TEX.frostedMetal`: rime along seams, ice crystals, and cold steel highlights.
+    - `TEX.frostedWood`: frosted grain grooves and plank rime.
+  - Added `MAT.frostedMetal` and `MAT.frostedWood` in `src/10_config_world.js`.
+  - Sourced Snowy Compound arena models with frosted materials and dynamic ground texture swapping.
+- **Icy blue sky preset & low sun lighting (`src/01_core.js`, `src/10_config_world.js`).**
+  - Added pure `sky` definitions in `CORE.MAP_DEFS.urban` (warm sunset peach horizon, high sun `[45, 55, -30]`, dark slate fog) and `CORE.MAP_DEFS.snowy` (frosty white-blue horizon `0xd4e6f4`, low sun `[50, 24, -35]` casting long winter shadows, atmospheric fog `0x7892ad`).
+  - Added `applyMapSkyPreset(mapId)` dynamically updating `SKY_UNIFORMS`, `sun` color/position/offset, `scene.fog`, `scene.background`, and swapping `groundMat` between `TEX.asphalt` and `TEX.snow` (with roughness/tint adjustments). Integrated into `buildArena()` and `rebuildMapEnvironment()`.
+- **Deploy-screen map selector UI & per-map career stats (`src/00_head.html`, `src/70_main.js`, `src/01_core.js`).**
+  - Added `#map-row` to the deploy modal `#gun-select` with `#map-btn-urban` and `#map-btn-snowy` buttons.
+  - Implemented `buildMapPickerRow()` generating map selection buttons with active selection highlighting, keyboard support, and subtitle displaying per-map career best score (`· Best X`).
+  - Generalized career stats in `CORE.defaultStats()`, `CORE.sanitizeStats()`, and `CORE.mergeRunIntoStats()` to track `mapStats.urban` and `mapStats.snowy` independently (`bestScore` and `bestWave`).
+  - Sourced active map in `recordRun()` callers to update the corresponding map's career record upon gameover/settlement.
+- **Release build budget management (`scripts/build.py`).**
+  - Updated `scripts/build.py`'s `strip_line_comments` to strip leading indentation on bundled JavaScript code lines. This reduced the single-file release HTML build (`dist/Operation Blackout.html`) to 2,043,541 bytes (53,611 bytes below the 2 MiB ceiling) while preserving all code comments and formatting in source files.
+- **Coverage.**
+  - Added unit tests in `tests/test_core.js` verifying `CORE.MAP_DEFS` icy blue sky preset/low sun lighting for Snowy Compound and independent per-map career stats tracking.
+  - Added integration tests in `tests/test_modes_and_teams.js` verifying deploy-screen map selector UI, activeMap switching, per-map best score display, procedural snowy textures and sky preset application, and full Survival gameplay lifecycle on Snowy Compound with active combat, enemies, and per-map stat recording.
+  - 603/603 Node tests passing (`node --test tests/*.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v176 — Map-switch lifecycle, Snowy district barriers, and Survival checkpoint preservation
 
 - **Map-switch lifecycle (`src/10_config_world.js`, `src/02_settings.js`, `src/70_main.js`).**

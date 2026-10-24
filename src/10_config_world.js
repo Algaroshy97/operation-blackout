@@ -414,6 +414,8 @@ const MAT = {
   brick: surfMat({ color: 0xf2e6e0, map: TEX.brick.map, normalMap: TEX.brick.normalMap, roughness: 0.92 }, 2.4),
   metal: withSkyEnv(surfMat({ color: 0xa6adb6, map: TEX.metal.map, normalMap: TEX.metal.normalMap, roughness: 0.5, metalness: 0.7 }, 3), 0.9),
   wood: surfMat({ color: 0xf0e8e0, map: TEX.wood.map, normalMap: TEX.wood.normalMap, roughness: 0.85 }, 1.5),
+  frostedMetal: withSkyEnv(surfMat({ color: 0xccd6e2, map: TEX.frostedMetal ? TEX.frostedMetal.map : TEX.metal.map, normalMap: TEX.frostedMetal ? TEX.frostedMetal.normalMap : TEX.metal.normalMap, roughness: 0.45, metalness: 0.65 }, 3), 0.9),
+  frostedWood: surfMat({ color: 0xe8e8ea, map: TEX.frostedWood ? TEX.frostedWood.map : TEX.wood.map, normalMap: TEX.frostedWood ? TEX.frostedWood.normalMap : TEX.wood.normalMap, roughness: 0.82 }, 1.5),
   dark: withSkyEnv(surfMat({ color: 0x3a3e48, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75 }, 2), 0.4),
   accent: withSkyEnv(surfMat({ color: 0xd9ae2a, map: TEX.paint.map, roughness: 0.5, metalness: 0.3 }, 2), 0.5),
   red: withSkyEnv(surfMat({ color: 0xa33a30, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.55, metalness: 0.35 }, 3), 0.7)
@@ -627,9 +629,10 @@ function buildSnowyArena() {
   const boxes = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('snowy').colliders : [];
   for (let i = 4; i < boxes.length; i++) {
     const b = boxes[i];
+    const mat = b.mat === 'metal' ? MAT.frostedMetal : (b.mat === 'wood' ? MAT.frostedWood : (MAT[b.mat] || MAT.concrete));
     addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
            +(b.max.x - b.min.x).toFixed(2), +(b.max.y - b.min.y).toFixed(2), +(b.max.z - b.min.z).toFixed(2),
-           MAT[b.mat] || MAT.concrete);
+           mat);
   }
 }
 
@@ -652,6 +655,51 @@ let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefine
 let activeMap = MAPS[activeMapId] || MAPS.urban;
 
 function getActiveMap() { return activeMap; }
+
+function applyMapSkyPreset(mapId) {
+  const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(mapId) : ((mapId === 'snowy') ? 'snowy' : 'urban');
+  const def = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef(safe) : null;
+  const sky = (def && def.sky) || {
+    top: 0x3d6cb0, mid: 0x8fa9d2, horizon: 0xf0b088, low: 0x4a4452,
+    fogColor: 0x1a1f2b, skyColor: 0x8aa4c8,
+    sunColor: 0xffd9b0, sunPos: [45, 55, -30], sunDir: [150, 170, -100]
+  };
+  if (typeof SKY_UNIFORMS !== 'undefined' && SKY_UNIFORMS) {
+    if (SKY_UNIFORMS.top && SKY_UNIFORMS.top.value) SKY_UNIFORMS.top.value.setHex(sky.top).convertSRGBToLinear();
+    if (SKY_UNIFORMS.mid && SKY_UNIFORMS.mid.value) SKY_UNIFORMS.mid.value.setHex(sky.mid).convertSRGBToLinear();
+    if (SKY_UNIFORMS.horizon && SKY_UNIFORMS.horizon.value) SKY_UNIFORMS.horizon.value.setHex(sky.horizon).convertSRGBToLinear();
+    if (SKY_UNIFORMS.low && SKY_UNIFORMS.low.value) SKY_UNIFORMS.low.value.setHex(sky.low).convertSRGBToLinear();
+    if (sky.sunDir && SKY_UNIFORMS.sunDir && SKY_UNIFORMS.sunDir.value) SKY_UNIFORMS.sunDir.value.set(sky.sunDir[0], sky.sunDir[1], sky.sunDir[2]).normalize();
+  }
+  if (typeof sun !== 'undefined' && sun) {
+    if (sky.sunColor && sun.color) sun.color.setHex(sky.sunColor);
+    if (sky.sunPos) {
+      if (typeof SUN_OFFSET !== 'undefined' && SUN_OFFSET.set) SUN_OFFSET.set(sky.sunPos[0], sky.sunPos[1], sky.sunPos[2]);
+      if (sun.position && sun.position.set) sun.position.set(sky.sunPos[0], sky.sunPos[1], sky.sunPos[2]);
+    }
+  }
+  if (typeof scene !== 'undefined' && scene) {
+    if (sky.skyColor && scene.background && scene.background.setHex) scene.background.setHex(sky.skyColor);
+    if (sky.fogColor && scene.fog && scene.fog.color && scene.fog.color.setHex) scene.fog.color.setHex(sky.fogColor);
+  }
+  if (typeof groundMat !== 'undefined' && groundMat && typeof TEX !== 'undefined') {
+    const isSnow = (safe === 'snowy');
+    if (isSnow && TEX.snow) {
+      if (TEX.snow.map && TEX.snow.map.repeat) TEX.snow.map.repeat.set(55, 55);
+      if (TEX.snow.normalMap && TEX.snow.normalMap.repeat) TEX.snow.normalMap.repeat.set(55, 55);
+      groundMat.map = TEX.snow.map;
+      groundMat.normalMap = TEX.snow.normalMap;
+      if (groundMat.color && groundMat.color.setHex) groundMat.color.setHex(0xe8f0f8);
+      groundMat.roughness = 0.88;
+    } else if (TEX.asphalt) {
+      groundMat.map = TEX.asphalt.map;
+      groundMat.normalMap = TEX.asphalt.normalMap;
+      if (groundMat.color && groundMat.color.setHex) groundMat.color.setHex(0x767c8e);
+      groundMat.roughness = 0.92;
+    }
+    groundMat.needsUpdate = true;
+  }
+}
 
 function clearMapGeometry() {
   if (typeof scene !== 'undefined' && scene && scene.children) {
@@ -681,6 +729,7 @@ function clearMapGeometry() {
 function rebuildMapEnvironment() {
   clearMapGeometry();
   buildArena();
+  applyMapSkyPreset(activeMapId);
   if (typeof buildStations === 'function') buildStations();
   if (typeof buildDistrictBarriers === 'function') buildDistrictBarriers();
   if (typeof flushStaticBatches === 'function') flushStaticBatches();
@@ -706,6 +755,7 @@ function buildArena() {
   else buildUrbanArena();
 }
 buildArena();
+applyMapSkyPreset(activeMapId);
 console.log('static batches:', flushStaticBatches(), 'meshes');
 
 // ---- CC0 Kenney props (trees / crates / broken columns) scattered as cover ----
