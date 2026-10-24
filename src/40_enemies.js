@@ -2,7 +2,8 @@
 'use strict';
 // Simple humanoid: body box + head box + limbs, tinted materials, ragdoll-lite death.
 const enemies = [];
-let meleeHits = [];   // timestamps of landed melee hits (global damage cap)
+// timestamps of landed melee hits (global damage cap)
+let meleeHits = [];
 
 const EMAT = {
   skin: new THREE.MeshStandardMaterial({ color: 0x9c7a5e, roughness: 0.9 }),
@@ -18,7 +19,8 @@ const EMAT = {
 // Enemy body proportions (meters)
 const E_DIM = {
   bodyW: 0.5, bodyH: 0.62, bodyD: 0.3,
-  pelvisH: 0.95, // hip height
+  // hip height
+  pelvisH: 0.95,
   headS: 0.26,
   legH: 0.9, legR: 0.09,
   armH: 0.68, armR: 0.06
@@ -124,10 +126,12 @@ function spawnEnemy(kind, x, z, opts) {
     spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
       ? spawnOpts.spawnProtection
       : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
-    blindT: 0, stunT: 0,      // flashbang / stun grenade timers
+    // flashbang / stun grenade timers
+    blindT: 0, stunT: 0,
     elite: isElite,
     kind: kind,
-    eliteRing: null,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    eliteRing: null,
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
     yaw: initYaw,
@@ -343,7 +347,8 @@ function killEnemy(en, isHead, killer, damageType) {
     addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
       en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
     if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
-    registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
+    // multi-kill streak bonus (2+ kills within 4 s)
+    registerKillT();
     kills++;
     if (isHead) headshots++;
     // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
@@ -492,7 +497,8 @@ function moveEnemy(en, dt, dist) {
 const losRay = new THREE.Raycaster();
 const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
-let losFrame = 0;   // round-robin: each enemy checks LOS at most every 3 frames
+// round-robin: each enemy checks LOS at most every 3 frames
+let losFrame = 0;
 function hasLOS(en, target) {
   const tgt = target || en.target || player;
   // throttle: max 1/3 of enemies per frame do the raycast
@@ -712,13 +718,15 @@ function updateEnemies(dt) {
       if (!en.stuck) en.stuck = {};
       const verdict = CORE.updateStuck(en.stuck, en.pos.x, en.pos.z, dt);
       if (verdict === 'repath') {
-        flowT = 0; flowCellX = -9999;              // force a fresh flood next tick
+        // force a fresh flood next tick
+        flowT = 0; flowCellX = -9999;
         en.strafeDir *= -1;
       } else if (verdict === 'teleport') {
         relocateStuckEnemy(en);
       }
     } else if (en.stuck) {
-      en.stuck = null;                             // arrived: forget the stall history
+      // arrived: forget the stall history
+      en.stuck = null;
     }
     // Catches the other failure mode: an enemy that circles busily but never gets
     // closer, leaving a wave permanently one kill short.
@@ -783,7 +791,8 @@ function updateEnemies(dt) {
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           }
         }
-        en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;                        // cooldown marker
+        // cooldown marker
+        en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;
         en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.kind), Math.random());
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
@@ -826,7 +835,8 @@ function updateEnemies(dt) {
     if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
-      if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
+      // only when the target IS in cover
+      if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
     }
     // animate
     animateEnemy(en, dt, dist);
@@ -884,7 +894,8 @@ function throwEnemyGrenade(en, target) {
   const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
   en.spawnProtectionT = 0;
-  en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
+  // throwing arm pose (38_soldier.js)
+  en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1; m.add(blink);
@@ -921,7 +932,8 @@ function enemyShoot(en, dist, target) {
   if (earnedWeapon && (earnedWeapon.type === 'MELEE' || dist > earnedWeapon.range)) return;
   // Capture the fired weapon: an in-flight round cannot turn into a knife kill.
   const shotType = earnedWeapon ? earnedWeapon.type : CORE.enemyWeaponType(en.kind, en.elite);
-  if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  // cannot aim at what it cannot see
+  if (en.blindT > 0) return;
   en.spawnProtectionT = 0;
   // visible tracer from enemy, damage applied probabilistically (accuracy scales with wave)
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);

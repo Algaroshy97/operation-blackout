@@ -10266,4 +10266,104 @@ test('scoreSpawnPoint evaluates cover occlusion with nonempty colliders without 
   assert.deepStrictEqual(bestPoint, spawnOccluded, 'must pick occluded spawn point protected by cover');
 });
 
+// ---------------------------------------------------------------- Milestone 3: Map Registry
+test('milestone 3: MAP_IDS, DEFAULT_MAP_ID, and getMapDef registry', () => {
+  assert.ok(Array.isArray(CORE.MAP_IDS), 'CORE.MAP_IDS must be an array');
+  assert.ok(CORE.MAP_IDS.includes('urban'), 'MAP_IDS must include urban');
+  assert.ok(CORE.MAP_IDS.includes('snowy'), 'MAP_IDS must include snowy');
+  assert.strictEqual(CORE.DEFAULT_MAP_ID, 'urban');
+
+  const urban = CORE.getMapDef('urban');
+  assert.ok(urban, 'urban map definition must exist');
+  assert.strictEqual(urban.id, 'urban');
+  assert.ok(urban.name, 'urban map must have a name');
+  assert.ok(Array.isArray(urban.spawnPoints) && urban.spawnPoints.length >= 12, 'urban map must define at least 12 spawn points');
+  assert.ok(Array.isArray(urban.stationLayout) && urban.stationLayout.length >= 15, 'urban map must define station layout');
+  assert.ok(Array.isArray(urban.dominationFlags) && urban.dominationFlags.length === 3, 'urban map must define 3 domination flags');
+  assert.ok(Array.isArray(urban.colliders) && urban.colliders.length > 20, 'urban map must define colliders');
+
+  const snowy = CORE.getMapDef('snowy');
+  assert.ok(snowy, 'snowy map definition must exist');
+  assert.strictEqual(snowy.id, 'snowy');
+  assert.ok(snowy.name, 'snowy map must have a name');
+  assert.ok(Array.isArray(snowy.spawnPoints) && snowy.spawnPoints.length >= 12, 'snowy map must define at least 12 spawn points');
+  assert.ok(Array.isArray(snowy.stationLayout) && snowy.stationLayout.length >= 15, 'snowy map must define station layout');
+  assert.ok(Array.isArray(snowy.dominationFlags) && snowy.dominationFlags.length === 3, 'snowy map must define 3 domination flags');
+  assert.ok(Array.isArray(snowy.colliders) && snowy.colliders.length > 20, 'snowy map must define colliders');
+
+  // Fallback / sanitization
+  assert.strictEqual(CORE.sanitizeMapId('urban'), 'urban');
+  assert.strictEqual(CORE.sanitizeMapId('snowy'), 'snowy');
+  assert.strictEqual(CORE.sanitizeMapId('nonexistent'), 'urban');
+  assert.strictEqual(CORE.sanitizeMapId(undefined), 'urban');
+  assert.strictEqual(CORE.getMapDef('unknown').id, 'urban');
+});
+
+test('milestone 3: nav grid reaches all spawn points to anchor for both urban and snowy maps', () => {
+  for (const mapId of ['urban', 'snowy']) {
+    const def = CORE.getMapDef(mapId);
+    assert.ok(def, `map def for ${mapId} must exist`);
+    const nav = CORE.buildNavGrid(def.colliders, { stepH: STEP_H, cell: 1, walkerHeight: 1.8, agentRadius: 0.5 });
+    assert.ok(nav, `nav grid for ${mapId} must build`);
+
+    const p = def.playerSpawn || { x: 0, z: 0 };
+    CORE.computeFlowField(nav, p.x, p.z);
+
+    const unreachable = [];
+    for (let i = 0; i < def.spawnPoints.length; i++) {
+      const sp = def.spawnPoints[i];
+      const d = CORE.navDistanceAt(nav, sp[0], sp[1]);
+      if (d === CORE.UNREACHABLE) unreachable.push([+sp[0].toFixed(1), +sp[1].toFixed(1)]);
+    }
+    assert.deepStrictEqual(unreachable, [],
+      `for map ${mapId}, these spawn points cannot path to player at (${p.x},${p.z}): ` + JSON.stringify(unreachable));
+  }
+});
+
+test('milestone 3: domination flags and station layouts are valid and reachable for both maps', () => {
+  for (const mapId of ['urban', 'snowy']) {
+    const def = CORE.getMapDef(mapId);
+    // Domination flags
+    assert.strictEqual(def.dominationFlags.length, 3, `${mapId} must have exactly 3 flags`);
+    for (const flag of def.dominationFlags) {
+      assert.ok(['A', 'B', 'C'].includes(flag.name), `flag name must be A, B, or C: got ${flag.name}`);
+      assert.strictEqual(typeof flag.x, 'number');
+      assert.strictEqual(typeof flag.z, 'number');
+      assert.ok(CORE.isSpawnValid(flag.x, flag.z, def.colliders, 0.6, 1.8, 0.4),
+        `flag ${flag.name} at (${flag.x}, ${flag.z}) on ${mapId} must be in walkable open space`);
+    }
+
+    // Stations stand-points
+    const badStations = [];
+    const ring = CORE.BUY_RADIUS - 0.4;
+    for (let i = 0; i < def.stationLayout.length; i++) {
+      const st = def.stationLayout[i];
+      let clear = 0;
+      for (let a = 0; a < 12; a++) {
+        const ang = a * Math.PI / 6;
+        const x = st.x + Math.sin(ang) * ring, z = st.z + Math.cos(ang) * ring;
+        if (Math.abs(x) > (def.worldSize / 2 - 2) || Math.abs(z) > (def.worldSize / 2 - 2)) continue;
+        if (CORE.isSpawnValid(x, z, def.colliders, 0.6, 1.8, 0.45)) clear++;
+      }
+      if (clear === 0) badStations.push(`${st.kind}@${st.x},${st.z}`);
+    }
+    assert.deepStrictEqual(badStations, [],
+      `on map ${mapId}, these stations have no clear stand points: ` + badStations.join(', '));
+  }
+});
+
+test('milestone 3: settings schema includes gameMap enum defaulting to urban', () => {
+  const schema = CORE.SETTINGS_SCHEMA.gameMap;
+  assert.ok(schema, 'SETTINGS_SCHEMA must define gameMap');
+  assert.strictEqual(schema.type, 'enum');
+  assert.strictEqual(schema.def, 'urban');
+  assert.ok(schema.values.includes('urban') && schema.values.includes('snowy'));
+
+  const sanitized = CORE.sanitizeSettings({ gameMap: 'snowy' });
+  assert.strictEqual(sanitized.gameMap, 'snowy');
+  const fallback = CORE.sanitizeSettings({ gameMap: 'invalid_map' });
+  assert.strictEqual(fallback.gameMap, 'urban');
+});
+
+
 

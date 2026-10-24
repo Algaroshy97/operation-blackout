@@ -144,14 +144,15 @@ short TDM match end to end.
 **Goal:** a map that plays differently from the current dense urban block. It should
 have long sightlines for the sniper, plus tight interiors for the new shotgun.
 
-- **Map registry.** `buildArena()` becomes `MAPS[id].build()`. Colliders, the nav
-  grid, `STATION_LAYOUT`, enemy spawns, mode spawn points and flag positions all come
-  from the map definition.
-- **Layout.** A walled research compound in a snowfield:
+- ✅ **Map registry** (foundation done in v175): `buildArena()` becomes `MAPS[id].build()`.
+  Colliders, the nav grid, `STATION_LAYOUT`, enemy spawns, mode spawn points, gated
+  districts, and flag positions all come from map definitions (`CORE.MAP_DEFS` / `CORE.getMapDef`).
+- ✅ **Layout foundation** (done in v175): A walled research compound in a snowfield:
   - a two-storey command building (the anchor point)
-  - a vehicle hangar with a catwalk
-  - radio mast, fuel tanks (explosive), trenches and sandbag lines
-  - an open perimeter with a watchtower for the sniper
+  - a vehicle hangar with catwalk
+  - fuel depot, trenches, sandbag lines, and open perimeter with watchtower
+  - station layout (16 stations) and domination flags A/B/C
+  - core tests verify nav grid reaches all 12 outer spawn points to anchor player position
 - **Look:**
   - snow ground texture with footprints-style variation
   - icy blue sky preset and a low sun
@@ -163,6 +164,11 @@ have long sightlines for the sniper, plus tight interiors for the new shotgun.
   - slightly longer slides on ice patches
   - powder puffs on impact instead of concrete chips
 - Map picker on the deploy screen. Each map keeps its own best score.
+
+**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation).
+**Next dependency:** Snowy textures and visual assets (`08_textures.js`), icy blue sky preset,
+and deploy-screen map selector UI.
+**Evidence gaps:** Browser acceptance probe deployment on Snowy Compound, device frame rate verification on new map.
 
 **Done when:** every mode is playable on both maps. The nav grid reaches all spawns,
 which the existing core test is extended to check for both maps. The probe deploys on

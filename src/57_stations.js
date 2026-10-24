@@ -15,30 +15,9 @@ const stations = [];
 // Positions were chosen to pull the player OUT of the central building, which is
 // otherwise the whole game: one wall buy per corner district, perks on the
 // approaches, and the armory out on the north face where it is genuinely exposed.
-const STATION_LAYOUT = [
-  { kind: 'wall', x: -37, z:  30, weapon: 1 },   // MK18
-  { kind: 'wall', x:  34, z:  30, weapon: 0 },   // M4
-  { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
-  { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
-  { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
-  { kind: 'wall', x:  40, z:   4, weapon: 5 },   // M249, east flank, outside the districts
-  { kind: 'armory', x: 0, z: -22 },
-  { kind: 'plate',  x: 0, z:  20 },
-  { kind: 'perk', x: -21, z:  10, perk: 'jugg' },
-  { kind: 'perk', x:  21, z:  10, perk: 'reload' },
-  { kind: 'perk', x: -21, z: -10, perk: 'steady' },
-  { kind: 'perk', x:  21, z: -10, perk: 'scav' },
-  { kind: 'perk', x:   0, z:  34, perk: 'wind' },
-  // Equipment: one board cycles lethal variants, one cycles tacticals. Two boards
-  // rather than a menu, because a shop UI mid-firefight is a worse answer than
-  // walking to the thing you want.
-  { kind: 'lethal',   x: -12, z:  20 },
-  { kind: 'tactical', x:  12, z:  20 },
-  // District doors. Placed on the OPEN side of each barrier so the player can
-  // always reach the thing they are buying.
-  { kind: 'door', x: 31, z: -11, district: 'ne' },
-  { kind: 'door', x: -31, z: 11, district: 'sw' }
-];
+const STATION_LAYOUT = (typeof CORE !== 'undefined' && CORE.getMapDef)
+  ? CORE.getMapDef('urban').stationLayout
+  : [];
 
 // ---- Gated districts ---------------------------------------------------------
 // A second sink for credits that also paces the run: the 90x90 arena reveals
@@ -136,8 +115,9 @@ function stationMaterial(kind) {
 }
 
 function buildStations() {
-  for (let i = 0; i < STATION_LAYOUT.length; i++) {
-    const def = STATION_LAYOUT[i];
+  const layout = (typeof getActiveMap === 'function' && getActiveMap().stationLayout) || STATION_LAYOUT;
+  for (let i = 0; i < layout.length; i++) {
+    const def = layout[i];
     const mat = stationMaterial(def.kind);
     // Housing plus a bright lip, so a station reads as interactive at a distance
     // without needing a label mesh.

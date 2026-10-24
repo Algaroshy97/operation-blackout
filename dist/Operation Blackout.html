@@ -5079,6 +5079,7 @@ const CORE = (function () {
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
+    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
     ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
@@ -5682,7 +5683,7 @@ const CORE = (function () {
     return speed * mul;
   }
 
-  const FLANK_WINDOW = [5, 9];   // seconds, randomised per agent
+  const FLANK_WINDOW = [5, 9];
   function flankWindow(rand) { return FLANK_WINDOW[0] + (rand || 0) * (FLANK_WINDOW[1] - FLANK_WINDOW[0]); }
   function flankBiasNow(flankT, dist) {
     if (!(flankT > 0)) return 0;
@@ -5690,8 +5691,8 @@ const CORE = (function () {
   }
 
   function flankBias(dist, full, none) {
-    const f = full === undefined ? 18 : full;    // full bias at/beyond this range
-    const n = none === undefined ? 6 : none;     // no bias inside this range
+    const f = full === undefined ? 18 : full;
+    const n = none === undefined ? 6 : none;
     if (dist <= n) return 0;
     if (dist >= f) return 1;
     return (dist - n) / (f - n);
@@ -5730,8 +5731,8 @@ const CORE = (function () {
     const base = baseChance === undefined ? 0.30 : baseChance;
     const mag = magSize > 0 ? magSize : 30;
     const magsLeft = roundsLeft / mag;
-    if (magsLeft <= 0.5) return 1;              // effectively dry: always drop
-    if (magsLeft >= 3) return base;             // comfortable: normal odds
+    if (magsLeft <= 0.5) return 1;
+    if (magsLeft >= 3) return base;
     const t = (3 - magsLeft) / 2.5;
     return Math.min(1, base + (1 - base) * t * t);
   }
@@ -5810,7 +5811,7 @@ const CORE = (function () {
       } : null,
       streakKills: state.streakKills || 0,
       runStreaksEarned: state.runStreaksEarned || 0,
-      weapons: state.weapons,            // [{gi, ammo, reserve, up}, ...]
+      weapons: state.weapons,
       openDistricts: (state.openDistricts || []).slice(),
       spawnProtectionT: _isNum(state.spawnProtectionT) ? state.spawnProtectionT : (_isNum(state.playerSpawnProtectionT) ? state.playerSpawnProtectionT : 0),
       equipment: {
@@ -5825,7 +5826,7 @@ const CORE = (function () {
   }
   function validateCheckpoint(raw, weaponCount, baseHealth) {
     if (!raw || typeof raw !== 'object') return null;
-    if (raw.v !== SAVE_VERSION) return null;          // old saves are dropped, not guessed at
+    if (raw.v !== SAVE_VERSION) return null;
     const weaponDefs = Array.isArray(weaponCount) ? weaponCount : null;
     const maxWeaponCount = weaponDefs ? weaponDefs.length : (weaponCount || 4);
     const num = function (v, lo, hi, def) {
@@ -5856,7 +5857,7 @@ const CORE = (function () {
       }
       weapons.push({ gi, ammo: Math.round(num(w.ammo, 0, 999, 0)), reserve: Math.round(num(w.reserve, 0, 9999, 0)), up });
     }
-    if (!weapons.length || !weapons[0]) return null;   // a run needs a primary
+    if (!weapons.length || !weapons[0]) return null;
     const phase = raw.runPhase === 'victory' || raw.runPhase === 'endless' ? raw.runPhase : 'active';
     const snap = _isObj(raw.settlementSnapshot) ? {
       kills: Math.round(num(raw.settlementSnapshot.kills, 0, 1e6, 0)),
@@ -6078,7 +6079,7 @@ const CORE = (function () {
           if (stamp[v] !== id) { stamp[v] = id; out.push(v); }
         }
       } else if (t > 0) {
-        break;   // left the grid for good
+        break;
       }
       if (tMaxX < tMaxZ) { t = tMaxX; tMaxX += tDeltaX; gx += stepX; }
       else { t = tMaxZ; tMaxZ += tDeltaZ; gz += stepZ; }
@@ -6145,7 +6146,7 @@ const CORE = (function () {
     for (let r = 1; r <= lim; r++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
-          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;   // ring only
+          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
           const nx = gx + dx, nz = gz + dz;
           if (nx < 0 || nz < 0 || nx >= nav.dim || nz >= nav.dim) continue;
           const ni = nz * nav.dim + nx;
@@ -6258,7 +6259,7 @@ const CORE = (function () {
       i = nearestWalkable(nav, i);
       if (i < 0 || nav.dist[i] === UNREACHABLE) return null;
     }
-    if (nav.dist[i] === 0) return null;   // already at the goal cell
+    if (nav.dist[i] === 0) return null;
     const dim = nav.dim, cx = i % dim, cz = (i / dim) | 0;
     let best = nav.dist[i], bestIdx = -1;
 
@@ -6358,8 +6359,8 @@ const CORE = (function () {
           [-0.10, 1.10], [0.15, 1.05]],
     sr:  [[0, 1]]
   };
-  const RECOIL_JITTER = 0.15;   // +/- 15%: learnable, but not robotic
-  const RECOIL_RESET = 0.35;    // seconds off the trigger before shot 1 is shot 1
+  const RECOIL_JITTER = 0.15;
+  const RECOIL_RESET = 0.35;
   function recoilPatternFor(type) {
     const k = String(type || '').toLowerCase();
     return RECOIL_PATTERNS[k] ? k : 'ar';
@@ -6406,10 +6407,10 @@ const CORE = (function () {
     return { offset: off, delta: del };
   }
 
-  const BLOOM_PER_SHOT = 0.18;   // base spreads added per shot
-  const BLOOM_CAP_HIP = 1.6;     // hipfire ceiling, in base spreads
-  const BLOOM_CAP_ADS = 0.35;    // ADS ceiling — far tighter, which is the point
-  const BLOOM_RECOVER = 2.2;     // base spreads per second once the trigger is up
+  const BLOOM_PER_SHOT = 0.18;
+  const BLOOM_CAP_HIP = 1.6;
+  const BLOOM_CAP_ADS = 0.35;
+  const BLOOM_RECOVER = 2.2;
   const BLOOM_RECOVER_SMG = 1.30;
   const BLOOM_RECOVER_AR = 1.00;
   const BLOOM_RECOVER_BR = 0.85;
@@ -6568,7 +6569,7 @@ const CORE = (function () {
     return best;
   }
   const MELEE_REACH = 2.2;
-  const MELEE_CONE = Math.cos(Math.PI / 4);   // 45 degrees either side
+  const MELEE_CONE = Math.cos(Math.PI / 4);
   const MELEE_DAMAGE = 150;
   const MELEE_COOLDOWN = 0.9;
   const MELEE_BACKSTAB_MUL = 2.4;
@@ -7597,17 +7598,17 @@ const CORE = (function () {
   }
 
   const ENEMY_HEALTH_SCALE = {
-    0: 1.0,   // runner
-    1: 1.35,  // rifleman
-    2: 3.2,   // tank
-    3: 2.2,   // shielded advancer
-    4: 0.55,  // scout
-    5: 1.2,   // grenadier
-    6: 1.5    // breacher
+    0: 1.0,
+    1: 1.35,
+    2: 3.2,
+    3: 2.2,
+    4: 0.55,
+    5: 1.2,
+    6: 1.5
   };
 
-  const SHIELD_ARC_COS = 0.5;          // Math.cos(Math.PI / 3) = 0.5 (60 degrees either side of facing)
-  const SHIELD_ABSORB_RATIO = 0.85;    // 85% absorbed head-on (0.15 damage multiplier)
+  const SHIELD_ARC_COS = 0.5;
+  const SHIELD_ABSORB_RATIO = 0.85;
 
   function enemyBaseHealth(kind, baseMaxHealth) {
     const base = _isPos(baseMaxHealth) ? baseMaxHealth : 100;
@@ -7780,18 +7781,20 @@ const CORE = (function () {
   function insideDistrict(d, x, z) {
     return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
   }
-  function spawnPointSealed(x, z, openKeys) {
-    for (let i = 0; i < DISTRICTS.length; i++) {
-      const d = DISTRICTS[i];
+  function spawnPointSealed(x, z, openKeys, districts) {
+    const list = Array.isArray(districts) ? districts : DISTRICTS;
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
       if (openKeys && openKeys.indexOf(d.key) >= 0) continue;
       if (insideDistrict(d, x, z)) return true;
     }
     return false;
   }
-  function usableSpawnPoints(points, openKeys) {
+  function usableSpawnPoints(points, openKeys, districts) {
+    const list = Array.isArray(districts) ? districts : DISTRICTS;
     const out = [];
     for (let i = 0; i < points.length; i++) {
-      if (!spawnPointSealed(points[i][0], points[i][1], openKeys)) out.push(points[i]);
+      if (!spawnPointSealed(points[i][0], points[i][1], openKeys, list)) out.push(points[i]);
     }
     return out;
   }
@@ -7978,8 +7981,8 @@ const CORE = (function () {
     return e;
   }
 
-  const FALL_SAFE_SPEED = 9.5;      // m/s: about a 4.6 m drop, survivable
-  const FALL_LETHAL_SPEED = 22;     // terminal for these purposes
+  const FALL_SAFE_SPEED = 9.5;
+  const FALL_LETHAL_SPEED = 22;
   function fallDamage(impactSpeed) {
     if (impactSpeed <= FALL_SAFE_SPEED) return 0;
     const t = (impactSpeed - FALL_SAFE_SPEED) / (FALL_LETHAL_SPEED - FALL_SAFE_SPEED);
@@ -8088,7 +8091,7 @@ const CORE = (function () {
   }
 
   const OBJECTIVE_EVERY = 4;
-  const OBJECTIVE_HOLD = 25;        // seconds of occupancy to complete
+  const OBJECTIVE_HOLD = 25;
   const OBJECTIVE_RADIUS = 5.5;
   const OBJECTIVE_CREDITS = 900;
   function objectiveWaveAt(n) {
@@ -9113,7 +9116,7 @@ const CORE = (function () {
     { name: 'Dm', root: 38, notes: [50, 53, 57] },
     { name: 'Bb', root: 34, notes: [46, 50, 53] },
     { name: 'Gm', root: 31, notes: [43, 46, 50] },
-    { name: 'A',  root: 33, notes: [45, 49, 52] }    // major V: the C# pulls back home
+    { name: 'A',  root: 33, notes: [45, 49, 52] }
   ];
   const MUSIC_PHRASE_BARS = MUSIC_CHART.length * MUSIC_BARS_PER_CHORD;
   const MUSIC_ARP_SHAPE = [0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 4, 3, 2, 1, 2, 3];
@@ -10001,9 +10004,9 @@ const CORE = (function () {
     target.x = vx; target.z = vz; return target;
   }
 
-  const HUD_REDRAW_INTERVAL = 0.05;      // 20 Hz base throttle
-  const HUD_FLICK_YAW_THRESHOLD = 0.15;   // ~8.6 degrees rotation flick trigger
-  const HUD_FLICK_COOLDOWN = 0.12;       // minimum interval between flick-forced redraws
+  const HUD_REDRAW_INTERVAL = 0.05;
+  const HUD_FLICK_YAW_THRESHOLD = 0.15;
+  const HUD_FLICK_COOLDOWN = 0.12;
 
   function shouldRedrawHudCanvas(elapsedT, yawMoved, flickElapsed, interval, flickThreshold, flickCooldown) {
     const elapsed = _isNum(elapsedT) ? elapsedT : 0;
@@ -10992,7 +10995,7 @@ const CORE = (function () {
     return 1 + LMG_HEAT_RECOIL * h * h;
   }
 
-  const SIDEARM_QUICK_DRAW = 0.5;   // gunSwitchT head start: about half the raise
+  const SIDEARM_QUICK_DRAW = 0.5;
 
   function shouldQuickDrawSidearm(ammo, reserve, curSlot, sidearmSlot, sidearmOwned) {
     if (!sidearmOwned || curSlot === sidearmSlot) return false;
@@ -11002,7 +11005,7 @@ const CORE = (function () {
   const BREACHER_RANGE = 12;
   const BREACHER_ROF = 1.6;
   const BREACHER_PELLETS = 8;
-  const BREACHER_PELLET_SHARE = 0.6;   // of the rifleman's per-round damage
+  const BREACHER_PELLET_SHARE = 0.6;
 
   function breacherPelletHitChance(dist) {
     const d = _isNum(dist) ? Math.max(0, dist) : BREACHER_RANGE;
@@ -11109,7 +11112,7 @@ const CORE = (function () {
     const limit = _isNum(seconds) ? seconds : DOMINATION_CAPTURE_SECONDS;
     const q = function (v) { return Math.round(v * 1000) / 1000; };
     if (contested) return Math.min(limit, Math.max(0, c));
-    if (!present) return q(Math.max(0, c - d));   // abandoned: the partial capture decays
+    if (!present) return q(Math.max(0, c - d));
     return Math.min(limit, q(c + d));
   }
 
@@ -11303,6 +11306,151 @@ const CORE = (function () {
     }
 
     return bestPoint;
+  }
+
+  const _MAP_MATS = ['concrete', 'brick', 'metal', 'wood', 'concrete2'];
+  function _bDef(x, y, z, w, h, d, m) {
+    return {
+      min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 },
+      max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 },
+      mat: typeof m === 'number' ? _MAP_MATS[m] : (m || 'concrete')
+    };
+  }
+
+  function _unpackBoxes(arr) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += 7) {
+      out.push(_bDef(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5], arr[i + 6]));
+    }
+    return out;
+  }
+
+  function _addPerimeter(out) {
+    out.push(_bDef(0, 3, -45, 94, 6, 1, 1), _bDef(0, 3, 45, 94, 6, 1, 1),
+             _bDef(-45, 3, 0, 1, 6, 94, 1), _bDef(45, 3, 0, 1, 6, 94, 1));
+  }
+
+  function _addCenterPillars(out, zOff, m) {
+    out.push(_bDef(0, 3.9, zOff, 18.6, 0.5, 14.6, m), _bDef(0, 6.65, zOff, 18, 0.5, 14, m),
+             _bDef(-9, 4.55, zOff, 0.8, 0.9, 14, m), _bDef(9, 4.55, zOff, 0.8, 0.9, 14, m));
+    [[-5.5, -7], [5.5, -7], [-5.5, 7], [5.5, 7]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 7, 3.4, 0.8, m)));
+    [[-9, -4.5], [-9, 4.5], [9, -4.5], [9, 4.5]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 0.8, 3.4, 5, m)));
+    [[-6, -4], [6, -4], [-6, 4], [6, 4]].forEach(p => out.push(_bDef(p[0], 1.7, p[1] + zOff, 1.2, 3.4, 1.2, m)));
+    [[-5.4, -7], [5.4, -7], [-5.4, 7], [5.4, 7]].forEach(p => out.push(_bDef(p[0], 4.55, p[1] + zOff, 7.2, 0.9, 0.8, m)));
+    for (let i = 0; i < 10; i++) {
+      const top = (i + 1) * 0.4;
+      out.push(_bDef(0, top / 2, zOff + 13.6 - i * 0.8, 3.2, top, 0.82, m),
+               _bDef(0, top / 2, zOff - 13.6 + i * 0.8, 3.2, top, 0.82, m));
+    }
+  }
+
+  function buildUrbanColliders() {
+    const out = [];
+    _addPerimeter(out);
+    _addCenterPillars(out, 0, 4);
+    _unpackBoxes([
+      28, 2.5, -28, 16, 5, 12, 2, -28, 2, 28, 12, 4, 12, 2, 26, 3, 30, 10, 6, 10, 0,
+      -28, 1.5, -28, 14, 3, 1, 1, -33.5, 1.5, -22, 1, 3, 13, 1, -24, 1.5, -30, 8, 3, 1, 1
+    ]).forEach(b => out.push(b));
+    return out;
+  }
+
+  function buildSnowyColliders() {
+    const out = [];
+    _addPerimeter(out);
+    _addCenterPillars(out, -4, 0);
+    _unpackBoxes([
+      26, 3, -33, 16, 6, 1, 2, 34, 3, -26, 1, 6, 14, 2, 18, 3, -26, 1, 6, 14, 2,
+      20, 3, -19, 4, 6, 1, 2, 32, 3, -19, 4, 6, 1, 2, 26, 6.2, -26, 17, 0.4, 15, 2, 26, 2.8, -31.5, 15, 0.3, 2, 2,
+      -28, 4.1, -28, 6, 0.3, 6, 3, -28, 4.6, -30.8, 5.8, 0.8, 0.4, 3, -28, 4.6, -25.2, 5.8, 0.8, 0.4, 3,
+      -30.8, 4.6, -28, 0.4, 0.8, 5.8, 3, -25.2, 4.6, -28, 0.4, 0.8, 5.8, 3,
+      -25, 0.75, 32, 18, 1.5, 0.8, 0, -35, 0.75, 26, 0.8, 1.5, 12, 0,
+      22, 0.6, 22, 8, 1.2, 0.8, 3, 30, 0.6, 28, 0.8, 1.2, 10, 3,
+      22, 0.6, 34, 8, 1.2, 0.8, 3, 18, 0.6, 28, 0.8, 1.2, 10, 3, -12, 1.5, 12, 2, 3, 2, 2
+    ]).forEach(b => out.push(b));
+    [[-30, -30], [-26, -30], [-30, -26], [-26, -26]].forEach(p => out.push(_bDef(p[0], 2, p[1], 0.8, 4, 0.8, 3)));
+    [[-31, 26], [-25, 26], [-19, 26]].forEach(p => out.push(_bDef(p[0], 2, p[1], 4, 4, 4, 2)));
+    [[14, 10], [-14, -14], [14, -14], [-14, 14]].forEach(p => out.push(_bDef(p[0], 0.75, p[1], 2.4, 1.5, 2.4, 0)));
+    return out;
+  }
+
+  function _ringSpawns(r) {
+    const pts = [];
+    for (let a = 0; a < 12; a++) {
+      const ang = a * Math.PI / 6;
+      pts.push([Math.round(Math.cos(ang) * r * 10) / 10, Math.round(Math.sin(ang) * r * 10) / 10]);
+    }
+    return pts;
+  }
+  const URBAN_SPAWN_POINTS = _ringSpawns(33);
+  const SNOWY_SPAWN_POINTS = _ringSpawns(32);
+
+  function _st(k, x, z, w, p, d) { return { kind: k, x: x, z: z, weapon: w !== undefined ? w : -1, perk: p || null, district: d || null }; }
+  const URBAN_STATION_LAYOUT = [
+    _st('wall', -37, 30, 1), _st('wall', 34, 30, 0), _st('wall', -30, -32, 2), _st('wall', 31, -37, 3),
+    _st('wall', -40, -4, 4), _st('wall', 40, 4, 5), _st('armory', 0, -22), _st('plate', 0, 20),
+    _st('perk', -21, 10, -1, 'jugg'), _st('perk', 21, 10, -1, 'reload'), _st('perk', -21, -10, -1, 'steady'),
+    _st('perk', 21, -10, -1, 'scav'), _st('perk', 0, 34, -1, 'wind'), _st('lethal', -12, 20), _st('tactical', 12, 20),
+    _st('door', 31, -11, -1, null, 'ne'), _st('door', -31, 11, -1, null, 'sw')
+  ];
+  const SNOWY_STATION_LAYOUT = [
+    _st('wall', -38, 0, 1), _st('wall', 38, 0, 0), _st('wall', 0, -38, 2), _st('wall', -28, -20, 3),
+    _st('wall', 14, -26, 4), _st('wall', 26, 16, 5), _st('armory', 0, -14), _st('plate', 0, 6),
+    _st('perk', -16, 6, -1, 'jugg'), _st('perk', 16, 6, -1, 'reload'), _st('perk', -16, -14, -1, 'steady'),
+    _st('perk', 16, -14, -1, 'scav'), _st('perk', 0, 20, -1, 'wind'), _st('lethal', -8, 6), _st('tactical', 8, 6),
+    _st('door', 18, -27, -1, null, 'hangar'), _st('door', -26, 18, -1, null, 'depot')
+  ];
+
+  const URBAN_DOMINATION_FLAGS = [
+    { name: 'A', x: -18, z: 0 },
+    { name: 'B', x: 0, z: 18 },
+    { name: 'C', x: 18, z: 0 }
+  ];
+
+  const SNOWY_DOMINATION_FLAGS = [
+    { name: 'A', x: 0, z: -4 },
+    { name: 'B', x: 26, z: -24 },
+    { name: 'C', x: -20, z: 14 }
+  ];
+
+  const MAP_DEFS = {
+    urban: {
+      id: 'urban',
+      name: 'Urban District',
+      worldSize: 90,
+      playerSpawn: { x: 0, y: 0.9, z: 0 },
+      spawnPoints: URBAN_SPAWN_POINTS,
+      stationLayout: URBAN_STATION_LAYOUT,
+      dominationFlags: URBAN_DOMINATION_FLAGS,
+      districts: DISTRICTS,
+      colliders: buildUrbanColliders()
+    },
+    snowy: {
+      id: 'snowy',
+      name: 'Snowy Compound',
+      worldSize: 90,
+      playerSpawn: { x: 0, y: 0.9, z: -4 },
+      spawnPoints: SNOWY_SPAWN_POINTS,
+      stationLayout: SNOWY_STATION_LAYOUT,
+      dominationFlags: SNOWY_DOMINATION_FLAGS,
+      districts: [
+        { key: 'hangar', name: 'VEHICLE HANGAR', price: 1500, minX: 18, maxX: 36, minZ: -36, maxZ: -18 },
+        { key: 'depot', name: 'FUEL DEPOT', price: 750, minX: -36, maxX: -16, minZ: 18, maxZ: 36 }
+      ],
+      colliders: buildSnowyColliders()
+    }
+  };
+
+  const MAP_IDS = ['urban', 'snowy'];
+  const DEFAULT_MAP_ID = 'urban';
+
+  function sanitizeMapId(id) {
+    return (typeof id === 'string' && MAP_IDS.indexOf(id) >= 0) ? id : DEFAULT_MAP_ID;
+  }
+
+  function getMapDef(id) {
+    const safe = sanitizeMapId(id);
+    return MAP_DEFS[safe] || MAP_DEFS.urban;
   }
 
   return {
@@ -11662,7 +11810,8 @@ const CORE = (function () {
     gunGameIsKnifeTier, gunGameAdvance, gunGameCreditedKill, gunGameMeleeKill, gunGameBotDamageMul,
     RESPAWN_DELAY, SPAWN_PROTECTION_DURATION, FRIENDLY_IFF_COLOR, FRIENDLY_KIT_TINT, MINIMAP_FRIENDLY_COLOR,
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
-    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint
+    teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint,
+    MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS
   };
 
 
@@ -11774,6 +11923,14 @@ function applySetting(key) {
       }
       if (typeof setActiveMode === 'function' && typeof MODES !== 'undefined' && MODES[SETTINGS.gameMode]) {
         setActiveMode(SETTINGS.gameMode);
+      }
+      break;
+    case 'gameMap':
+      if (typeof started !== 'undefined' && started && typeof gameEnded !== 'undefined' && !gameEnded) {
+        break;
+      }
+      if (typeof setActiveMap === 'function') {
+        setActiveMap(SETTINGS.gameMap);
       }
       break;
   }
@@ -12360,7 +12517,7 @@ try {
   throw err;
 }
 canvas.addEventListener('webglcontextlost', function (e) {
-  e.preventDefault();                       // required, or the context never restores
+  e.preventDefault();
   contextLost = true;
   if (typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
     if (typeof pauseGame === 'function') pauseGame();
@@ -12544,8 +12701,8 @@ groundMat.onBeforeCompile = function (shader) {
     .replace('#include <common>', '#include <common>\nvarying vec3 vGroundW;\nfloat gh(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\nfloat gn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(gh(i),gh(i+vec2(1,0)),f.x), mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x), f.y); }')
     .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gv = gn(vGroundW.xz * 0.06) * 0.6 + gn(vGroundW.xz * 0.21) * 0.4;\ndiffuseColor.rgb *= mix(0.74, 1.16, gv);');
 };
-const colliders = [];   // static AABBs {min,max}
-const raycastColliders = []; // world geometry meshes for scoped raycasting
+const colliders = [];
+const raycastColliders = [];
 const mapBounds = CFG.world.size / 2 - 2;
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), groundMat);
@@ -12600,7 +12757,7 @@ function mergeGeometries(geos) {
     if (gi) { for (let i = 0; i < gi.count; i++) idx[io + i] = gi.array[i] + vo; io += gi.count; }
     else { for (let i = 0; i < p.count; i++) idx[io + i] = i + vo; io += p.count; }
     vo += p.count;
-    geo.dispose();   // the per-box source geometry never reaches the GPU
+    geo.dispose();
   }
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -12691,7 +12848,7 @@ PEN_MATERIAL.set(MAT.dark, 'metal');
 PEN_MATERIAL.set(MAT.accent, 'metal');
 PEN_MATERIAL.set(MAT.red, 'metal');
 
-function buildArena() {
+function buildUrbanArena() {
   const S = CFG.world.size;
   addBox(0, 3, -S/2, S+4, 6, 1, MAT.brick);
   addBox(0, 3, S/2, S+4, 6, 1, MAT.brick);
@@ -12700,8 +12857,8 @@ function buildArena() {
 
   [[-5.5,-7],[5.5,-7],[-5.5,7],[5.5,7]].forEach(function(p) { addBox(p[0], 1.7, p[1], 7, 3.4, 0.8, MAT.concrete); });
   [[-9,-4.5],[-9,4.5],[9,-4.5],[9,4.5]].forEach(function(p) { addBox(p[0], 1.7, p[1], 0.8, 3.4, 5, MAT.concrete); });
-  addBox(0, 3.9, 0, 18.6, 0.5, 14.6, MAT.concrete2);           // 2nd-floor slab
-  addBox(0, 6.65, 0, 18, 0.5, 14, MAT.concrete2);              // roof
+  addBox(0, 3.9, 0, 18.6, 0.5, 14.6, MAT.concrete2);
+  addBox(0, 6.65, 0, 18, 0.5, 14, MAT.concrete2);
   [[-6,-4],[6,-4],[-6,4],[6,4]].forEach(function(p) { addBox(p[0], 1.7, p[1], 1.2, 3.4, 1.2, MAT.concrete2); });
   [[-5.4,-7.0],[5.4,-7.0],[-5.4,7.0],[5.4,7.0]].forEach(function(p) { addBox(p[0], 4.55, p[1], 7.2, 0.9, 0.8, MAT.concrete2); });
   addBox(-9.0, 4.55, 0, 0.8, 0.9, 14, MAT.concrete2);
@@ -12714,12 +12871,12 @@ function buildArena() {
 
   addBox(28, 2.5, -28, 16, 5, 12, MAT.metal);
   addBox(28, 5.6, -28, 16.4, 0.4, 12.4, MAT.metal);
-  addBox(20.2, 1, -22, 1.4, 2, 8, MAT.brick);      // side wall w/ gap
+  addBox(20.2, 1, -22, 1.4, 2, 8, MAT.brick);
   addBox(28, 1, -34, 6, 2, 1.4, MAT.brick);
-  addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);  // crates
+  addBox(34, 1.1, -20.5, 2.2, 2.2, 2.2, MAT.wood);
   addBox(34, 3.3, -20.5, 2.2, 2.2, 2.2, MAT.wood, {noShadow:false});
   addBox(31.5, 1.1, -18, 2.2, 2.2, 2.2, MAT.wood);
-  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);   // container
+  addBox(36, 1.6, -33, 3.2, 3.2, 3.2, MAT.metal);
   addBox(28, 5.18, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
   addBox(28, 2.22, -14.28, 12.2, 0.14, 0.16, districtSignAccentMat, { noCollide: true, noShadow: true });
 
@@ -12735,7 +12892,7 @@ function buildArena() {
   addBox(-28, 2, 28, 12, 4, 12, MAT.metal);
   addBox(-28, 4.4, 28, 12.4, 0.5, 12.4, MAT.metal);
   for (let i = 0; i < 3; i++) {
-    addBox(-33 + i * 5, 1.5, 22, 3, 3, 3, MAT.red);   // fuel tanks
+    addBox(-33 + i * 5, 1.5, 22, 3, 3, 3, MAT.red);
     addBox(-33 + i * 5, 4.5, 22, 3, 3, 3, MAT.red);
   }
   addBox(-20, 0.7, 34, 1.4, 1.4, 1.4, MAT.wood);
@@ -12743,9 +12900,9 @@ function buildArena() {
 
   addBox(26, 3, 30, 10, 6, 10, MAT.concrete);
   addBox(26, 6.4, 30, 10.5, 0.4, 10.5, MAT.concrete2);
-  addBox(33, 2, 24, 1.4, 4, 1.4, MAT.wood);          // scaffold legs
+  addBox(33, 2, 24, 1.4, 4, 1.4, MAT.wood);
   addBox(33, 2, 26.5, 1.4, 4, 1.4, MAT.wood);
-  addBox(33, 4.05, 25.25, 1.6, 0.2, 4, MAT.wood);    // scaffold platform
+  addBox(33, 4.05, 25.25, 1.6, 0.2, 4, MAT.wood);
   addBox(26, 1, 38, 4, 2, 1.5, MAT.brick);
   addBox(21, 0.75, 36, 1.5, 1.5, 1.5, MAT.wood);
   addBox(31, 0.75, 37, 1.5, 1.5, 1.5, MAT.wood);
@@ -12783,10 +12940,10 @@ function buildArena() {
   addBox(-14, 1, 14, 2.4, 2, 2.4, MAT.concrete2);
   addBox(14, 1, -14, 2.4, 2, 2.4, MAT.concrete2);
   addBox(-14, 1, -14, 2.4, 2, 2.2, MAT.concrete2);
-  addBox(0, 0.75, 30, 3, 1.5, 1.5, MAT.wood);         // south barricade
+  addBox(0, 0.75, 30, 3, 1.5, 1.5, MAT.wood);
   addBox(4, 0.75, 30, 3, 1.5, 1.5, MAT.wood);
   addBox(2, 2.25, 30, 3, 1.5, 1.5, MAT.wood);
-  addBox(0, 0.75, -30, 3, 1.5, 1.5, MAT.wood);  // north barricade
+  addBox(0, 0.75, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(4, 0.75, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(2, 2.25, -30, 3, 1.5, 1.5, MAT.wood);
   addBox(30, 0.75, 8, 1.5, 1.5, 1.5, MAT.wood);
@@ -12809,6 +12966,51 @@ function buildArena() {
   barrel(11, -22); barrel(12.2, -22.6); barrel(-11, -22); barrel(-12.2, -22.6);
   barrel(22, 12); barrel(-22, 12); barrel(22, -12); barrel(-22, -12);
   barrel(35, 18); barrel(-35, 18); barrel(35, -18); barrel(-35, -18);
+}
+
+function buildSnowyArena() {
+  const S = CFG.world.size;
+  addBox(0, 3, -S/2, S+4, 6, 1, MAT.brick);
+  addBox(0, 3, S/2, S+4, 6, 1, MAT.brick);
+  addBox(-S/2, 3, 0, 1, 6, S+4, MAT.brick);
+  addBox(S/2, 3, 0, 1, 6, S+4, MAT.brick);
+  const boxes = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('snowy').colliders : [];
+  for (let i = 4; i < boxes.length; i++) {
+    const b = boxes[i];
+    addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
+           +(b.max.x - b.min.x).toFixed(2), +(b.max.y - b.min.y).toFixed(2), +(b.max.z - b.min.z).toFixed(2),
+           MAT[b.mat] || MAT.concrete);
+  }
+}
+
+function _regMap(id, fn) {
+  const d = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef(id) : {};
+  return {
+    id: id, name: d.name || id, worldSize: CFG.world.size, playerSpawn: d.playerSpawn || { x: 0, y: 0.9, z: 0 },
+    get spawnPoints() { return CORE.getMapDef(id).spawnPoints; },
+    get stationLayout() { return CORE.getMapDef(id).stationLayout; },
+    get dominationFlags() { return CORE.getMapDef(id).dominationFlags; },
+    get districts() { return CORE.getMapDef(id).districts; },
+    build: fn
+  };
+}
+const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena) };
+
+let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefined' && CORE.sanitizeMapId(getSetting('gameMap'))) || 'urban';
+let activeMap = MAPS[activeMapId] || MAPS.urban;
+
+function getActiveMap() { return activeMap; }
+function setActiveMap(id) {
+  const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : (id === 'snowy' ? 'snowy' : 'urban');
+  activeMapId = safe;
+  activeMap = MAPS[safe] || MAPS.urban;
+  return activeMap;
+}
+
+function buildArena() {
+  const m = getActiveMap();
+  if (m && typeof m.build === 'function') m.build();
+  else buildUrbanArena();
 }
 buildArena();
 console.log('static batches:', flushStaticBatches(), 'meshes');
@@ -12894,7 +13096,7 @@ function scatterProps() {
       const b = GLB_PARSED.BARREL.scene.clone(true);
       b.scale.setScalar(4.4);
       b.position.set(p.x, 0, p.z);
-      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);  // varied, deterministic
+      b.rotation.y = (p.x * 3.7 + p.z * 1.3) % (Math.PI * 2);
       b.castShadow = true; b.receiveShadow = true;
       b.traverse(function (m) { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
       scene.add(b);
@@ -12902,9 +13104,9 @@ function scatterProps() {
     }
     if (oldBarrels.length) console.log('GLB barrels placed:', oldBarrels.length);
   }
-  batchScatteredProps();   // 48 GLB clones -> a handful of merged meshes
-  rebuildNavGrid();        // props add colliders; the AI grid must see them
-  rebuildWorldRayGrid();   // props/barrels changed raycastColliders
+  batchScatteredProps();
+  rebuildNavGrid();
+  rebuildWorldRayGrid();
   return placed;
 }
 
@@ -14064,8 +14266,8 @@ function updateTouchJumpBtn() {
 const weaponsOwned = [0, -1, -1, -1];
 const MARKSMAN_SLOT = 2;
 const SIDEARM_SLOT = 3;
-let curWeapon = 0;              // 0..3 (slot)
-let wState = [];                // per owned slot: {ammo, reserve, reloading, reloadT, nextShot}
+let curWeapon = 0;
+let wState = [];
 const FIRE_CLOCK_MAX_STEP = 0.5;
 const MAX_FIRE_CATCHUP_SHOTS = 8;
 let fireClockT = 0;
@@ -14169,7 +14371,7 @@ function switchWeapon(slot) {
   const prev = curS();
   if (prev && prev.reloading) {
     prev.reloading = false;
-    prev.reloadPaused = true;        // keep reloadT; tryReload() picks it back up
+    prev.reloadPaused = true;
   }
   if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
   curWeapon = s;
@@ -14178,10 +14380,10 @@ function switchWeapon(slot) {
   if (next) next.nextShot = CORE.shotScheduleAfterInactive();
   if (next && next.reloadPaused) {
     next.reloadPaused = false;
-    next.reloading = true;           // resume where it left off
+    next.reloading = true;
     playSound(CORE.reloadMagazineOutSound(curWpn ? curWpn.type : ''));
   }
-  gunSwitchT = 0;   // raise animation timer
+  gunSwitchT = 0;
   buildViewmodel();
   updateHudAmmo();
   playSound(CORE.weaponDrawSound(curWpn ? curWpn.type : ''));
@@ -14304,12 +14506,12 @@ function adsDown() {
     ? CORE.canPlayerAds(isDead, isDowned, isSprint)
     : (!isSprint && !isDead && !isDowned));
 }
-let adsAmount = 0;   // 0..1 smooth
-let gunSwitchT = 1;  // 1 = fully raised
+let adsAmount = 0;
+let gunSwitchT = 1;
 
 const SWAY_USE = 5.5, STEADY_RECOVER = CORE.STEADY_RECOVER, STEADY_MAX = CORE.STEADY_MAX;
 let swayPhase = 0, swayX = 0, swayY = 0;
-let steadyT = STEADY_MAX; // remaining breath-hold time
+let steadyT = STEADY_MAX;
 let steadyActive = false;
 let _wasSteadyActive = false;
 const _swayOut = { x: 0, y: 0 };
@@ -14355,7 +14557,7 @@ function applyAimAssist(dir, from) {
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInAimAssistRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);   // chest centre of the corrected box
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_CHEST_OFFSET, en.pos.z);
     _assistTo.subVectors(_aimTgt, from).normalize();
     const chestDot = dir.dot(_assistTo);
     if (CORE.isAimAssistCandidateCloser(chestDot, bestCos)) {
@@ -14363,7 +14565,7 @@ function applyAimAssist(dir, from) {
       _assistBestTo.copy(_assistTo);
       hasBest = true;
     }
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);   // head centre
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.AIM_ASSIST_HEAD_OFFSET, en.pos.z);
     _assistToH.subVectors(_aimTgt, from).normalize();
     const headDot = dir.dot(_assistToH);
     if (CORE.isAimAssistHeadCandidateCos(headDot, bestCos, minCos, CORE.AIM_ASSIST_HEAD_PRIORITY)) {
@@ -14390,7 +14592,7 @@ function magnetizeBullet(dir, from) {
     const toX = en.pos.x - from.x, toZ = en.pos.z - from.z;
     if (!CORE.isTargetInMagnetRange(toX, toZ, maxDistSq)) continue;
     if (!CORE.isAimCandidateInForwardSector(dir.x, dir.z, toX, toZ)) continue;
-    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);    // centre mass
+    _aimTgt.set(en.pos.x, en.pos.y + CORE.BULLET_MAGNET_Y_OFFSET, en.pos.z);
     _magTo.subVectors(_aimTgt, from).normalize();
     const dotVal = dir.dot(_magTo);
     if (CORE.isMagnetCandidateCloser(dotVal, bestCos)) {
@@ -14421,7 +14623,7 @@ function fireShot(preserveSchedule) {
   s.nextShot = preserveSchedule && s.nextShot > 0 ? s.nextShot + interval : fireClockT + interval;
   const ads = adsDown();
   const bp = CORE.bloomParams(w.spread, w.adsSpread, ads, w ? w.type : '');
-  bp.perShot *= CORE.perkBloomMul(perks);      // STEADY AIM
+  bp.perShot *= CORE.perkBloomMul(perks);
   bp.cap *= CORE.perkBloomMul(perks);
   const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
@@ -14498,7 +14700,7 @@ function traceRound(w, spreadNow, magnetize) {
     }
   } else if (hit) {
     spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, null, w ? w.type : 'AR');
-    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);   // v41: persistent bullet hole
+    if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
   _roundOut.hit = hit; _roundOut.enemy = isEnemy;
@@ -14586,8 +14788,8 @@ let _lastChOp = -1, _lastChGap = -1;
 let _scopeOvEl = null, _chEl = null, _steadyIndEl = null;
 const _scopeOvState = { active: null, isSniper: null };
 const _steadyIndState = { visible: null, steadyActive: null, label: null };
-let meleeT = 0;        // cooldown / lockout
-let meleeSwing = 0;    // 1 -> 0 viewmodel thrust
+let meleeT = 0;
+let meleeSwing = 0;
 const _meleeTargets = [];
 const _meleePoint = new THREE.Vector3();
 const _meleeDir = new THREE.Vector3();
@@ -14869,11 +15071,11 @@ function vmCurvedMag(parent, x, y, z, w, segs, segH, depth, curve, mat) {
 }
 
 function vmIrons(g, frontZ, rearZ, railY) {
-  vmBox(g, 0.014, 0.03, 0.014, 0, railY + 0.02, frontZ, VMAT.metal);           // front sight tower
-  vmBox(g, 0.003, 0.012, 0.003, 0, railY + 0.041, frontZ, VMAT.metal);          // post
+  vmBox(g, 0.014, 0.03, 0.014, 0, railY + 0.02, frontZ, VMAT.metal);
+  vmBox(g, 0.003, 0.012, 0.003, 0, railY + 0.041, frontZ, VMAT.metal);
   const tri = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 6, 4), VM_TRITIUM);
   tri.position.set(0, railY + 0.047, frontZ); g.add(tri);
-  vmBox(g, 0.03, 0.026, 0.018, 0, railY + 0.018, rearZ, VMAT.metal);            // rear aperture housing
+  vmBox(g, 0.03, 0.026, 0.018, 0, railY + 0.018, rearZ, VMAT.metal);
   vmBox(g, 0.008, 0.014, 0.02, -0.008, railY + 0.036, rearZ, VMAT.metal);
   vmBox(g, 0.008, 0.014, 0.02, 0.008, railY + 0.036, rearZ, VMAT.metal);
   return { y: railY + 0.047, z: rearZ };
@@ -14895,7 +15097,7 @@ function vmAcog(g, z, railY) {
   vmCyl(g, 0.022, 0.03, 0, y, z + 0.075, VMAT.tube, 16, undefined, 'z', true);
   const lens = vmCyl(g, 0.024, 0.002, 0, y, z - 0.1, VMAT.glass, 16); lens.renderOrder = 5;
   vmBox(g, 0.03, 0.022, 0.08, 0, railY + 0.017, z, VMAT.metal);
-  vmBox(g, 0.008, 0.008, 0.06, 0, y + 0.024, z, VM_TRITIUM);                     // fibre on top
+  vmBox(g, 0.008, 0.008, 0.06, 0, y + 0.024, z, VM_TRITIUM);
   const chev = new THREE.Mesh(new THREE.ConeGeometry(0.0022, 0.004, 3), VM_DOT);
   chev.scale.setScalar(0.5); chev.position.set(0, y - 0.0007, z - 0.05); g.add(chev);
   return { y: y, z: z + 0.075 };
@@ -14932,16 +15134,16 @@ function vmUnder(g, P, att, z, y) {
 
 function vmBuildAR(g, P, att, fde) {
   const R = fde ? VMAT.fde : VMAT.polymer;
-  vmBox(g, 0.05, 0.05, 0.27, 0, 0.032, -0.07, VMAT.metal);                    // upper receiver
-  vmBox(g, 0.046, 0.045, 0.2, 0, -0.012, -0.03, R);                           // lower receiver
-  vmBox(g, 0.012, 0.03, 0.05, 0.028, 0.03, -0.05, VMAT.metal);                // ejection port cover
-  vmBox(g, 0.02, 0.018, 0.035, 0.03, 0.04, 0.03, VMAT.steel);                 // forward assist
+  vmBox(g, 0.05, 0.05, 0.27, 0, 0.032, -0.07, VMAT.metal);
+  vmBox(g, 0.046, 0.045, 0.2, 0, -0.012, -0.03, R);
+  vmBox(g, 0.012, 0.03, 0.05, 0.028, 0.03, -0.05, VMAT.metal);
+  vmBox(g, 0.02, 0.018, 0.035, 0.03, 0.04, 0.03, VMAT.steel);
   vmRail(g, 0.25, 0, 0.061, -0.08);
-  vmBox(g, 0.056, 0.056, 0.25, 0, 0.028, -0.33, R);                           // handguard
+  vmBox(g, 0.056, 0.056, 0.25, 0, 0.028, -0.33, R);
   for (let i = 0; i < 5; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.012, 0.03, sx * 0.029, 0.03, -0.25 - i * 0.045, VMAT.knuckle);
   vmRail(g, 0.22, 0, 0.061, -0.33);
-  vmCyl(g, 0.009, 0.16, 0, 0.03, -0.53, VMAT.steel);                          // barrel
-  vmCyl(g, 0.014, 0.012, 0, 0.03, -0.47, VMAT.metal);                         // gas block
+  vmCyl(g, 0.009, 0.16, 0, 0.03, -0.53, VMAT.steel);
+  vmCyl(g, 0.014, 0.012, 0, 0.03, -0.47, VMAT.metal);
   const muzzleZ = vmMuzzleDevice(g, att, -0.61, 0.03, 0.055);
   vmCyl(g, 0.015, 0.14, 0, 0.022, 0.13, VMAT.metal);
   if (att.stock === 'lightstock') {
@@ -14949,16 +15151,16 @@ function vmBuildAR(g, P, att, fde) {
     vmBox(g, 0.042, 0.012, 0.11, 0, 0.03, 0.2, R);
   } else {
     vmBox(g, 0.042, 0.075, 0.13, 0, 0.0, 0.2, R);
-    if (att.stock === 'heavystock') vmBox(g, 0.046, 0.03, 0.12, 0, 0.05, 0.2, VMAT.olive);   // cheek riser
+    if (att.stock === 'heavystock') vmBox(g, 0.046, 0.03, 0.12, 0, 0.05, 0.2, VMAT.olive);
   }
   vmBox(g, 0.046, 0.085, 0.02, 0, -0.002, 0.27, VMAT.knuckle);
-  vmBox(g, 0.032, 0.095, 0.042, 0, -0.075, 0.04, R, 0.28);                    // pistol grip
-  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.01, VMAT.metal);                 // trigger guard
-  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.012, VMAT.steel, 0.3);            // trigger
+  vmBox(g, 0.032, 0.095, 0.042, 0, -0.075, 0.04, R, 0.28);
+  vmBox(g, 0.008, 0.006, 0.07, 0, -0.045, -0.01, VMAT.metal);
+  vmBox(g, 0.004, 0.02, 0.006, 0, -0.03, -0.012, VMAT.steel, 0.3);
   const segs = att.mag === 'extmag' ? 7 : att.mag === 'fastmag' ? 4 : 5;
   P.mag = vmCurvedMag(g, 0, -0.035, -0.07, 0.034, segs, 0.03, 0.06, 0.07, VMAT.metal);
-  if (att.mag === 'fastmag') vmBox(P.mag, 0.012, 0.03, 0.02, 0, -segs * 0.03 - 0.02, 0, VMAT.olive);   // pull tab
-  P.bolt = vmBox(g, 0.04, 0.012, 0.03, 0, 0.055, 0.06, VMAT.metal);            // charging handle
+  if (att.mag === 'fastmag') vmBox(P.mag, 0.012, 0.03, 0.02, 0, -segs * 0.03 - 0.02, 0, VMAT.olive);
+  P.bolt = vmBox(g, 0.04, 0.012, 0.03, 0, 0.055, 0.06, VMAT.metal);
   P.boltRest = 0.06;
   let sight;
   if (att.optic === 'reddot') sight = vmRedDot(g, -0.05, 0.061);
@@ -14979,18 +15181,18 @@ function vmBuildAR(g, P, att, fde) {
 }
 function vmBuildSMG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.048, 0.075, 0.26, 0, 0.02, -0.08, R);                            // boxy upper
-  vmBox(g, 0.046, 0.08, 0.12, 0, -0.035, -0.11, R, -0.35);                    // angled lower
+  vmBox(g, 0.048, 0.075, 0.26, 0, 0.02, -0.08, R);
+  vmBox(g, 0.046, 0.08, 0.12, 0, -0.035, -0.11, R, -0.35);
   vmRail(g, 0.24, 0, 0.061, -0.09);
-  vmCyl(g, 0.012, 0.06, 0, 0.03, -0.24, VMAT.metal, 12);                      // barrel shroud
+  vmCyl(g, 0.012, 0.06, 0, 0.03, -0.24, VMAT.metal, 12);
   const muzzleZ = att.barrel === 'suppressor' ? vmMuzzleDevice(g, att, -0.27, 0.03, 0.04)
     : vmMuzzleDevice(g, att, -0.27, 0.03, 0.04);
-  vmCyl(g, 0.015, 0.12, 0, 0.022, 0.1, VMAT.metal);                           // folding stock tube
+  vmCyl(g, 0.015, 0.12, 0, 0.022, 0.1, VMAT.metal);
   if (att.stock !== 'lightstock') vmBox(g, 0.03, 0.07, 0.1, 0, 0.0, 0.17, R);
   else vmBox(g, 0.012, 0.06, 0.08, 0, 0.0, 0.17, R);
   if (att.stock === 'heavystock') vmBox(g, 0.034, 0.028, 0.09, 0, 0.045, 0.17, VMAT.olive);
-  vmBox(g, 0.03, 0.09, 0.04, 0, -0.07, 0.03, R, 0.22);                        // grip
-  vmBox(g, 0.03, 0.02, 0.07, 0, -0.03, -0.2, R);                              // front grip mount
+  vmBox(g, 0.03, 0.09, 0.04, 0, -0.07, 0.03, R, 0.22);
+  vmBox(g, 0.03, 0.02, 0.07, 0, -0.03, -0.2, R);
   const segs = att.mag === 'extmag' ? 6 : att.mag === 'fastmag' ? 3 : 4;
   P.mag = vmCurvedMag(g, 0, -0.06, -0.03, 0.03, segs, 0.03, 0.045, 0.0, VMAT.polymer);
   P.bolt = vmBox(g, 0.012, 0.018, 0.03, -0.028, 0.035, 0.0, VMAT.steel); P.boltRest = 0.0;
@@ -15007,7 +15209,7 @@ function vmBuildSMG(g, P, att) {
     sight = { y: 0.093, z: -0.035 };
   } else sight = vmIrons(g, -0.2, 0.03, 0.061);
   const grip = vmUnder(g, P, att, -0.21, -0.03) || { gripZ: -0.21, gripY: -0.07 };
-  if (att.under !== 'foregrip') vmBox(g, 0.022, 0.07, 0.03, 0, -0.07, -0.21, R, -0.2);   // stock vertical grip
+  if (att.under !== 'foregrip') vmBox(g, 0.022, 0.07, 0.03, 0, -0.07, -0.21, R, -0.2);
   P.handR = vmHand(g, 0, -0.065, 0.03, 1, 0.22);
   vmForearm(g, 0.02, -0.115, 0.06, 0.1, -0.24, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
@@ -15119,13 +15321,13 @@ function buildKnife() {
 
 function vmBuildSG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.05, 0.062, 0.24, 0, 0.026, -0.05, VMAT.metal);                    // receiver
-  vmBox(g, 0.012, 0.026, 0.06, 0.026, 0.034, -0.06, VMAT.steel);               // ejection port
-  vmBox(g, 0.03, 0.01, 0.07, 0, -0.008, -0.07, VMAT.knuckle);                  // loading port
+  vmBox(g, 0.05, 0.062, 0.24, 0, 0.026, -0.05, VMAT.metal);
+  vmBox(g, 0.012, 0.026, 0.06, 0.026, 0.034, -0.06, VMAT.steel);
+  vmBox(g, 0.03, 0.01, 0.07, 0, -0.008, -0.07, VMAT.knuckle);
   const bl = att.barrel === 'longbarrel' ? 0.6 : 0.5;
-  vmCyl(g, 0.012, bl, 0, 0.04, -0.17 - bl / 2, VMAT.metal, 16);                // barrel
-  vmCyl(g, 0.011, bl * 0.78, 0, 0.012, -0.17 - bl * 0.39, VMAT.metal, 14);     // magazine tube
-  vmBox(g, 0.026, 0.03, 0.012, 0, 0.026, -0.17 - bl * 0.78, VMAT.metal);       // barrel clamp
+  vmCyl(g, 0.012, bl, 0, 0.04, -0.17 - bl / 2, VMAT.metal, 16);
+  vmCyl(g, 0.011, bl * 0.78, 0, 0.012, -0.17 - bl * 0.39, VMAT.metal, 14);
+  vmBox(g, 0.026, 0.03, 0.012, 0, 0.026, -0.17 - bl * 0.78, VMAT.metal);
   const pump = new THREE.Group(); g.add(pump);
   pump.position.set(0, 0.012, -0.32);
   vmBox(pump, 0.05, 0.046, 0.15, 0, 0, 0, R);
@@ -15161,18 +15363,18 @@ function vmBuildSG(g, P, att) {
 }
 function vmBuildLMG(g, P, att) {
   const R = VMAT.polymer;
-  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);                    // receiver
-  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);                     // feed cover
-  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);               // feed tray
+  vmBox(g, 0.058, 0.07, 0.3, 0, 0.022, -0.05, VMAT.metal);
+  vmBox(g, 0.06, 0.02, 0.2, 0, 0.066, -0.06, VMAT.metal);
+  vmBox(g, 0.012, 0.03, 0.04, -0.034, 0.03, -0.08, VMAT.steel);
   P.heatMat = vmMat({ color: 0x2c2d30, roughness: 0.45, metalness: 0.8, emissive: 0xff4a12, emissiveIntensity: 0 });
   P.heatMat.userData.perModel = true;
   const bl = att.barrel === 'longbarrel' ? 0.62 : 0.52;
-  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);                // barrel
-  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);     // heat shroud
+  vmCyl(g, 0.011, bl, 0, 0.03, -0.2 - bl / 2, VMAT.steel, 14);
+  vmCyl(g, 0.022, bl * 0.62, 0, 0.03, -0.24 - bl * 0.31, P.heatMat, 16);
   for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(g, 0.004, 0.01, 0.022, sx * 0.022, 0.03, -0.27 - i * bl * 0.09, VMAT.knuckle);
-  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);                // carry handle post, off the sight line
-  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);                // carry handle
-  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05); // bipod legs, folded
+  vmBox(g, 0.014, 0.05, 0.06, 0.036, 0.06, -0.22, VMAT.metal);
+  vmBox(g, 0.016, 0.012, 0.16, 0.036, 0.09, -0.2, VMAT.metal);
+  vmBox(g, 0.01, 0.01, 0.2, -0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
   vmBox(g, 0.01, 0.01, 0.2, 0.012, 0.0, -0.2 - bl * 0.55, VMAT.steel, 0.05);
   const muzzleZ = vmMuzzleDevice(g, att, -0.2 - bl, 0.03, 0.05);
   vmBox(g, 0.05, 0.085, 0.22, 0, -0.01, 0.17, R);
@@ -15203,17 +15405,17 @@ function vmBuildLMG(g, P, att) {
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
 }
 function vmBuildPST(g, P, att) {
-  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);                     // frame / dust cover
+  vmBox(g, 0.03, 0.03, 0.2, 0, 0.012, -0.12, VMAT.metal);
   const slide = new THREE.Group(); g.add(slide);
   slide.position.set(0, 0.04, -0.12);
   vmBox(slide, 0.03, 0.03, 0.21, 0, 0, 0, VMAT.steel);
   for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) vmBox(slide, 0.002, 0.022, 0.004, sx * 0.0155, 0, 0.07 + i * 0.006, VMAT.knuckle);
-  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);          // ejection port
+  vmBox(slide, 0.012, 0.012, 0.03, 0.01, 0.006, -0.01, VMAT.metal);
   P.bolt = slide; P.boltRest = -0.12;
-  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);                    // bushing / muzzle
-  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);                 // trigger guard
+  vmCyl(g, 0.008, 0.02, 0, 0.04, -0.235, VMAT.metal, 10);
+  vmBox(g, 0.008, 0.008, 0.06, 0, -0.012, -0.05, VMAT.metal);
   vmBox(g, 0.004, 0.016, 0.005, 0, -0.004, -0.05, VMAT.steel, 0.3);
-  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);           // walnut grip
+  vmBox(g, 0.032, 0.11, 0.05, 0, -0.06, -0.0, VMAT.walnut, 0.22);
   P.mag = new THREE.Group(); g.add(P.mag);
   P.mag.position.set(0, -0.01, -0.005);
   vmBox(P.mag, 0.022, 0.1, 0.034, 0, -0.06, 0.012, VMAT.metal, 0.22);
@@ -16282,14 +16484,12 @@ MODES.ffa = {
 };
 
 function buildDominationFlags() {
-  const out = [];
-  const names = CORE.DOMINATION_FLAG_NAMES || ['A', 'B', 'C'];
-  const pts = CORE.DOMINATION_FLAG_POINTS || [[-18, 0], [0, 18], [18, 0]];
-  for (let i = 0; i < names.length; i++) {
-    const pt = pts[i] || [0, 0];
-    out.push({ name: names[i], x: pt[0], z: pt[1], owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS });
-  }
-  return out;
+  const flags = (typeof getActiveMap === 'function' && getActiveMap().dominationFlags) ||
+                (typeof CORE !== 'undefined' && CORE.getMapDef && CORE.getMapDef('urban').dominationFlags) ||
+                [{ name: 'A', x: -18, z: 0 }, { name: 'B', x: 0, z: 18 }, { name: 'C', x: 18, z: 0 }];
+  return flags.map(function (f) {
+    return { name: f.name, x: f.x, z: f.z, owner: 'neutral', capture: 0, radius: CORE.DOMINATION_FLAG_RADIUS };
+  });
 }
 
 MODES.domination = {
@@ -16717,7 +16917,7 @@ function sdCapsule(r0, r1, len, seg) {
   pts.sort(function (p, q) { return p.y - q.y; });
   return new THREE.LatheGeometry(pts, seg || 14);
 }
-function sdLathe(profile, seg) {   // profile: [[radius, y], ...] bottom -> top
+function sdLathe(profile, seg) {
   return new THREE.LatheGeometry(profile.map(function (p) { return new THREE.Vector2(p[0] + 1e-4, p[1]); }), seg || 14);
 }
 const _sdBoxCache = {};
@@ -16778,15 +16978,15 @@ function sdSkinRig(root) {
   const byMat = new Map();
   for (let i = 0; i < pieces.length; i++) {
     const c = pieces[i];
-    const g = c.geometry.clone().applyMatrix4(c.matrixWorld);   // root sits at the origin
+    const g = c.geometry.clone().applyMatrix4(c.matrixWorld);
     if (!byMat.has(c.material)) byMat.set(c.material, []);
     byMat.get(c.material).push({ g: g, bone: boneIdx.has(c.parent) ? boneIdx.get(c.parent) : 0 });
     c.parent.remove(c);
   }
-  const skeleton = new THREE.Skeleton(bones);   // inverses from this rest pose
+  const skeleton = new THREE.Skeleton(bones);
   byMat.forEach(function (list, mat) {
     const sm = new THREE.SkinnedMesh(sdMergeSkinGeo(list), mat);
-    sm.frustumCulled = false;   // bind-pose bounds go stale as soon as it moves
+    sm.frustumCulled = false;
     sm.castShadow = true; sm.receiveShadow = true;
     root.add(sm);
     sm.bind(skeleton, new THREE.Matrix4());
@@ -16833,8 +17033,8 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(spine, sdBoxG(0.086, 0.02, 0.064), SDM.strap, i * 0.095, 0.27, 0.186 * vestS);
   }
   sdPiece(spine, sdBoxG(0.06, 0.13, 0.05), SDM.pouch, 0.15, 0.4, 0.12);
-  sdPiece(spine, sdCapsule(0.008, 0.008, 0.14, 5), SDM.gunMetal, 0.16, 0.6, 0.12);   // radio antenna
-  sdPiece(spine, sdBoxG(0.3, 0.28, 0.05), K.vest, 0, 0.3, -0.15 * vestS);             // back plate
+  sdPiece(spine, sdCapsule(0.008, 0.008, 0.14, 5), SDM.gunMetal, 0.16, 0.6, 0.12);
+  sdPiece(spine, sdBoxG(0.3, 0.28, 0.05), K.vest, 0, 0.3, -0.15 * vestS);
   if (heavy) {
     for (const sx of [-1, 1]) sdPiece(spine, sdLathe([[0.02, -0.05], [0.12, 0.0], [0.11, 0.05], [0.02, 0.08]], 12), SDM.plate, sx * 0.25, 0.44, 0, 0, 0, sx * 0.4, 1, 1, 1.1);
     sdPiece(spine, sdLathe([[0.14, 0.44], [0.13, 0.52], [0.1, 0.56]], 14), SDM.plate, 0, 0, 0, 0, 0, 0, 1, 1, 0.9);
@@ -16848,13 +17048,13 @@ function buildSoldierTemplate(kind, team) {
       sdPiece(spine, new THREE.SphereGeometry(0.042, 10, 8), SDM.nade, -0.13 + t * 0.26, 0.42 - t * 0.28, 0.2);
     }
   }
-  if (kind === 0 || kind === 4) sdPiece(spine, sdLathe([[0.2, 0.3], [0.21, 0.36]], 16), SDM.strap, 0, 0, 0, 0, 0, 0, 1, 1, 0.72);   // chest rig strap only
+  if (kind === 0 || kind === 4) sdPiece(spine, sdLathe([[0.2, 0.3], [0.21, 0.36]], 16), SDM.strap, 0, 0, 0, 0, 0, 0, 1, 1, 0.72);
   const neck = sdJoint(spine, 'neck', 0, 0.5, 0.0);
   const bare = !K.helmet;
   sdPiece(neck, sdCapsule(0.05, 0.055, 0.09, 8), bare ? SDM.skin : SDM.mask, 0, 0.09, 0, Math.PI, 0, 0);
   const head = sdJoint(neck, 'head', 0, 0.09, 0.01);
   sdPiece(head, new THREE.SphereGeometry(1, 16, 12), bare ? SDM.skin : SDM.mask, 0, 0.1, 0.01, 0, 0, 0, 0.1, 0.125, 0.115);
-  sdPiece(head, new THREE.SphereGeometry(1, 12, 8), SDM.mask, 0, 0.06, 0.08, 0, 0, 0, 0.07, 0.06, 0.05);   // jaw / lower face
+  sdPiece(head, new THREE.SphereGeometry(1, 12, 8), SDM.mask, 0, 0.06, 0.08, 0, 0, 0, 0.07, 0.06, 0.05);
   if (K.helmet) {
     const shell = new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55);
     sdPiece(head, shell, K.helmet, 0, 0.12, 0.0, 0, 0, 0, 0.135, 0.13, 0.145);
@@ -16865,12 +17065,12 @@ function buildSoldierTemplate(kind, team) {
       const slit = sdPiece(head, sdBoxG(0.16, 0.012, 0.01), SDM.slit, 0, 0.115, 0.148);
       slit.userData.keep = false;
     } else {
-      sdPiece(head, sdBoxG(0.05, 0.035, 0.04), SDM.gunMetal, 0, 0.19, 0.135);        // NVG mount
+      sdPiece(head, sdBoxG(0.05, 0.035, 0.04), SDM.gunMetal, 0, 0.19, 0.135);
       for (const sx of [-0.035, 0.035]) {
         sdPiece(head, new THREE.CylinderGeometry(0.02, 0.024, 0.07, 10), SDM.gun, sx, 0.15, 0.17, Math.PI / 2 - 0.2, 0, 0);
         sdPiece(head, new THREE.CircleGeometry(0.018, 12), SDM.nvg, sx, 0.158, 0.206, -0.2, 0, 0);
       }
-      if (kind === 5 || kind === 3) sdPiece(head, sdBoxG(0.2, 0.05, 0.02), SDM.lens, 0, 0.12, 0.118);   // goggles
+      if (kind === 5 || kind === 3) sdPiece(head, sdBoxG(0.2, 0.05, 0.02), SDM.lens, 0, 0.12, 0.118);
     }
   } else {
     sdPiece(head, new THREE.SphereGeometry(1, 16, 12), SDM.mask, 0, 0.1, 0.01, 0, 0, 0, 0.104, 0.128, 0.118);
@@ -16882,26 +17082,26 @@ function buildSoldierTemplate(kind, team) {
     const S = side > 0 ? 'L' : 'R';
     const sh = sdJoint(spine, 'sh' + S, side * 0.2, 0.44, 0);
     sdPiece(sh, sdCapsule(0.062, 0.05, 0.27, 10), K.cloth, 0, 0, 0);
-    if (!heavy) sdPiece(sh, sdCapsule(0.066, 0.062, 0.06, 10), K.vest, 0, 0.0, 0);    // shoulder pad
+    if (!heavy) sdPiece(sh, sdCapsule(0.066, 0.062, 0.06, 10), K.vest, 0, 0.0, 0);
     const el = sdJoint(sh, 'el' + S, 0, -0.29, 0);
     sdPiece(el, sdCapsule(0.048, 0.042, 0.24, 10), K.cloth, 0, 0, 0);
     if (heavy) sdPiece(el, sdCapsule(0.056, 0.05, 0.14, 10), SDM.plate, 0, -0.02, 0.01);
     const ha = sdJoint(el, 'ha' + S, 0, -0.26, 0);
     sdPiece(ha, sdCapsule(0.042, 0.036, 0.07, 8), SDM.glove, 0, 0.02, 0, 0, 0, 0, 1, 1, 0.8);
-    sdPiece(ha, sdBoxG(0.06, 0.05, 0.035), SDM.glove, 0, -0.07, 0.015);             // fingers
+    sdPiece(ha, sdBoxG(0.06, 0.05, 0.035), SDM.glove, 0, -0.07, 0.015);
     const m = new THREE.Object3D(); m.name = 'mHand' + S; m.position.set(0, -0.06, 0); ha.add(m);
   }
   for (const side of [1, -1]) {
     const S = side > 0 ? 'L' : 'R';
     const hp = sdJoint(hips, 'hip' + S, side * 0.1, -0.05, 0);
     sdPiece(hp, sdCapsule(0.085, 0.064, 0.4, 10), K.pants, 0, 0, 0);
-    sdPiece(hp, sdBoxG(0.05, 0.12, 0.09), K.pants, side * 0.085, -0.2, 0.0);       // cargo pocket
-    sdPiece(hp, sdBoxG(0.012, 0.03, 0.12), SDM.strap, side * 0.075, -0.12, 0.0);   // thigh strap
+    sdPiece(hp, sdBoxG(0.05, 0.12, 0.09), K.pants, side * 0.085, -0.2, 0.0);
+    sdPiece(hp, sdBoxG(0.012, 0.03, 0.12), SDM.strap, side * 0.075, -0.12, 0.0);
     const kn = sdJoint(hp, 'kn' + S, 0, -0.43, 0);
     sdPiece(kn, sdCapsule(0.062, 0.05, 0.36, 10), K.pants, 0, 0, 0);
-    sdPiece(kn, sdLathe([[0.02, -0.05], [0.07, -0.02], [0.07, 0.05], [0.02, 0.08]], 10), heavy ? SDM.plate : SDM.strap, 0, -0.02, 0.045, 0, 0, 0, 1, 1, 0.6);   // knee pad
+    sdPiece(kn, sdLathe([[0.02, -0.05], [0.07, -0.02], [0.07, 0.05], [0.02, 0.08]], 10), heavy ? SDM.plate : SDM.strap, 0, -0.02, 0.045, 0, 0, 0, 1, 1, 0.6);
     const an = sdJoint(kn, 'an' + S, 0, -0.41, 0);
-    sdPiece(an, sdCapsule(0.055, 0.05, 0.1, 10), SDM.boot, 0, 0.08, 0);          // boot shaft
+    sdPiece(an, sdCapsule(0.055, 0.05, 0.1, 10), SDM.boot, 0, 0.08, 0);
     sdPiece(an, sdBoxG(0.1, 0.07, 0.24), SDM.boot, 0, -0.01, 0.055);
     sdPiece(an, sdBoxG(0.105, 0.025, 0.25), SDM.sole, 0, -0.05, 0.057);
     const m = new THREE.Object3D(); m.name = 'mFoot' + S; m.position.set(0, -0.03, 0.04); an.add(m);
@@ -16913,22 +17113,22 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(knife, sdBoxG(0.012, 0.035, 0.2), SDM.blade, 0, 0, 0.1);
     sdPiece(knife, sdBoxG(0.025, 0.04, 0.09), SDM.gun, 0, 0, -0.03);
   } else if (kind === 6) {
-    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);                      // receiver
-    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);   // barrel
-    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0); // tube
-    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);               // pump
-    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);               // stock
-    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);   // shells
-    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);    // grip
+    sdPiece(gun, sdBoxG(0.05, 0.08, 0.26), SDM.gun, 0, 0, 0.0);
+    sdPiece(gun, sdCapsule(0.016, 0.016, 0.4, 8), SDM.gunMetal, 0, 0.02, 0.33, Math.PI / 2, 0, 0);
+    sdPiece(gun, sdCapsule(0.015, 0.015, 0.3, 8), SDM.gunMetal, 0, -0.018, 0.28, Math.PI / 2, 0, 0);
+    sdPiece(gun, sdBoxG(0.06, 0.055, 0.14), SDM.gun, 0, -0.016, 0.24);
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.24), SDM.gun, 0, -0.02, -0.24);
+    for (let i = 0; i < 5; i++) sdPiece(gun, sdBoxG(0.012, 0.018, 0.03), SDM.nade, 0.028, -0.01, -0.3 + i * 0.03);
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.06, -0.3, 0, 0);
   } else {
     const lmg = heavy;
-    sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);                    // receiver
-    sdPiece(gun, sdBoxG(0.05, 0.05, 0.22), SDM.gun, 0, 0.012, 0.32);                  // handguard
-    sdPiece(gun, sdCapsule(0.012, 0.012, 0.22, 8), SDM.gunMetal, 0, 0.015, 0.43, Math.PI / 2, 0, 0);   // barrel
-    sdPiece(gun, sdBoxG(0.045, 0.08, 0.2), SDM.gun, 0, -0.01, -0.22);                 // stock
-    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.02, -0.3, 0, 0);    // grip
-    sdPiece(gun, lmg ? sdBoxG(0.1, 0.12, 0.12) : sdBoxG(0.04, 0.13, 0.07), lmg ? SDM.pouch : SDM.gun, lmg ? 0.05 : 0, -0.1, 0.12, lmg ? 0 : 0.15, 0, 0);   // mag / box
-    sdPiece(gun, sdCapsule(0.02, 0.02, 0.06, 10), SDM.gun, 0, 0.075, 0.06, Math.PI / 2, 0, 0);   // optic
+    sdPiece(gun, sdBoxG(0.055, 0.09, 0.38), SDM.gun, 0, 0, 0.05);
+    sdPiece(gun, sdBoxG(0.05, 0.05, 0.22), SDM.gun, 0, 0.012, 0.32);
+    sdPiece(gun, sdCapsule(0.012, 0.012, 0.22, 8), SDM.gunMetal, 0, 0.015, 0.43, Math.PI / 2, 0, 0);
+    sdPiece(gun, sdBoxG(0.045, 0.08, 0.2), SDM.gun, 0, -0.01, -0.22);
+    sdPiece(gun, sdBoxG(0.035, 0.1, 0.045), SDM.gun, 0, -0.08, -0.02, -0.3, 0, 0);
+    sdPiece(gun, lmg ? sdBoxG(0.1, 0.12, 0.12) : sdBoxG(0.04, 0.13, 0.07), lmg ? SDM.pouch : SDM.gun, lmg ? 0.05 : 0, -0.1, 0.12, lmg ? 0 : 0.15, 0, 0);
+    sdPiece(gun, sdCapsule(0.02, 0.02, 0.06, 10), SDM.gun, 0, 0.075, 0.06, Math.PI / 2, 0, 0);
     sdPiece(gun, new THREE.CircleGeometry(0.018, 10), SDM.lens, 0, 0.075, 0.121);
   }
   if (kind === 3) {
@@ -16937,7 +17137,7 @@ function buildSoldierTemplate(kind, team) {
     sdPiece(shd, sdBoxG(0.6, 0.04, 0.05), SDM.strap, 0, 0.47, 0);
     sdPiece(shd, sdBoxG(0.6, 0.04, 0.05), SDM.strap, 0, -0.47, 0);
     sdPiece(shd, sdBoxG(0.3, 0.09, 0.04), SDM_SHIELD_GLASS, 0, 0.3, 0.004);
-    sdPiece(shd, sdBoxG(0.08, 0.03, 0.04), SDM.slit, 0.2, 0.4, 0.01);            // strobe
+    sdPiece(shd, sdBoxG(0.08, 0.03, 0.04), SDM.slit, 0.2, 0.4, 0.01);
   }
   const hbMat = new THREE.MeshBasicMaterial({ visible: false });
   const hitHead = sdPiece(head, sdBoxG(0.3, 0.3, 0.3), hbMat, 0, 0.11, 0.02); hitHead.name = 'hitHead'; hitHead.userData.keep = true;
@@ -16982,7 +17182,7 @@ function sdSpring(s, k, c, dt) {
 function soldierHitReact(en, dir, strength, isHead) {
   if (!en.react) return;
   const fx = Math.sin(en.bodyYaw || en.yaw), fz = Math.cos(en.bodyYaw || en.yaw);
-  const along = dir ? dir.x * fx + dir.z * fz : -1;          // + = pushed toward the back? (dir points away from shooter)
+  const along = dir ? dir.x * fx + dir.z * fz : -1;
   const side = dir ? dir.x * fz - dir.z * fx : 0;
   const s = Math.min(1.5, strength);
   (isHead ? en.reactHead : en.react).vx += along * 9 * s;
@@ -17028,7 +17228,7 @@ function animateSoldier(en, dt, dist) {
   const aiming = (en.kind === 1 && en.state === 'strafe') || (en.kind === 2 && dist < 22) || (en.kind === 5 && en.state === 'strafe') || (en.kind === 6 && dist < CORE.BREACHER_RANGE + 4);
   const pitch = Math.atan2(player.pos.y - (en.pos.y + 1.45), Math.max(0.5, dist));
   let lean = 0.08 * moveK + run * 0.2 + cr * 0.25 + ((en.kind === 0 || en.kind === 4) && en.state === 'chase' ? 0.15 : 0);
-  if (en.kind === 3) lean += 0.12;   // shoulder into the shield
+  if (en.kind === 3) lean += 0.12;
   J.spine.rotation.set(lean + en.react.x - (aiming ? pitch * 0.45 : 0), twist * 0.7 - J.hips.rotation.y, en.react.z + Math.sin(ph + 0.5) * 0.03 * moveK);
   J.neck.rotation.set(-(aiming ? pitch * 0.4 : pitch * 0.2) - lean * 0.5, twist * 0.3, 0);
   J.head.rotation.set(en.reactHead.x, 0, en.reactHead.z * 0.5);
@@ -17385,7 +17585,7 @@ function clearBloodPools() {
 // ============ ENEMIES & AI ============
 'use strict';
 const enemies = [];
-let meleeHits = [];   // timestamps of landed melee hits (global damage cap)
+let meleeHits = [];
 
 const EMAT = {
   skin: new THREE.MeshStandardMaterial({ color: 0x9c7a5e, roughness: 0.9 }),
@@ -17400,7 +17600,7 @@ const EMAT = {
 
 const E_DIM = {
   bodyW: 0.5, bodyH: 0.62, bodyD: 0.3,
-  pelvisH: 0.95, // hip height
+  pelvisH: 0.95,
   headS: 0.26,
   legH: 0.9, legR: 0.09,
   armH: 0.68, armR: 0.06
@@ -17498,10 +17698,10 @@ function spawnEnemy(kind, x, z, opts) {
     spawnProtectionT: (typeof spawnOpts.spawnProtection === 'number')
       ? spawnOpts.spawnProtection
       : (spawnOpts.spawnProtection ? (typeof CORE !== 'undefined' ? CORE.SPAWN_PROTECTION_DURATION : 2.0) : 0),
-    blindT: 0, stunT: 0,      // flashbang / stun grenade timers
+    blindT: 0, stunT: 0,
     elite: isElite,
     kind: kind,
-    eliteRing: null,               // 0=runner(melee), 1=rifleman, 2=tank(slow heavy)
+    eliteRing: null,
     pos: new THREE.Vector3(x, 0, z),
     vel: new THREE.Vector3(),
     yaw: initYaw,
@@ -17685,7 +17885,7 @@ function killEnemy(en, isHead, killer, damageType) {
     addScore((CFG.score.kill + (isHead ? CFG.score.headshot : 0)) * eliteMul,
       en.elite ? 'ELITE DOWN' : isHead ? 'Headshot kill' : 'Hostile down');
     if (en.elite) addCredits(CORE.creditsForDamage(true, isHead) * (CORE.ELITE.creditMul - 1));
-    registerKillT();   // multi-kill streak bonus (2+ kills within 4 s)
+    registerKillT();
     kills++;
     if (isHead) headshots++;
     if (CORE.powerUpDropped(Math.random())) dropPowerUp(en.pos);
@@ -17806,7 +18006,7 @@ function moveEnemy(en, dt, dist) {
 const losRay = new THREE.Raycaster();
 const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
-let losFrame = 0;   // round-robin: each enemy checks LOS at most every 3 frames
+let losFrame = 0;
 function hasLOS(en, target) {
   const tgt = target || en.target || player;
   if (en._losSkip === undefined) en._losSkip = 0;
@@ -17989,13 +18189,13 @@ function updateEnemies(dt) {
       if (!en.stuck) en.stuck = {};
       const verdict = CORE.updateStuck(en.stuck, en.pos.x, en.pos.z, dt);
       if (verdict === 'repath') {
-        flowT = 0; flowCellX = -9999;              // force a fresh flood next tick
+        flowT = 0; flowCellX = -9999;
         en.strafeDir *= -1;
       } else if (verdict === 'teleport') {
         relocateStuckEnemy(en);
       }
     } else if (en.stuck) {
-      en.stuck = null;                             // arrived: forget the stall history
+      en.stuck = null;
     }
     if (closing) {
       if (!en.progress) en.progress = {};
@@ -18046,7 +18246,7 @@ function updateEnemies(dt) {
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           }
         }
-        en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;                        // cooldown marker
+        en.swinging = CORE.ENEMY_MELEE_COOLDOWN_SENTINEL;
         en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.kind), Math.random());
       }
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
@@ -18081,7 +18281,7 @@ function updateEnemies(dt) {
     if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
       en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
-      if (!hasLOS(en, target)) throwEnemyGrenade(en, target);   // only when the target IS in cover
+      if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
     }
     animateEnemy(en, dt, dist);
   }
@@ -18132,7 +18332,7 @@ function throwEnemyGrenade(en, target) {
   const tgt = target || en.target || player;
   if (typeof liveGrenades === 'undefined' || !CORE.canSpawnEnemyGrenade(liveGrenades.length, CORE.ENEMY_LIVE_GRENADES_CAP)) return;
   en.spawnProtectionT = 0;
-  en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;   // throwing arm pose (38_soldier.js)
+  en.throwT = CORE.ENEMY_GRENADE_ARM_DURATION;
   const m = new THREE.Mesh(grenadeGeo, grenadeMat);
   const blink = new THREE.Mesh(fuseBlinkGeo, fuseLightMat);
   blink.position.y = 0.1; m.add(blink);
@@ -18167,7 +18367,7 @@ function enemyShoot(en, dist, target) {
   const earnedWeapon = gunGameBotWeapon(en);
   if (earnedWeapon && (earnedWeapon.type === 'MELEE' || dist > earnedWeapon.range)) return;
   const shotType = earnedWeapon ? earnedWeapon.type : CORE.enemyWeaponType(en.kind, en.elite);
-  if (en.blindT > 0) return;   // cannot aim at what it cannot see
+  if (en.blindT > 0) return;
   en.spawnProtectionT = 0;
   playSound3D(CORE.enemyGunfireSound(en.elite, en.kind), en.pos.x, en.pos.y, en.pos.z);
   en.lastShotT = gameT;
@@ -19101,13 +19301,13 @@ function spawnImpact(point, normal, obj, soundOverride, weaponType) {
   else playSound(impSnd);
 }
 
-const decalGeo = new THREE.PlaneGeometry(CORE.DECAL_BASE_RADIUS * 2, CORE.DECAL_BASE_RADIUS * 2);   // 15 cm base quad — reads at 15–40 m engagement range
+const decalGeo = new THREE.PlaneGeometry(CORE.DECAL_BASE_RADIUS * 2, CORE.DECAL_BASE_RADIUS * 2);
 const decalMat = new THREE.MeshBasicMaterial({
   map: TEX.bulletHole,
   transparent: true,
   opacity: 0.92,
-  depthWrite: false,                                  // draw like a decal, not a solid
-  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
+  depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
 });
 const DECAL = { max: CORE.DECAL_MAX, live: [], pool: [] };
 const _tmpD = new THREE.Vector3();
@@ -19121,7 +19321,7 @@ function spawnDecal(point, normal, obj, weaponType) {
     d = DECAL.live.shift();
   } else {
     const m = new THREE.Mesh(decalGeo, decalMat);
-    m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
+    m.userData.vfx = true;
     m.userData.decal = true;
     m.renderOrder = 1;
     scene.add(m);
@@ -19176,7 +19376,7 @@ function spawnBlood(point, isHead, weaponType) {
   fxBlood(point, _bloodDir, isHead, weaponType);
 }
 
-let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
+let casingSndT = 0;
 const casings = [];
 const casingRecPool = [];
 const _casingRight = new THREE.Vector3();
@@ -19344,7 +19544,7 @@ function updateVfx(dt) {
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
         impactPool.push(im.m);
       } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
-        releaseBlastFlash(im.m);   // shared geo/material: recycle, never dispose
+        releaseBlastFlash(im.m);
       } else {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
@@ -19477,9 +19677,9 @@ const SOUND_RECIPES = {
   jump:        [['noise', 0.06, 0.06, 700, 1]],
   land:        [['noise', 0.08, 0.12, 300, 0.8]],
   click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
-  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
-  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
-  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]], // bright medkit chime
+  estep:       [['noise', 0.05, 0.06, 320, 1]],
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]],
   streak_uav:        [['osc', 'sine', 880, 1760, 0.14, 0.22], ['osc', 'sine', 1760, 880, 0.12, 0.12], ['noise', 0.08, 0.12, 3200, 2]],
   streak_airstrike:  [['noise', 0.55, 0.45, 280, 0.5], ['osc', 'sawtooth', 160, 65, 0.45, 0.26], ['noise', 0.35, 0.3, 850, 0.8]],
   streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
@@ -19655,7 +19855,7 @@ function playSound(name, dest, skipThrottle) {
   if (!recipe) return;
   if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
   buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
-  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+  renderSoundBuffer(name);
 }
 
 const _spatialAudioOut = { dist: 0, pan: 0, vol: 0, cutoff: 0, audible: false };
@@ -19739,7 +19939,7 @@ function buildMusicGraph() {
 
   MUSIC.ctx = ctx;
   MUSIC.bus = ctx.createGain();
-  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  MUSIC.bus.gain.value = 0;
   MUSIC.comp = ctx.createDynamicsCompressor();
   MUSIC.comp.threshold.value = -18; MUSIC.comp.ratio.value = 3;
   MUSIC.comp.attack.value = 0.01; MUSIC.comp.release.value = 0.25;
@@ -19852,7 +20052,7 @@ function musDrum(ctx, t, kind, vel, out) {
     const g = musEnv(ctx, t, 0.5 * vel, 0.003, 0, dur, out);
     o.connect(g); o.start(t); o.stop(t + dur + 0.05);
     if (kind !== 'kick') musNoise(ctx, t, dur * 0.35, 'lowpass', 260, 0.7, 0.18 * vel, out);
-    else musNoise(ctx, t, 0.02, 'highpass', 2500, 0.7, 0.05 * vel, out);   // beater click
+    else musNoise(ctx, t, 0.02, 'highpass', 2500, 0.7, 0.05 * vel, out);
   } else if (kind === 'snare') {
     musNoise(ctx, t, 0.17, 'bandpass', 1900, 0.8, 0.32 * vel, out);
     const o = musOsc(ctx, 'triangle', 190, 0);
@@ -19899,7 +20099,7 @@ function stopMusic() {
   if (MUSIC.bus) {
     const t = MUSIC.ctx.currentTime;
     MUSIC.bus.gain.cancelScheduledValues(t);
-    MUSIC.bus.gain.setTargetAtTime(0, t, 0.05);   // fast, but not a click
+    MUSIC.bus.gain.setTargetAtTime(0, t, 0.05);
   }
 }
 
@@ -19925,7 +20125,7 @@ function updateMusic(dt, state) {
   for (const k in MUSIC.layers) MUSIC.layers[k].gain.setTargetAtTime(gains[k], now, 0.35);
 
   if (MUSIC.nextT < now - 0.05) MUSIC.nextT = now + 0.05;
-  if (vol <= 0) {            // muted: keep time, schedule nothing
+  if (vol <= 0) {
     const st = CORE.musicStepSeconds();
     while (MUSIC.nextT < now + MUSIC_LOOKAHEAD) { MUSIC.nextT += st; MUSIC.step++; }
     return;
@@ -20792,25 +20992,9 @@ function updatePickups(dt) {
 
 const stations = [];
 
-const STATION_LAYOUT = [
-  { kind: 'wall', x: -37, z:  30, weapon: 1 },   // MK18
-  { kind: 'wall', x:  34, z:  30, weapon: 0 },   // M4
-  { kind: 'wall', x: -30, z: -32, weapon: 2 },   // SCAR-H
-  { kind: 'wall', x:  31, z: -37, weapon: 3 },   // SV-98
-  { kind: 'wall', x: -40, z:  -4, weapon: 4 },   // M870, west flank, outside the districts
-  { kind: 'wall', x:  40, z:   4, weapon: 5 },   // M249, east flank, outside the districts
-  { kind: 'armory', x: 0, z: -22 },
-  { kind: 'plate',  x: 0, z:  20 },
-  { kind: 'perk', x: -21, z:  10, perk: 'jugg' },
-  { kind: 'perk', x:  21, z:  10, perk: 'reload' },
-  { kind: 'perk', x: -21, z: -10, perk: 'steady' },
-  { kind: 'perk', x:  21, z: -10, perk: 'scav' },
-  { kind: 'perk', x:   0, z:  34, perk: 'wind' },
-  { kind: 'lethal',   x: -12, z:  20 },
-  { kind: 'tactical', x:  12, z:  20 },
-  { kind: 'door', x: 31, z: -11, district: 'ne' },
-  { kind: 'door', x: -31, z: 11, district: 'sw' }
-];
+const STATION_LAYOUT = (typeof CORE !== 'undefined' && CORE.getMapDef)
+  ? CORE.getMapDef('urban').stationLayout
+  : [];
 
 const DISTRICT_BARRIERS = {
   ne: { wall: [18, 1.6, -30, 0.8, 3.2, 30], door: [31, 1.6, -15, 26, 3.2, 0.8] },
@@ -20893,8 +21077,9 @@ function stationMaterial(kind) {
 }
 
 function buildStations() {
-  for (let i = 0; i < STATION_LAYOUT.length; i++) {
-    const def = STATION_LAYOUT[i];
+  const layout = (typeof getActiveMap === 'function' && getActiveMap().stationLayout) || STATION_LAYOUT;
+  for (let i = 0; i < layout.length; i++) {
+    const def = layout[i];
     const mat = stationMaterial(def.kind);
     addBox(def.x, 0.9, def.z, 1.4, 1.8, 0.45, mat, { pen: 'metal' });
     addBox(def.x, 1.86, def.z, 1.5, 0.12, 0.55, MAT.accent, { noCollide: true, pen: 'metal' });
@@ -22071,7 +22256,7 @@ function pushKillfeed(html) {
   setTimeout(function () { if (li.parentNode) li.remove(); }, 4200);
 }
 const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a', 6: '#e0503a' };
-const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
+const MK_WINDOW = CORE.MK_WINDOW || 4;
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
   killStreak = CORE.advanceKillStreak(killStreak, lastKillT, gameT, MK_WINDOW);
@@ -22088,7 +22273,7 @@ let waveNum = 0, score = 0, kills = 0, headshots = 0;
 let shotsFired = 0, shotsHit = 0;
 let waveQueue = 0, spawnTimer = 0, waveActive = false, gameEnded = false, gameT = 0;
 let betweenWaveT = 0;
-let nextEstepT = 0;   // global throttle for positional enemy footsteps
+let nextEstepT = 0;
 let runId = 0;
 let runDifficulty = 'regular';
 let endlessMode = false;
@@ -22119,6 +22304,7 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
     spawnProtectionT: 0,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
@@ -22288,13 +22474,13 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
-      clearObjective();   // the zone belongs to the wave that spawned it
-      reviveFromDown();   // holding out to the wave clear is the other way back up
+      clearObjective();
+      reviveFromDown();
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
-      saveCheckpoint(captureRunState());   // between waves = the only safe save point
-      showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
+      saveCheckpoint(captureRunState());
+      showWaveBanner(waveNum, true);
     }
   } else {
     betweenWaveT -= dt;
@@ -22334,11 +22520,8 @@ function aliveEnemies() {
 
 const spawnPoints = [];
 (function () {
-  const R = CFG.world.size / 2 - 6;
-  for (let a = 0; a < 12; a++) {
-    const ang = a / 12 * Math.PI * 2;
-    spawnPoints.push([Math.cos(ang) * (R - 6), Math.sin(ang) * (R - 6)]);
-  }
+  const pts = (typeof getActiveMap === 'function' && getActiveMap().spawnPoints) || (typeof CORE !== 'undefined' && CORE.getMapDef && CORE.getMapDef('urban').spawnPoints);
+  if (pts) for (let i = 0; i < pts.length; i++) spawnPoints.push([pts[i][0], pts[i][1]]);
 })();
 function spawnFromQueue() {
   waveQueue--;
@@ -22364,8 +22547,11 @@ function spawnFromQueue() {
 }
 
 function openSpawnPoints() {
-  const usable = CORE.usableSpawnPoints(spawnPoints, openDistricts);
-  return usable.length ? usable : spawnPoints;
+  const m = (typeof getActiveMap === 'function') ? getActiveMap() : null;
+  const pts = (m && m.spawnPoints) || spawnPoints;
+  const dists = (m && m.districts) || openDistricts;
+  const usable = (typeof CORE !== 'undefined' && CORE.usableSpawnPoints) ? CORE.usableSpawnPoints(pts, openDistricts, dists) : pts;
+  return usable.length ? usable : pts;
 }
 
 function resupply() {
@@ -22390,7 +22576,7 @@ function unlockSecondary() {
   refreshWeaponStats(1);
   wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
   wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
-  syncMarksmanSlot();   // a marksman secondary frees slot 3
+  syncMarksmanSlot();
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound(CORE.secondaryUnlockSound(w ? w.type : ''));
@@ -22591,7 +22777,7 @@ function drawCompass() {
   cpCtx.font = 'bold 11px Segoe UI';
   cpCtx.textAlign = 'center';
   const heading = CORE.compassHeading(player.yaw);
-  const pxPerDeg = w / 90;   // 90 degrees of heading across the visible strip
+  const pxPerDeg = w / 90;
   for (let d = -60; d <= 60; d += 5) {
     const deg = CORE.compassTickAngle(heading, d);
     const dispDeg = CORE.compassSnapAngle(deg, 5);
@@ -22853,7 +23039,7 @@ function killPlayer(killer) {
   if (!activeMode || activeMode.id === 'survival') {
     const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
     const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-    clearCheckpoint();   // a lost run is not resumable
+    clearCheckpoint();
     const delta = settlementDelta();
     const beat = recordRun({ score: delta.score, wave: delta.wave,
       accuracy: delta.accuracy, recordScore: delta.recordScore,
@@ -22899,7 +23085,7 @@ function victory() {
 function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
-  paused = false;   // never reset into a paused state
+  paused = false;
   if (typeof document !== 'undefined') {
     if (!started && document.body) document.body.classList.remove('started');
     if (!started && document.pointerLockElement) document.exitPointerLock();
@@ -22993,7 +23179,7 @@ function resetGame() {
     grenades.count = (typeof CFG !== 'undefined' && CFG.grenade && CFG.grenade.count) || 2;
     grenades.cd = 0;
   }
-  if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
+  if (typeof clearDecals === 'function') clearDecals();
   if (typeof clearParticles === 'function') clearParticles();
   if (typeof clearBloodPools === 'function') clearBloodPools();
   if (typeof clearInputState === 'function') clearInputState();
@@ -23029,7 +23215,7 @@ function resetGame() {
   if (typeof credits !== 'undefined') credits = 0;
   if (typeof powerUntil !== 'undefined' && powerUntil) { powerUntil.double = -99; powerUntil.instakill = -99; }
   if (typeof hud !== 'undefined' && hud && hud.credits) hud.credits.textContent = '0';
-  if (typeof runId !== 'undefined') runId++;   // invalidate anything the previous run scheduled
+  if (typeof runId !== 'undefined') runId++;
   if (typeof waveNum !== 'undefined') waveNum = 0;
   if (typeof score !== 'undefined') score = 0;
   if (typeof kills !== 'undefined') kills = 0;
@@ -23073,10 +23259,10 @@ function resetGame() {
   if (typeof gameEnded !== 'undefined') gameEnded = false;
   if (typeof betweenWaveT !== 'undefined') betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) || 3;
   if (typeof killStreak !== 'undefined') killStreak = 0;
-  if (typeof lastKillT !== 'undefined') lastKillT = -99;   // multi-kill streak state
+  if (typeof lastKillT !== 'undefined') lastKillT = -99;
   if (typeof hudRedrawT !== 'undefined') hudRedrawT = 1;
   if (typeof lastHudYaw !== 'undefined') lastHudYaw = player.yaw;
-  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;   // force immediate HUD redraw on new run
+  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
   if (typeof curWeapon !== 'undefined') curWeapon = 0;
@@ -23091,7 +23277,7 @@ function resetGame() {
     if (hud.killfeed) hud.killfeed.innerHTML = '';
     if (hud.waveBanner) {
       if (typeof hud.waveBanner._t !== 'undefined') clearTimeout(hud.waveBanner._t);
-      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;
     }
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
@@ -23453,8 +23639,8 @@ function buildGunSelect(slot) {
   wrap.innerHTML = '';
   const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
-    if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
-    if (w.sidearm) return;                                       // always carried
+    if (pickingSlot === 1 && i === weaponsOwned[0]) return;
+    if (w.sidearm) return;
     const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
     card.className = 'gun-card' + (unlocked ? '' : ' locked');
@@ -23494,15 +23680,15 @@ function pickGun(i) {
   if (pickingSlot === 0) {
     weaponsOwned[0] = i;
     weaponsOwned[1] = -1;
-    buildGunSelect(1);        // now choose what gets unlocked on the first wave clear
+    buildGunSelect(1);
     return;
   }
   pendingSecondary = i;
   weaponsOwned[1] = i;
   endlessMode = false;
-  clearCheckpoint();          // starting fresh invalidates any saved run
+  clearCheckpoint();
   $id('gun-select').style.display = 'none';
-  paused = false;              // always start unpaused — fixes frozen redeploy
+  paused = false;
   $id('pause-menu').style.display = 'none';
   startGame();
 }
@@ -23527,11 +23713,11 @@ function startGame() {
     });
   }
   started = true;
-  paused = false;              // belt & suspenders
+  paused = false;
   resetGame();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!activeMode || activeMode.id === 'survival') {
-    showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+    showWaveBanner(0);
     startMusic();
   } else {
     updateMatchHud(activeMode);
@@ -23548,6 +23734,8 @@ function resumeRun() {
   if (typeof setActiveMode === 'function') setActiveMode('survival');
   else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
   if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
+  const mapToRestore = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(cp.mapId) : (cp.mapId || 'urban');
+  if (typeof setActiveMap === 'function') setActiveMap(mapToRestore);
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -23587,7 +23775,7 @@ function resumeRun() {
   plates = cp.plates || 0;
   updateHudPerks(); updateHudPlates();
   grenades.count = cp.grenades;
-  waveNum = cp.wave;                  // next startWave() call is wave+1
+  waveNum = cp.wave;
   waveActive = false; betweenWaveT = CFG.wave.startDelay;
   hud.waveNum.textContent = waveNum;
   hud.scoreVal.textContent = score;
@@ -23666,11 +23854,11 @@ updateFullscreenButtons();
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
   buildGunSelect(0);
-  $id('start-screen').style.display = 'none';   // was left visible, bleeding through
+  $id('start-screen').style.display = 'none';
   $id('gun-select').style.display = 'flex';
   $id('gun-select').scrollTop = 0;
   $id('gun-cards').firstElementChild.focus({ preventScroll: true });
-  audioCtx(); // unlock audio on user gesture
+  audioCtx();
   prerenderSounds();
 });
 $id('btn-settings').addEventListener('click', function () { openSettings('menu'); audioCtx(); });
@@ -23935,13 +24123,13 @@ if (typeof window !== 'undefined') {
 
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
-let qualityAdjustT = 0; // avoid resolution thrashing every half-second
-let upscaleStreak = 0;  // consecutive good samples before raising resolution again
+let qualityAdjustT = 0;
+let upscaleStreak = 0;
 let wasScoped = false;
-let slideFov = 0;   // extra FOV kick while sliding
-let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
-let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
-let hudFlickT = -9;     // gameT of last flick-forced redraw
+let slideFov = 0;
+let hudRedrawT = 0;
+let lastHudYaw = 0;
+let hudFlickT = -9;
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
 const _camPosOut = { x: 0, y: 0 };

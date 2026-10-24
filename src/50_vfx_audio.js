@@ -205,13 +205,16 @@ function spawnImpact(point, normal, obj, soundOverride, weaponType) {
 // One shared material + a fixed pool of 48 quads, FIFO-recycled when full:
 // zero per-shot allocations, zero per-decal clones. Not in raycastColliders,
 // so the scoped AI-LOS raycast can never see them; vfx-tagged for scene-wide rays.
-const decalGeo = new THREE.PlaneGeometry(CORE.DECAL_BASE_RADIUS * 2, CORE.DECAL_BASE_RADIUS * 2);   // 15 cm base quad — reads at 15–40 m engagement range
+// 15 cm base quad — reads at 15–40 m engagement range
+const decalGeo = new THREE.PlaneGeometry(CORE.DECAL_BASE_RADIUS * 2, CORE.DECAL_BASE_RADIUS * 2);
 const decalMat = new THREE.MeshBasicMaterial({
   map: TEX.bulletHole,
   transparent: true,
   opacity: 0.92,
-  depthWrite: false,                                  // draw like a decal, not a solid
-  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4   // beat z-fighting on the wall face
+  // draw like a decal, not a solid
+  depthWrite: false,
+  // beat z-fighting on the wall face
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
 });
 const DECAL = { max: CORE.DECAL_MAX, live: [], pool: [] };
 const _tmpD = new THREE.Vector3();
@@ -225,7 +228,8 @@ function spawnDecal(point, normal, obj, weaponType) {
     d = DECAL.live.shift();
   } else {
     const m = new THREE.Mesh(decalGeo, decalMat);
-    m.userData.vfx = true;    // bullets / grenade LOS pass through every hole
+    // bullets / grenade LOS pass through every hole
+    m.userData.vfx = true;
     m.userData.decal = true;
     m.renderOrder = 1;
     scene.add(m);
@@ -282,7 +286,8 @@ function spawnBlood(point, isHead, weaponType) {
 }
 
 // ---- Shell casings (eject on every shot) ----
-let casingSndT = 0;   // last tink (ms) — throttle so full-auto doesn't spam
+// last tink (ms) — throttle so full-auto doesn't spam
+let casingSndT = 0;
 const casings = [];
 const casingRecPool = [];
 const _casingRight = new THREE.Vector3();
@@ -455,7 +460,8 @@ function updateVfx(dt) {
       if (im.isBulletImpact || (im.m.userData && im.m.userData.isBulletImpact)) {
         impactPool.push(im.m);
       } else if (im.isBlastFlash || (im.m.userData && im.m.userData.blastFlash)) {
-        releaseBlastFlash(im.m);   // shared geo/material: recycle, never dispose
+        // shared geo/material: recycle, never dispose
+        releaseBlastFlash(im.m);
       } else {
         if (im.m.geometry) im.m.geometry.dispose();
         if (im.m.material) im.m.material.dispose();
@@ -604,9 +610,12 @@ const SOUND_RECIPES = {
   jump:        [['noise', 0.06, 0.06, 700, 1]],
   land:        [['noise', 0.08, 0.12, 300, 0.8]],
   click:       [['osc', 'square', 1000, 800, 0.02, 0.08]],
-  estep:       [['noise', 0.05, 0.06, 320, 1]],          // enemy footstep: deeper/thud-ier than player step
-  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],  // metallic ammo-box rattle
-  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]], // bright medkit chime
+  // enemy footstep: deeper/thud-ier than player step
+  estep:       [['noise', 0.05, 0.06, 320, 1]],
+  // metallic ammo-box rattle
+  pickup_ammo: [['osc', 'square', 520, 780, 0.09, 0.12], ['noise', 0.04, 0.10, 2400, 2]],
+  // bright medkit chime
+  pickup_med:  [['osc', 'sine', 660, 990, 0.12, 0.12], ['osc', 'sine', 990, 1320, 0.14, 0.08]],
   streak_uav:        [['osc', 'sine', 880, 1760, 0.14, 0.22], ['osc', 'sine', 1760, 880, 0.12, 0.12], ['noise', 0.08, 0.12, 3200, 2]],
   streak_airstrike:  [['noise', 0.55, 0.45, 280, 0.5], ['osc', 'sawtooth', 160, 65, 0.45, 0.26], ['noise', 0.35, 0.3, 850, 0.8]],
   streak_sentry:     [['noise', 0.08, 0.28, 1400, 2], ['osc', 'square', 320, 580, 0.12, 0.18], ['osc', 'sine', 180, 90, 0.10, 0.25]],
@@ -794,7 +803,8 @@ function playSound(name, dest, skipThrottle) {
   if (!recipe) return;
   if (!noiseBuf) noiseBuf = noiseBuffer(ctx);
   buildSound(ctx, recipe, out, ctx.currentTime, noiseBuf);
-  renderSoundBuffer(name);   // pay the synthesis cost once, not on every trigger
+  // pay the synthesis cost once, not on every trigger
+  renderSoundBuffer(name);
 }
 
 // Positional enemy audio: distance attenuation + stereo pan relative to player facing.
@@ -896,7 +906,8 @@ function buildMusicGraph() {
 
   MUSIC.ctx = ctx;
   MUSIC.bus = ctx.createGain();
-  MUSIC.bus.gain.value = 0;             // faded in by updateMusic
+  // faded in by updateMusic
+  MUSIC.bus.gain.value = 0;
   MUSIC.comp = ctx.createDynamicsCompressor();
   MUSIC.comp.threshold.value = -18; MUSIC.comp.ratio.value = 3;
   MUSIC.comp.attack.value = 0.01; MUSIC.comp.release.value = 0.25;
@@ -1014,7 +1025,8 @@ function musDrum(ctx, t, kind, vel, out) {
     const g = musEnv(ctx, t, 0.5 * vel, 0.003, 0, dur, out);
     o.connect(g); o.start(t); o.stop(t + dur + 0.05);
     if (kind !== 'kick') musNoise(ctx, t, dur * 0.35, 'lowpass', 260, 0.7, 0.18 * vel, out);
-    else musNoise(ctx, t, 0.02, 'highpass', 2500, 0.7, 0.05 * vel, out);   // beater click
+    // beater click
+    else musNoise(ctx, t, 0.02, 'highpass', 2500, 0.7, 0.05 * vel, out);
   } else if (kind === 'snare') {
     musNoise(ctx, t, 0.17, 'bandpass', 1900, 0.8, 0.32 * vel, out);
     const o = musOsc(ctx, 'triangle', 190, 0);
@@ -1062,7 +1074,8 @@ function stopMusic() {
   if (MUSIC.bus) {
     const t = MUSIC.ctx.currentTime;
     MUSIC.bus.gain.cancelScheduledValues(t);
-    MUSIC.bus.gain.setTargetAtTime(0, t, 0.05);   // fast, but not a click
+    // fast, but not a click
+    MUSIC.bus.gain.setTargetAtTime(0, t, 0.05);
   }
 }
 
@@ -1093,7 +1106,8 @@ function updateMusic(dt, state) {
   // After a pause or a hidden tab the clock has run on without us: rejoin on the
   // next step instead of firing the whole backlog at once.
   if (MUSIC.nextT < now - 0.05) MUSIC.nextT = now + 0.05;
-  if (vol <= 0) {            // muted: keep time, schedule nothing
+  // muted: keep time, schedule nothing
+  if (vol <= 0) {
     const st = CORE.musicStepSeconds();
     while (MUSIC.nextT < now + MUSIC_LOOKAHEAD) { MUSIC.nextT += st; MUSIC.step++; }
     return;

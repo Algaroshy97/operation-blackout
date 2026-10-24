@@ -473,7 +473,8 @@ function pushKillfeed(html) {
 // after the cap or on a >4 s gap. resetGame() clears the streak state.
 // Minimap colours, one per archetype, so a glance tells you what is coming.
 const MM_KIND_COLOR = { 0: '#ff4030', 1: '#ff6050', 2: '#ff8830', 3: '#6fa8ff', 4: '#8fd66a', 5: '#ffd24a', 6: '#e0503a' };
-const MK_WINDOW = CORE.MK_WINDOW || 4;          // seconds between kills to keep the streak alive
+// seconds between kills to keep the streak alive
+const MK_WINDOW = CORE.MK_WINDOW || 4;
 let killStreak = 0, lastKillT = -99;
 function registerKillT() {
   killStreak = CORE.advanceKillStreak(killStreak, lastKillT, gameT, MK_WINDOW);
@@ -491,7 +492,8 @@ let waveNum = 0, score = 0, kills = 0, headshots = 0;
 let shotsFired = 0, shotsHit = 0;
 let waveQueue = 0, spawnTimer = 0, waveActive = false, gameEnded = false, gameT = 0;
 let betweenWaveT = 0;
-let nextEstepT = 0;   // global throttle for positional enemy footsteps
+// global throttle for positional enemy footsteps
+let nextEstepT = 0;
 // Bumped by resetGame(). Anything scheduled with setTimeout captures the value at
 // schedule time and drops itself if the run has changed since.
 let runId = 0;
@@ -533,6 +535,7 @@ function captureRunState() {
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
+    mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
     spawnProtectionT: 0,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
@@ -718,13 +721,17 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
-      clearObjective();   // the zone belongs to the wave that spawned it
-      reviveFromDown();   // holding out to the wave clear is the other way back up
+      // the zone belongs to the wave that spawned it
+      clearObjective();
+      // holding out to the wave clear is the other way back up
+      reviveFromDown();
       unlockSecondary();
       resupply();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
-      saveCheckpoint(captureRunState());   // between waves = the only safe save point
-      showWaveBanner(waveNum, true);   // cleared banner stays up through the countdown
+      // between waves = the only safe save point
+      saveCheckpoint(captureRunState());
+      // cleared banner stays up through the countdown
+      showWaveBanner(waveNum, true);
     }
   } else {
     betweenWaveT -= dt;
@@ -771,11 +778,8 @@ function aliveEnemies() {
 // spawn points ring the arena; pick far from player
 const spawnPoints = [];
 (function () {
-  const R = CFG.world.size / 2 - 6;
-  for (let a = 0; a < 12; a++) {
-    const ang = a / 12 * Math.PI * 2;
-    spawnPoints.push([Math.cos(ang) * (R - 6), Math.sin(ang) * (R - 6)]);
-  }
+  const pts = (typeof getActiveMap === 'function' && getActiveMap().spawnPoints) || (typeof CORE !== 'undefined' && CORE.getMapDef && CORE.getMapDef('urban').spawnPoints);
+  if (pts) for (let i = 0; i < pts.length; i++) spawnPoints.push([pts[i][0], pts[i][1]]);
 })();
 function spawnFromQueue() {
   waveQueue--;
@@ -813,8 +817,11 @@ function spawnFromQueue() {
 // guarantees at least one point survives, but fall back to the full ring anyway —
 // a wave that cannot start is worse than a wave that starts somewhere awkward.
 function openSpawnPoints() {
-  const usable = CORE.usableSpawnPoints(spawnPoints, openDistricts);
-  return usable.length ? usable : spawnPoints;
+  const m = (typeof getActiveMap === 'function') ? getActiveMap() : null;
+  const pts = (m && m.spawnPoints) || spawnPoints;
+  const dists = (m && m.districts) || openDistricts;
+  const usable = (typeof CORE !== 'undefined' && CORE.usableSpawnPoints) ? CORE.usableSpawnPoints(pts, openDistricts, dists) : pts;
+  return usable.length ? usable : pts;
 }
 
 function resupply() {
@@ -848,7 +855,8 @@ function unlockSecondary() {
   refreshWeaponStats(1);
   wState[1].ammo = wState[1].eff ? wState[1].eff.mag : wState[1].ammo;
   wState[1].reserve = wState[1].eff ? wState[1].eff.reserveMax : wState[1].reserve;
-  syncMarksmanSlot();   // a marksman secondary frees slot 3
+  // a marksman secondary frees slot 3
+  syncMarksmanSlot();
   const w = CFG.weapons[gi];
   pushKillfeed('SECONDARY UNLOCKED: <span class="xp">' + w.name.toUpperCase() + '</span>');
   playSound(CORE.secondaryUnlockSound(w ? w.type : ''));
@@ -1076,7 +1084,8 @@ function drawCompass() {
   cpCtx.textAlign = 'center';
   const heading = CORE.compassHeading(player.yaw);
   // draw ticks every 15deg within +/- 60 of heading
-  const pxPerDeg = w / 90;   // 90 degrees of heading across the visible strip
+  // 90 degrees of heading across the visible strip
+  const pxPerDeg = w / 90;
   for (let d = -60; d <= 60; d += 5) {
     const deg = CORE.compassTickAngle(heading, d);
     // snap to 5-degree marks

@@ -1817,14 +1817,45 @@ function createFullMatchContext(overrides = {}) {
     scene: { add: noop, remove: noop },
     colliders: [],
     smokeVolumes: () => [],
+    activeMapId: 'urban',
+    MAPS: {
+      urban: {
+        id: 'urban',
+        name: 'Urban District',
+        get spawnPoints() { return CORE.getMapDef('urban').spawnPoints; },
+        get stationLayout() { return (typeof c !== 'undefined' && c.STATION_LAYOUT) ? c.STATION_LAYOUT : CORE.getMapDef('urban').stationLayout; },
+        get dominationFlags() { return CORE.getMapDef('urban').dominationFlags; },
+        get districts() { return CORE.getMapDef('urban').districts; },
+        build: noop
+      },
+      snowy: {
+        id: 'snowy',
+        name: 'Snowy Compound',
+        get spawnPoints() { return CORE.getMapDef('snowy').spawnPoints; },
+        get stationLayout() { return CORE.getMapDef('snowy').stationLayout; },
+        get dominationFlags() { return CORE.getMapDef('snowy').dominationFlags; },
+        get districts() { return CORE.getMapDef('snowy').districts; },
+        build: noop
+      }
+    },
+    getActiveMap: function () { return (c && c.MAPS) ? (c.MAPS[c.activeMapId] || c.MAPS.urban) : null; },
+    setActiveMap: function (id) {
+      const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : 'urban';
+      if (c) {
+        c.activeMapId = safe;
+        c.activeMap = c.MAPS[safe] || c.MAPS.urban;
+        return c.activeMap;
+      }
+      return null;
+    },
     spawnPoints: [
       [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
       [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
     ],
-    openSpawnPoints: () => [
-      [0, 10], [5, 10], [10, 10], [15, 10], [20, 10], [25, 10],
-      [0, -10], [5, -10], [10, -10], [15, -10], [20, -10], [25, -10]
-    ],
+    openSpawnPoints: function () {
+      const cur = (c && typeof c.getActiveMap === 'function') ? c.getActiveMap() : null;
+      return (cur && cur.spawnPoints && cur.spawnPoints.length) ? cur.spawnPoints : c.spawnPoints;
+    },
     perks: [],
     godMode: false,
     startMusic: noop,
@@ -1865,7 +1896,15 @@ function createFullMatchContext(overrides = {}) {
     waveNum: 0,
     runStreaksEarned: 0,
     settlementSnapshot: null,
-    captureRunState: () => ({}),
+    captureRunState: () => ({
+      wave: c.waveNum,
+      score: c.score,
+      difficulty: c.runDifficulty,
+      endless: c.endlessMode,
+      mapId: c.activeMapId || 'urban',
+      weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+      equipment: { lethal: c.equippedLethal, tactical: c.equippedTactical, streakBank: [] }
+    }),
     saveCheckpoint: cp => { c._checkpoint = cp; },
     clearCheckpoint: () => { c._checkpoint = null; },
     recordRun: () => ({}),
@@ -1977,6 +2016,7 @@ function createFullMatchContext(overrides = {}) {
     set: v => { vm.runInContext('perks = ' + JSON.stringify(v), c); },
     configurable: true
   });
+  c.activeMap = c.MAPS.urban;
 
   return c;
 }
@@ -4442,3 +4482,80 @@ test('regression [knife tier]: match settlement freeze persists after knife-tier
   mode.update(5);
   assert.strictEqual(mode.timeLeft, timeBefore, 'the timer must freeze after settlement');
 });
+
+// ---------------------------------------------------------------- Milestone 3: Map Registry
+test('milestone 3: runtime MAPS registry and activeMap switching', () => {
+  const c = createFullMatchContext();
+  assert.ok(c.MAPS, 'c.MAPS registry must exist');
+  assert.ok(c.MAPS.urban, 'c.MAPS.urban must be registered');
+  assert.ok(c.MAPS.snowy, 'c.MAPS.snowy must be registered');
+  assert.strictEqual(typeof c.getActiveMap, 'function');
+  assert.strictEqual(typeof c.setActiveMap, 'function');
+
+  // Initial active map defaults to urban
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+
+  // Switch to snowy
+  const snowy = c.setActiveMap('snowy');
+  assert.strictEqual(snowy.id, 'snowy');
+  assert.strictEqual(c.getActiveMap().id, 'snowy');
+
+  // Switch back to urban
+  const urban = c.setActiveMap('urban');
+  assert.strictEqual(urban.id, 'urban');
+  assert.strictEqual(c.getActiveMap().id, 'urban');
+
+  // Invalid map falls back to urban
+  const fallback = c.setActiveMap('nonexistent');
+  assert.strictEqual(fallback.id, 'urban');
+});
+
+test('milestone 3: Survival checkpoint preserves mapId and resumes under activeMap safely', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('urban');
+  c.waveNum = 5;
+  c.score = 1200;
+
+  const cp = c.captureRunState();
+  assert.ok(cp, 'checkpoint must be captured');
+  assert.strictEqual(cp.mapId, 'urban', 'checkpoint must record active mapId');
+
+  // Resume checkpoint
+  c.loadCheckpoint = () => cp;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'urban', 'resumed run must maintain urban map');
+  assert.strictEqual(c.activeModeId, 'survival', 'resumed run must maintain survival mode');
+
+  // Checkpoint with snowy map
+  const cpSnowy = Object.assign({}, cp, { mapId: 'snowy' });
+  c.loadCheckpoint = () => cpSnowy;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'snowy', 'resumed run must restore snowy map');
+
+  // Legacy checkpoint without mapId restores urban
+  const cpLegacy = Object.assign({}, cp);
+  delete cpLegacy.mapId;
+  c.loadCheckpoint = () => cpLegacy;
+  c.resumeRun();
+  assert.strictEqual(c.getActiveMap().id, 'urban', 'legacy checkpoint must default to urban map');
+});
+
+test('milestone 3: Domination flags and openSpawnPoints source from activeMap', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('urban');
+  const urbanFlags = c.buildDominationFlags();
+  assert.strictEqual(urbanFlags.length, 3);
+  assert.deepStrictEqual([urbanFlags[0].x, urbanFlags[0].z], [-18, 0]);
+
+  c.setActiveMap('snowy');
+  const snowyFlags = c.buildDominationFlags();
+  assert.strictEqual(snowyFlags.length, 3);
+  const snowyDef = CORE.getMapDef('snowy');
+  assert.deepStrictEqual([snowyFlags[0].x, snowyFlags[0].z], [snowyDef.dominationFlags[0].x, snowyDef.dominationFlags[0].z]);
+
+  // Spawns
+  const spawns = c.openSpawnPoints();
+  assert.ok(Array.isArray(spawns) && spawns.length >= 12);
+  assert.deepStrictEqual(spawns[0], snowyDef.spawnPoints[0]);
+});
+

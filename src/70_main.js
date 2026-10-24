@@ -73,7 +73,8 @@ function killPlayer(killer) {
   if (!activeMode || activeMode.id === 'survival') {
     const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
     const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
-    clearCheckpoint();   // a lost run is not resumable
+    // a lost run is not resumable
+    clearCheckpoint();
     const delta = settlementDelta();
     const beat = recordRun({ score: delta.score, wave: delta.wave,
       accuracy: delta.accuracy, recordScore: delta.recordScore,
@@ -119,7 +120,8 @@ function victory() {
 function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
-  paused = false;   // never reset into a paused state
+  // never reset into a paused state
+  paused = false;
   if (typeof document !== 'undefined') {
     if (!started && document.body) document.body.classList.remove('started');
     if (!started && document.pointerLockElement) document.exitPointerLock();
@@ -215,7 +217,8 @@ function resetGame() {
     grenades.count = (typeof CFG !== 'undefined' && CFG.grenade && CFG.grenade.count) || 2;
     grenades.cd = 0;
   }
-  if (typeof clearDecals === 'function') clearDecals();   // v41: bullet holes never persist into a new run
+  // v41: bullet holes never persist into a new run
+  if (typeof clearDecals === 'function') clearDecals();
   if (typeof clearParticles === 'function') clearParticles();
   if (typeof clearBloodPools === 'function') clearBloodPools();
   if (typeof clearInputState === 'function') clearInputState();
@@ -251,7 +254,8 @@ function resetGame() {
   if (typeof credits !== 'undefined') credits = 0;
   if (typeof powerUntil !== 'undefined' && powerUntil) { powerUntil.double = -99; powerUntil.instakill = -99; }
   if (typeof hud !== 'undefined' && hud && hud.credits) hud.credits.textContent = '0';
-  if (typeof runId !== 'undefined') runId++;   // invalidate anything the previous run scheduled
+  // invalidate anything the previous run scheduled
+  if (typeof runId !== 'undefined') runId++;
   if (typeof waveNum !== 'undefined') waveNum = 0;
   if (typeof score !== 'undefined') score = 0;
   if (typeof kills !== 'undefined') kills = 0;
@@ -295,10 +299,12 @@ function resetGame() {
   if (typeof gameEnded !== 'undefined') gameEnded = false;
   if (typeof betweenWaveT !== 'undefined') betweenWaveT = (typeof CFG !== 'undefined' && CFG.wave && CFG.wave.startDelay) || 3;
   if (typeof killStreak !== 'undefined') killStreak = 0;
-  if (typeof lastKillT !== 'undefined') lastKillT = -99;   // multi-kill streak state
+  // multi-kill streak state
+  if (typeof lastKillT !== 'undefined') lastKillT = -99;
   if (typeof hudRedrawT !== 'undefined') hudRedrawT = 1;
   if (typeof lastHudYaw !== 'undefined') lastHudYaw = player.yaw;
-  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;   // force immediate HUD redraw on new run
+  // force immediate HUD redraw on new run
+  if (typeof hudFlickT !== 'undefined') hudFlickT = -9;
   if (typeof invalidateMinimapBlocks === 'function') invalidateMinimapBlocks();
   if (typeof _lastDrawnCompassYaw !== 'undefined') _lastDrawnCompassYaw = null;
   if (typeof curWeapon !== 'undefined') curWeapon = 0;
@@ -313,7 +319,8 @@ function resetGame() {
     if (hud.killfeed) hud.killfeed.innerHTML = '';
     if (hud.waveBanner) {
       if (typeof hud.waveBanner._t !== 'undefined') clearTimeout(hud.waveBanner._t);
-      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;   // cleared/ready banners stay up; never persist into menus
+      // cleared/ready banners stay up; never persist into menus
+      if (hud.waveBanner.style) hud.waveBanner.style.opacity = 0;
     }
   }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
@@ -692,8 +699,10 @@ function buildGunSelect(slot) {
   wrap.innerHTML = '';
   const rank = playerRank();
   CFG.weapons.forEach(function (w, i) {
-    if (pickingSlot === 1 && i === weaponsOwned[0]) return;   // already carrying it
-    if (w.sidearm) return;                                       // always carried
+    // already carrying it
+    if (pickingSlot === 1 && i === weaponsOwned[0]) return;
+    // always carried
+    if (w.sidearm) return;
     const unlocked = CORE.weaponUnlocked(i, rank);
     const card = document.createElement('div');
     card.className = 'gun-card' + (unlocked ? '' : ' locked');
@@ -735,15 +744,18 @@ function pickGun(i) {
   if (pickingSlot === 0) {
     weaponsOwned[0] = i;
     weaponsOwned[1] = -1;
-    buildGunSelect(1);        // now choose what gets unlocked on the first wave clear
+    // now choose what gets unlocked on the first wave clear
+    buildGunSelect(1);
     return;
   }
   pendingSecondary = i;
   weaponsOwned[1] = i;
   endlessMode = false;
-  clearCheckpoint();          // starting fresh invalidates any saved run
+  // starting fresh invalidates any saved run
+  clearCheckpoint();
   $id('gun-select').style.display = 'none';
-  paused = false;              // always start unpaused — fixes frozen redeploy
+  // always start unpaused — fixes frozen redeploy
+  paused = false;
   $id('pause-menu').style.display = 'none';
   startGame();
 }
@@ -771,11 +783,13 @@ function startGame() {
     });
   }
   started = true;
-  paused = false;              // belt & suspenders
+  // belt & suspenders
+  paused = false;
   resetGame();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!activeMode || activeMode.id === 'survival') {
-    showWaveBanner(0);            // "GET READY" + COMBAT IN n countdown until wave 1
+    // "GET READY" + COMBAT IN n countdown until wave 1
+    showWaveBanner(0);
     startMusic();
   } else {
     updateMatchHud(activeMode);
@@ -794,6 +808,8 @@ function resumeRun() {
   if (typeof setActiveMode === 'function') setActiveMode('survival');
   else if (typeof activeModeId !== 'undefined') activeModeId = 'survival';
   if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
+  const mapToRestore = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(cp.mapId) : (cp.mapId || 'urban');
+  if (typeof setActiveMap === 'function') setActiveMap(mapToRestore);
   started = true; paused = false;
   resetGame();
   runDifficulty = cp.difficulty;
@@ -833,7 +849,8 @@ function resumeRun() {
   plates = cp.plates || 0;
   updateHudPerks(); updateHudPlates();
   grenades.count = cp.grenades;
-  waveNum = cp.wave;                  // next startWave() call is wave+1
+  // next startWave() call is wave+1
+  waveNum = cp.wave;
   waveActive = false; betweenWaveT = CFG.wave.startDelay;
   hud.waveNum.textContent = waveNum;
   hud.scoreVal.textContent = score;
@@ -923,11 +940,13 @@ updateFullscreenButtons();
 $id('btn-start').addEventListener('click', function () {
   if (!assetsReady) return;
   buildGunSelect(0);
-  $id('start-screen').style.display = 'none';   // was left visible, bleeding through
+  // was left visible, bleeding through
+  $id('start-screen').style.display = 'none';
   $id('gun-select').style.display = 'flex';
   $id('gun-select').scrollTop = 0;
   $id('gun-cards').firstElementChild.focus({ preventScroll: true });
-  audioCtx(); // unlock audio on user gesture
+  // unlock audio on user gesture
+  audioCtx();
   // Render every one-shot to a buffer while the player is still choosing a weapon,
   // so the first trigger of each is already a single BufferSource rather than a
   // freshly built node graph.
@@ -1201,13 +1220,19 @@ if (typeof window !== 'undefined') {
 // ---- Main loop ----
 let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, fpsT = 0;
-let qualityAdjustT = 0; // avoid resolution thrashing every half-second
-let upscaleStreak = 0;  // consecutive good samples before raising resolution again
+// avoid resolution thrashing every half-second
+let qualityAdjustT = 0;
+// consecutive good samples before raising resolution again
+let upscaleStreak = 0;
 let wasScoped = false;
-let slideFov = 0;   // extra FOV kick while sliding
-let hudRedrawT = 0;     // HUD canvas redraw accumulator (20 Hz throttle)
-let lastHudYaw = 0;     // yaw at last HUD redraw (flick detection)
-let hudFlickT = -9;     // gameT of last flick-forced redraw
+// extra FOV kick while sliding
+let slideFov = 0;
+// HUD canvas redraw accumulator (20 Hz throttle)
+let hudRedrawT = 0;
+// yaw at last HUD redraw (flick detection)
+let lastHudYaw = 0;
+// gameT of last flick-forced redraw
+let hudFlickT = -9;
 const _musicState = { inCombat: false, aliveEnemies: 0, nearestEnemy: undefined, health: 100 };
 const _combatEvalOut = { aliveCount: 0, nearestEnemy: undefined };
 const _camPosOut = { x: 0, y: 0 };

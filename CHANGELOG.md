@@ -4,6 +4,25 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v175 — Milestone 3: Map registry framework and Snowy Compound layout foundation
+
+- **Map registry framework (`src/10_config_world.js`, `src/01_core.js`).**
+  - Modularized arena generation behind `MAPS[id].build()`, with runtime map switching via `getActiveMap()` and `setActiveMap(id)`.
+  - Added pure map definitions in `src/01_core.js` (`CORE.MAP_IDS`, `CORE.DEFAULT_MAP_ID`, `CORE.sanitizeMapId`, `CORE.getMapDef`, `CORE.MAP_DEFS` for `urban` and `snowy`), abstracting per-map world dimensions, player spawns, colliders, enemy spawn rings, station layouts, Domination flag points, and gated districts.
+  - Sourced stations (`src/57_stations.js`), spawn rings and district filtering (`src/60_hud_waves.js`), and Domination flag entities (`src/35_modes.js`) from active map definitions.
+- **Snowy Compound layout (`src/01_core.js`, `src/10_config_world.js`).**
+  - Added `snowy` compound layout with two-storey command anchor building, vehicle hangar, fuel depot, watchtower, trenches, and sandbag perimeter.
+  - Sourced `buildSnowyArena()` meshes from the defined collider bounds, and added Snowy station layout (16 stations) and 3 Domination capture flags (`A`, `B`, `C`).
+- **Survival checkpoint compatibility (`src/60_hud_waves.js`, `src/70_main.js`, `src/02_settings.js`).**
+  - `captureRunState()` captures `mapId`, and `resumeRun()` restores the active map via `setActiveMap()`, safely defaulting legacy checkpoints to `'urban'`.
+  - Added `gameMap` setting schema entry with runtime dispatch in `applySetting()`.
+- **Release build budget management (`scripts/build.py`, `src/*.js`).**
+  - Relocated inline trailing comments across JavaScript modules onto preceding dedicated `//` comment lines, preserving full documentation in source while allowing `scripts/build.py` line-comment stripping to reduce the self-contained single-file HTML release to 2,094,911 bytes (2,241 bytes under the 2 MiB ceiling).
+- **Coverage.**
+  - 7 new regression tests (4 in `tests/test_core.js`, 3 in `tests/test_modes_and_teams.js`) verifying map registry lookups, nav grid reachability from player spawn to all 12 outer spawn points on both maps, Domination flag clearances, station stand-point walkability, runtime map switching, and Survival checkpoint save/resume round-trip.
+  - 593/593 Node regression tests passing (`node --test tests/*.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v174.1 — Gun Game knife-tier viewmodel crash fix (PR7 CI failure)
 
 - **Root cause (`src/30_weapons.js`).** At Gun Game tier 19 (the Knife), `applyGunGamePlayerLoadout`
