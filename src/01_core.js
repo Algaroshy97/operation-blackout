@@ -6068,8 +6068,12 @@ const CORE = (function () {
 
   // ---- Ballistic surface impact and tactical weapon acoustics (v101) ----
   const SPATIAL_IMPACT_MAX_DIST = 55, SNIPER_BOLT_DELAY_MS = 280;
+  const SURFACE_IMPACT_METAL_SOUND = 'impact_metal', SURFACE_IMPACT_WOOD_SOUND = 'impact_wood',
+        SURFACE_IMPACT_GLASS_SOUND = 'impact_glass', SURFACE_IMPACT_GROUND_SOUND = 'impact_ground',
+        SURFACE_IMPACT_SNOW_SOUND = 'impact_snow', SURFACE_IMPACT_ICE_SOUND = 'impact_ice',
+        SURFACE_IMPACT_DEFAULT_SOUND = 'impact';
   function surfaceImpactSound(surface) {
-    return surface === 'metal' ? 'impact_metal' : (surface === 'wood' ? 'impact_wood' : (surface === 'glass' ? 'impact_glass' : (surface === 'ground' ? 'impact_ground' : 'impact')));
+    return surface === 'metal' ? 'impact_metal' : (surface === 'wood' ? 'impact_wood' : (surface === 'glass' ? 'impact_glass' : (surface === 'ground' ? 'impact_ground' : (surface === 'snow' ? 'impact_snow' : (surface === 'ice' ? 'impact_ice' : 'impact')))));
   }
   function sniperBoltSound() { return 'sniper_bolt'; }
   function streakReadySound(key) { return 'streak_ready'; }
@@ -7961,6 +7965,9 @@ const CORE = (function () {
     enemyMeleeWindup, enemyAttackReadyTime, enemyKillImpulse, enemyStunSpeedMultiplier,
     stepEnemyBlindYaw, stepEnemyFallY, canSlideCancel, isSlideExpired, stepStationHold,
     weaponFireInterval, SPATIAL_IMPACT_MAX_DIST, SNIPER_BOLT_DELAY_MS,
+    SURFACE_IMPACT_METAL_SOUND, SURFACE_IMPACT_WOOD_SOUND, SURFACE_IMPACT_GLASS_SOUND,
+    SURFACE_IMPACT_GROUND_SOUND, SURFACE_IMPACT_SNOW_SOUND, SURFACE_IMPACT_ICE_SOUND,
+    SURFACE_IMPACT_DEFAULT_SOUND,
     surfaceImpactSound, sniperBoltSound, streakReadySound, fieldUpgradeReadySound,
     secondWindSound, objectiveCompleteSound, weaponDrawSound,
     DECAL_MAX, DECAL_LIFETIME, DECAL_FADE_DURATION, DECAL_BASE_RADIUS,

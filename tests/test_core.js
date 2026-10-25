@@ -6198,6 +6198,8 @@ test('surface impact acoustics, sniper bolt cycle, tactical readiness cues, and 
   assert.strictEqual(CORE.surfaceImpactSound('wood'), 'impact_wood');
   assert.strictEqual(CORE.surfaceImpactSound('glass'), 'impact_glass');
   assert.strictEqual(CORE.surfaceImpactSound('ground'), 'impact_ground');
+  assert.strictEqual(CORE.surfaceImpactSound('snow'), 'impact_snow');
+  assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice');
   assert.strictEqual(CORE.surfaceImpactSound('concrete'), 'impact');
   assert.strictEqual(CORE.surfaceImpactSound('brick'), 'impact');
   assert.strictEqual(CORE.surfaceImpactSound('sand'), 'impact');
@@ -10564,6 +10566,10 @@ test('milestone 3: Snowy Compound ice patches, longer slide physics, and surface
   const mistParams = CORE.breathMistVfxParams(false, false);
   assert.ok(mistParams.life > 0);
   assert.ok(mistParams.scale > 0);
+
+  // 7. Bullet impact acoustics on snow and ice
+  assert.strictEqual(CORE.surfaceImpactSound('snow'), 'impact_snow', 'snow surface bullet impact must route to impact_snow');
+  assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice', 'ice surface bullet impact must route to impact_ice');
 });
 
 

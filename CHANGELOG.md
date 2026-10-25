@@ -4,6 +4,21 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v178.1 — Bullet-impact snow/ice acoustic routing fix and isolated browser integration probe verification
+
+- **Bullet-impact acoustics on snow and ice surfaces (`src/01_core.js`, `tests/test_core.js`, `tests/test_modes_and_teams.js`).**
+  - Wired `'snow'` and `'ice'` surfaces into `CORE.surfaceImpactSound`: returning `'impact_snow'` and `'impact_ice'` respectively instead of falling back to default `'impact'`. Exported `SURFACE_IMPACT_SNOW_SOUND` and `SURFACE_IMPACT_ICE_SOUND`.
+  - Added unit regression assertions in `tests/test_core.js` covering `CORE.surfaceImpactSound('snow')` and `CORE.surfaceImpactSound('ice')`.
+  - Added integration-level regression in `tests/test_modes_and_teams.js` verifying that ordinary bullet impacts (`src/30_weapons.js:518, 522`) hitting snowy ground and ice patches correctly resolve via `src/50_vfx_audio.js:199` to `impact_snow` and `impact_ice`.
+- **Isolated integration probe execution and CLI suite filtering (`scripts/probe_live.py`, `scripts/probe_checkpoint.py`).**
+  - Added CLI arguments `--filter` / `-k`, `--check`, `--isolate`, and `--suite` to `scripts/probe_live.py`, allowing individual checks or suites (`checkpoint`, `snowy`, `modes`, `graphics`) to execute in isolation without the full 600-second probe overhead.
+  - Implemented `run_isolated()` in `scripts/probe_live.py` to run targeted checks in ~15 seconds while preserving the exact 215-check default suite when invoked without arguments.
+  - Added standalone runner `scripts/probe_checkpoint.py` targeting Survival checkpoint restoration and snowy map-switch integration checks.
+- **Release build budget & coverage.**
+  - Rebuilt single-file release HTML (`dist/Operation Blackout.html`) at 2,053,428 bytes (43,724 bytes below the 2 MiB ceiling).
+  - 606/606 Node tests passing across `tests/*.js` (430 in `test_core.js`, 92 in `test_modes_and_teams.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v178 — Milestone 3: Atmospheric snowfall PFX, cold breath-mist, snow/ice acoustics, ice slide physics, and impact powder puffs
 
 - **Atmospheric snowfall PFX (`src/48_particles.js`, `src/01_core.js`).**

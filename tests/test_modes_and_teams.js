@@ -5180,6 +5180,19 @@ test('milestone 3: Snowy atmospheric VFX, viewmodel breath mist, and ice-patch s
   c.stepT = 0;
   c.updateFootsteps(0.1);
   assert.strictEqual(c.lastPlayedSound, 'step', 'footstep on urban ground must play step');
+
+  // 4. Bullet impact acoustics on snow and ice surfaces (src/50_vfx_audio.js:199)
+  // Ordinary bullet impacts (src/30_weapons.js:518, 522) pass soundOverride = null to spawnImpact,
+  // which routes sound selection through CORE.surfaceImpactSound(surface).
+  c.setActiveMap('snowy');
+  assert.strictEqual(CORE.surfaceImpactSound(c.fxSurfaceFor(c.ground)), 'impact_snow',
+    'bullet impact on snowy ground must select impact_snow');
+  const iceObject = { material: c.MAT.ice };
+  assert.strictEqual(CORE.surfaceImpactSound(c.fxSurfaceFor(iceObject)), 'impact_ice',
+    'bullet impact on ice patch object must select impact_ice');
+  c.setActiveMap('urban');
+  assert.strictEqual(CORE.surfaceImpactSound(c.fxSurfaceFor(c.ground)), 'impact_ground',
+    'bullet impact on urban ground must select impact_ground');
 });
 
 
