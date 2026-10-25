@@ -742,7 +742,12 @@ function updateEnemies(dt) {
     if (en.state !== 'spawn' && inStepRange && !en.dead) {
       en.stepT -= dt * CORE.enemyFootstepRate(en.kind);
       if (en.stepT <= 0) {
-        if (gameT > nextEstepT) { playSound3D(CORE.enemyFootstepSound(en.kind, en.elite), en.pos.x, en.pos.y, en.pos.z); nextEstepT = gameT + 0.08; }
+        if (gameT > nextEstepT) {
+          const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+          const onIce = typeof CORE !== 'undefined' && typeof CORE.isPositionOnIce === 'function' && CORE.isPositionOnIce(en.pos.x, en.pos.z, mId);
+          playSound3D(CORE.enemyFootstepSound(en.kind, en.elite, mId, onIce), en.pos.x, en.pos.y, en.pos.z);
+          nextEstepT = gameT + 0.08;
+        }
         en.stepT = CORE.enemyFootstepInterval(en.speedMul);
       }
     }

@@ -416,6 +416,7 @@ const MAT = {
   wood: surfMat({ color: 0xf0e8e0, map: TEX.wood.map, normalMap: TEX.wood.normalMap, roughness: 0.85 }, 1.5),
   frostedMetal: withSkyEnv(surfMat({ color: 0xccd6e2, map: TEX.frostedMetal ? TEX.frostedMetal.map : TEX.metal.map, normalMap: TEX.frostedMetal ? TEX.frostedMetal.normalMap : TEX.metal.normalMap, roughness: 0.45, metalness: 0.65 }, 3), 0.9),
   frostedWood: surfMat({ color: 0xe8e8ea, map: TEX.frostedWood ? TEX.frostedWood.map : TEX.wood.map, normalMap: TEX.frostedWood ? TEX.frostedWood.normalMap : TEX.wood.normalMap, roughness: 0.82 }, 1.5),
+  ice: withSkyEnv(surfMat({ color: 0xa4ccdf, roughness: 0.12, metalness: 0.15 }, 2), 1.0),
   dark: withSkyEnv(surfMat({ color: 0x3a3e48, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.75 }, 2), 0.4),
   accent: withSkyEnv(surfMat({ color: 0xd9ae2a, map: TEX.paint.map, roughness: 0.5, metalness: 0.3 }, 2), 0.5),
   red: withSkyEnv(surfMat({ color: 0xa33a30, map: TEX.paint.map, normalMap: TEX.paint.normalMap, roughness: 0.55, metalness: 0.35 }, 3), 0.7)
@@ -626,13 +627,20 @@ function buildSnowyArena() {
   addBox(0, 3, S/2, S+4, 6, 1, MAT.brick);
   addBox(-S/2, 3, 0, 1, 6, S+4, MAT.brick);
   addBox(S/2, 3, 0, 1, 6, S+4, MAT.brick);
-  const boxes = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('snowy').colliders : [];
+  const def = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('snowy') : null;
+  const boxes = def ? def.colliders : [];
   for (let i = 4; i < boxes.length; i++) {
     const b = boxes[i];
     const mat = b.mat === 'metal' ? MAT.frostedMetal : (b.mat === 'wood' ? MAT.frostedWood : (MAT[b.mat] || MAT.concrete));
     addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
            +(b.max.x - b.min.x).toFixed(2), +(b.max.y - b.min.y).toFixed(2), +(b.max.z - b.min.z).toFixed(2),
            mat);
+  }
+  const icePatches = (def && def.icePatches) || [];
+  for (let i = 0; i < icePatches.length; i++) {
+    const p = icePatches[i];
+    const w = +(p.maxX - p.minX).toFixed(2), d = +(p.maxZ - p.minZ).toFixed(2);
+    addBox((p.minX + p.maxX) / 2, 0.02, (p.minZ + p.maxZ) / 2, w, 0.04, d, MAT.ice);
   }
 }
 

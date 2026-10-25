@@ -4,6 +4,35 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v178 — Milestone 3: Atmospheric snowfall PFX, cold breath-mist, snow/ice acoustics, ice slide physics, and impact powder puffs
+
+- **Atmospheric snowfall PFX (`src/48_particles.js`, `src/01_core.js`).**
+  - Added `CORE.isSnowfallEnabled(mapId)` and `CORE.snowfallVfxParams(settings)` providing rate, radius, fall speed, wind vectors, and life bounds gated by graphics particle settings.
+  - Implemented `updateWeatherParticles(dt)` in `src/48_particles.js` emitting soft white/pale snowflakes into the `PFX_SMOKE` GPU layer around the camera when active map is `'snowy'`.
+  - Integrated into `updateParticles(dt)` and reset in `clearParticles()`.
+- **Viewmodel cold breath-mist (`src/48_particles.js`, `src/01_core.js`).**
+  - Added `CORE.isColdBreathEnabled(mapId)`, `CORE.breathMistInterval(isSprinting, isExhausted)`, and `CORE.breathMistVfxParams(isADS, isSprinting)`. Cadence accelerates from 3.4 s idle to 1.8 s during sprint or exhaustion.
+  - Implemented `updateBreathMist(dt)` emitting soft expanding translucent mist puffs forward and upward from camera/mouth orientation into `PFX_SMOKE` on Snowy Compound.
+- **Snow and ice footstep acoustics (`src/01_core.js`, `src/50_vfx_audio.js`, `src/40_enemies.js`).**
+  - Synthesized procedural audio recipes in `src/50_vfx_audio.js` for crunchy snow footsteps (`step_snow`, `step_snow_crouch`, `step_snow_tac`, `estep_snow`, `estep_snow_heavy`) and sharp ice footsteps (`step_ice`, `step_ice_crouch`, `step_ice_tac`, `estep_ice`, `estep_ice_heavy`), with throttling in `SND_MIN_GAP` and pitch variation in `SOUND_VARIED`.
+  - Updated `CORE.playerFootstepSound` and `CORE.enemyFootstepSound` to dynamically dispatch snow and ice variants according to active map and ice patch positioning while preserving legacy urban audio.
+  - Wired real-time map and ice patch detection into `updateFootsteps` (`src/50_vfx_audio.js`) and `updateEnemies` (`src/40_enemies.js`).
+- **Ice patch layout & longer slide physics (`src/01_core.js`, `src/10_config_world.js`, `src/20_player.js`).**
+  - Added `icePatches` definitions to `CORE.MAP_DEFS.snowy` covering courtyard and compound ice zones.
+  - Added pure `CORE.isPositionOnIce(x, z, mapId)`, `CORE.slideDuration(onIce)`, and `CORE.slideTimeout(onIce)`. Ice extends slide duration from standard 0.90 s to 1.30 s (`SLIDE_ICE_DURATION`, `SLIDE_ICE_TIMEOUT_T`).
+  - Added `MAT.ice` material and rendered ice patch strips in `buildSnowyArena()` (`src/10_config_world.js`).
+  - Updated `updatePlayer` in `src/20_player.js` to sustain slide momentum and timeout across ice patches.
+- **Powder puffs on impact instead of concrete chips (`src/01_core.js`, `src/48_particles.js`, `src/50_vfx_audio.js`).**
+  - Added `snow` and `ice` surface definitions in `_SURFACE_DEFS`. On snow, chip count and sparks are zeroed, and dust color emits pale frosty white/blue powder (`0xf0f6fc`, `0xc4d8ec`).
+  - Updated `surfaceImpactVfxParams` to scale soft powder puffs on snow impact.
+  - Updated `fxSurfaceFor` in `src/48_particles.js` to resolve ground to `'snow'` on Snowy Compound and detect `MAT.ice`.
+  - Updated `slideDustVfxParams` and `spawnSlideDust` to emit snow/ice powder puffs instead of dirt dust during slides on Snowy Compound.
+  - Added `impact_snow` and `impact_ice` synthesis in `src/50_vfx_audio.js` and wired into `CORE.meleeSurfaceSound`.
+- **Release build budget & coverage.**
+  - Rebuilt single-file release HTML (`dist/Operation Blackout.html`) at 2,052,846 bytes (44,306 bytes below the 2 MiB ceiling).
+  - 606/606 Node tests passing across `tests/*.js` (430 in `test_core.js`, 92 in `test_modes_and_teams.js`).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+
 ## v177.1 — Snow footprint height depression fix and production texture/sky test execution
 
 - **Snow footprint generation fix (`src/08_textures.js`).**

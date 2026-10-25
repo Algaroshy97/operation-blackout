@@ -2204,6 +2204,28 @@ function createFullMatchContext(overrides = {}) {
   c.buildDistrictBarriers = vm.runInContext('buildDistrictBarriers', c);
   c.openDistricts = vm.runInContext('openDistricts', c);
   c.matchSpawnPointAt = vm.runInContext('matchSpawnPointAt', c);
+  c.ground = { material: c.groundMat };
+  vm.runInContext('ground = { material: groundMat }; penMaterialFor = () => "concrete";', c);
+  const pfxSrc = source('48_particles.js');
+  const fxSurfaceSlice = pfxSrc.slice(
+    pfxSrc.indexOf('function fxSurfaceFor('),
+    pfxSrc.indexOf('function fxImpact(')
+  );
+  vm.runInContext(fxSurfaceSlice, c);
+  c.fxSurfaceFor = vm.runInContext('fxSurfaceFor', c);
+
+  const audioSrc = source('50_vfx_audio.js');
+  const footstepsSlice = audioSrc.slice(
+    audioSrc.indexOf('let stepT = 0;'),
+    audioSrc.indexOf('// ============ ADAPTIVE MUSIC ============')
+  );
+  vm.runInContext(footstepsSlice, c);
+  c.updateFootsteps = vm.runInContext('updateFootsteps', c);
+  Object.defineProperty(c, 'stepT', {
+    get: () => vm.runInContext('stepT', c),
+    set: v => { vm.runInContext('stepT = ' + JSON.stringify(v), c); },
+    configurable: true
+  });
   c.activeMap = c.MAPS.urban;
   c.applyMapSkyPreset(c.activeMapId);
   c.buildStations();
@@ -5105,5 +5127,60 @@ test('milestone 3: full Survival gameplay lifecycle on Snowy Compound with activ
   assert.strictEqual(c.STATS.mapStats.snowy.bestScore, 1800, 'recordRun must store score under snowy mapStats');
   assert.strictEqual(c.STATS.mapStats.snowy.bestWave, 4, 'recordRun must store wave under snowy mapStats');
 });
+
+test('milestone 3: Snowy atmospheric VFX, viewmodel breath mist, and ice-patch slide lifecycle in match context', () => {
+  const c = createFullMatchContext();
+  c.setActiveMap('snowy');
+
+  // 1. Surface resolution on Snowy vs Urban
+  assert.strictEqual(c.fxSurfaceFor(c.ground), 'snow', 'ground must resolve to snow surface on Snowy Compound');
+  c.setActiveMap('urban');
+  assert.strictEqual(c.fxSurfaceFor(c.ground), 'ground', 'ground must resolve to ground surface on Urban District');
+  c.setActiveMap('snowy');
+
+  // 2. Ice patch detection and extended slide lifecycle
+  const snowyDef = CORE.getMapDef('snowy');
+  const patch = snowyDef.icePatches[0];
+  const midX = (patch.minX + patch.maxX) / 2;
+  const midZ = (patch.minZ + patch.maxZ) / 2;
+
+  // Move player to ice patch
+  c.player.pos.set(midX, 0.9, midZ);
+  c.player.vel.set(8.0, 0, 0);
+  c.player.onGround = true;
+  c.player.sliding = true;
+  c.player.slideT = 1.05; // beyond standard 0.9s duration
+
+  const onIce = CORE.isPositionOnIce(c.player.pos.x, c.player.pos.z, c.getActiveMap().id);
+  assert.strictEqual(onIce, true, 'player position must be detected on ice patch');
+
+  const standardExpired = CORE.isSlideExpired(c.player.slideT, true, true, CORE.SLIDE_TIMEOUT_T, CORE.SLIDE_STOP_MIN_T);
+  const iceExpired = CORE.isSlideExpired(c.player.slideT, true, true, CORE.slideTimeout(onIce), CORE.SLIDE_STOP_MIN_T);
+  assert.strictEqual(standardExpired, true, 'slide at 1.05s must be expired under standard timeout');
+  assert.strictEqual(iceExpired, false, 'slide at 1.05s must NOT be expired under ice timeout');
+
+  // 3. Footstep audio dispatch on ice vs snow vs urban
+  c.lastPlayedSound = null;
+  c.playSound = function(name) { c.lastPlayedSound = name; };
+
+  // Footstep on ice
+  c.stepT = 0;
+  c.updateFootsteps(0.1);
+  assert.strictEqual(c.lastPlayedSound, 'step_ice', 'footstep on ice patch must play step_ice');
+
+  // Footstep on snow (outside ice patch)
+  c.player.pos.set(0, 0.9, -4);
+  c.stepT = 0;
+  c.updateFootsteps(0.1);
+  assert.strictEqual(c.lastPlayedSound, 'step_snow', 'footstep on snow ground must play step_snow');
+
+  // Footstep on urban
+  c.setActiveMap('urban');
+  c.player.pos.set(0, 0.9, 0);
+  c.stepT = 0;
+  c.updateFootsteps(0.1);
+  assert.strictEqual(c.lastPlayedSound, 'step', 'footstep on urban ground must play step');
+});
+
 
 
