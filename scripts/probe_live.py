@@ -52,11 +52,385 @@ def wait_until(page, expr, timeout_s=20):
     return False
 
 
+def run_isolated(args, filter_pat: str) -> int:
+    """Run targeted integration checks in isolation without full 600-second probe overhead."""
+    import re
+    sanitize_headless_env()
+
+    def matches(name: str) -> bool:
+        try:
+            return bool(re.search(filter_pat, name, re.IGNORECASE))
+        except re.error:
+            return filter_pat.lower() in name.lower()
+
+    checks = []
+    console_errors = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+
+        need_main_page = any(matches(n) for n in [
+            "checkpoint", "snowy", "survival", "friendly", "iff", "boot", "deploy", "between-wave"
+        ])
+
+        if need_main_page:
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+            page.on("pageerror", lambda e: console_errors.append(str(e)))
+            page.goto(args.build.resolve().as_uri())
+
+            wait_until(page, "() => typeof assetsReady !== 'undefined' && assetsReady === true", 30)
+
+            if matches("boot-three-loaded"):
+                checks.append(("boot-three-loaded", page.evaluate("() => typeof THREE !== 'undefined'")))
+            if matches("assets-preloaded"):
+                checks.append(("assets-preloaded", True))
+
+            # Real UI flow to deploy into live gameplay
+            page.click("#btn-start")
+            page.wait_for_timeout(300)
+            page.click("#gun-select .gun-card:not(.locked)")
+            page.wait_for_timeout(400)
+            wait_until(page, "() => document.querySelector('#gun-select h2') && document.querySelector('#gun-select h2').textContent === 'SELECT SECONDARY'", 10)
+            page.click("#gun-select .gun-card:not(.locked)")
+            page.wait_for_timeout(400)
+            wait_until(page, "() => typeof started !== 'undefined' && started === true", 15)
+
+            if matches("survival-deploy-live-state"):
+                surv_deploy = page.evaluate("""() => {
+                    const isStarted = typeof started !== 'undefined' && started === true;
+                    const notPaused = typeof paused !== 'undefined' && paused === false;
+                    const isAlive = typeof player !== 'undefined' && player && !player.dead && player.health > 0;
+                    const zeroProtection = typeof player !== 'undefined' && player && player.spawnProtectionT === 0;
+                    const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
+                    const isSurvival = activeMode && activeMode.id === 'survival';
+                    return isStarted && notPaused && isAlive && zeroProtection && isSurvival;
+                }""")
+                checks.append(("survival-deploy-live-state", bool(surv_deploy)))
+
+            if matches("checkpoint-between-wave-save-resume"):
+                save_resume = page.evaluate("""() => {
+                    const savedState = captureRunState();
+                    savedState.wave = 3;
+                    savedState.score = 6400;
+                    savedState.kills = 16;
+                    savedState.headshots = 5;
+                    savedState.health = 90;
+                    savedState.armor = 30;
+                    savedState.credits = 800;
+                    savedState.spawnProtectionT = 0;
+                    saveCheckpoint(savedState);
+                    const loaded = loadCheckpoint();
+                    const identityOk = loaded &&
+                        loaded.mapId === 'urban' &&
+                        loaded.wave === 3 &&
+                        loaded.score === 6400 &&
+                        loaded.kills === 16 &&
+                        loaded.headshots === 5 &&
+                        loaded.health === 90 &&
+                        loaded.armor === 30 &&
+                        loaded.credits === 800 &&
+                        loaded.spawnProtectionT === 0 &&
+                        loaded.modeRespawnQueue === undefined;
+
+                    const legacyRaw = {
+                        v: 3,
+                        wave: 2, score: 500, kills: 5, headshots: 1,
+                        shotsFired: 20, shotsHit: 10,
+                        health: 100, armor: 0, grenades: 2, credits: 100,
+                        weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }],
+                        modeRespawnQueue: [{ timer: 2.0, actor: { id: 'bot_test', team: 'friendly', kind: 1 } }]
+                    };
+                    const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+                    const defensiveOk = legacyLoaded &&
+                        legacyLoaded.mapId === 'urban' &&
+                        legacyLoaded.spawnProtectionT === 0 &&
+                        legacyLoaded.modeRespawnQueue === undefined;
+
+                    return { identityOk: identityOk, defensiveOk: defensiveOk };
+                }""")
+                checks.append(("checkpoint-between-wave-save-resume", bool(save_resume["identityOk"] and save_resume["defensiveOk"])))
+
+            if matches("checkpoint-settled-victory-and-endless"):
+                vic_endless = page.evaluate("""() => {
+                    const savedPhase = typeof runPhase !== 'undefined' ? runPhase : 'active';
+                    const savedEnded = typeof gameEnded !== 'undefined' ? gameEnded : false;
+                    const savedEndless = typeof endlessMode !== 'undefined' ? endlessMode : false;
+
+                    const vicState = captureRunState();
+                    vicState.runPhase = 'victory';
+                    vicState.settlementSnapshot = { kills: 100, headshots: 30, streaks: 4 };
+                    saveCheckpoint(vicState);
+                    const loadedVic = loadCheckpoint();
+                    const resumeVic = CORE.resumeCheckpointState(loadedVic.runPhase);
+
+                    const endlessState = captureRunState();
+                    endlessState.runPhase = 'endless';
+                    endlessState.endless = true;
+                    saveCheckpoint(endlessState);
+                    const loadedEndless = loadCheckpoint();
+                    const resumeEndless = CORE.resumeCheckpointState(loadedEndless.runPhase);
+
+                    if (typeof runPhase !== 'undefined') runPhase = savedPhase;
+                    if (typeof gameEnded !== 'undefined') gameEnded = savedEnded;
+                    if (typeof endlessMode !== 'undefined') endlessMode = savedEndless;
+
+                    return {
+                        vicPhase: loadedVic && loadedVic.runPhase === 'victory',
+                        vicShowScreen: resumeVic && resumeVic.showVictory === true && resumeVic.gameEnded === true,
+                        endlessPhase: loadedEndless && loadedEndless.runPhase === 'endless' && loadedEndless.endless === true,
+                        endlessContinues: resumeEndless && resumeEndless.showVictory === false && resumeEndless.gameEnded === false
+                    };
+                }""")
+                checks.append(("checkpoint-settled-victory-and-endless",
+                               bool(vic_endless["vicPhase"] and vic_endless["vicShowScreen"] and
+                                    vic_endless["endlessPhase"] and vic_endless["endlessContinues"])))
+
+            if matches("friendly-bot-iff-and-friendly-fire-immunity"):
+                fb_check = page.evaluate("""() => {
+                    const friendly = spawnEnemy(1, 12, 18, { team: 'friendly' });
+                    const hasTeam = friendly && friendly.team === 'friendly';
+                    const iffObj = friendly && friendly.parts && (
+                        friendly.parts.iff ||
+                        (friendly.parts.group && friendly.parts.group.userData && friendly.parts.group.userData.iff)
+                    );
+                    const hasIff = !!iffObj;
+                    const minimapColor = CORE.minimapActorColor(friendly);
+                    const isFriendlyColor = minimapColor === CORE.MINIMAP_FRIENDLY_COLOR;
+
+                    const friendlyInitHp = friendly.health;
+                    damageEnemy(friendly, 45, friendly.pos, false, false, 'AR', player);
+                    const immuneToPlayer = friendly.health === friendlyInitHp;
+
+                    const playerInitHp = player.health;
+                    damagePlayer(25, 0, 'bullet', friendly);
+                    const playerImmuneToAlly = player.health === playerInitHp;
+
+                    friendly.dead = true;
+                    if (friendly.parts && friendly.parts.group) scene.remove(friendly.parts.group);
+                    const idx = enemies.indexOf(friendly);
+                    if (idx >= 0) enemies.splice(idx, 1);
+
+                    return {
+                        hasTeam: hasTeam,
+                        hasIff: hasIff,
+                        isFriendlyColor: isFriendlyColor,
+                        immuneToPlayer: immuneToPlayer,
+                        playerImmuneToAlly: playerImmuneToAlly
+                    };
+                }""")
+                checks.append(("friendly-bot-iff-and-friendly-fire-immunity",
+                               bool(fb_check["hasTeam"] and fb_check["hasIff"] and
+                                    fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
+                                    fb_check["playerImmuneToAlly"])))
+
+            if matches("snowy-survival-checkpoint-and-arena-restoration"):
+                snowy_resume = page.evaluate("""() => {
+                    const savedState = captureRunState();
+                    savedState.mapId = 'snowy';
+                    savedState.openDistricts = ['hangar'];
+                    savedState.wave = 4;
+                    savedState.score = 3200;
+                    saveCheckpoint(savedState);
+
+                    const loaded = loadCheckpoint();
+                    const saveIdentityOk = loaded && loaded.mapId === 'snowy' &&
+                                          Array.isArray(loaded.openDistricts) &&
+                                          loaded.openDistricts.includes('hangar');
+
+                    const legacyRaw = {
+                        v: 3, wave: 2, score: 500, kills: 5, headshots: 1,
+                        shotsFired: 20, shotsHit: 10,
+                        health: 100, armor: 0, grenades: 2, credits: 100,
+                        openDistricts: ['hangar', 'ne'],
+                        weapons: [{ gi: 0, ammo: 30, reserve: 60, up: null }]
+                    };
+                    const legacyLoaded = CORE.validateCheckpoint(legacyRaw);
+                    const legacyDefaultOk = legacyLoaded &&
+                                           legacyLoaded.mapId === 'urban' &&
+                                           legacyLoaded.openDistricts.length === 1 &&
+                                           legacyLoaded.openDistricts[0] === 'ne';
+
+                    setActiveMap('urban', true);
+                    const urbanBeforeResume = getActiveMap().id === 'urban';
+
+                    resumeRun();
+
+                    const resumedMapOk = getActiveMap().id === 'snowy' && getSetting('gameMap') === 'snowy';
+                    const resumedDistrictsOk = Array.isArray(openDistricts) && openDistricts.includes('hangar');
+
+                    const hasSnowyAnchor = colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                        (b.max.x - b.min.x) > 15
+                    );
+                    const hasNoUrbanWarehouse = !colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                        (b.max.x - b.min.x) > 10
+                    );
+                    const stationsOk = stations.length === 17 &&
+                                       stations.some(s => s.district === 'hangar') &&
+                                       stations.some(s => s.district === 'depot');
+                    const doorOpened = doorColliders['hangar'] && !colliders.includes(doorColliders['hangar']);
+                    const doorMeshRemoved = doorMeshes['hangar'] && !doorMeshes['hangar'].parent;
+                    const navGridHangar = rebuildNavGrid();
+                    CORE.computeFlowField(navGridHangar, 0, -4);
+                    const hangarDist = CORE.navDistanceAt(navGridHangar, 26, -26);
+                    const navHangarReachable = hangarDist > 0 && hangarDist < 1000;
+
+                    return {
+                        saveIdentityOk, legacyDefaultOk, urbanBeforeResume, resumedMapOk,
+                        resumedDistrictsOk, hasSnowyAnchor, hasNoUrbanWarehouse,
+                        stationsOk, doorOpened, doorMeshRemoved, navHangarReachable
+                    };
+                }""")
+                checks.append(("snowy-survival-checkpoint-and-arena-restoration",
+                               bool(snowy_resume["saveIdentityOk"] and snowy_resume["legacyDefaultOk"] and
+                                    snowy_resume["urbanBeforeResume"] and snowy_resume["resumedMapOk"] and
+                                    snowy_resume["resumedDistrictsOk"] and snowy_resume["hasSnowyAnchor"] and
+                                    snowy_resume["hasNoUrbanWarehouse"] and snowy_resume["stationsOk"] and
+                                    snowy_resume["doorOpened"] and snowy_resume["doorMeshRemoved"] and
+                                    snowy_resume["navHangarReachable"])))
+
+            if matches("snowy-map-switch-lifecycle-and-team-mode"):
+                snowy_switch_teams = page.evaluate("""() => {
+                    setActiveMap('urban');
+                    const urbanActive = getActiveMap().id === 'urban';
+                    const urbanStations = stations.length === 17 && stations.some(s => s.district === 'ne');
+                    const urbanWarehouseRestored = colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                        (b.max.x - b.min.x) > 10
+                    );
+                    const snowyAnchorRemoved = !colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                        (b.max.x - b.min.x) > 15
+                    );
+                    const urbanBarriersRestored = !!doorMeshes['ne'] && !!doorColliders['ne'];
+
+                    setActiveMap('snowy');
+                    const snowyActive = getActiveMap().id === 'snowy';
+                    const snowyStations = stations.length === 17 && stations.some(s => s.district === 'hangar');
+                    const snowyAnchorRestored = colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 0) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-4)) < 0.1 &&
+                        (b.max.x - b.min.x) > 15
+                    );
+                    const urbanWarehouseRemoved = !colliders.some(b =>
+                        Math.abs((b.min.x + b.max.x) / 2 - 28) < 0.1 &&
+                        Math.abs((b.min.z + b.max.z) / 2 - (-28)) < 0.1 &&
+                        (b.max.x - b.min.x) > 10
+                    );
+
+                    openDistrict('depot');
+                    const depotOpened = doorColliders['depot'] && !colliders.includes(doorColliders['depot']);
+                    const navDepot = rebuildNavGrid();
+                    CORE.computeFlowField(navDepot, 0, -4);
+                    const depotOpenDist = CORE.navDistanceAt(navDepot, -26, 21);
+                    const depotReachable = depotOpenDist > 0 && depotOpenDist < 1000;
+
+                    resetDistricts();
+                    const depotResetCollider = colliders.includes(doorColliders['depot']);
+                    const hangarResetCollider = colliders.includes(doorColliders['hangar']);
+
+                    setActiveMode('tdm');
+                    MODES.tdm.setup();
+                    const tdmRosterOk = MODES.tdm.roster.length === 12;
+                    const snowySpawns = CORE.getMapDef('snowy').spawnPoints;
+                    const botSpawn = matchSpawnPointAt(0);
+                    const tdmSpawnOk = botSpawn[0] === snowySpawns[0][0] && botSpawn[1] === snowySpawns[0][1];
+
+                    setActiveMode('domination');
+                    MODES.domination.setup();
+                    const snowyFlags = CORE.getMapDef('snowy').dominationFlags;
+                    const domFlagsOk = MODES.domination.flags.length === 3 &&
+                                      MODES.domination.flags[0].x === snowyFlags[0].x &&
+                                      MODES.domination.flags[0].z === snowyFlags[0].z &&
+                                      MODES.domination.flags[1].x === snowyFlags[1].x &&
+                                      MODES.domination.flags[1].z === snowyFlags[1].z;
+
+                    clearAllMatchRosters();
+                    setActiveMode('survival');
+                    setActiveMap('urban');
+                    resetGame();
+
+                    return {
+                        urbanActive, urbanStations, urbanWarehouseRestored, snowyAnchorRemoved,
+                        urbanBarriersRestored, snowyActive, snowyStations, snowyAnchorRestored,
+                        urbanWarehouseRemoved, depotOpened, depotReachable, depotResetCollider,
+                        hangarResetCollider, tdmRosterOk, tdmSpawnOk, domFlagsOk
+                    };
+                }""")
+                checks.append(("snowy-map-switch-lifecycle-and-team-mode",
+                               bool(snowy_switch_teams["urbanActive"] and snowy_switch_teams["urbanStations"] and
+                                    snowy_switch_teams["urbanWarehouseRestored"] and snowy_switch_teams["snowyAnchorRemoved"] and
+                                    snowy_switch_teams["urbanBarriersRestored"] and snowy_switch_teams["snowyActive"] and
+                                    snowy_switch_teams["snowyStations"] and snowy_switch_teams["snowyAnchorRestored"] and
+                                    snowy_switch_teams["urbanWarehouseRemoved"] and snowy_switch_teams["depotOpened"] and
+                                    snowy_switch_teams["depotReachable"] and snowy_switch_teams["depotResetCollider"] and
+                                    snowy_switch_teams["hangarResetCollider"] and snowy_switch_teams["tdmRosterOk"] and
+                                    snowy_switch_teams["tdmSpawnOk"] and snowy_switch_teams["domFlagsOk"])))
+
+            page.close()
+
+        # Retire contexts
+        for finished_context in list(browser.contexts):
+            finished_context.close()
+
+        checks.append(("no-console-errors", len(console_errors) == 0))
+        browser.close()
+
+    passed = sum(1 for _, ok in checks if ok)
+    failed = [name for name, ok in checks if not ok]
+    if failed:
+        print("PROBE FAILED: %d of %d checks" % (len(failed), len(checks)), file=sys.stderr)
+        for name in failed:
+            print("  x %s" % name, file=sys.stderr)
+        if console_errors:
+            print("  console errors:", file=sys.stderr)
+            for e in console_errors[:5]:
+                print("    %s" % e, file=sys.stderr)
+    else:
+        print("PROBE OK: %d checks passed" % len(checks), file=sys.stderr)
+    print(json.dumps({
+        "build": str(args.build),
+        "checks": [{"name": n, "ok": ok} for n, ok in checks],
+        "passed": passed,
+        "total": len(checks),
+        "console_errors": console_errors[:10],
+    }, indent=2))
+    return 0 if passed == len(checks) else 1
+
+
 def main() -> int:
     sanitize_headless_env()
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--build", type=Path, default=DEFAULT_BUILD)
+    ap = argparse.ArgumentParser(description="Headless verification of live gameplay state.")
+    ap.add_argument("--build", type=Path, default=DEFAULT_BUILD, help="Path to release build HTML")
+    ap.add_argument("--filter", "-k", type=str, default="",
+                    help="Filter check names matching substring or regex pattern")
+    ap.add_argument("--check", type=str, default="",
+                    help="Alias for --filter")
+    ap.add_argument("--isolate", type=str, default="",
+                    help="Alias for --filter to run isolated integration checks")
+    ap.add_argument("--suite", type=str, default="",
+                    help="Predefined check suite: checkpoint, snowy, modes, graphics, or all")
     args = ap.parse_args()
+
+    filter_pat = args.filter or args.check or args.isolate
+    if not filter_pat and args.suite:
+        suites = {
+            "checkpoint": r"checkpoint|survival.*restoration",
+            "snowy": r"snowy|checkpoint",
+            "modes": r"tdm|ffa|domination|gun-game",
+            "graphics": r"graphics|touch|shadow|effects|ragdoll|post",
+            "all": "",
+        }
+        filter_pat = suites.get(args.suite.lower(), args.suite)
+
+    if filter_pat:
+        return run_isolated(args, filter_pat)
 
     checks = []
     console_errors = []

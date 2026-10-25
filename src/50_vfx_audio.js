@@ -402,7 +402,9 @@ function updateCasings(dt) {
 // ---- Slide dust ----
 function spawnSlideDust(pos, actionType, speed) {
   if (typeof CORE !== 'undefined' && typeof CORE.slideDustVfxParams === 'function') {
-    const p = CORE.slideDustVfxParams(actionType, speed);
+    const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+    const onIce = typeof CORE.isPositionOnIce === 'function' && pos && CORE.isPositionOnIce(pos.x, pos.z, mId);
+    const p = CORE.slideDustVfxParams(actionType, speed, mId, onIce);
     fxDust(pos, p.count, p.spread, p.scale, p.color0, p.color1);
   } else {
     fxDust(pos, 6, 1);
@@ -520,8 +522,10 @@ function setMasterVolume(v) {
 const _sndLast = Object.create(null);
 const SND_MIN_GAP = {
   sizzle: 0.45,
-  impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045,
+  impact: 0.045, impact_metal: 0.045, impact_wood: 0.045, impact_glass: 0.045, impact_ground: 0.045, impact_snow: 0.045, impact_ice: 0.045,
   casing: 0.09, estep: 0.05, step: 0.05, hit: 0.03,
+  step_snow: 0.05, step_snow_crouch: 0.05, step_snow_tac: 0.04, estep_snow: 0.05, estep_snow_heavy: 0.05,
+  step_ice: 0.05, step_ice_crouch: 0.05, step_ice_tac: 0.04, estep_ice: 0.05, estep_ice_heavy: 0.05,
   breath_hold: 0.4, breath_gasp: 0.4, exhausted: 1.2, slide_cancel: 0.15,
   sniper_bolt: 0.4, streak_ready: 0.5, field_ready: 0.5, second_wind: 1.0, objective_complete: 0.5,
   draw_heavy: 0.15, draw_light: 0.15,
@@ -684,7 +688,19 @@ const SOUND_RECIPES = {
   scope_heavy_in:    [['osc', 'sine', 600, 1050, 0.11, 0.14], ['noise', 0.04, 0.10, 1800, 2.0]],
   scope_heavy_out:   [['osc', 'sine', 1050, 520, 0.10, 0.12], ['noise', 0.03, 0.08, 1400, 2.0]],
   casing_heavy:      [['osc', 'square', 1400, 950, 0.045, 0.07], ['noise', 0.025, 0.08, 2800, 2.0]],
-  kill_heavy:        [['osc', 'sine', 380, 180, 0.16, 0.28], ['noise', 0.08, 0.22, 600, 1.5], ['osc', 'sawtooth', 180, 60, 0.12, 0.20]]
+  kill_heavy:        [['osc', 'sine', 380, 180, 0.16, 0.28], ['noise', 0.08, 0.22, 600, 1.5], ['osc', 'sawtooth', 180, 60, 0.12, 0.20]],
+  step_snow:         [['noise', 0.06, 0.045, 900, 1.2]],
+  step_snow_crouch:  [['noise', 0.045, 0.02, 700, 1.0]],
+  step_snow_tac:     [['noise', 0.07, 0.08, 1000, 1.3], ['osc', 'sine', 120, 40, 0.05, 0.12]],
+  estep_snow:        [['noise', 0.07, 0.055, 750, 1.1]],
+  estep_snow_heavy:  [['noise', 0.09, 0.10, 500, 0.9], ['osc', 'sine', 90, 30, 0.08, 0.18]],
+  step_ice:          [['noise', 0.05, 0.04, 1400, 1.4]],
+  step_ice_crouch:   [['noise', 0.04, 0.018, 1200, 1.2]],
+  step_ice_tac:      [['noise', 0.06, 0.07, 1600, 1.5], ['osc', 'sine', 140, 60, 0.04, 0.10]],
+  estep_ice:         [['noise', 0.05, 0.05, 1300, 1.3]],
+  estep_ice_heavy:   [['noise', 0.08, 0.09, 900, 1.0], ['osc', 'sine', 100, 40, 0.07, 0.15]],
+  impact_snow:       [['noise', 0.07, 0.18, 650, 1.0]],
+  impact_ice:        [['noise', 0.05, 0.25, 3800, 3.0], ['osc', 'sine', 2600, 1300, 0.05, 0.12]]
 };
 
 // Percussive sounds that repeat constantly. A pre-rendered buffer is bit-identical
@@ -701,7 +717,7 @@ const SOUND_VARIED = {
   armory_upgrade: 1, door_unlock: 1, weapon_buy: 1, player_down: 1, player_revive: 1,
   powerup_nuke: 1, powerup_ammo: 1, powerup_double: 1, powerup_instakill: 1,
   claymore_plant: 1, breath_hold: 1, breath_gasp: 1, exhausted: 1, slide_cancel: 1,
-  impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1,
+  impact_metal: 1, impact_wood: 1, impact_glass: 1, impact_ground: 1, impact_snow: 1, impact_ice: 1,
   sniper_bolt: 1, streak_ready: 1, field_ready: 1,
   second_wind: 1, objective_complete: 1, draw_heavy: 1, draw_light: 1,
   bullet_whiz: 1, reload_bolt: 1, low_ammo: 1, heartbeat: 1, eshot_elite: 1,
@@ -710,6 +726,8 @@ const SOUND_VARIED = {
   melee_hit: 1, melee_backstab: 1, hit_cover: 1, step_tac: 1, land_heavy: 1,
   jump_slide: 1, chamber_empty: 1, enemy_hit: 1, enemy_hit_heavy: 1,
   shield_deflect: 1, helmet_hit: 1,
+  step_snow: 1, step_snow_crouch: 1, step_snow_tac: 1, estep_snow: 1, estep_snow_heavy: 1,
+  step_ice: 1, step_ice_crouch: 1, step_ice_tac: 1, estep_ice: 1, estep_ice_heavy: 1,
   estep_heavy: 1, reload_heavy_out: 1, reload_heavy_in: 1, reload_smg_out: 1, reload_smg_in: 1, melee_hit_metal: 1,
   dry_heavy: 1, melee_heavy: 1, explosion_heavy: 1,
   scope_heavy_in: 1, scope_heavy_out: 1, casing_heavy: 1, kill_heavy: 1
@@ -858,7 +876,9 @@ function updateFootsteps(dt) {
     const cadence = CORE.footstepCadence(player.sprinting, isTac, player.crouching);
     stepT -= dt * cadence;
     if (stepT <= 0) {
-      playSound(CORE.playerFootstepSound(player.crouching, isTac));
+      const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+      const onIce = typeof CORE !== 'undefined' && typeof CORE.isPositionOnIce === 'function' && CORE.isPositionOnIce(player.pos.x, player.pos.z, mId);
+      playSound(CORE.playerFootstepSound(player.crouching, isTac, mId, onIce));
       stepT = 1;
     }
   }

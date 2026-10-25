@@ -850,7 +850,17 @@ const CORE = (function () {
     return FOOTSTEP_BASE_CADENCE;
   }
 
-  function playerFootstepSound(isCrouching, isTacSprint) {
+  function playerFootstepSound(isCrouching, isTacSprint, mapId, onIce) {
+    if (Boolean(onIce)) {
+      if (Boolean(isCrouching)) return 'step_ice_crouch';
+      if (Boolean(isTacSprint)) return 'step_ice_tac';
+      return 'step_ice';
+    }
+    if (mapId === 'snowy') {
+      if (Boolean(isCrouching)) return 'step_snow_crouch';
+      if (Boolean(isTacSprint)) return 'step_snow_tac';
+      return 'step_snow';
+    }
     if (Boolean(isCrouching)) return 'step_crouch';
     if (Boolean(isTacSprint)) return 'step_tac';
     return 'step';
@@ -4442,6 +4452,16 @@ const CORE = (function () {
   const SLIDE_BOOST_MAX = 1.35;
   const SLIDE_BOOST_SCALE = 0.3;
   const SLIDE_JUMP_Y_MUL = 1.08;
+  const SLIDE_ICE_DURATION = 1.30;
+  const SLIDE_ICE_TIMEOUT_T = 1.30;
+
+  function slideDuration(onIce) {
+    return Boolean(onIce) ? SLIDE_ICE_DURATION : SLIDE_DURATION;
+  }
+
+  function slideTimeout(onIce) {
+    return Boolean(onIce) ? SLIDE_ICE_TIMEOUT_T : SLIDE_TIMEOUT_T;
+  }
 
   function slideSpeedAt(slideT, baseSprintSpeed, baseCrouchSpeed, duration, startMul, endMul) {
     const dur = _isPos(duration) ? duration : SLIDE_DURATION;
@@ -6048,8 +6068,12 @@ const CORE = (function () {
 
   // ---- Ballistic surface impact and tactical weapon acoustics (v101) ----
   const SPATIAL_IMPACT_MAX_DIST = 55, SNIPER_BOLT_DELAY_MS = 280;
+  const SURFACE_IMPACT_METAL_SOUND = 'impact_metal', SURFACE_IMPACT_WOOD_SOUND = 'impact_wood',
+        SURFACE_IMPACT_GLASS_SOUND = 'impact_glass', SURFACE_IMPACT_GROUND_SOUND = 'impact_ground',
+        SURFACE_IMPACT_SNOW_SOUND = 'impact_snow', SURFACE_IMPACT_ICE_SOUND = 'impact_ice',
+        SURFACE_IMPACT_DEFAULT_SOUND = 'impact';
   function surfaceImpactSound(surface) {
-    return surface === 'metal' ? 'impact_metal' : (surface === 'wood' ? 'impact_wood' : (surface === 'glass' ? 'impact_glass' : (surface === 'ground' ? 'impact_ground' : 'impact')));
+    return surface === 'metal' ? 'impact_metal' : (surface === 'wood' ? 'impact_wood' : (surface === 'glass' ? 'impact_glass' : (surface === 'ground' ? 'impact_ground' : (surface === 'snow' ? 'impact_snow' : (surface === 'ice' ? 'impact_ice' : 'impact')))));
   }
   function sniperBoltSound() { return 'sniper_bolt'; }
   function streakReadySound(key) { return 'streak_ready'; }
@@ -6839,12 +6863,20 @@ const CORE = (function () {
 
   // ---- Tactical Locomotion Acoustics, Weapon Reload Audio & Melee Blade Surface Polish (v143 Audio Polish) ----
   const ENEMY_STEP_SOUND = 'estep', ENEMY_STEP_HEAVY_SOUND = 'estep_heavy';
-  function enemyFootstepSound(kind, isElite) { return (Boolean(isElite) || kind === 2 || kind === 'tank') ? ENEMY_STEP_HEAVY_SOUND : ENEMY_STEP_SOUND; }
+  const ENEMY_STEP_SNOW_SOUND = 'estep_snow', ENEMY_STEP_SNOW_HEAVY_SOUND = 'estep_snow_heavy';
+  const ENEMY_STEP_ICE_SOUND = 'estep_ice', ENEMY_STEP_ICE_HEAVY_SOUND = 'estep_ice_heavy';
+  function enemyFootstepSound(kind, isElite, mapId, onIce) {
+    const isHeavy = Boolean(isElite) || kind === 2 || kind === 'tank';
+    if (Boolean(onIce)) return isHeavy ? ENEMY_STEP_ICE_HEAVY_SOUND : ENEMY_STEP_ICE_SOUND;
+    if (mapId === 'snowy') return isHeavy ? ENEMY_STEP_SNOW_HEAVY_SOUND : ENEMY_STEP_SNOW_SOUND;
+    return isHeavy ? ENEMY_STEP_HEAVY_SOUND : ENEMY_STEP_SOUND;
+  }
   const RELOAD_OUT_SOUND = 'reload_out', RELOAD_IN_SOUND = 'reload_in', RELOAD_HEAVY_OUT_SOUND = 'reload_heavy_out', RELOAD_HEAVY_IN_SOUND = 'reload_heavy_in', RELOAD_SMG_OUT_SOUND = 'reload_smg_out', RELOAD_SMG_IN_SOUND = 'reload_smg_in';
   function reloadMagazineOutSound(weaponType) { return weaponType === 'SMG' ? RELOAD_SMG_OUT_SOUND : ((weaponType === 'SR' || weaponType === 'BR') ? RELOAD_HEAVY_OUT_SOUND : RELOAD_OUT_SOUND); }
   function reloadMagazineInSound(weaponType) { return weaponType === 'SMG' ? RELOAD_SMG_IN_SOUND : ((weaponType === 'SR' || weaponType === 'BR') ? RELOAD_HEAVY_IN_SOUND : RELOAD_IN_SOUND); }
   const MELEE_SURFACE_METAL_SOUND = 'melee_hit_metal', MELEE_SURFACE_WOOD_SOUND = 'impact_wood', MELEE_SURFACE_GLASS_SOUND = 'impact_glass', MELEE_SURFACE_GROUND_SOUND = 'impact_ground', MELEE_SURFACE_DEFAULT_SOUND = 'impact';
-  function meleeSurfaceSound(surface) { return surface === 'metal' ? MELEE_SURFACE_METAL_SOUND : (surface === 'wood' ? MELEE_SURFACE_WOOD_SOUND : (surface === 'glass' ? MELEE_SURFACE_GLASS_SOUND : (surface === 'ground' ? MELEE_SURFACE_GROUND_SOUND : MELEE_SURFACE_DEFAULT_SOUND))); }
+  const MELEE_SURFACE_SNOW_SOUND = 'impact_snow', MELEE_SURFACE_ICE_SOUND = 'impact_glass';
+  function meleeSurfaceSound(surface) { return surface === 'snow' ? MELEE_SURFACE_SNOW_SOUND : (surface === 'ice' ? MELEE_SURFACE_ICE_SOUND : (surface === 'metal' ? MELEE_SURFACE_METAL_SOUND : (surface === 'wood' ? MELEE_SURFACE_WOOD_SOUND : (surface === 'glass' ? MELEE_SURFACE_GLASS_SOUND : (surface === 'ground' ? MELEE_SURFACE_GROUND_SOUND : MELEE_SURFACE_DEFAULT_SOUND))))); }
 
   // ---- Tactical Weapon Recoil Decay Agility & Stance Stabilization (v144 Balance Tuning) ----
   const RECOIL_DECAY_SMG = 0.006, RECOIL_DECAY_AR = 0.02, RECOIL_DECAY_BR = 0.05, RECOIL_DECAY_SR = 0.10, RECOIL_DECAY_CROUCH_MUL = 0.65, RECOIL_DECAY_SLIDE_MUL = 0.85;
@@ -6924,11 +6956,15 @@ const CORE = (function () {
   const _SURFACE_DEFS = {
     concrete: { dust0: 0x8f8a84, dust1: 0x5e5a56, chips: 0xb0aca4, sparks: 1 }, brick: { dust0: 0x9a6a52, dust1: 0x5a3e32, chips: 0x8a4a34, sparks: 0 },
     metal: { dust0: 0x6a6a70, dust1: 0x404048, chips: 0, sparks: 8 }, wood: { dust0: 0x8a6a48, dust1: 0x5a4430, chips: 0x9a7448, sparks: 0 },
-    glass: { dust0: 0xa8b8c8, dust1: 0x6a7888, chips: 0xc0d8f0, sparks: 0 }, ground: { dust0: 0x6a625a, dust1: 0x403a36, chips: 0x3a3632, sparks: 1 }
+    glass: { dust0: 0xa8b8c8, dust1: 0x6a7888, chips: 0xc0d8f0, sparks: 0 }, ground: { dust0: 0x6a625a, dust1: 0x403a36, chips: 0x3a3632, sparks: 1 },
+    snow: { dust0: 0xf0f6fc, dust1: 0xc4d8ec, chips: 0, sparks: 0 }, ice: { dust0: 0xd8ecf8, dust1: 0xa8cce8, chips: 0xc8e8ff, sparks: 2 }
   };
   function surfaceImpactVfxParams(surface, weaponType) {
     const srf = _SURFACE_DEFS[surface] || _SURFACE_DEFS.concrete, wt = weaponType || 'AR', cMul = wt === 'SR' ? 1.4 : (wt === 'BR' ? 1.2 : (wt === 'SMG' ? 0.8 : 1.0));
-    return { dustCount: wt === 'SR' ? 5 : (wt === 'BR' ? 4 : (wt === 'SMG' ? 2 : 3)), dustScale: cMul, chipCount: srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * cMul) : 0, sparkCount: srf.sparks ? Math.round(srf.sparks * (wt === 'SR' ? 1.75 : (wt === 'BR' ? 1.35 : (wt === 'SMG' ? 0.65 : 1.0)))) : 0, dustColor0: srf.dust0, dustColor1: srf.dust1, chipColor: srf.chips };
+    const isSnow = surface === 'snow';
+    const dustCount = isSnow ? (wt === 'SR' ? 6 : (wt === 'BR' ? 5 : 4)) : (wt === 'SR' ? 5 : (wt === 'BR' ? 4 : (wt === 'SMG' ? 2 : 3)));
+    const dustScale = isSnow ? cMul * 1.25 : cMul;
+    return { dustCount: dustCount, dustScale: dustScale, chipCount: srf.chips ? Math.round(SURFACE_IMPACT_CHIP_BASE * cMul) : 0, sparkCount: srf.sparks ? Math.round(srf.sparks * (wt === 'SR' ? 1.75 : (wt === 'BR' ? 1.35 : (wt === 'SMG' ? 0.65 : 1.0)))) : 0, dustColor0: srf.dust0, dustColor1: srf.dust1, chipColor: srf.chips };
   }
   function surfaceImpactLightParams(surface, weaponType) {
     const s = surface || 'concrete', wt = weaponType || 'AR';
@@ -7032,10 +7068,12 @@ const CORE = (function () {
   function casingEjectImpulse(weaponType) {
     return weaponType === 'SMG' ? CASING_EJECT_IMPULSE_SMG : (weaponType === 'BR' ? CASING_EJECT_IMPULSE_BR : (weaponType === 'SR' ? CASING_EJECT_IMPULSE_SR : CASING_EJECT_IMPULSE_AR));
   }
-  function slideDustVfxParams(actionType, speed) {
+  function slideDustVfxParams(actionType, speed, mapId, onIce) {
     const act = actionType || 'start', spd = _isNum(speed) ? Math.max(0, speed) : 0;
     const count = act === 'jump' ? 9 : (act === 'start' ? 7 : (act === 'cancel' ? 5 : (act === 'mantle' ? 6 : 4))), spread = act === 'jump' ? 1.35 : (act === 'start' ? 1.15 : (act === 'cancel' ? 0.90 : (act === 'mantle' ? 1.00 : 0.75))), scale = act === 'jump' ? 1.25 : (act === 'start' ? 1.05 : (act === 'cancel' ? 0.85 : (act === 'mantle' ? 0.95 : 0.75))), speedMul = spd > 0 ? Math.min(1.5, Math.max(0.6, spd / 6.0)) : 1.0;
-    return { count: Math.round(count * speedMul), spread: spread * speedMul, scale: scale * (0.85 + speedMul * 0.15), color0: SLIDE_DUST_COLOR0, color1: SLIDE_DUST_COLOR1 };
+    const c0 = onIce ? 0xd8ecf8 : (mapId === 'snowy' ? 0xf0f6fc : SLIDE_DUST_COLOR0);
+    const c1 = onIce ? 0xa8cce8 : (mapId === 'snowy' ? 0xc4d8ec : SLIDE_DUST_COLOR1);
+    return { count: Math.round(count * speedMul), spread: spread * speedMul, scale: scale * (0.85 + speedMul * 0.15), color0: c0, color1: c1 };
   }
 
   // ---- Mobile Optical Look Sensitivity Scaling & Touch Action Availability Rules (v161 Mobile UI Polish) ----
@@ -7648,6 +7686,7 @@ const CORE = (function () {
       dominationFlags: URBAN_DOMINATION_FLAGS,
       districts: DISTRICTS,
       barriers: URBAN_BARRIERS,
+      icePatches: [],
       sky: {
         top: 0x3d6cb0, mid: 0x8fa9d2, horizon: 0xf0b088, low: 0x4a4452,
         fogColor: 0x1a1f2b, skyColor: 0x8aa4c8,
@@ -7668,6 +7707,10 @@ const CORE = (function () {
         { key: 'depot', name: 'FUEL DEPOT', price: 750, minX: -36, maxX: -16, minZ: 18, maxZ: 36 }
       ],
       barriers: SNOWY_BARRIERS,
+      icePatches: [
+        { minX: -6, maxX: 6, minZ: 8, maxZ: 18 },
+        { minX: 12, maxX: 24, minZ: -10, maxZ: -2 }
+      ],
       sky: {
         top: 0x24528c, mid: 0x7aa5d2, horizon: 0xd4e6f4, low: 0x2e3846,
         fogColor: 0x7892ad, skyColor: 0x8eb4d8,
@@ -7687,6 +7730,68 @@ const CORE = (function () {
   function getMapDef(id) {
     const safe = sanitizeMapId(id);
     return MAP_DEFS[safe] || MAP_DEFS.urban;
+  }
+
+  function isPositionOnIce(x, z, mapId) {
+    if (mapId !== 'snowy') return false;
+    const def = getMapDef('snowy');
+    const patches = (def && def.icePatches) || [];
+    const px = _isNum(x) ? x : 0, pz = _isNum(z) ? z : 0;
+    for (let i = 0; i < patches.length; i++) {
+      const p = patches[i];
+      if (px >= p.minX && px <= p.maxX && pz >= p.minZ && pz <= p.maxZ) return true;
+    }
+    return false;
+  }
+
+  // ---- Snowy Atmospheric Weather & Viewmodel Cold Breath (Milestone 3 Feel & Look) ----
+  function isSnowfallEnabled(mapId) {
+    return mapId === 'snowy';
+  }
+
+  function snowfallVfxParams(settings) {
+    const pts = (settings && typeof settings.particles === 'number') ? settings.particles : 300;
+    if (pts <= 0) return { enabled: false, rate: 0, radius: 0, height: 0, fallMin: 0, fallMax: 0, windX: 0, windZ: 0, lifeMin: 0, lifeMax: 0, sizeMin: 0, sizeMax: 0, alpha: 0 };
+    const hi = pts > 200;
+    return {
+      enabled: true,
+      rate: hi ? 26 : 14,
+      radius: hi ? 18 : 12,
+      height: 7.5,
+      fallMin: 1.8,
+      fallMax: 3.2,
+      windX: 0.7,
+      windZ: -0.35,
+      lifeMin: 2.4,
+      lifeMax: 4.2,
+      sizeMin: 0.04,
+      sizeMax: 0.09,
+      alpha: 0.75
+    };
+  }
+
+  function isColdBreathEnabled(mapId) {
+    return mapId === 'snowy';
+  }
+
+  function breathMistInterval(isSprinting, isExhausted) {
+    return (Boolean(isSprinting) || Boolean(isExhausted)) ? 1.8 : 3.4;
+  }
+
+  function breathMistVfxParams(isADS, isSprinting) {
+    const ads = Boolean(isADS), spr = Boolean(isSprinting);
+    return {
+      life: spr ? 0.55 : 0.7,
+      scale: spr ? 1.25 : 1.0,
+      size0: 0.06,
+      size1: spr ? 0.32 : 0.24,
+      alpha: ads ? 0.16 : 0.28,
+      forwardDist: ads ? 0.42 : 0.32,
+      yOffset: -0.11,
+      xOffset: ads ? 0.07 : 0.0,
+      velForward: spr ? 0.8 : 0.45,
+      velUp: 0.18
+    };
   }
 
   return {
@@ -7860,6 +7965,9 @@ const CORE = (function () {
     enemyMeleeWindup, enemyAttackReadyTime, enemyKillImpulse, enemyStunSpeedMultiplier,
     stepEnemyBlindYaw, stepEnemyFallY, canSlideCancel, isSlideExpired, stepStationHold,
     weaponFireInterval, SPATIAL_IMPACT_MAX_DIST, SNIPER_BOLT_DELAY_MS,
+    SURFACE_IMPACT_METAL_SOUND, SURFACE_IMPACT_WOOD_SOUND, SURFACE_IMPACT_GLASS_SOUND,
+    SURFACE_IMPACT_GROUND_SOUND, SURFACE_IMPACT_SNOW_SOUND, SURFACE_IMPACT_ICE_SOUND,
+    SURFACE_IMPACT_DEFAULT_SOUND,
     surfaceImpactSound, sniperBoltSound, streakReadySound, fieldUpgradeReadySound,
     secondWindSound, objectiveCompleteSound, weaponDrawSound,
     DECAL_MAX, DECAL_LIFETIME, DECAL_FADE_DURATION, DECAL_BASE_RADIUS,
@@ -8048,7 +8156,11 @@ const CORE = (function () {
     stepRespawnTimer, canRespawn, stepSpawnProtection, isSpawnProtected, isFriendlyFire,
     teamKitColor, teamIffColor, minimapActorColor, scoreSpawnPoint, pickBestSpawnPoint,
     MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS,
-    URBAN_BARRIERS, SNOWY_BARRIERS
+    URBAN_BARRIERS, SNOWY_BARRIERS,
+    isPositionOnIce, SLIDE_ICE_DURATION, SLIDE_ICE_TIMEOUT_T, slideDuration, slideTimeout,
+    ENEMY_STEP_SNOW_SOUND, ENEMY_STEP_SNOW_HEAVY_SOUND, ENEMY_STEP_ICE_SOUND, ENEMY_STEP_ICE_HEAVY_SOUND,
+    MELEE_SURFACE_SNOW_SOUND, MELEE_SURFACE_ICE_SOUND,
+    isSnowfallEnabled, snowfallVfxParams, isColdBreathEnabled, breathMistInterval, breathMistVfxParams
   };
 
 

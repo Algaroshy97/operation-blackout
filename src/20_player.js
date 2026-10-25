@@ -249,7 +249,11 @@ function updatePlayer(dt) {
       ? CORE.slideBaseSprintSpeed(CFG.player.speed, CFG.player.sprintMul, isTacSlide)
       : CFG.player.speed * CFG.player.sprintMul;
     const crouchBase = CFG.player.speed * CORE.SLIDE_END_MUL;
-    const slideSpeed = CORE.slideSpeedAt(player.slideT, sprintBase, crouchBase, CORE.SLIDE_DURATION, CORE.SLIDE_START_MUL, CORE.SLIDE_END_MUL);
+    const activeMId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+    const onIce = typeof CORE !== 'undefined' && typeof CORE.isPositionOnIce === 'function' && CORE.isPositionOnIce(player.pos.x, player.pos.z, activeMId);
+    const slideDur = typeof CORE !== 'undefined' && typeof CORE.slideDuration === 'function' ? CORE.slideDuration(onIce) : CORE.SLIDE_DURATION;
+    const slideTimeout = typeof CORE !== 'undefined' && typeof CORE.slideTimeout === 'function' ? CORE.slideTimeout(onIce) : CORE.SLIDE_TIMEOUT_T;
+    const slideSpeed = CORE.slideSpeedAt(player.slideT, sprintBase, crouchBase, slideDur, CORE.SLIDE_START_MUL, CORE.SLIDE_END_MUL);
     player.vel.x = player.slideDir.x * slideSpeed;
     player.vel.z = player.slideDir.z * slideSpeed;
     // Slide cancel. The slide used to commit for a full 0.9 s with no early-out
@@ -263,7 +267,7 @@ function updatePlayer(dt) {
       spawnSlideDust(player.pos, 'cancel', Math.hypot(player.vel.x, player.vel.z));
     }
     // slide ends: timeout, released crouch, or stopped
-    if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, CORE.SLIDE_TIMEOUT_T, CORE.SLIDE_STOP_MIN_T)) {
+    if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, slideTimeout, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
       player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos, 'stop', Math.hypot(player.vel.x, player.vel.z));

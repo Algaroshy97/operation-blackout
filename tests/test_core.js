@@ -6198,6 +6198,8 @@ test('surface impact acoustics, sniper bolt cycle, tactical readiness cues, and 
   assert.strictEqual(CORE.surfaceImpactSound('wood'), 'impact_wood');
   assert.strictEqual(CORE.surfaceImpactSound('glass'), 'impact_glass');
   assert.strictEqual(CORE.surfaceImpactSound('ground'), 'impact_ground');
+  assert.strictEqual(CORE.surfaceImpactSound('snow'), 'impact_snow');
+  assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice');
   assert.strictEqual(CORE.surfaceImpactSound('concrete'), 'impact');
   assert.strictEqual(CORE.surfaceImpactSound('brick'), 'impact');
   assert.strictEqual(CORE.surfaceImpactSound('sand'), 'impact');
@@ -10495,5 +10497,80 @@ test('milestone 3: career stats tracks per-map best score and best wave independ
   assert.strictEqual(sanitized.mapStats.urban.bestScore, 4500);
   assert.strictEqual(sanitized.mapStats.urban.bestWave, 11);
 });
+
+test('milestone 3: Snowy Compound ice patches, longer slide physics, and surface acoustics/VFX', () => {
+  const snowyDef = CORE.getMapDef('snowy');
+  assert.ok(Array.isArray(snowyDef.icePatches), 'snowy map definition must declare icePatches array');
+  assert.ok(snowyDef.icePatches.length > 0, 'snowy map must contain at least one ice patch');
+  for (const patch of snowyDef.icePatches) {
+    assert.ok(patch.minX < patch.maxX, 'ice patch minX must be less than maxX');
+    assert.ok(patch.minZ < patch.maxZ, 'ice patch minZ must be less than maxZ');
+  }
+
+  // 1. isPositionOnIce test
+  const p0 = snowyDef.icePatches[0];
+  const midX = (p0.minX + p0.maxX) / 2;
+  const midZ = (p0.minZ + p0.maxZ) / 2;
+  assert.strictEqual(CORE.isPositionOnIce(midX, midZ, 'snowy'), true, 'midpoint of ice patch must return true on snowy');
+  assert.strictEqual(CORE.isPositionOnIce(midX, midZ, 'urban'), false, 'ice patch lookup must return false on urban');
+  assert.strictEqual(CORE.isPositionOnIce(40, 40, 'snowy'), false, 'coordinates outside ice patches must return false');
+
+  // 2. Slide physics on ice: slideDuration and slideTimeout
+  assert.strictEqual(CORE.slideDuration(false), CORE.SLIDE_DURATION, 'slideDuration on normal ground must return standard SLIDE_DURATION');
+  assert.ok(CORE.slideDuration(true) > CORE.SLIDE_DURATION, 'slideDuration on ice must be longer than standard SLIDE_DURATION');
+  assert.strictEqual(CORE.slideTimeout(false), CORE.SLIDE_TIMEOUT_T, 'slideTimeout on normal ground must return standard SLIDE_TIMEOUT_T');
+  assert.ok(CORE.slideTimeout(true) > CORE.SLIDE_TIMEOUT_T, 'slideTimeout on ice must be longer than standard SLIDE_TIMEOUT_T');
+
+  // 3. Footstep acoustics on snow and ice
+  // Player footsteps:
+  assert.strictEqual(CORE.playerFootstepSound(false, false, 'urban', false), 'step');
+  assert.strictEqual(CORE.playerFootstepSound(true, false, 'urban', false), 'step_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(false, true, 'urban', false), 'step_tac');
+  assert.strictEqual(CORE.playerFootstepSound(false, false, 'snowy', false), 'step_snow');
+  assert.strictEqual(CORE.playerFootstepSound(true, false, 'snowy', false), 'step_snow_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(false, true, 'snowy', false), 'step_snow_tac');
+  assert.strictEqual(CORE.playerFootstepSound(false, false, 'snowy', true), 'step_ice');
+  assert.strictEqual(CORE.playerFootstepSound(true, false, 'snowy', true), 'step_ice_crouch');
+  assert.strictEqual(CORE.playerFootstepSound(false, true, 'snowy', true), 'step_ice_tac');
+
+  // Enemy footsteps:
+  assert.strictEqual(CORE.enemyFootstepSound(0, false, 'urban', false), 'estep');
+  assert.strictEqual(CORE.enemyFootstepSound(0, true, 'urban', false), 'estep_heavy');
+  assert.strictEqual(CORE.enemyFootstepSound(0, false, 'snowy', false), 'estep_snow');
+  assert.strictEqual(CORE.enemyFootstepSound(0, true, 'snowy', false), 'estep_snow_heavy');
+  assert.strictEqual(CORE.enemyFootstepSound(0, false, 'snowy', true), 'estep_ice');
+  assert.strictEqual(CORE.enemyFootstepSound(0, true, 'snowy', true), 'estep_ice_heavy');
+
+  // 4. Powder puffs on impact instead of concrete chips
+  const snowImpact = CORE.surfaceImpactVfxParams('snow', 'AR');
+  assert.strictEqual(snowImpact.chipCount, 0, 'snow impact must produce zero chips');
+  assert.strictEqual(snowImpact.sparkCount, 0, 'snow impact must produce zero sparks');
+  assert.ok(snowImpact.dustCount > 0, 'snow impact must produce dust powder particles');
+  assert.strictEqual(snowImpact.dustColor0, 0xf0f6fc, 'snow dust color0 must be pale powder');
+  assert.strictEqual(snowImpact.dustColor1, 0xc4d8ec, 'snow dust color1 must be icy blue-white');
+
+  // 5. Snowfall particle parameters
+  assert.strictEqual(CORE.isSnowfallEnabled('snowy'), true);
+  assert.strictEqual(CORE.isSnowfallEnabled('urban'), false);
+  const snowCfg = CORE.snowfallVfxParams({ particles: 500 });
+  assert.strictEqual(snowCfg.enabled, true);
+  assert.ok(snowCfg.rate > 0);
+  assert.ok(snowCfg.radius > 0);
+  assert.strictEqual(CORE.snowfallVfxParams({ particles: 0 }).enabled, false);
+
+  // 6. Viewmodel breath-mist parameters
+  assert.strictEqual(CORE.isColdBreathEnabled('snowy'), true);
+  assert.strictEqual(CORE.isColdBreathEnabled('urban'), false);
+  assert.ok(CORE.breathMistInterval(false, false) > 2.5);
+  assert.ok(CORE.breathMistInterval(true, false) < CORE.breathMistInterval(false, false), 'sprint must shorten breath interval');
+  const mistParams = CORE.breathMistVfxParams(false, false);
+  assert.ok(mistParams.life > 0);
+  assert.ok(mistParams.scale > 0);
+
+  // 7. Bullet impact acoustics on snow and ice
+  assert.strictEqual(CORE.surfaceImpactSound('snow'), 'impact_snow', 'snow surface bullet impact must route to impact_snow');
+  assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice', 'ice surface bullet impact must route to impact_ice');
+});
+
 
 

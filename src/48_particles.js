@@ -155,6 +155,8 @@ function updatePfxLayer(L, dt) {
   }
 }
 function updateParticles(dt) {
+  updateWeatherParticles(dt);
+  updateBreathMist(dt);
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
   const scale = CORE.particlePerspectiveScale(h, camera.fov);
   for (let i = 0; i < _PFX_LAYERS.length; i++) {
@@ -166,8 +168,59 @@ function updateParticles(dt) {
     updatePfxLayer(L, dt);
   }
 }
+let _snowAcc = 0;
+function updateWeatherParticles(dt) {
+  if (dt <= 0) return;
+  const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+  if (typeof CORE === 'undefined' || !CORE.isSnowfallEnabled(mId)) return;
+  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  const cfg = CORE.snowfallVfxParams(plan);
+  if (!cfg.enabled || cfg.rate <= 0 || !camera) return;
+  _snowAcc += dt * cfg.rate;
+  while (_snowAcc >= 1) {
+    _snowAcc -= 1;
+    const r = pfxRnd(2, cfg.radius);
+    const a = Math.random() * 6.283;
+    const px = camera.position.x + Math.cos(a) * r;
+    const py = camera.position.y + pfxRnd(2, cfg.height);
+    const pz = camera.position.z + Math.sin(a) * r;
+    const vx = cfg.windX + pfxRnd(-0.25, 0.25);
+    const vy = -pfxRnd(cfg.fallMin, cfg.fallMax);
+    const vz = cfg.windZ + pfxRnd(-0.25, 0.25);
+    const life = pfxRnd(cfg.lifeMin, cfg.lifeMax);
+    const sz = pfxRnd(cfg.sizeMin, cfg.sizeMax);
+    pfxEmit(PFX_SMOKE, px, py, pz, vx, vy, vz, life, sz, sz * 1.2, 0xffffff, 0xd4e4f4, cfg.alpha, 0.1, 0, 0);
+  }
+}
+let _breathTimer = 0;
+function updateBreathMist(dt) {
+  if (dt <= 0) return;
+  const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+  if (typeof CORE === 'undefined' || !CORE.isColdBreathEnabled(mId) || typeof player === 'undefined' || player.dead || player.downed) return;
+  const isSpr = Boolean(player.sprinting), isExh = Boolean(player.exhausted);
+  const interval = CORE.breathMistInterval(isSpr, isExh);
+  _breathTimer += dt;
+  if (_breathTimer >= interval) {
+    _breathTimer = 0;
+    const isAds = typeof adsDown === 'function' ? adsDown() : false;
+    const p = CORE.breathMistVfxParams(isAds, isSpr);
+    const cy = Math.cos(player.yaw), sy = Math.sin(player.yaw);
+    const cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+    const fwdX = -sy * cp, fwdY = sp, fwdZ = -cy * cp;
+    const rightX = cy, rightZ = -sy;
+    const px = camera.position.x + fwdX * p.forwardDist + rightX * p.xOffset;
+    const py = camera.position.y + fwdY * p.forwardDist + p.yOffset;
+    const pz = camera.position.z + fwdZ * p.forwardDist + rightZ * p.xOffset;
+    const vx = fwdX * p.velForward + pfxRnd(-0.05, 0.05);
+    const vy = fwdY * p.velForward + p.velUp;
+    const vz = fwdZ * p.velForward + pfxRnd(-0.05, 0.05);
+    pfxEmit(PFX_SMOKE, px, py, pz, vx, vy, vz, p.life, p.size0, p.size1, 0xf4faff, 0xd0e2f2, p.alpha, 1.2, -0.2, 0);
+  }
+}
 const _pfxBuf = new THREE.Vector2();
 function clearParticles() {
+  _snowAcc = 0;
+  _breathTimer = 0;
   for (let i = 0; i < _PFX_LAYERS.length; i++) {
     const L = _PFX_LAYERS[i];
     L.life.fill(0); L.alpha.fill(0); L.size.fill(0); L.cursor = 0; L.alive = 0; L.prevAlive = 0; L.hasNew = false;
@@ -240,9 +293,13 @@ function fxMuzzle(p, d, bigOrType, isSuppressed) {
 // object (a shield plate) throws metal sparks.
 function fxSurfaceFor(obj) {
   if (!obj) return 'metal';
-  if (obj === ground) return 'ground';
+  const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
+  if (obj === ground) return mId === 'snowy' ? 'snow' : 'ground';
   const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+  if (typeof MAT !== 'undefined' && mat === MAT.ice) return 'ice';
   if (mat === MAT.brick) return 'brick';
+  if (typeof MAT !== 'undefined' && mat === MAT.frostedMetal) return 'metal';
+  if (typeof MAT !== 'undefined' && mat === MAT.frostedWood) return 'wood';
   return penMaterialFor(mat);
 }
 function fxImpact(p, n, surface, weaponType) {
