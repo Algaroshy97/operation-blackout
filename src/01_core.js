@@ -7637,6 +7637,8 @@ const CORE = (function () {
   }
   const URBAN_SPAWN_POINTS = _ringSpawns(33);
   const SNOWY_SPAWN_POINTS = _ringSpawns(32);
+  // Keep the northwest ring pad clear of the depot's permanent east wall.
+  SNOWY_SPAWN_POINTS[4] = [-13, 27.7];
 
   function _st(k, x, z, w, p, d) { return { kind: k, x: x, z: z, weapon: w !== undefined ? w : -1, perk: p || null, district: d || null }; }
   const URBAN_STATION_LAYOUT = [

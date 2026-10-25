@@ -5887,6 +5887,10 @@ def main() -> int:
         for finished_context in list(browser.contexts):
             finished_context.close()
 
+        # Full acceptance includes every mode on each map, not just Urban matches.
+        from probe_map_modes import probe_map_modes
+        checks.extend(probe_map_modes(browser, args.build.resolve().as_uri()))
+
         # 113l) Real TDM deploy through UI, real 6v6 teams, HUD/scoreboard, full match lifecycle, result & restart
         # Acceptance check isolated in a fresh page/context to prevent prior probes' pointer-lock and DOM mutations
         # from interfering with normal UI deployment via real user clicks.
