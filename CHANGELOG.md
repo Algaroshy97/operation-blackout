@@ -4,6 +4,27 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v179 — Milestone 4: Survival wave objectives framework, Defend/Retrieve/Demolition/Hold lifecycles, and streak rewards
+
+- **Objective Waves framework (`src/01_core.js`, `src/60_hud_waves.js`, `src/40_enemies.js`, `src/58_streaks.js`, `src/70_main.js`).**
+  - Added pure objective rules and scheduling in `src/01_core.js`: `OBJECTIVE_TYPES` (`['defend', 'retrieve', 'demolition', 'hold']`), `OBJECTIVE_HOLD` (60 s), `DEFEND_MAX_HP` (300), `DEMOLITION_PLANT_TIME` (3.0 s), `DEMOLITION_RADIUS` (3.2 m), `RETRIEVE_PICKUP_RADIUS` (2.5 m), and `RETRIEVE_DROPOFF_RADIUS` (3.0 m).
+  - Implemented objective wave selection `CORE.objectiveTypeAtWave(waveNum)` rotating through all 4 types starting at wave 4 (waves 4, 8, 12...), never occurring back-to-back.
+  - Implemented pure helpers for demolition progress (`demolitionProgress`, `demolitionComplete`), defend HP percentage (`defendHpPct`), target destruction (`isDefendTargetDestroyed`), streak reward selection (`pickObjectiveRewardStreak`), and dynamic HUD labels (`objectiveLabel`).
+  - Integrated team-aware AI hostility in `src/40_enemies.js`: `findNearestHostileActor` evaluates friendly defend objective targets; enemy melee swings, bullet hits, and breacher shotgun blasts inflict damage via `damageObjectiveTarget(target, damage)`. Target destruction triggers `onObjectiveTargetDestroyed` failing the objective without ending the player's run.
+  - Implemented complete lifecycles in `src/60_hud_waves.js` for Defend (protect generator until wave clear), Retrieve (recover intel case from open spawn point and deliver to map spawn dropoff), Demolition (interact and plant charges on dual mortar sites), and Hold (maintain position within the zone for 60 s).
+  - Added free scorestreak rewards (`awardFreeStreak` in `src/58_streaks.js`) granting an earned streak directly into `streakBank` alongside bonus credits (`CORE.OBJECTIVE_CREDITS` = 500) upon objective completion.
+  - Added procedural 3D visual markers for objectives in `src/60_hud_waves.js` (cyan defend generator, golden intel case, red mortar cylinders, green hold ring/pillar) and dedicated minimap icons in `drawObjectiveMinimapMarker`.
+  - Checkpoint preservation: extended `makeCheckpoint` and `validateCheckpoint` (`src/01_core.js`), `captureRunState` (`src/60_hud_waves.js`), and `resumeRun` (`src/70_main.js`) to persist and restore `objectivesCompleted` and `objectiveState`.
+- **Regression coverage & release gates.**
+  - Added unit regressions in `tests/test_core.js` covering `OBJECTIVE_TYPES`, `objectiveTypeAtWave`, `pickObjectiveRewardStreak`, `demolitionProgress/Complete`, `defendHpPct`, `isDefendTargetDestroyed`, `objectiveLabel`, and checkpoint serialization.
+  - Added full match lifecycle integration tests in `tests/test_modes_and_teams.js`:
+    1. Defend generator lifecycle with hostile enemy target acquisition, melee/firearm damage, target destruction vs survival through wave completion, bonus credits, and free scorestreak award.
+    2. Retrieve and Demolition lifecycles verifying intel pickup/delivery, dual mortar site charge planting, and streak awards.
+    3. Checkpoint save and resume preservation of `objectivesCompleted` and active `objectiveState`.
+  - 610/610 Node tests passing across `tests/*.js` (431 in `test_core.js`, 95 in `test_modes_and_teams.js`, 84 in other test files).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - Rebuilt single-file HTML (`dist/Operation Blackout.html`): 2,066,209 bytes (30,943 bytes below the 2 MiB limit).
+
 ## v178.2 — Snowy Compound software acceptance closure
 
 - Added a permanent 10-case Urban/Snowy × Survival/TDM/FFA/Domination/Gun Game

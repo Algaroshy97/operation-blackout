@@ -882,6 +882,7 @@ function resumeRun() {
   streakBank.length = 0; cp.equipment.streakBank.forEach(function (k) { streakBank.push(k); });
   streakKills = cp.streakKills || 0;
   runStreaksEarned = cp.runStreaksEarned || 0;
+  objectivesCompleted = (typeof cp.objectivesCompleted === 'number') ? cp.objectivesCompleted : 0;
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;

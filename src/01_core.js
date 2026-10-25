@@ -1311,6 +1311,12 @@ const CORE = (function () {
         fieldCharge: state.equipment && state.equipment.fieldCharge || 0,
         streakBank: (state.equipment && state.equipment.streakBank || []).slice()
       },
+      objectivesCompleted: _isNum(state.objectivesCompleted) ? state.objectivesCompleted : 0,
+      objectiveState: (state.objectiveState && typeof state.objectiveState === 'object') ? Object.assign({
+        type: state.objectiveState.type,
+        done: !!state.objectiveState.done,
+        failed: !!state.objectiveState.failed
+      }, _isNum(state.objectiveState.hp) ? { hp: state.objectiveState.hp } : null) : null,
       savedAt: state.savedAt || 0
     };
   }
@@ -1403,6 +1409,12 @@ const CORE = (function () {
         streakBank: (Array.isArray(raw.equipment?.streakBank) ? raw.equipment.streakBank : [])
           .filter(function (k) { return !!streakByKey(k); }).slice(0, 20)
       },
+      objectivesCompleted: Math.round(num(raw.objectivesCompleted, 0, 999, 0)),
+      objectiveState: (_isObj(raw.objectiveState) && typeof raw.objectiveState.type === 'string') ? Object.assign({
+        type: raw.objectiveState.type.slice(0, 32),
+        done: !!raw.objectiveState.done,
+        failed: !!raw.objectiveState.failed
+      }, _isNum(raw.objectiveState.hp) ? { hp: raw.objectiveState.hp } : null) : null,
       savedAt: num(raw.savedAt, 0, 8.64e15, 0)
     };
   }
@@ -4144,15 +4156,54 @@ const CORE = (function () {
   //
   // Never on a special wave: two announced modifiers at once reads as noise, and the
   // player would not know which one killed them.
+  const OBJECTIVE_TYPES = ['hold', 'defend', 'retrieve', 'demolition'];
   const OBJECTIVE_EVERY = 4;
-  // seconds of occupancy to complete
-  const OBJECTIVE_HOLD = 25;
+  // seconds of occupancy to complete (60 s per roadmap)
+  const OBJECTIVE_HOLD = 60;
   const OBJECTIVE_RADIUS = 5.5;
   const OBJECTIVE_CREDITS = 900;
+  const DEFEND_MAX_HP = 500;
+  const DEMOLITION_PLANT_TIME = 3.0;
+  const DEMOLITION_RADIUS = 3.5;
+  const RETRIEVE_PICKUP_RADIUS = 2.5;
+  const RETRIEVE_DROPOFF_RADIUS = 3.5;
+
   function objectiveWaveAt(n) {
     if (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0) return false;
     if (specialWaveAt(n)) return false;
     return true;
+  }
+  function objectiveTypeAtWave(n) {
+    if (!objectiveWaveAt(n)) return null;
+    const order = ['defend', 'retrieve', 'demolition', 'hold'];
+    const idx = Math.floor(n / OBJECTIVE_EVERY - 1);
+    return order[((idx % order.length) + order.length) % order.length];
+  }
+  function pickObjectiveRewardStreak(wave, roll) {
+    const list = ['uav', 'airstrike', 'sentry'];
+    if (_isNum(roll)) {
+      const idx = Math.floor(roll * list.length);
+      return list[Math.min(list.length - 1, Math.max(0, idx))];
+    }
+    const w = _isNum(wave) ? Math.floor(wave) : 4;
+    return list[Math.abs(w) % list.length];
+  }
+  function demolitionProgress(current, dt, inside, plantTime) {
+    const need = plantTime === undefined ? DEMOLITION_PLANT_TIME : plantTime;
+    const next = inside ? current + dt : current - dt * 0.5;
+    if (next < 0) return 0;
+    return next > need ? need : next;
+  }
+  function demolitionComplete(current, plantTime) {
+    return current >= (plantTime === undefined ? DEMOLITION_PLANT_TIME : plantTime);
+  }
+  function defendHpPct(hp, maxHp) {
+    const max = (maxHp === undefined || maxHp <= 0) ? DEFEND_MAX_HP : maxHp;
+    const cur = _isNum(hp) ? hp : 0;
+    return Math.max(0, Math.min(100, Math.round((cur / max) * 100)));
+  }
+  function isDefendTargetDestroyed(hp) {
+    return !(_isNum(hp) && hp > 0);
   }
   // Progress only moves while the player is inside, and it DRAINS when they leave —
   // otherwise the objective is "stand here once", which is not a hold.
@@ -5109,7 +5160,18 @@ const CORE = (function () {
     return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
   }
 
-  function objectiveLabel(inside, pct) {
+  function objectiveLabel(inside, pct, type) {
+    if (type === 'defend') {
+      const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+      return 'DEFEND GENERATOR — ' + p + '%';
+    }
+    if (type === 'retrieve') {
+      return inside ? 'DELIVER INTEL TO BASE' : 'RECOVER INTEL';
+    }
+    if (type === 'demolition') {
+      if (typeof pct === 'string' && pct.includes('/')) return 'DEMOLITION: ' + pct;
+      return 'DEMOLITION: ' + (pct || 0) + '/2 SITES';
+    }
     const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
     return inside ? 'HOLDING — ' + p + '%' : 'RETURN TO THE ZONE — ' + p + '%';
   }
@@ -7844,8 +7906,10 @@ const CORE = (function () {
     WEAPON_UNLOCK_RANK, weaponUnlockRank, weaponUnlocked, CHALLENGES, challengeProgress,
     challengesDone, ATTACH_SLOTS, ATTACH_SLOT_NAME, ATTACHMENTS, attachmentByKey,
     attachmentsForSlot, attachmentUnlocked, sanitizeLoadout, applyAttachments,
-    attachmentDelta, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RADIUS, OBJECTIVE_CREDITS,
-    objectiveWaveAt, objectiveProgress, objectiveComplete, pickObjectiveSpot,
+    attachmentDelta, OBJECTIVE_TYPES, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RADIUS, OBJECTIVE_CREDITS,
+    DEFEND_MAX_HP, DEMOLITION_PLANT_TIME, DEMOLITION_RADIUS, RETRIEVE_PICKUP_RADIUS, RETRIEVE_DROPOFF_RADIUS,
+    objectiveWaveAt, objectiveTypeAtWave, pickObjectiveRewardStreak, demolitionProgress, demolitionComplete,
+    defendHpPct, isDefendTargetDestroyed, objectiveProgress, objectiveComplete, pickObjectiveSpot,
     REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
     SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
     spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,

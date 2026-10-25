@@ -510,6 +510,7 @@ let waveSpecial = null;
 // waves, borrowed from Hardpoint: it works here for the same reason it works there —
 // it pulls the player off whatever corner they have decided is safe.
 let objective = null;
+let objectivesCompleted = 0;
 // Districts the player has paid to open. Per-run, like credits.
 let openDistricts = [];
 
@@ -537,6 +538,8 @@ function captureRunState() {
     openDistricts: openDistricts,
     mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
     spawnProtectionT: 0,
+    objectivesCompleted: objectivesCompleted,
+    objectiveState: objective ? { type: objective.type, done: !!objective.done, failed: !!objective.failed } : null,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -596,31 +599,148 @@ function applySpecialLighting(special) {
   }
 }
 
-// ---- Objective zone ----------------------------------------------------------
+// ---- Objective zone & wave objectives ---------------------------------------
 const objRingGeo = new THREE.RingGeometry(CORE.OBJECTIVE_RADIUS - 0.25, CORE.OBJECTIVE_RADIUS, 48);
 const objRingMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
 const objPillarGeo = new THREE.BoxGeometry(0.5, 4, 0.5);
 const objPillarMat = new THREE.MeshBasicMaterial({ color: 0x4fd08a, transparent: true, opacity: 0.3 });
+const objDefendGeo = new THREE.BoxGeometry(1.2, 1.8, 1.2);
+const objDefendMat = new THREE.MeshBasicMaterial({ color: 0x38b6ff, transparent: true, opacity: 0.8 });
+const objIntelGeo = new THREE.BoxGeometry(0.6, 0.4, 0.4);
+const objIntelMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.9 });
+const objMortarGeo = new THREE.CylinderGeometry(0.5, 0.7, 1.0, 12);
+const objMortarMat = new THREE.MeshBasicMaterial({ color: 0xff5f4a, transparent: true, opacity: 0.8 });
+
 let objRing = null, objPillar = null;
+let objMeshes = [];
+
+function clearObjectiveVisuals() {
+  if (objRing) { scene.remove(objRing); objRing = null; }
+  if (objPillar) { scene.remove(objPillar); objPillar = null; }
+  for (let i = 0; i < objMeshes.length; i++) {
+    scene.remove(objMeshes[i]);
+  }
+  objMeshes.length = 0;
+  if (_objHudState.visible) resetObjectiveHudCache();
+}
+
+function clearObjective() {
+  objective = null;
+  clearObjectiveVisuals();
+}
+
+function completeObjective(label) {
+  if (!objective || objective.done) return;
+  objective.done = true;
+  objectivesCompleted++;
+  addCredits(CORE.OBJECTIVE_CREDITS);
+  addScore(CORE.OBJECTIVE_CREDITS, label || 'Objective complete');
+  if (typeof awardFreeStreak === 'function') awardFreeStreak();
+  showCenterMsg((label ? label.toUpperCase() : 'OBJECTIVE') + ' COMPLETE');
+  playSound(CORE.objectiveCompleteSound());
+  clearObjectiveVisuals();
+}
+
+function onObjectiveTargetDestroyed(target, attacker) {
+  if (!objective || objective.done || objective.failed) return;
+  objective.failed = true;
+  objective.done = true;
+  showCenterMsg('GENERATOR DESTROYED — OBJECTIVE FAILED');
+  playSound('death');
+  clearObjectiveVisuals();
+}
 
 function startObjective(n) {
   clearObjective();
-  if (!CORE.objectiveWaveAt(n)) return;
-  // Reuse the spawn ring as candidate spots: they are already validated open ground,
-  // already excluded from sealed districts, and already spread around the arena.
+  const type = (typeof CORE !== 'undefined' && typeof CORE.objectiveTypeAtWave === 'function')
+    ? CORE.objectiveTypeAtWave(n)
+    : (CORE.objectiveWaveAt(n) ? 'hold' : null);
+  if (!type) return;
+
   const ring = openSpawnPoints();
   const idx = CORE.pickObjectiveSpot(ring, player.pos.x, player.pos.z);
   if (idx < 0) return;
   const spot = ring[idx];
-  objective = { x: spot[0], z: spot[1], t: 0, done: false };
-  objRing = new THREE.Mesh(objRingGeo, objRingMat);
-  objRing.rotation.x = -Math.PI / 2;
-  objRing.position.set(spot[0], 0.05, spot[1]);
-  scene.add(objRing);
-  objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
-  objPillar.position.set(spot[0], 2, spot[1]);
-  scene.add(objPillar);
-  setTimeout(function () { showCenterMsg('HOLD THE ZONE'); }, 1900);
+
+  if (type === 'defend') {
+    const target = {
+      pos: new THREE.Vector3(spot[0], 0.9, spot[1]),
+      health: CORE.DEFEND_MAX_HP,
+      maxHealth: CORE.DEFEND_MAX_HP,
+      team: 'friendly',
+      dead: false,
+      isObjectiveTarget: true,
+      kind: 'generator'
+    };
+    objective = {
+      type: 'defend',
+      target: target,
+      x: spot[0],
+      z: spot[1],
+      done: false,
+      failed: false
+    };
+    const mesh = new THREE.Mesh(objDefendGeo, objDefendMat);
+    mesh.position.set(spot[0], 0.9, spot[1]);
+    scene.add(mesh);
+    objMeshes.push(mesh);
+    setTimeout(function () { showCenterMsg('DEFEND THE GENERATOR'); }, 1900);
+  } else if (type === 'retrieve') {
+    const dropSpot = (typeof activeMap !== 'undefined' && activeMap && activeMap.playerSpawn)
+      ? activeMap.playerSpawn
+      : { x: 0, z: 0 };
+    const dropX = Array.isArray(dropSpot) ? dropSpot[0] : (dropSpot.x || 0);
+    const dropZ = Array.isArray(dropSpot)
+      ? (dropSpot.length >= 3 ? dropSpot[2] : dropSpot[1])
+      : (dropSpot.z || 0);
+    objective = {
+      type: 'retrieve',
+      intel: { x: spot[0], z: spot[1], pickedUp: false },
+      dropoff: { x: dropX, z: dropZ },
+      x: spot[0],
+      z: spot[1],
+      done: false,
+      failed: false
+    };
+    const mesh = new THREE.Mesh(objIntelGeo, objIntelMat);
+    mesh.position.set(spot[0], 0.3, spot[1]);
+    scene.add(mesh);
+    objMeshes.push(mesh);
+    setTimeout(function () { showCenterMsg('RECOVER THE INTEL'); }, 1900);
+  } else if (type === 'demolition') {
+    const spot2Idx = (idx + Math.floor(ring.length / 2)) % ring.length;
+    const spot2 = ring[spot2Idx];
+    objective = {
+      type: 'demolition',
+      sites: [
+        { x: spot[0], z: spot[1], planted: false, t: 0 },
+        { x: spot2[0], z: spot2[1], planted: false, t: 0 }
+      ],
+      x: spot[0],
+      z: spot[1],
+      done: false,
+      failed: false
+    };
+    const m1 = new THREE.Mesh(objMortarGeo, objMortarMat);
+    m1.position.set(spot[0], 0.5, spot[1]);
+    scene.add(m1);
+    objMeshes.push(m1);
+    const m2 = new THREE.Mesh(objMortarGeo, objMortarMat);
+    m2.position.set(spot2[0], 0.5, spot2[1]);
+    scene.add(m2);
+    objMeshes.push(m2);
+    setTimeout(function () { showCenterMsg('DESTROY ENEMY MORTARS'); }, 1900);
+  } else {
+    objective = { type: 'hold', x: spot[0], z: spot[1], t: 0, done: false, failed: false };
+    objRing = new THREE.Mesh(objRingGeo, objRingMat);
+    objRing.rotation.x = -Math.PI / 2;
+    objRing.position.set(spot[0], 0.05, spot[1]);
+    scene.add(objRing);
+    objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
+    objPillar.position.set(spot[0], 2, spot[1]);
+    scene.add(objPillar);
+    setTimeout(function () { showCenterMsg('HOLD THE ZONE (60S)'); }, 1900);
+  }
 }
 
 const _objHudState = { visible: false, inside: false, pct: -1, ringInside: null };
@@ -641,53 +761,117 @@ function resetObjectiveHudCache() {
   if (getObjEls()) _objEl.style.opacity = '0';
 }
 
-function clearObjective() {
-  objective = null;
-  if (objRing) { scene.remove(objRing); objRing = null; }
-  if (objPillar) { scene.remove(objPillar); objPillar = null; }
-  if (_objHudState.visible) {
-    _objHudState.visible = false;
-    _objHudState.inside = false;
-    _objHudState.pct = -1;
-    _objHudState.ringInside = null;
-    if (getObjEls()) _objEl.style.opacity = '0';
-  }
-}
-
 function updateObjective(dt) {
   if (!objective || objective.done || player.dead) {
-    if (_objHudState.visible) {
-      _objHudState.visible = false;
-      _objHudState.inside = false;
-      _objHudState.pct = -1;
-      _objHudState.ringInside = null;
-      if (getObjEls()) _objEl.style.opacity = '0';
-    }
+    if (_objHudState.visible) resetObjectiveHudCache();
     return;
   }
-  const radSq = CORE.OBJECTIVE_RADIUS * CORE.OBJECTIVE_RADIUS;
-  const inside = CORE.isPlayerInObjectiveZone(player.pos.x, player.pos.z, objective.x, objective.z, radSq);
-  objective.t = CORE.objectiveProgress(objective.t, dt, inside);
-  const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
-  if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
-    CORE.syncObjectiveHudState(_objHudState, true, inside, pct);
-    if (getObjEls()) {
-      _objEl.style.opacity = '1';
-      if (_objBarEl) _objBarEl.style.width = pct + '%';
-      if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct);
+  const type = objective.type || 'hold';
+  if (type === 'defend') {
+    if (objective.target.dead || objective.target.health <= 0) {
+      onObjectiveTargetDestroyed(objective.target);
+      return;
     }
-  }
-  if (objRing && CORE.objectiveRingOpacityChanged(_objHudState.ringInside, inside)) {
-    _objHudState.ringInside = inside;
-    objRing.material.opacity = CORE.objectiveRingOpacity(inside);
-  }
-  if (CORE.objectiveComplete(objective.t)) {
-    objective.done = true;
-    addCredits(CORE.OBJECTIVE_CREDITS);
-    addScore(CORE.OBJECTIVE_CREDITS, 'Zone held');
-    showCenterMsg('ZONE SECURED');
-    playSound(CORE.objectiveCompleteSound());
-    clearObjective();
+    const hpPct = CORE.defendHpPct(objective.target.health, objective.target.maxHealth);
+    if (CORE.objectiveHudChanged(_objHudState, true, true, hpPct)) {
+      CORE.syncObjectiveHudState(_objHudState, true, true, hpPct);
+      if (getObjEls()) {
+        _objEl.style.opacity = '1';
+        if (_objBarEl) _objBarEl.style.width = hpPct + '%';
+        if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(true, hpPct, 'defend');
+      }
+    }
+  } else if (type === 'retrieve') {
+    if (!objective.intel.pickedUp) {
+      const d = CORE.horizDist(player.pos.x, player.pos.z, objective.intel.x, objective.intel.z);
+      if (d <= CORE.RETRIEVE_PICKUP_RADIUS) {
+        objective.intel.pickedUp = true;
+        showCenterMsg('INTEL RECOVERED — DELIVER TO BASE');
+        playSound('ammo_pickup');
+        if (objMeshes.length > 0) scene.remove(objMeshes[0]);
+      }
+      if (CORE.objectiveHudChanged(_objHudState, true, false, 0)) {
+        CORE.syncObjectiveHudState(_objHudState, true, false, 0);
+        if (getObjEls()) {
+          _objEl.style.opacity = '1';
+          if (_objBarEl) _objBarEl.style.width = '0%';
+          if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(false, 0, 'retrieve');
+        }
+      }
+    } else {
+      const d = CORE.horizDist(player.pos.x, player.pos.z, objective.dropoff.x, objective.dropoff.z);
+      if (d <= CORE.RETRIEVE_DROPOFF_RADIUS) {
+        completeObjective('Intel retrieved');
+        return;
+      }
+      if (CORE.objectiveHudChanged(_objHudState, true, true, 100)) {
+        CORE.syncObjectiveHudState(_objHudState, true, true, 100);
+        if (getObjEls()) {
+          _objEl.style.opacity = '1';
+          if (_objBarEl) _objBarEl.style.width = '100%';
+          if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(true, 100, 'retrieve');
+        }
+      }
+    }
+  } else if (type === 'demolition') {
+    let plantedCount = 0;
+    let activeSitePlanting = false;
+    let siteProgress = 0;
+    for (let i = 0; i < objective.sites.length; i++) {
+      const s = objective.sites[i];
+      if (s.planted) {
+        plantedCount++;
+        continue;
+      }
+      const d = CORE.horizDist(player.pos.x, player.pos.z, s.x, s.z);
+      const inside = d <= CORE.DEMOLITION_RADIUS;
+      s.t = CORE.demolitionProgress(s.t, dt, inside, CORE.DEMOLITION_PLANT_TIME);
+      if (inside) {
+        activeSitePlanting = true;
+        siteProgress = Math.round((s.t / CORE.DEMOLITION_PLANT_TIME) * 100);
+      }
+      if (CORE.demolitionComplete(s.t, CORE.DEMOLITION_PLANT_TIME)) {
+        s.planted = true;
+        plantedCount++;
+        showCenterMsg('CHARGE PLANTED — MORTAR DESTROYED');
+        playSound('grenade_bounce');
+        if (objMeshes[i]) scene.remove(objMeshes[i]);
+      }
+    }
+    if (objective.sites.every(function (s) { return s.planted; })) {
+      completeObjective('Mortars destroyed');
+      return;
+    }
+    const labelPct = plantedCount + '/' + objective.sites.length;
+    if (CORE.objectiveHudChanged(_objHudState, true, activeSitePlanting, activeSitePlanting ? siteProgress : plantedCount)) {
+      CORE.syncObjectiveHudState(_objHudState, true, activeSitePlanting, activeSitePlanting ? siteProgress : plantedCount);
+      if (getObjEls()) {
+        _objEl.style.opacity = '1';
+        if (_objBarEl) _objBarEl.style.width = (activeSitePlanting ? siteProgress : (plantedCount / objective.sites.length * 100)) + '%';
+        if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(activeSitePlanting, labelPct, 'demolition');
+      }
+    }
+  } else {
+    // 'hold'
+    const radSq = CORE.OBJECTIVE_RADIUS * CORE.OBJECTIVE_RADIUS;
+    const inside = CORE.isPlayerInObjectiveZone(player.pos.x, player.pos.z, objective.x, objective.z, radSq);
+    objective.t = CORE.objectiveProgress(objective.t, dt, inside, CORE.OBJECTIVE_HOLD);
+    const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
+    if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
+      CORE.syncObjectiveHudState(_objHudState, true, inside, pct);
+      if (getObjEls()) {
+        _objEl.style.opacity = '1';
+        if (_objBarEl) _objBarEl.style.width = pct + '%';
+        if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct, 'hold');
+      }
+    }
+    if (objRing && CORE.objectiveRingOpacityChanged(_objHudState.ringInside, inside)) {
+      _objHudState.ringInside = inside;
+      objRing.material.opacity = CORE.objectiveRingOpacity(inside);
+    }
+    if (CORE.objectiveComplete(objective.t, CORE.OBJECTIVE_HOLD)) {
+      completeObjective('Zone held');
+    }
   }
 }
 
@@ -721,6 +905,9 @@ function updateWaves(dt) {
       betweenWaveT = 4;
       addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
       addCredits(CORE.creditsForWave(waveNum));
+      if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
+        completeObjective('Generator defended');
+      }
       // the zone belongs to the wave that spawned it
       clearObjective();
       // holding out to the wave clear is the other way back up
@@ -970,12 +1157,42 @@ function drawMinimap() {
   const detectSq = CORE.minimapDetectRadiusSq(uavActive(), R, MM_BASE_DETECT, scale);
   const maxEnemyDistSq = Math.min(R * R, detectSq);
   if (objective && !objective.done) {
-    CORE.minimapBlipOffset(objective.x, objective.z, px, pz, scale, _mmBlipOut);
-    mmCtx.strokeStyle = '#4fd08a';
-    mmCtx.lineWidth = 2;
-    mmCtx.beginPath();
-    mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
-    mmCtx.stroke();
+    if (objective.type === 'defend' && objective.target && !objective.target.dead) {
+      CORE.minimapBlipOffset(objective.target.pos.x, objective.target.pos.z, px, pz, scale, _mmBlipOut);
+      mmCtx.strokeStyle = '#38b6ff';
+      mmCtx.lineWidth = 2;
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 6, 0, 7);
+      mmCtx.stroke();
+    } else if (objective.type === 'retrieve') {
+      const tgt = (objective.intel && objective.intel.pickedUp) ? objective.dropoff : objective.intel;
+      if (tgt) {
+        CORE.minimapBlipOffset(tgt.x, tgt.z, px, pz, scale, _mmBlipOut);
+        mmCtx.strokeStyle = (objective.intel && objective.intel.pickedUp) ? '#4fd08a' : '#ffd24a';
+        mmCtx.lineWidth = 2;
+        mmCtx.beginPath();
+        mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 5, 0, 7);
+        mmCtx.stroke();
+      }
+    } else if (objective.type === 'demolition' && objective.sites) {
+      for (let sIdx = 0; sIdx < objective.sites.length; sIdx++) {
+        const s = objective.sites[sIdx];
+        if (s.planted) continue;
+        CORE.minimapBlipOffset(s.x, s.z, px, pz, scale, _mmBlipOut);
+        mmCtx.strokeStyle = '#ff5f4a';
+        mmCtx.lineWidth = 2;
+        mmCtx.beginPath();
+        mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 5, 0, 7);
+        mmCtx.stroke();
+      }
+    } else {
+      CORE.minimapBlipOffset(objective.x, objective.z, px, pz, scale, _mmBlipOut);
+      mmCtx.strokeStyle = '#4fd08a';
+      mmCtx.lineWidth = 2;
+      mmCtx.beginPath();
+      mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, CORE.OBJECTIVE_RADIUS * scale, 0, 7);
+      mmCtx.stroke();
+    }
   }
   // Stations. Drawn under the enemies: a hostile marker must never be hidden by
   // a shop marker.

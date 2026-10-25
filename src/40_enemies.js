@@ -604,7 +604,26 @@ function findNearestHostileActor(en) {
       if (o && o !== en && !o.dead && CORE.isHostile(en, o)) candidates.push(o);
     }
   }
+  if (typeof objective !== 'undefined' && objective && objective.type === 'defend' && objective.target && !objective.target.dead) {
+    if (CORE.isHostile(en, objective.target)) {
+      candidates.push(objective.target);
+    }
+  }
   return CORE.pickNearestHostile(en, candidates);
+}
+
+function damageObjectiveTarget(target, dmg, attacker) {
+  if (!target || target.dead) return;
+  target.health = Math.max(0, target.health - dmg);
+  if (target.pos && typeof spawnImpact === 'function') {
+    spawnImpact(target.pos, null, null, null, 'MELEE');
+  }
+  if (target.health <= 0) {
+    target.dead = true;
+    if (typeof onObjectiveTargetDestroyed === 'function') {
+      onObjectiveTargetDestroyed(target, attacker);
+    }
+  }
 }
 
 function findHostileTarget(en) {
@@ -790,6 +809,10 @@ function updateEnemies(dt) {
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
+          } else if (target && target.isObjectiveTarget) {
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            damageObjectiveTarget(target, meleeDmg, en);
+            playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           } else if (typeof damageEnemy === 'function') {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
             damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
@@ -1006,6 +1029,8 @@ function enemyShoot(en, dist, target) {
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
         damagePlayer(earnedWeapon ? dmg / actorDamageMul(en) : dmg, hitDeg, earnedWeapon ? shotType : 'bullet', en);
+      } else if (tgt && tgt.isObjectiveTarget) {
+        damageObjectiveTarget(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, en);
       } else if (typeof damageEnemy === 'function') {
         damageEnemy(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, tgt.pos, false, false, shotType, en);
       }
@@ -1060,6 +1085,7 @@ function breacherShoot(en, dist, target) {
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
       if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet', en);
+      else if (tgt && tgt.isObjectiveTarget) damageObjectiveTarget(tgt, perPellet * hits, en);
       else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);

@@ -10572,5 +10572,55 @@ test('milestone 3: Snowy Compound ice patches, longer slide physics, and surface
   assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice', 'ice surface bullet impact must route to impact_ice');
 });
 
+test('milestone 4: objective types (defend, retrieve, demolition, hold), schedule, parameters, and checkpoint state', () => {
+  // 1. Types and schedule
+  assert.deepStrictEqual(CORE.OBJECTIVE_TYPES, ['hold', 'defend', 'retrieve', 'demolition']);
+  assert.strictEqual(CORE.OBJECTIVE_HOLD, 60, 'hold requirement must be 60 seconds per roadmap');
+  assert.strictEqual(CORE.objectiveTypeAtWave(4), 'defend');
+  assert.strictEqual(CORE.objectiveTypeAtWave(8), 'retrieve');
+  assert.strictEqual(CORE.objectiveTypeAtWave(12), 'demolition');
+  assert.strictEqual(CORE.objectiveTypeAtWave(16), 'hold');
+  assert.strictEqual(CORE.objectiveTypeAtWave(1), null, 'early waves have no objective');
+  assert.strictEqual(CORE.objectiveTypeAtWave(5), null, 'special waves have no objective');
+
+  // 2. Rewards
+  assert.strictEqual(CORE.OBJECTIVE_CREDITS, 900);
+  const rewardStreak = CORE.pickObjectiveRewardStreak(4, 0);
+  assert.ok(['uav', 'airstrike', 'sentry'].includes(rewardStreak));
+
+  // 3. Demolition progress
+  assert.strictEqual(CORE.demolitionProgress(0, 1.5, true, 3.0), 1.5);
+  assert.strictEqual(CORE.demolitionProgress(1.5, 1.0, false, 3.0), 1.0, 'drains outside radius');
+  assert.strictEqual(CORE.demolitionComplete(3.0, 3.0), true);
+  assert.strictEqual(CORE.demolitionComplete(2.9, 3.0), false);
+
+  // 4. Defend HP and status
+  assert.strictEqual(CORE.defendHpPct(250, 500), 50);
+  assert.strictEqual(CORE.isDefendTargetDestroyed(0), true);
+  assert.strictEqual(CORE.isDefendTargetDestroyed(1), false);
+
+  // 5. Labels
+  assert.strictEqual(CORE.objectiveLabel(true, 50, 'hold'), 'HOLDING — 50%');
+  assert.strictEqual(CORE.objectiveLabel(false, 50, 'hold'), 'RETURN TO THE ZONE — 50%');
+  assert.strictEqual(CORE.objectiveLabel(true, 80, 'defend'), 'DEFEND GENERATOR — 80%');
+  assert.strictEqual(CORE.objectiveLabel(false, 0, 'retrieve'), 'RECOVER INTEL');
+  assert.strictEqual(CORE.objectiveLabel(true, 100, 'retrieve'), 'DELIVER INTEL TO BASE');
+  assert.strictEqual(CORE.objectiveLabel(true, 1, 'demolition'), 'DEMOLITION: 1/2 SITES');
+
+  // 6. Checkpoint state serialization and validation
+  const cpState = {
+    wave: 4, score: 1000, difficulty: 'regular', weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    objectivesCompleted: 1,
+    objectiveState: { type: 'defend', done: false, failed: false, hp: 450 }
+  };
+  const cp = CORE.makeCheckpoint(cpState);
+  assert.strictEqual(cp.objectivesCompleted, 1);
+  assert.deepStrictEqual(cp.objectiveState, { type: 'defend', done: false, failed: false, hp: 450 });
+
+  const validated = CORE.validateCheckpoint(cp, 4, 100);
+  assert.strictEqual(validated.objectivesCompleted, 1);
+  assert.deepStrictEqual(validated.objectiveState, { type: 'defend', done: false, failed: false, hp: 450 });
+});
+
 
 
