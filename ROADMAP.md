@@ -2,8 +2,9 @@
 
 What comes next. The game already has a lot of systems: perks, wall buys, plates,
 scorestreaks, five archetypes, checkpoints, endless, graphics settings for every device
-class. What it lacks is **variety**. You play one mode, on one map, with
-four rifles. This plan fixes that in six milestones, in build order.
+class. The original variety gap (one mode, one map, four rifles) is now addressed by
+new weapons, five modes and two maps. This roadmap records delivered scope and the
+remaining milestones, in build order.
 
 Each milestone is one PR. It must keep `node --test tests/*.js`,
 `python3 -m unittest tests.test_release_build` and `scripts/probe_live.py` green, and
@@ -16,7 +17,7 @@ no new binary assets.
 |---|-----------|------|------------|
 | 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
 | 2 | ✅ Game modes: TDM, FFA, Domination, Gun Game | L | 1 (Gun Game ladder) |
-| 3 | Second map: Snowy Compound | L | 2 (per-map spawns) |
+| 3 | ✅ Second map: Snowy Compound (software acceptance; physical checks pending) | L | 2 (per-map spawns) |
 | 4 | Survival climax + wave objectives | M | 3 (per-map points) |
 | 5 | Feel & AI: audio, warnings, cover, weather | M | — |
 | 6 | Retention: unlocks + daily challenge | S | 1–4 |
@@ -165,10 +166,37 @@ have long sightlines for the sniper, plus tight interiors for the new shotgun.
   - ✅ powder puffs on impact instead of concrete chips (done in v178)
 - ✅ **Map picker on deploy screen** (done in v177): `#map-row` on deploy modal `#gun-select` with `#map-btn-urban` and `#map-btn-snowy`. Each map keeps its own independent career best score and wave (`mapStats.urban`, `mapStats.snowy`).
 
-**Status:** IN PROGRESS (v175 completed Map Registry & Snowy Compound layout foundation; v176 completed map-switch lifecycle, Snowy district barriers, and checkpoint preservation; v177 completed Snowy textures, frosted materials, icy blue sky preset, and deploy map selector UI with per-map career stats; v178 completed atmospheric snowfall PFX, viewmodel cold breath-mist, snow/ice footstep acoustics, ice patch slide physics, and impact powder puffs).
-**Next dependency:** Browser acceptance probe coverage in `scripts/probe_live.py` verifying full gameplay across modes under Snowy Compound.
-**Evidence:** Unit and integration regressions in `tests/test_core.js` and `tests/test_modes_and_teams.js` verify Snowy textures, sky preset/lighting application, deploy map selector UI, activeMap switching, independent per-map career stats, atmospheric snowfall particles, viewmodel cold breath mist, snow/ice footstep audio synthesis, ice-patch extended slide physics, and powder puff surface impacts.
-**Evidence gaps:** Physical mobile device audio/performance, balance and feel unverified; browser acceptance and PR creation pending independent wrapper gates.
+**Status:** SOFTWARE ACCEPTANCE COMPLETE (v178.2). The v175–v178 map registry,
+layout, lifecycle, appearance and feel implementation is retained. The acceptance
+closure adds a permanent browser matrix for Urban and Snowy Compound × Survival,
+TDM, FFA, Domination and Gun Game; it runs as part of the default full probe.
+
+**Acceptance evidence and boundaries:**
+- `scripts/probe_map_modes.py`: all 10 map/mode pairs, 120 assertions. Each case uses
+  fresh storage and the real menu/loadout deployment, verifies map/mode, navigation
+  and collision-valid spawn pads, and checks reset back to the menu.
+- Survival on both maps: production wave spawning, checkpoint save/resume after a
+  map switch (map, wave, score and district restoration), player death and fresh restart.
+- All four match modes on both maps: production rosters, checkpoint rejection,
+  bot/player death and respawn, credited kill or flag/ladder progression, settlement,
+  restart with cleared scores/flags/tiers, and final roster/respawn-queue cleanup.
+  These accelerated deterministic rule checks supplement the existing combat probe;
+  they are not ten unattended, real-time full-length matches.
+- Match deployment now opens Survival-only district gates, making all domination
+  objectives reachable. Reset restores closed Survival districts. The northwest Snowy
+  outer spawn pad is moved clear of the depot wall; navigation and collision checks
+  cover both maps with the actual runtime colliders, not just the bare core layout.
+- `tests/test_probe_matrix.py` guards exact 10-pair enumeration, default-probe wiring
+  and CI execution. Existing core/integration tests retain the appearance, audio
+  synthesis/routing, ice slide and impact coverage listed above.
+- The single-file build is 2,053,710 bytes, 43,442 bytes below the 2 MiB ceiling.
+  Release still requires the full regression, independent review and exact-head CI gates.
+
+**Physical evidence gaps (not software blockers):** Actual Android and Lenovo LOQ
+playability, hardware-GPU performance, audible snow/ice balance, controls and overall
+balance/feel have **not** been tested on those devices. Headless Chromium and
+synthetic audio/rule assertions do not establish physical-device acceptance.
+**Next milestone:** Milestone 4 remains unstarted by this acceptance-only change.
 
 **Done when:** every mode is playable on both maps. The nav grid reaches all spawns,
 which the existing core test is extended to check for both maps. The probe deploys on

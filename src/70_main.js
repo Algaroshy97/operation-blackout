@@ -245,6 +245,11 @@ function resetGame() {
   if (typeof waveSpecial !== 'undefined') waveSpecial = null;
   if (typeof applySpecialLighting === 'function') applySpecialLighting(null);
   if (typeof resetDistricts === 'function') resetDistricts();
+  // Credit-gated districts belong to Survival; match objectives must be reachable.
+  if (typeof getActiveMode === 'function' && getActiveMode().id !== 'survival' &&
+      typeof openDistrict === 'function' && typeof getActiveMap === 'function') {
+    getActiveMap().districts.forEach(function (district) { openDistrict(district.key); });
+  }
   if (typeof clearObjective === 'function') clearObjective();
   if (typeof resetRagdolls === 'function') resetRagdolls();
   player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;

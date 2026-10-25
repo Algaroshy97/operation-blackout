@@ -4,6 +4,23 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v178.2 — Snowy Compound software acceptance closure
+
+- Added a permanent 10-case Urban/Snowy × Survival/TDM/FFA/Domination/Gun Game
+  browser matrix (120 assertions) to the default live probe. It covers real menu
+  deployment, runtime spawn/nav validity, Survival checkpoints/death/restart, match
+  kill/respawn/progression/settlement/restart, and reset cleanup. Deterministic
+  production-rule stepping is not physical-device or full-duration playtesting.
+- The matrix exposed two gameplay gaps: Survival-only district gates trapped match
+  objectives, and a Snowy outer spawn intersected the depot wall. Match deployment
+  now opens district gates, reset closes them again for Survival, and the northwest
+  Snowy ring spawn is clear of the permanent wall.
+- Added CI contract tests for every map/mode pair and default-probe wiring; retained
+  all existing acceptance checks. Reconciled the stale milestone 3 ROADMAP status,
+  with Android/Lenovo LOQ performance, audible balance and feel explicitly unverified.
+  No milestone 4 features are included.
+- Rebuilt single-file HTML: 2,053,710 bytes (43,442 bytes below 2 MiB).
+
 ## v178.1 — Bullet-impact snow/ice acoustic routing fix and isolated browser integration probe verification
 
 - **Bullet-impact acoustics on snow and ice surfaces (`src/01_core.js`, `tests/test_core.js`, `tests/test_modes_and_teams.js`).**

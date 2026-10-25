@@ -27,7 +27,7 @@ jobs:
 
       # Build integrity + bundle parse. Also drives the node suite.
       - name: Release build tests
-        run: python -m unittest tests.test_release_build -v
+        run: python -m unittest tests.test_release_build tests.test_probe_matrix -v
 
       # Full end-to-end run in a real browser.
       - name: Install browser probe deps

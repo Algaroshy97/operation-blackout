@@ -10864,6 +10864,7 @@ return pts;
 }
 const URBAN_SPAWN_POINTS = _ringSpawns(33);
 const SNOWY_SPAWN_POINTS = _ringSpawns(32);
+SNOWY_SPAWN_POINTS[4] = [-13, 27.7];
 function _st(k, x, z, w, p, d) { return { kind: k, x: x, z: z, weapon: w !== undefined ? w : -1, perk: p || null, district: d || null }; }
 const URBAN_STATION_LAYOUT = [
 _st('wall', -37, 30, 1), _st('wall', 34, 30, 0), _st('wall', -30, -32, 2), _st('wall', 31, -37, 3),
@@ -22589,6 +22590,10 @@ if (typeof resetStreaks === 'function') resetStreaks();
 if (typeof waveSpecial !== 'undefined') waveSpecial = null;
 if (typeof applySpecialLighting === 'function') applySpecialLighting(null);
 if (typeof resetDistricts === 'function') resetDistricts();
+if (typeof getActiveMode === 'function' && getActiveMode().id !== 'survival' &&
+typeof openDistrict === 'function' && typeof getActiveMap === 'function') {
+getActiveMap().districts.forEach(function (district) { openDistrict(district.key); });
+}
 if (typeof clearObjective === 'function') clearObjective();
 if (typeof resetRagdolls === 'function') resetRagdolls();
 player.airSpeedY = 0; player.landStunT = 0; player.heartbeatT = 0;
