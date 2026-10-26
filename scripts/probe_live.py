@@ -693,7 +693,14 @@ def main() -> int:
         page.wait_for_timeout(1000)
         climbed = page.evaluate("() => { const n = window.__hits; window.__hits = 0; return n; }")
         page.evaluate("""() => {
+            for (const e of enemies) e.dead = true;
+            enemies.length = 0;
+            player.pos.set(0, CFG.player.height, 0);
+            player.dead = false; player.downed = false;
+            player.health = 100; player.armor = 0; godMode = false;
+            spawnEnemy(1, 0, 5);
             const g = enemies[0];
+            g.pos.set(0, 0, 5); g.parts.group.position.copy(g.pos); g.dead = false;
             for (let i = 0; i < 60; i++) {
                 player.pos.set(0, CFG.player.height, 0);
                 enemyShoot(g, 5);

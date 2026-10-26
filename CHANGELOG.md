@@ -4,6 +4,21 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v179.2 — Live probe bullet control isolation and delayed cover re-check hardening
+
+- **Live gameplay probe bullet control isolation (`scripts/probe_live.py`, `tests/test_probe_matrix.py`).**
+  - Resolved asynchronous probe flake in the `bullets-still-land-in-the-open` check: during the preceding through-floor check wait, the enemy soldier navigated toward the central staircase (`z >= 6.0`), placing it behind a solid staircase collider (`box(0, 2.0, 6.4, 3.2, 4.0, 0.82)`) and blocking subsequent open-field control shots.
+  - Reset enemy list and spawned a clean enemy at `(0, 0, 5)` with reset player pose/health before executing the open-field baseline check, ensuring deterministic execution independent of loop 1 timing.
+  - Added regression test `test_probe_bullets_in_open_control_resets_enemy_state` in `tests/test_probe_matrix.py` enforcing contract isolation for the baseline probe evaluate block.
+- **Enemy spawn hierarchy synchronization & cover re-check precision (`src/40_enemies.js`, `tests/test_modes_and_teams.js`).**
+  - Synchronized soldier bone and gun joint world matrices immediately upon spawning via `updateMatrixWorld(true)` on `parts.group`.
+  - Adjusted delayed projectile cover re-check impact height for non-player targets in `enemyShoot` and `breacherShoot` to chest height (`tgtCheckY`), matching initial LOS evaluation rather than ground-plane origin (`y = 0`).
+  - Added regression test in `tests/test_modes_and_teams.js` verifying delayed impact cover re-checks across through-floor slab occlusions, central staircase cover, and open line-of-fire target states.
+- **Verification & release build.**
+  - 611/611 Node tests passing across all test suites (`tests/*.js`).
+  - 19/19 release build and probe contract tests passing (`python3 -m unittest tests.test_release_build tests.test_probe_matrix -v`).
+  - Rebuilt self-contained single-file release artifact `dist/Operation Blackout.html` (2,067,786 bytes, within 2 MiB budget).
+
 ## v179.1 — Objective checkpoint save/resume lifecycle hardening and roadmap reconciliation
 
 - **Survival checkpoint persistence & objective restoration (`src/60_hud_waves.js`, `src/70_main.js`).**

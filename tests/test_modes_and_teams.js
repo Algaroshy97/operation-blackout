@@ -729,6 +729,65 @@ test('enemyShoot and breacherShoot delayed impacts gate on paused game state', a
   assert.ok(friendlyTarget2.health < 100, `breacher damage must be delivered when unpaused (health=${friendlyTarget2.health})`);
 });
 
+test('enemyShoot cover re-check at impact handles through-floor, staircase cover, and open line-of-fire reliably', async () => {
+  const c = createCombatContext();
+  c.Math.random = () => 0.1; // deterministic hit rolls
+
+  // Setup arena colliders: 2nd floor slab and central staircase
+  c.colliders = [
+    // 2nd floor slab: x in [-9.3, 9.3], y in [3.65, 4.15], z in [-7.3, 7.3]
+    { min: new Vector3(-9.3, 3.65, -7.3), max: new Vector3(9.3, 4.15, 7.3), mat: 'concrete' },
+    // central staircase: x in [-1.6, 1.6], y in [0, 4.0], z in [5.99, 6.81]
+    { min: new Vector3(-1.6, 0, 5.99), max: new Vector3(1.6, 4.0, 6.81), mat: 'concrete' }
+  ];
+
+  let hits = 0;
+  c.damagePlayer = () => { hits++; };
+  c.player.health = 100;
+  c.player.dead = false;
+  c.player.pos.set(0, 1.7, 0);
+
+  const shooter = {
+    kind: 1,
+    team: 'enemy',
+    pos: new Vector3(0, 0, 5),
+    vel: new Vector3(),
+    parts: c.dummyParts(),
+    dead: false,
+    speedMul: 1,
+    yaw: 0,
+    nextShot: 0
+  };
+
+  // 1. Through-floor: shot fired while player is on ground, but player climbs upstairs to SLAB_EYE (5.85) before impact
+  c.enemyShoot(shooter, 5, c.player);
+  c.player.pos.set(0, 4.15 + 1.7, 0); // climb behind slab
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 0, 'bullet must be blocked by slab when player climbs upstairs before impact');
+
+  // 2. Open line of fire: player on ground, shooter at (0, 0, 5) in open
+  c.player.pos.set(0, 1.7, 0);
+  shooter.pos.set(0, 0, 5);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 1, 'bullet must land on player when line of fire is in the open');
+
+  // 3. Cover blocking: shooter behind staircase at (0, 0, 7)
+  shooter.pos.set(0, 0, 7);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 0, 'bullet must be blocked when shooter is behind the staircase');
+
+  // 4. Repositioning shooter into the open restores successful hit delivery
+  shooter.pos.set(0, 0, 5);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 1, 'bullet must land once shooter is repositioned into the open');
+});
+
 test('active bot-to-bot combat execution: full target acquisition, engagement, and attribution', () => {
   let reportedKill = null;
   const c = createCombatContext({
