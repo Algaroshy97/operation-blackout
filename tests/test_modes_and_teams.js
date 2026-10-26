@@ -2050,6 +2050,9 @@ function createFullMatchContext(overrides = {}) {
         if (c.objective && !c.objective.done && c.objective.type === 'defend' && !c.objective.failed && c.objective.target && !c.objective.target.dead) {
           if (typeof c.completeObjective === 'function') c.completeObjective('Generator defended');
         }
+        if (typeof c.saveCheckpoint === 'function' && typeof c.captureRunState === 'function') {
+          c.saveCheckpoint(c.captureRunState());
+        }
         if (typeof c.clearObjective === 'function') c.clearObjective();
       }
       if (c.betweenWaveT > 0) {
@@ -2079,7 +2082,7 @@ function createFullMatchContext(overrides = {}) {
       weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
       openDistricts: (c.openDistricts || []).slice(),
       objectivesCompleted: c.objectivesCompleted || 0,
-      objectiveState: c.objective ? { type: c.objective.type, done: !!c.objective.done, failed: !!c.objective.failed } : null,
+      objectiveState: c.objective ? Object.assign({ type: c.objective.type, done: !!c.objective.done, failed: !!c.objective.failed }, (c.objective.type === 'defend' && c.objective.target && typeof c.objective.target.health === 'number') ? { hp: c.objective.target.health } : null) : null,
       equipment: { lethal: c.equippedLethal, tactical: c.equippedTactical, streakBank: (c.streakBank || []).slice() }
     }),
     saveCheckpoint: state => {
@@ -2265,6 +2268,7 @@ function createFullMatchContext(overrides = {}) {
   c.awardFreeStreak = vm.runInContext('awardFreeStreak', c);
   c.damageObjectiveTarget = vm.runInContext('damageObjectiveTarget', c);
   c.findNearestHostileActor = vm.runInContext('findNearestHostileActor', c);
+  c.restoreObjective = vm.runInContext('restoreObjective', c);
   c.startWave = function (n) {
     c.waveNum = n;
     c.waveActive = true;
@@ -5367,6 +5371,47 @@ test('milestone 4: Survival checkpoint save and resume preserves objective state
   const loaded = c.loadCheckpoint();
   assert.strictEqual(loaded.objectivesCompleted, 1);
   assert.deepStrictEqual(loaded.objectiveState, { type: 'defend', done: true, failed: false });
+
+  // 1. Resume completed objective checkpoint via resumeRun
+  c.objectivesCompleted = 0;
+  c.objective = null;
+  c.resumeRun();
+  assert.strictEqual(c.objectivesCompleted, 1, 'resumeRun must restore objectivesCompleted');
+  assert.ok(c.objective, 'resumeRun must restore objective into live run');
+  assert.strictEqual(c.objective.type, 'defend');
+  assert.strictEqual(c.objective.done, true);
+  assert.strictEqual(c.objective.failed, false);
+
+  // 2. Resume active objective checkpoint via resumeRun
+  const activeState = Object.assign({}, state, {
+    objectiveState: { type: 'defend', done: false, failed: false, hp: 350 }
+  });
+  c.saveCheckpoint(activeState);
+  c.objective = null;
+  c.resumeRun();
+  assert.ok(c.objective, 'resumeRun must restore active objective into live run');
+  assert.strictEqual(c.objective.type, 'defend');
+  assert.strictEqual(c.objective.done, false);
+  assert.ok(c.objective.target, 'restored active defend objective must have target generator');
+  assert.strictEqual(c.objective.target.health, 350, 'target generator HP must be restored');
+
+  // 3. Real gameplay wave-clear checkpoint save captures objectiveState before clearing
+  const cLive = createFullMatchContext();
+  cLive.streakBank = [];
+  cLive.credits = 0;
+  cLive.score = 0;
+  cLive.startWave(4);
+  assert.strictEqual(cLive.objective.type, 'defend');
+  cLive.waveQueue = 0;
+  cLive.enemies.length = 0;
+  cLive.updateWaves(0.1);
+
+  const liveCp = cLive.loadCheckpoint();
+  assert.ok(liveCp, 'gameplay wave clear must save a checkpoint');
+  assert.strictEqual(liveCp.objectivesCompleted, 1, 'gameplay checkpoint must record objectivesCompleted');
+  assert.ok(liveCp.objectiveState, 'gameplay checkpoint must capture objectiveState before clearing');
+  assert.strictEqual(liveCp.objectiveState.type, 'defend');
+  assert.strictEqual(liveCp.objectiveState.done, true);
 });
 
 

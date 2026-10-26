@@ -883,6 +883,11 @@ function resumeRun() {
   streakKills = cp.streakKills || 0;
   runStreaksEarned = cp.runStreaksEarned || 0;
   objectivesCompleted = (typeof cp.objectivesCompleted === 'number') ? cp.objectivesCompleted : 0;
+  if (typeof restoreObjective === 'function') {
+    restoreObjective(cp.objectiveState);
+  } else if (cp.objectiveState) {
+    objective = Object.assign({}, cp.objectiveState);
+  }
   curWeapon = 0; buildViewmodel();
   score = cp.score; kills = cp.kills; headshots = cp.headshots;
   shotsFired = cp.shotsFired; shotsHit = cp.shotsHit;

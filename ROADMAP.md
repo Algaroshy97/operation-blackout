@@ -210,11 +210,11 @@ the new map, and the build is still under budget.
 kill-everything waves.
 
 - ✅ **Objective waves framework** (done in v179; about 1 in 3 from wave 4, never back to back), drawn from:
-  - ✅ **Defend:** keep a generator alive. It has HP (300) and team-aware enemies target and damage it.
+  - ✅ **Defend:** keep a generator alive. It has HP (500) and team-aware enemies target and damage it.
   - ✅ **Retrieve:** grab an intel case from across the map and bring it back to base dropoff.
   - ✅ **Demolition:** plant charges on 2 enemy mortar sites with 3.0 s interaction timer.
   - ✅ **Hold:** stay inside a zone for 60 s.
-- ✅ A completed objective pays bonus credits (500) and a free scorestreak into `streakBank`. Failure costs no
+- ✅ A completed objective pays bonus credits (900) and a free scorestreak into `streakBank`. Failure costs no
   run, only the bonus.
 - ✅ Objective markers rendered in the 3D scene, HUD status bar, and on the minimap. Objective state and completed counts saved in the checkpoint.
 - **Wave 15 — Extraction (pending next increment).** A helicopter is called in. You survive a 90 s surge with
@@ -225,7 +225,7 @@ kill-everything waves.
   - a proper victory cinematic
 - Endless mode continues after extraction as before.
 
-**Status:** PARTIAL INCREMENT DELIVERED (v179). Objective waves framework, 4 objective types (Defend, Retrieve, Demolition, Hold), team-aware AI hostility against Defend generator, free scorestreak rewards, HUD/minimap markers, and checkpoint persistence are fully implemented with unit and match lifecycle regressions.
+**Status:** PARTIAL INCREMENT DELIVERED (v179; hardened in v179.1). Objective waves framework, 4 objective types (Defend, Retrieve, Demolition, Hold), team-aware AI hostility against Defend generator, free scorestreak rewards, HUD/minimap markers, and checkpoint persistence across live wave clear and resumeRun lifecycles are fully implemented and verified with unit and match lifecycle regressions.
 
 **Next dependency:** Milestone 4 increment 2 — Wave 15 Extraction finale (90 s surge, extraction LZ arrival, smoke markers, rotor wash particles, victory cinematic, and browser acceptance probe coverage).
 

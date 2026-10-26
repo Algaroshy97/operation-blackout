@@ -4,6 +4,21 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## v179.1 — Objective checkpoint save/resume lifecycle hardening and roadmap reconciliation
+
+- **Survival checkpoint persistence & objective restoration (`src/60_hud_waves.js`, `src/70_main.js`).**
+  - Resolved checkpoint save order in `src/60_hud_waves.js`: `saveCheckpoint(captureRunState())` now captures active/completed `objectiveState` prior to invoking `clearObjective()`, ensuring real gameplay wave-clear saves genuinely capture objective state rather than null.
+  - Implemented objective restoration in `src/60_hud_waves.js` via `restoreObjective(state)` and wired it into `resumeRun` in `src/70_main.js`. Resuming a checkpoint now re-instantiates active or completed objective state (including generator target and HP for defend objectives) in the live run.
+- **Roadmap specifications reconciliation (`ROADMAP.md`).**
+  - Corrected Defend generator HP from 300 to 500 HP to align with authoritative `CORE.DEFEND_MAX_HP = 500`.
+  - Corrected objective completion bonus credits from 500 to 900 credits to align with authoritative `CORE.OBJECTIVE_CREDITS = 900`.
+  - Revised milestone 4 status line to accurately represent verified checkpoint save and resume coverage.
+- **Regression coverage & release verification (`tests/test_modes_and_teams.js`).**
+  - Extended `'milestone 4: Survival checkpoint save and resume preserves objective state and completed stats'` in `tests/test_modes_and_teams.js` to exercise real `resumeRun` execution, verifying that both completed and active objectives (with generator health) are restored into the live run, and that real gameplay wave-clear checkpoints record non-null objective state.
+  - 610/610 Node tests passing across all suites (`tests/*.js`).
+  - 15/15 release build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - Rebuilt self-contained single-file HTML release artifact `dist/Operation Blackout.html`.
+
 ## v179 — Milestone 4: Survival wave objectives framework, Defend/Retrieve/Demolition/Hold lifecycles, and streak rewards
 
 - **Objective Waves framework (`src/01_core.js`, `src/60_hud_waves.js`, `src/40_enemies.js`, `src/58_streaks.js`, `src/70_main.js`).**

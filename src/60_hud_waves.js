@@ -539,7 +539,11 @@ function captureRunState() {
     mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
     spawnProtectionT: 0,
     objectivesCompleted: objectivesCompleted,
-    objectiveState: objective ? { type: objective.type, done: !!objective.done, failed: !!objective.failed } : null,
+    objectiveState: objective ? Object.assign({
+      type: objective.type,
+      done: !!objective.done,
+      failed: !!objective.failed
+    }, (objective.type === 'defend' && objective.target && typeof objective.target.health === 'number') ? { hp: objective.target.health } : null) : null,
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -650,11 +654,11 @@ function onObjectiveTargetDestroyed(target, attacker) {
   clearObjectiveVisuals();
 }
 
-function startObjective(n) {
+function startObjective(n, forcedType) {
   clearObjective();
-  const type = (typeof CORE !== 'undefined' && typeof CORE.objectiveTypeAtWave === 'function')
+  const type = forcedType || ((typeof CORE !== 'undefined' && typeof CORE.objectiveTypeAtWave === 'function')
     ? CORE.objectiveTypeAtWave(n)
-    : (CORE.objectiveWaveAt(n) ? 'hold' : null);
+    : (CORE.objectiveWaveAt(n) ? 'hold' : null));
   if (!type) return;
 
   const ring = openSpawnPoints();
@@ -740,6 +744,38 @@ function startObjective(n) {
     objPillar.position.set(spot[0], 2, spot[1]);
     scene.add(objPillar);
     setTimeout(function () { showCenterMsg('HOLD THE ZONE (60S)'); }, 1900);
+  }
+}
+
+function restoreObjective(state) {
+  clearObjective();
+  if (!state || typeof state !== 'object' || !state.type) return;
+  if (state.done || state.failed) {
+    objective = {
+      type: state.type,
+      done: !!state.done,
+      failed: !!state.failed
+    };
+    return;
+  }
+  startObjective(waveNum, state.type);
+  if (objective) {
+    objective.done = !!state.done;
+    objective.failed = !!state.failed;
+    if (objective.type === 'defend' && objective.target && typeof state.hp === 'number') {
+      objective.target.health = Math.max(0, Math.min(objective.target.maxHealth || CORE.DEFEND_MAX_HP, state.hp));
+      if (objective.target.health <= 0) {
+        objective.target.dead = true;
+        objective.failed = true;
+        objective.done = true;
+      }
+    }
+  } else {
+    objective = {
+      type: state.type,
+      done: !!state.done,
+      failed: !!state.failed
+    };
   }
 }
 
@@ -908,15 +944,20 @@ function updateWaves(dt) {
       if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
         completeObjective('Generator defended');
       }
-      // the zone belongs to the wave that spawned it
-      clearObjective();
       // holding out to the wave clear is the other way back up
       reviveFromDown();
       unlockSecondary();
       resupply();
-      if (!endlessMode && waveNum >= CFG.wave.victoryWave) { victory(); return; }
+      if (!endlessMode && waveNum >= CFG.wave.victoryWave) {
+        saveCheckpoint(captureRunState());
+        clearObjective();
+        victory();
+        return;
+      }
       // between waves = the only safe save point
       saveCheckpoint(captureRunState());
+      // the zone belongs to the wave that spawned it
+      clearObjective();
       // cleared banner stays up through the countdown
       showWaveBanner(waveNum, true);
     }
