@@ -5462,6 +5462,42 @@ test('milestone 4: Survival lifecycle with Retrieve and Demolition objectives', 
   assert.strictEqual(c2.streakBank.length, 1, 'demolition completion must award free scorestreak');
 });
 
+test('ground objectives do not interact through an upper floor', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  const groundY = c.CFG.player.height;
+  c.startObjective(8, 'retrieve');
+  let pos = c.objective.intel;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(c.objective.intel.pickedUp, false, 'upper floor cannot pick up intel');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.equal(c.objective.intel.pickedUp, true, 'same floor can pick up intel');
+  pos = c.objective.dropoff;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(c.objective.done, false, 'upper floor cannot deliver intel');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.equal(c.objective.done, true, 'same floor can deliver intel');
+  c.startObjective(12, 'demolition');
+  pos = c.objective.sites[0];
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(3.1);
+  assert.equal(pos.planted, false, 'upper floor cannot plant');
+  c.player.pos.y = groundY;
+  c.updateObjective(3.1);
+  assert.equal(pos.planted, true, 'same floor can plant');
+  c.startObjective(14, 'hold');
+  pos = c.objective;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(pos.t, 0, 'upper floor cannot hold ground zone');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.ok(pos.t > 0, 'same floor can hold ground zone');
+});
+
 test('fresh reset clears the previous run objective count', () => {
   const c = createFullMatchContext();
   c.objectivesCompleted = 2;

@@ -11,6 +11,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 - Allow more wall time for the same live spawn assertion on slow software rendering; the movement and grounding assertions remain unchanged.
 - Schedule Hold on wave 14 so all four objective types are reachable before the wave 15 finale, without overlapping a special wave.
 - Treat unfinished objectives in older between-wave checkpoints as failed history rather than restoring them as active.
+- Require ground-level reach for retrieve, demolition and hold interactions, preventing progress through an upper floor.
 
 ## v179.3 — Objective checkpoint lifecycle round-trip fidelity, position persistence, and wave-clear ordering recovery
 

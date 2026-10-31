@@ -954,6 +954,8 @@ function updateObjective(dt) {
     return;
   }
   const type = objective.type || 'hold';
+  // These markers are placed on the ground, not on upper building floors.
+  const nearObjectiveFloor = Math.abs(player.pos.y - eyeHeight() - GROUND) <= 2;
   if (type === 'defend') {
     if (objective.target.dead || objective.target.health <= 0) {
       onObjectiveTargetDestroyed(objective.target);
@@ -971,7 +973,7 @@ function updateObjective(dt) {
   } else if (type === 'retrieve') {
     if (!objective.intel.pickedUp) {
       const d = CORE.horizDist(player.pos.x, player.pos.z, objective.intel.x, objective.intel.z);
-      if (d <= CORE.RETRIEVE_PICKUP_RADIUS) {
+      if (nearObjectiveFloor && d <= CORE.RETRIEVE_PICKUP_RADIUS) {
         objective.intel.pickedUp = true;
         showCenterMsg('INTEL RECOVERED — DELIVER TO BASE');
         playSound('ammo_pickup');
@@ -990,7 +992,7 @@ function updateObjective(dt) {
       }
     } else {
       const d = CORE.horizDist(player.pos.x, player.pos.z, objective.dropoff.x, objective.dropoff.z);
-      if (d <= CORE.RETRIEVE_DROPOFF_RADIUS) {
+      if (nearObjectiveFloor && d <= CORE.RETRIEVE_DROPOFF_RADIUS) {
         completeObjective('Intel retrieved');
         return;
       }
@@ -1014,7 +1016,7 @@ function updateObjective(dt) {
         continue;
       }
       const d = CORE.horizDist(player.pos.x, player.pos.z, s.x, s.z);
-      const inside = d <= CORE.DEMOLITION_RADIUS;
+      const inside = nearObjectiveFloor && d <= CORE.DEMOLITION_RADIUS;
       s.t = CORE.demolitionProgress(s.t, dt, inside, CORE.DEMOLITION_PLANT_TIME);
       if (inside) {
         activeSitePlanting = true;
@@ -1047,7 +1049,7 @@ function updateObjective(dt) {
   } else {
     // 'hold'
     const radSq = CORE.OBJECTIVE_RADIUS * CORE.OBJECTIVE_RADIUS;
-    const inside = CORE.isPlayerInObjectiveZone(player.pos.x, player.pos.z, objective.x, objective.z, radSq);
+    const inside = nearObjectiveFloor && CORE.isPlayerInObjectiveZone(player.pos.x, player.pos.z, objective.x, objective.z, radSq);
     objective.t = CORE.objectiveProgress(objective.t, dt, inside, CORE.OBJECTIVE_HOLD);
     const pct = Math.round(objective.t / CORE.OBJECTIVE_HOLD * 100);
     if (CORE.objectiveHudChanged(_objHudState, true, inside, pct)) {
