@@ -19,7 +19,7 @@ no new binary assets.
 | 2 | ✅ Game modes: TDM, FFA, Domination, Gun Game | L | 1 (Gun Game ladder) |
 | 3 | ✅ Second map: Snowy Compound (software acceptance; physical checks pending) | L | 2 (per-map spawns) |
 | 4 | ✅ Survival climax + wave objectives (software acceptance; physical checks pending) | M | 3 (per-map points) |
-| 5 | Feel & AI: audio, warnings, cover, weather | M | — |
+| 5 | Feel & AI: audio, warnings, cover, weather (partial: audio, warnings, suppression, cover AI foundation) | M | — |
 | 6 | Retention: unlocks + daily challenge | S | 1–4 |
 
 ---
@@ -247,11 +247,21 @@ force an objective wave and the extraction.
   pulse were replaced by a sequenced D-minor score whose layers follow combat intensity.
 - ✅ **Suppression** (done): near misses draw a grey arc toward the shooter, and edge
   darkening and blur build with sustained fire.
-- **Cover AI:** cover points are generated from colliders at nav-build time. Enemies
+- ✅ **Cover AI (foundation landed in v181):** cover points are generated from colliders at nav-build time. Enemies
   move between them, peek, fire bursts and suppress. Bots in TDM use the same system.
 - **Weather and time of day** per match: clear, dusk, night (muzzle flashes and
   flashlights do the lighting), rain (urban) and blizzard (snow map). This is mostly
   sky uniforms, fog and the particle layers that already exist.
+
+**Status (partial increment in v181):**
+- Cover AI foundation landed:
+  - Nav-build cover point generation in `src/01_core.js` (`CORE.generateCoverPoints`), automatically populated onto `navGrid.coverPoints` for both Urban and Snowy Compound arenas.
+  - Analytic occlusion evaluation (`CORE.evalCoverOcclusion`), scoring (`CORE.scoreCoverPoint`), candidate selection (`CORE.pickBestCoverPoint`), and tangent peeking positions (`CORE.coverPeekPosition`).
+  - Tactical AI cover states (`take_cover`, `in_cover`, `peek`) implemented in `src/01_core.js` (`CORE.enemyAiNextState`, `CORE.enemyMoveSpeed`) and `src/40_enemies.js`: Riflemen and match bots steer to cover, duck/crouch behind low cover, peek along obstacle edges, and fire bursts.
+  - Relentless charging archetypes (Runners, Breachers, Tanks) retain direct seek without seeking cover.
+  - Checkpoint save/resume and Survival wave pacing completely preserved.
+- **Next dependency / remaining work for Milestone 5:** Dynamic weather and time of day per match (clear, dusk, night with muzzle/flashlight lighting, rain, blizzard), plus frame-time checks on Low quality and reduced-motion blur gating.
+- **Evidence gaps:** Physical mobile device (Android touch controls) and Lenovo LOQ hardware-GPU frame rates and audio playability remain unverified on hardware.
 
 **Done when:** the probe still meets its frame-time checks on Low quality, and
 reduced-motion turns off the new blur.

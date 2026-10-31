@@ -10713,6 +10713,82 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(step2.complete, true);
 });
 
+test('milestone 5: cover point generation, occlusion evaluation, and scoring rules', () => {
+  // 1. Generation on synthetic colliders
+  const colliders = [
+    // High cover: 4m wide, 3m high wall centered at (0, 1.5, 0), thickness 1m (z from -0.5 to 0.5)
+    { min: { x: -2, y: 0, z: -0.5 }, max: { x: 2, y: 3, z: 0.5 }, mat: 'concrete' },
+    // Low cover: 3m wide, 1m high barrier centered at (10, 0.5, 0), thickness 1m
+    { min: { x: 8.5, y: 0, z: -0.5 }, max: { x: 11.5, y: 1.0, z: 0.5 }, mat: 'sandbag' }
+  ];
+  const nav = CORE.buildNavGrid(colliders, { halfExtent: 25, cell: 1, agentRadius: 0.5, stepH: 0.6, walkerHeight: 1.8 });
+  const points = CORE.generateCoverPoints(colliders, nav, { standoff: 0.8 });
+  assert.ok(Array.isArray(points), 'generateCoverPoints must return an array');
+  assert.ok(points.length >= 4, 'colliders must yield multiple perimeter cover points');
+
+  // Verify properties on generated points
+  for (const pt of points) {
+    assert.strictEqual(typeof pt.x, 'number');
+    assert.strictEqual(typeof pt.y, 'number');
+    assert.strictEqual(typeof pt.z, 'number');
+    assert.strictEqual(typeof pt.nx, 'number');
+    assert.strictEqual(typeof pt.nz, 'number');
+    assert.ok(pt.type === 'low' || pt.type === 'high', 'type must be low or high');
+    assert.ok(pt.height > 0.6, 'cover height must exceed step height');
+    // Walkability
+    const cellIdx = CORE.worldToCell(nav, pt.x, pt.z);
+    assert.ok(CORE.isWalkable(nav, cellIdx), `cover point at (${pt.x}, ${pt.z}) must be walkable in navGrid`);
+  }
+
+  // Check types
+  const lowPoints = points.filter(p => p.type === 'low');
+  const highPoints = points.filter(p => p.type === 'high');
+  assert.ok(lowPoints.length > 0, 'must detect low cover from 1.0m barrier');
+  assert.ok(highPoints.length > 0, 'must detect high cover from 3.0m wall');
+
+  // 2. Occlusion evaluation
+  // Threat at (0, 1.7, 8) looking toward wall at z=0.
+  // A cover point on the south side at (0, 0, -1.2) is behind the 3m wall.
+  const southPt = points.find(p => Math.abs(p.x) < 1.0 && p.z < -0.5);
+  assert.ok(southPt, 'should have a cover point behind wall');
+  const occluded = CORE.evalCoverOcclusion(southPt, 0, 1.7, 8, colliders);
+  assert.strictEqual(occluded, true, 'point behind 3m wall must be occluded from threat at z=8');
+
+  // Point in open field (15, 0, 8) must not be occluded
+  const openPt = { x: 15, y: 0, z: 8, nx: 0, nz: 1, type: 'high', height: 2 };
+  const openOccluded = CORE.evalCoverOcclusion(openPt, 0, 1.7, 8, colliders);
+  assert.strictEqual(openOccluded, false, 'open point must not be occluded');
+
+  // 3. Scoring
+  // Actor at (0, 0, -3), threat at (0, 1.7, 8).
+  // South point (shielded by wall) must score much higher than a north point (at z=1.2, exposed to threat).
+  const northPt = points.find(p => Math.abs(p.x) < 1.0 && p.z > 0.5);
+  const scoreProtected = CORE.scoreCoverPoint(southPt, 0, -3, 0, 8, colliders);
+  const scoreExposed = CORE.scoreCoverPoint(northPt, 0, -3, 0, 8, colliders);
+  assert.ok(scoreProtected > scoreExposed + 50, `protected cover score (${scoreProtected}) must exceed exposed score (${scoreExposed}) by at least 50`);
+
+  // 4. pickBestCoverPoint
+  const best = CORE.pickBestCoverPoint(points, 0, -3, 0, 8, colliders);
+  assert.ok(best, 'pickBestCoverPoint must return a candidate');
+  assert.strictEqual(best, southPt, 'best cover point must be the shielded south point');
+
+  // 5. Peeking positions
+  const peekLeft = CORE.coverPeekPosition(southPt, 0, 8, -1);
+  const peekRight = CORE.coverPeekPosition(southPt, 0, 8, 1);
+  assert.ok(peekLeft.x !== southPt.x || peekLeft.z !== southPt.z, 'peek left must offset position');
+  assert.ok(peekRight.x !== southPt.x || peekRight.z !== southPt.z, 'peek right must offset position');
+  assert.notStrictEqual(peekLeft.x, peekRight.x, 'left and right peek must offset in opposite directions');
+
+  // 6. Production arenas attach coverPoints to navGrid
+  const urbanNav = CORE.buildNavGrid(CORE.MAP_DEFS.urban.colliders, { halfExtent: 46, cell: 1, stepH: 0.6, walkerHeight: 1.8, agentRadius: 0.5 });
+  assert.ok(Array.isArray(urbanNav.coverPoints), 'urban navGrid must include coverPoints array');
+  assert.ok(urbanNav.coverPoints.length >= 20, `urban arena must have at least 20 cover points, got ${urbanNav.coverPoints.length}`);
+
+  const snowyNav = CORE.buildNavGrid(CORE.MAP_DEFS.snowy.colliders, { halfExtent: 50, cell: 1, stepH: 0.6, walkerHeight: 1.8, agentRadius: 0.5 });
+  assert.ok(Array.isArray(snowyNav.coverPoints), 'snowy navGrid must include coverPoints array');
+  assert.ok(snowyNav.coverPoints.length >= 20, `snowy compound must have at least 20 cover points, got ${snowyNav.coverPoints.length}`);
+});
+
 
 
 

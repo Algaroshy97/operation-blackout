@@ -1120,7 +1120,10 @@ const CORE = (function () {
     cfg = cfg || { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8 };
     const mul = Number.isFinite(speedMul) ? speedMul : 1;
     let speed;
-    if (state === 'fallback') speed = cfg.rangedSpeed * 1.25;
+    if (state === 'in_cover') speed = 0;
+    else if (state === 'peek') speed = cfg.rangedSpeed * 0.4;
+    else if (state === 'take_cover') speed = cfg.chaseSpeed;
+    else if (state === 'fallback') speed = cfg.rangedSpeed * 1.25;
     else if (state === 'chase') speed = (kind === 0 ? cfg.chaseSpeed
       : kind === 2 ? 2.2
       : kind === 3 ? 2.0
@@ -1130,7 +1133,7 @@ const CORE = (function () {
       : cfg.speed);
     else if (state === 'strafe') speed = cfg.rangedSpeed;
     else speed = cfg.speed * 0.5;
-    if (kind === 1 && dist < rangedRange && state !== 'idle') speed = cfg.rangedSpeed;
+    if (kind === 1 && dist < rangedRange && state !== 'idle' && state !== 'in_cover') speed = cfg.rangedSpeed;
     return speed * mul;
   }
 
@@ -1769,13 +1772,16 @@ const CORE = (function () {
         for (let gx = Math.max(0, x0); gx <= Math.min(dim - 1, x1); gx++) blocked[row + gx] = 1;
       }
     }
-    return {
+    const nav = {
       cell, half, dim, blocked,
       dist: new Int32Array(dim * dim).fill(UNREACHABLE),
       queue: new Int32Array(dim * dim),
       originX: -half, originZ: -half,
-      goalIndex: -1
+      goalIndex: -1,
+      coverPoints: []
     };
+    nav.coverPoints = generateCoverPoints(colliders, nav, opts);
+    return nav;
   }
 
   function worldToCell(nav, x, z) {
@@ -1816,6 +1822,160 @@ const CORE = (function () {
       }
     }
     return -1;
+  }
+
+  // Cover point generation at nav-build time and tactical cover evaluation
+  const COVER_LOW_HEIGHT = 1.35;
+  const COVER_MIN_HEIGHT = 0.7;
+  const COVER_DEFAULT_STANDOFF = 0.8;
+
+  function generateCoverPoints(colliders, navGrid, opts) {
+    if (!Array.isArray(colliders) || colliders.length === 0 || !navGrid || !navGrid.blocked) return [];
+    opts = opts || {};
+    const standoff = _isPos(opts.standoff) ? opts.standoff : COVER_DEFAULT_STANDOFF;
+    const points = [];
+    const half = navGrid.half || 46;
+
+    for (let i = 0; i < colliders.length; i++) {
+      const c = colliders[i];
+      if (!c || !c.min || !c.max) continue;
+      const h = c.max.y - c.min.y;
+      if (h < COVER_MIN_HEIGHT || c.max.y <= 0.6 || c.min.y > 1.8) continue;
+      const wx = c.max.x - c.min.x;
+      const wz = c.max.z - c.min.z;
+      if (wx < 0.4 || wz < 0.4) continue;
+      if (wx > 50 || wz > 50) continue;
+
+      const type = (h >= COVER_LOW_HEIGHT && c.max.y >= 1.7) ? 'high' : 'low';
+      const py = Math.max(0, c.min.y);
+
+      const faces = [
+        { z: c.min.z - standoff, nx: 0, nz: -1, isZ: true, minCoord: c.min.x, maxCoord: c.max.x, span: wx },
+        { z: c.max.z + standoff, nx: 0, nz: 1, isZ: true, minCoord: c.min.x, maxCoord: c.max.x, span: wx },
+        { x: c.min.x - standoff, nx: -1, nz: 0, isZ: false, minCoord: c.min.z, maxCoord: c.max.z, span: wz },
+        { x: c.max.x + standoff, nx: 1, nz: 0, isZ: false, minCoord: c.min.z, maxCoord: c.max.z, span: wz }
+      ];
+
+      for (let f = 0; f < faces.length; f++) {
+        const face = faces[f];
+        const sampleCount = face.span > 4.5 ? 2 : 1;
+        for (let s = 0; s < sampleCount; s++) {
+          const t = sampleCount === 1 ? 0.5 : (s === 0 ? 0.3 : 0.7);
+          const coord = face.minCoord + face.span * t;
+          let px = face.isZ ? coord : face.x;
+          let pz = face.isZ ? face.z : coord;
+
+          if (px < -half + 1 || px > half - 1 || pz < -half + 1 || pz > half - 1) continue;
+          let cellIdx = worldToCell(navGrid, px, pz);
+          if (!isWalkable(navGrid, cellIdx)) {
+            const px2 = px + face.nx * navGrid.cell;
+            const pz2 = pz + face.nz * navGrid.cell;
+            const c2 = worldToCell(navGrid, px2, pz2);
+            if (isWalkable(navGrid, c2)) {
+              px = px2; pz = pz2;
+              cellIdx = c2;
+            } else continue;
+          }
+
+          let blocked = false;
+          for (let j = 0; j < colliders.length; j++) {
+            const oc = colliders[j];
+            if (blocksWalker(oc, 0.6, 1.8) && aabbOverlapsXZ(oc, px, pz, 0.35)) {
+              blocked = true;
+              break;
+            }
+          }
+          if (blocked) continue;
+
+          let tooClose = false;
+          for (let p = 0; p < points.length; p++) {
+            const ep = points[p];
+            if (Math.hypot(ep.x - px, ep.z - pz) < 1.0) {
+              tooClose = true;
+              break;
+            }
+          }
+          if (tooClose) continue;
+
+          points.push({
+            x: Math.round(px * 100) / 100,
+            y: Math.round(py * 100) / 100,
+            z: Math.round(pz * 100) / 100,
+            nx: face.nx,
+            nz: face.nz,
+            type,
+            height: Math.round(h * 100) / 100,
+            colliderIndex: i
+          });
+        }
+      }
+    }
+    return points;
+  }
+
+  function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders) {
+    if (!coverPoint || !Array.isArray(colliders) || colliders.length === 0) return false;
+    const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 0.9 : 1.5);
+    const thY = _isNum(threatY) ? threatY : 1.7;
+    return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0.2);
+  }
+
+  function scoreCoverPoint(coverPt, actorX, actorZ, threatX, threatZ, colliders, opts) {
+    if (!coverPt) return -Infinity;
+    opts = opts || {};
+    const maxDist = _isPos(opts.maxDist) ? opts.maxDist : 25;
+    const minThreatDist = _isPos(opts.minThreatDist) ? opts.minThreatDist : 3.5;
+    const dActor = Math.hypot(coverPt.x - actorX, coverPt.z - actorZ);
+    if (dActor > maxDist) return -Infinity;
+
+    const dx = threatX - coverPt.x;
+    const dz = threatZ - coverPt.z;
+    const dThreat = Math.hypot(dx, dz) || 0.001;
+    if (dThreat < minThreatDist) return -Infinity;
+
+    const toTx = dx / dThreat;
+    const toTz = dz / dThreat;
+    const dot = toTx * coverPt.nx + toTz * coverPt.nz;
+
+    const isOccluded = evalCoverOcclusion(coverPt, threatX, opts.threatY, threatZ, colliders);
+    const baseScore = isOccluded ? 60 : -100;
+    const distScore = 30 - dActor * 2.0;
+    const threatDistScore = 15 - Math.abs(dThreat - 18) * 0.7;
+    const typeBonus = coverPt.type === 'high' ? 10 : 5;
+    const facingBonus = -dot * 25;
+
+    return baseScore + distScore + threatDistScore + typeBonus + facingBonus;
+  }
+
+  function pickBestCoverPoint(coverPoints, actorX, actorZ, threatX, threatZ, colliders, opts) {
+    if (!Array.isArray(coverPoints) || coverPoints.length === 0) return null;
+    opts = opts || {};
+    const minScore = _isNum(opts.minScore) ? opts.minScore : 0;
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < coverPoints.length; i++) {
+      const pt = coverPoints[i];
+      const s = scoreCoverPoint(pt, actorX, actorZ, threatX, threatZ, colliders, opts);
+      if (s > bestScore && s >= minScore) {
+        bestScore = s;
+        best = pt;
+      }
+    }
+    return best;
+  }
+
+  function coverPeekPosition(coverPt, threatX, threatZ, peekSide, out) {
+    out = out || { x: 0, y: 0, z: 0 };
+    if (!coverPt) return out;
+    const side = peekSide === -1 ? -1 : 1;
+    const dist = 0.75;
+    const tx = -coverPt.nz * side;
+    const tz = coverPt.nx * side;
+    out.x = coverPt.x + tx * dist;
+    out.y = coverPt.y;
+    out.z = coverPt.z + tz * dist;
+    return out;
   }
 
   // 8-connected BFS flood from the goal. Uniform cost: at 1 m resolution the
@@ -6599,7 +6759,13 @@ const CORE = (function () {
     o.state = s; o.strafeT = 0; o.resetStateT = false;
     if (s === 'spawn') { if (st > ENEMY_SPAWN_DURATION) { o.state = 'chase'; o.resetStateT = true; } }
     else if (k === 1) {
-      if (d < rr && los) { if (s !== 'strafe' && s !== 'shoot') { o.state = 'strafe'; o.strafeT = RIFLEMAN_STRAFE_DURATION; } }
+      if (s === 'in_cover') {
+        if (st > 2.0) { o.state = 'peek'; o.resetStateT = true; }
+      } else if (s === 'peek') {
+        if (st > 1.2) { o.state = 'in_cover'; o.resetStateT = true; }
+      } else if (s === 'take_cover') {
+        // maintained until arrival
+      } else if (d < rr && los) { if (s !== 'strafe' && s !== 'shoot') { o.state = 'strafe'; o.strafeT = RIFLEMAN_STRAFE_DURATION; } }
       else if (s !== 'chase') o.state = 'chase';
       if (o.state === 'strafe' && st > ENEMY_STRAFE_MAX_T) { o.state = 'chase'; o.resetStateT = true; }
     } else if (k === 5) {
@@ -8381,7 +8547,9 @@ const CORE = (function () {
     isPositionOnIce, SLIDE_ICE_DURATION, SLIDE_ICE_TIMEOUT_T, slideDuration, slideTimeout,
     ENEMY_STEP_SNOW_SOUND, ENEMY_STEP_SNOW_HEAVY_SOUND, ENEMY_STEP_ICE_SOUND, ENEMY_STEP_ICE_HEAVY_SOUND,
     MELEE_SURFACE_SNOW_SOUND, MELEE_SURFACE_ICE_SOUND,
-    isSnowfallEnabled, snowfallVfxParams, isColdBreathEnabled, breathMistInterval, breathMistVfxParams
+    isSnowfallEnabled, snowfallVfxParams, isColdBreathEnabled, breathMistInterval, breathMistVfxParams,
+    COVER_LOW_HEIGHT, COVER_MIN_HEIGHT, COVER_DEFAULT_STANDOFF,
+    generateCoverPoints, evalCoverOcclusion, scoreCoverPoint, pickBestCoverPoint, coverPeekPosition
   };
 
 

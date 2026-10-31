@@ -437,7 +437,20 @@ function moveEnemy(en, dt, dist) {
   const toPlayer = _toPlayerDirOut;
   const speed = CORE.enemyMoveSpeed(en.kind, en.state, d, cfg.rangedRange, en.speedMul, cfg);
   let mvx = toPlayer.x, mvz = toPlayer.z;
-  if (en.state === 'chase') {
+  if (en.state === 'take_cover' && en.coverPoint) {
+    const cdx = en.coverPoint.x - en.pos.x;
+    const cdz = en.coverPoint.z - en.pos.z;
+    const cd = Math.hypot(cdx, cdz) || 0.001;
+    mvx = cdx / cd; mvz = cdz / cd;
+  } else if (en.state === 'in_cover') {
+    mvx = 0; mvz = 0;
+  } else if (en.state === 'peek' && en.coverPoint) {
+    const peekPos = CORE.coverPeekPosition(en.coverPoint, target.pos.x, target.pos.z, en.strafeDir || 1, _flankOut);
+    const pdx = peekPos.x - en.pos.x;
+    const pdz = peekPos.z - en.pos.z;
+    const pd = Math.hypot(pdx, pdz);
+    if (pd > 0.05) { mvx = pdx / pd; mvz = pdz / pd; } else { mvx = 0; mvz = 0; }
+  } else if (en.state === 'chase') {
     // Straight-line seek wedges on every wall corner in this arena; route instead.
     // Close in, steer directly so the final approach does not snap to cell centres.
     // Retain the shared player field; route other actors toward their own target.
@@ -724,6 +737,45 @@ function updateEnemies(dt) {
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
+
+    // Tactical cover evaluation for ranged combatants
+    if ((attackKind === 1 || en.isBot) && typeof navGrid !== 'undefined' && navGrid && navGrid.coverPoints && navGrid.coverPoints.length > 0) {
+      if (!en.coverPoint && (en.state === 'chase' || en.state === 'strafe')) {
+        if (!en._nextCoverCheck || gameT >= en._nextCoverCheck) {
+          en._nextCoverCheck = gameT + 1.2;
+          const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18 });
+          if (bestPt) {
+            en.coverPoint = bestPt;
+            en.state = 'take_cover';
+            en.stateT = 0;
+          }
+        }
+      } else if (en.coverPoint) {
+        const dCover = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+        if (en.state === 'take_cover') {
+          if (dCover <= 0.8) {
+            en.state = 'in_cover';
+            en.stateT = 0;
+            en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
+          }
+        } else if (en.state === 'in_cover') {
+          en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
+          if (dist < 4.0 || !CORE.evalCoverOcclusion(en.coverPoint, target.pos.x, target.pos.y, target.pos.z, colliders)) {
+            en.coverPoint = null;
+            en.crouch = 0;
+            en.state = 'chase';
+            en.stateT = 0;
+          }
+        } else if (en.state === 'peek') {
+          en.crouch = 0;
+          if (dist < 4.0) {
+            en.coverPoint = null;
+            en.state = 'chase';
+            en.stateT = 0;
+          }
+        }
+      }
+    }
     moveEnemy(en, dt, dist);
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
@@ -834,11 +886,11 @@ function updateEnemies(dt) {
       } else en.nextShot = gameT + 0.4;
     }
     // ranged attack (rifleman)
-    if (attackKind === 1 && en.state === 'strafe' && dist < attackRange && gameT > en.nextShot) {
-      if (hasLOS(en, target)) {
+    if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT > en.nextShot) {
+      if (hasLOS(en, target) || en.state === 'peek') {
         if (ggWeapon) {
           en.nextShot = gameT + 60 / ggWeapon.rpm;
-        } else if (waveBehaviours.burstFire) {
+        } else if (waveBehaviours.burstFire || en.state === 'peek') {
           // Bursts of 3 with a longer recovery: same average output, far more
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;

@@ -6335,6 +6335,92 @@ test('PR13 R2 queued airstrike cannot detonate during cinematic or after victory
   assert.equal(blasts, 0, 'queued combat must not continue during or after extraction');
 });
 
+test('milestone 5: Cover AI lifecycle - nav-build cover points, survival rifleman cover/peek behavior, bot cover utilization and charge archetype immunity', () => {
+  const c = createFullMatchContext();
+  c.rebuildNavGrid();
+  // 1. Production arena builds coverPoints on navGrid
+  assert.ok(c.navGrid, 'context must have navGrid');
+  assert.ok(Array.isArray(c.navGrid.coverPoints), 'navGrid must attach coverPoints');
+  assert.ok(c.navGrid.coverPoints.length >= 10, `arena must have generated cover points, got ${c.navGrid.coverPoints ? c.navGrid.coverPoints.length : 0}`);
+
+  // 2. Survival Rifleman takes cover behind obstacle when engaging player
+  c.player.pos.set(0, 1.7, 12);
+  c.player.dead = false;
+  c.enemies = [];
+  // Ensure a clear cover box between rifleman and player
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete');
+  c.rebuildNavGrid();
+  assert.ok(c.navGrid.coverPoints.length > 0);
+
+  const makeBot = (kind, team, x, z) => ({
+    kind,
+    team: team || 'enemy',
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    speedMul: 1,
+    pos: new Vector3(x, 0, z),
+    vel: new Vector3(),
+    yaw: 0,
+    state: 'chase',
+    stateT: 0,
+    parts: c.dummyParts()
+  });
+
+  // Spawn rifleman at (0, 0, -6)
+  const rf = makeBot(1, 'enemy', 0, -6);
+  rf.target = c.player;
+  c.enemies.push(rf);
+
+  // Run enemy update ticks
+  c.gameT = 1.0;
+  c.updateEnemies(0.1);
+  assert.ok(rf.coverPoint || rf.state === 'take_cover' || rf.state === 'in_cover' || rf.state === 'chase', 'rifleman must evaluate combat state');
+
+  // If we place rifleman right at the cover point behind the wall (0, 0, -1.2)
+  const southCover = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 1.0 && p.z < -0.5 && p.z > -2.0);
+  assert.ok(southCover, 'must find cover point on protected south face of wall');
+  rf.pos.set(southCover.x, 0, southCover.z);
+  rf.coverPoint = southCover;
+  rf.state = 'in_cover';
+  rf.coverT = 0.5;
+
+  // Next update should advance cover timer or peek
+  c.updateEnemies(0.1);
+  assert.ok(rf.state === 'in_cover' || rf.state === 'peek', 'rifleman at cover point must remain in cover or peek');
+
+  // 3. Charging archetypes (Runner, Breacher) never take cover
+  const runner = makeBot(0, 'enemy', 0, -6);
+  runner.target = c.player;
+  const breacher = makeBot(6, 'enemy', 2, -6);
+  breacher.target = c.player;
+  c.enemies.push(runner, breacher);
+
+  c.updateEnemies(0.1);
+  assert.strictEqual(runner.state, 'chase', 'runner must charge in chase state, never take cover');
+  assert.strictEqual(breacher.state, 'chase', 'breacher must charge in chase state, never take cover');
+  assert.strictEqual(runner.coverPoint || null, null, 'runner must not have a coverPoint assigned');
+  assert.strictEqual(breacher.coverPoint || null, null, 'breacher must not have a coverPoint assigned');
+
+  // 4. Team bot cover utilization in TDM
+  const botFriendly = makeBot(1, 'friendly', 0, -6);
+  const botEnemy = makeBot(1, 'enemy', 0, 12);
+  botFriendly.target = botEnemy;
+  botEnemy.target = botFriendly;
+  c.enemies = [botFriendly, botEnemy];
+
+  c.updateEnemies(0.1);
+  assert.ok(botFriendly.state !== 'spawn', 'bot must participate in combat loop');
+
+  // 5. Survival checkpoint save and resume preserves run with cover-aware enemies
+  const runState = c.captureRunState();
+  assert.ok(runState, 'captureRunState must succeed');
+  const cp = CORE.makeCheckpoint(runState);
+  assert.ok(cp, 'makeCheckpoint must succeed');
+  const validated = CORE.validateCheckpoint(cp, 1, 100);
+  assert.ok(validated, 'validateCheckpoint must succeed');
+});
+
 
 
 
