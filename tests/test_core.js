@@ -2634,13 +2634,13 @@ test('the delta flips the arrow for stats where lower is better', () => {
 });
 
 // ---- Objective waves ----
-test('objective waves land on their cadence and never on a special', () => {
+test('objective waves land on their cadence plus wave 14 and never on a special', () => {
   for (let n = 1; n <= 60; n++) {
     const obj = CORE.objectiveWaveAt(n);
     if (CORE.specialWaveAt(n)) {
       assert.strictEqual(obj, false,
         'wave ' + n + ' is already a special — two announced modifiers reads as noise');
-    } else if (n >= CORE.OBJECTIVE_EVERY && n % CORE.OBJECTIVE_EVERY === 0) {
+    } else if (n === 14 || (n >= CORE.OBJECTIVE_EVERY && n % CORE.OBJECTIVE_EVERY === 0)) {
       assert.strictEqual(obj, true, 'wave ' + n);
     } else {
       assert.strictEqual(obj, false, 'wave ' + n);
@@ -10570,6 +10570,12 @@ test('milestone 3: Snowy Compound ice patches, longer slide physics, and surface
   // 7. Bullet impact acoustics on snow and ice
   assert.strictEqual(CORE.surfaceImpactSound('snow'), 'impact_snow', 'snow surface bullet impact must route to impact_snow');
   assert.strictEqual(CORE.surfaceImpactSound('ice'), 'impact_ice', 'ice surface bullet impact must route to impact_ice');
+});
+
+test('all objective types occur before finite survival victory without consecutive or special waves', () => {
+  const scheduled = Array.from({ length: 15 }, (_, i) => ({ wave: i + 1, type: CORE.objectiveTypeAtWave(i + 1) })).filter(x => x.type);
+  assert.deepStrictEqual(new Set(scheduled.map(x => x.type)), new Set(CORE.OBJECTIVE_TYPES));
+  assert.ok(scheduled.every((x, i) => !CORE.specialWaveAt(x.wave) && (i === 0 || x.wave - scheduled[i - 1].wave > 1)));
 });
 
 test('milestone 4: objective types (defend, retrieve, demolition, hold), schedule, parameters, and checkpoint state', () => {

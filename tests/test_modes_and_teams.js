@@ -5513,6 +5513,23 @@ test('production wave clear does not revive unfinished objectives on resume', ()
   }
 });
 
+test('legacy between-wave checkpoint cannot reactivate an unfinished objective', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.startWave(8);
+  c.saveCheckpoint(c.captureRunState());
+  c.resumeRun();
+  assert.ok(!c.objective || c.objective.done || c.objective.failed);
+});
+
+test('wave 14 starts Hold in a finite run on both maps', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.setActiveMap(map, true);
+    c.startWave(14);
+    assert.equal(c.objective.type, 'hold');
+  }
+});
+
 test('destroyed generator stays failed across real wave clear and resume on both maps', () => {
   for (const map of ['urban', 'snowy']) {
     const c = useProductionWaveLifecycle(createFullMatchContext());
@@ -5558,18 +5575,17 @@ test('milestone 4: Survival checkpoint save and resume preserves objective state
   assert.strictEqual(c.objective.done, true);
   assert.strictEqual(c.objective.failed, false);
 
-  // 2. Resume active objective checkpoint via resumeRun
+  // 2. Legacy unfinished wave-boundary data is historical, not active on resume.
   const activeState = Object.assign({}, state, {
     objectiveState: { type: 'defend', done: false, failed: false, hp: 350 }
   });
   c.saveCheckpoint(activeState);
   c.objective = null;
   c.resumeRun();
-  assert.ok(c.objective, 'resumeRun must restore active objective into live run');
+  assert.ok(c.objective, 'resumeRun must retain historical objective data');
   assert.strictEqual(c.objective.type, 'defend');
-  assert.strictEqual(c.objective.done, false);
-  assert.ok(c.objective.target, 'restored active defend objective must have target generator');
-  assert.strictEqual(c.objective.target.health, 350, 'target generator HP must be restored');
+  assert.strictEqual(c.objective.done, true);
+  assert.strictEqual(c.objective.failed, true);
 
   // 3. Real gameplay wave-clear checkpoint save captures objectiveState before clearing
   const cLive = useProductionWaveLifecycle(createFullMatchContext());
@@ -5618,10 +5634,11 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(defLoaded.objectiveState.z, defendOrigZ, 'loaded defend checkpoint must retain z');
   assert.strictEqual(defLoaded.objectiveState.hp, 380, 'loaded defend checkpoint must retain hp');
 
-  // Resume run: player at arbitrary distant pose must not cause target to resample position
+  // Exercise rehydration directly: checkpoints are otherwise resumed between waves only.
   cDef.player.pos.set(90, 0, -80);
   cDef.objective = null;
   cDef.resumeRun();
+  cDef.restoreObjective(defLoaded.objectiveState);
   assert.ok(cDef.objective, 'resumed run must have objective');
   assert.strictEqual(cDef.objective.type, 'defend');
   assert.strictEqual(cDef.objective.x, defendOrigX, 'resumed defend objective must match original x');
@@ -5663,10 +5680,11 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(retLoaded.objectiveState.intel.x, retIntelX);
   assert.strictEqual(retLoaded.objectiveState.dropoff.x, retDropX);
 
-  // Resume run: pickedUp must remain true, intel mesh must NOT be regenerated on ground
+  // Direct rehydration: pickedUp remains true without regenerating a ground mesh.
   cRet.player.pos.set(50, 0, 50);
   cRet.objective = null;
   cRet.resumeRun();
+  cRet.restoreObjective(retLoaded.objectiveState);
   assert.strictEqual(cRet.objective.type, 'retrieve');
   assert.strictEqual(cRet.objective.intel.pickedUp, true, 'resumed retrieve must have pickedUp=true');
   assert.strictEqual(cRet.objective.intel.x, retIntelX, 'resumed intel x matches');
@@ -5726,10 +5744,11 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(demoLoaded.objectiveState.sites[1].x, site1x);
   assert.ok(demoLoaded.objectiveState.sites[1].t >= 1.4);
 
-  // Resume run: site 0 must remain planted, site 1 timer preserved, only site 1 mesh present
+  // Direct rehydration: site 0 remains planted and site 1 timer is preserved.
   cDemo.player.pos.set(0, 0, 0);
   cDemo.objective = null;
   cDemo.resumeRun();
+  cDemo.restoreObjective(demoLoaded.objectiveState);
   assert.strictEqual(cDemo.objective.type, 'demolition');
   assert.strictEqual(cDemo.objective.sites[0].planted, true, 'resumed site 0 must be planted');
   assert.strictEqual(cDemo.objective.sites[0].x, site0x);
@@ -5772,6 +5791,7 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   cHold.player.pos.set(80, 0, 80);
   cHold.objective = null;
   cHold.resumeRun();
+  cHold.restoreObjective(holdLoaded.objectiveState);
   assert.strictEqual(cHold.objective.type, 'hold');
   assert.strictEqual(cHold.objective.x, holdX, 'resumed hold x matches');
   assert.strictEqual(cHold.objective.z, holdZ, 'resumed hold z matches');

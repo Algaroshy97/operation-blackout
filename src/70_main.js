@@ -884,6 +884,11 @@ function resumeRun() {
   streakKills = cp.streakKills || 0;
   runStreaksEarned = cp.runStreaksEarned || 0;
   objectivesCompleted = (typeof cp.objectivesCompleted === 'number') ? cp.objectivesCompleted : 0;
+  // Checkpoints resume between waves; legacy saves may contain an unfinished
+  // objective captured before wave-clear cleanup and must not reactivate it.
+  if (cp.objectiveState && !cp.objectiveState.done) {
+    cp.objectiveState = Object.assign({}, cp.objectiveState, { done: true, failed: true });
+  }
   if (typeof restoreObjective === 'function') {
     restoreObjective(cp.objectiveState);
   } else if (cp.objectiveState) {

@@ -4264,12 +4264,14 @@ const CORE = (function () {
   const RETRIEVE_DROPOFF_RADIUS = 3.5;
 
   function objectiveWaveAt(n) {
-    if (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0) return false;
+    if (n !== 14 && (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0)) return false;
     if (specialWaveAt(n)) return false;
     return true;
   }
   function objectiveTypeAtWave(n) {
     if (!objectiveWaveAt(n)) return null;
+    // Include Hold in the finite 15-wave run without sharing a special wave.
+    if (n === 14) return 'hold';
     const order = ['defend', 'retrieve', 'demolition', 'hold'];
     const idx = Math.floor(n / OBJECTIVE_EVERY - 1);
     return order[((idx % order.length) + order.length) % order.length];
