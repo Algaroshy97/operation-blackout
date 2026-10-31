@@ -10687,9 +10687,9 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(CORE.extractionSurgeProgress(0, 90), 1.0);
   assert.strictEqual(CORE.extractionSurgeProgress(-5, 90), 1.0);
 
-  // Surge kinds must cover all 5 archetypes: 0 (scout), 1 (rifleman), 2 (advancer), 3 (grenadier), 4 (breacher)
-  const kinds = [0, 0.2, 0.4, 0.6, 0.85].map(r => CORE.pickExtractionSurgeKind(r));
-  assert.deepStrictEqual(new Set(kinds), new Set([0, 1, 2, 3, 4]), 'extraction surge must include every archetype');
+  const roster = CORE.ENEMY_KIND_UNLOCK;
+  const kinds = roster.map((_, i) => CORE.pickExtractionSurgeKind((i + 0.5) / roster.length));
+  assert.deepStrictEqual(new Set(kinds), new Set(roster.map(e => e.kind)), 'extraction surge must include every production archetype');
 
   // 4. LZ detection
   assert.strictEqual(CORE.isPlayerInsideLz(0, 0, 0, 0, 5.0), true);

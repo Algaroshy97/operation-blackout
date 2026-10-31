@@ -6,6 +6,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## PR13 extraction review repairs
 
+- Select surge enemies from the production roster, including grenadiers and breachers; exercise every roster kind through the production spawn queue and enemy creation in surge and normal waves.
 - Show a persistent labelled LZ on the rotating minimap, clamped to its edge when distant and independent of smoke and world occlusion; remove it with extraction state.
 - Settle live grenades and equipment ground effects at boarding, returning their meshes and records to their pools without resetting the player's equipment; cover direct, checkpoint-resumed and reset lifecycles.
 - Move the LZ to an open approach on both maps, require ground-level boarding, and carry the player with the helicopter while gameplay and touch/weapon-swap input are gated. Return the player to ground for endless continuation.
@@ -18,7 +19,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 - **Wave 15 Extraction finale lifecycle (`src/01_core.js`, `src/60_hud_waves.js`, `src/20_player.js`, `src/70_main.js`, `src/50_vfx_audio.js`, `src/48_particles.js`).**
   - Added pure extraction rules, constants and calculations in `src/01_core.js`: `EXTRACTION_WAVE` (15), `EXTRACTION_SURGE_TIME` (90 s), `EXTRACTION_LZ_RADIUS` (5.0 m), `EXTRACTION_CINEMATIC_DURATION` (3.0 s), `EXTRACTION_ROTOR_WASH_RADIUS` (16.0 m), `EXTRACTION_ROTOR_WASH_FORCE` (8.0), `isExtractionWave(waveNum, endlessMode)`, `extractionSurgeProgress(remaining, total)`, `pickExtractionSurgeKind(roll)`, `isPlayerInsideLz(px, pz, lzX, lzZ, radius)`, `rotorWashImpulse(px, pz, lzX, lzZ, maxR, force)`, `extractionCinematicStep(timer, dt, duration)`, and `extractionHudLabel(phase, surgeTimer, dist)`.
-  - Implemented 90 s extraction surge in `src/60_hud_waves.js`: at wave 15, extraction activates with countdown clock; hostiles spawned during the surge draw across all 5 archetypes (scout, rifleman, advancer, grenadier, breacher); spawn pressure keeps queue replenished until the surge finishes.
+  - Implemented 90 s extraction surge in `src/60_hud_waves.js`: at wave 15, extraction activates with countdown clock; hostiles spawned during the surge draw across the production roster; spawn pressure keeps queue replenished until the surge finishes. The original five-kind selection was corrected in the PR13 review repairs above.
   - Implemented LZ arrival and procedural helicopter landing in `src/60_hud_waves.js`: green extraction LZ landing ring, signal smoke cannister mesh, and procedural helicopter model descending from altitude to ground level with rotating main/tail rotors.
   - Implemented green signal smoke markers and particle rotor wash in `src/48_particles.js`: outward particle impulse applied to `PFX_SMOKE` particles within 16 m of the helicopter, and green signal smoke plumes emitted at the LZ cannister.
   - Implemented heavier soundtrack layer activation in `src/50_vfx_audio.js` and `src/70_main.js`: during extraction, combat intensity returns 0.95 driving full drums, horns, and bass.

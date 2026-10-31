@@ -4356,7 +4356,7 @@ const CORE = (function () {
   }
   function pickExtractionSurgeKind(roll) {
     const r = _isNum(roll) ? Math.max(0, Math.min(0.999999, roll)) : Math.random();
-    return Math.floor(r * 5);
+    return ENEMY_KIND_UNLOCK[Math.floor(r * ENEMY_KIND_UNLOCK.length)].kind;
   }
   function isPlayerInsideLz(px, pz, lzX, lzZ, radius) {
     const rad = _isPos(radius) ? radius : EXTRACTION_LZ_RADIUS;

@@ -5895,6 +5895,33 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(validatedCorrupt.objectiveState, null, 'unknown objective type must be rejected to null');
 });
 
+for (const [index, entry] of CORE.ENEMY_KIND_UNLOCK.entries()) {
+  test(`PR13 R5 production spawn queue creates ${entry.name} in surge and normal waves`, () => {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.startWave(15);
+    // A special wave must not override the surge roster.
+    c.waveSpecial = { kinds: [0] };
+    c.Math.random = () => (index + 0.5) / CORE.ENEMY_KIND_UNLOCK.length;
+    c.spawnFromQueue();
+    let enemy = c.enemies[c.enemies.length - 1];
+    assert.equal(enemy.kind, entry.kind, `surge must create ${entry.name}`);
+    assert.equal(enemy.hitBody.userData.enemyRef, enemy, 'production spawnEnemy initializes hitboxes');
+    assert.ok(Number.isFinite(enemy.health) && enemy.health > 0);
+
+    c.extraction = null;
+    c.waveSpecial = null;
+    const roster = CORE.enemyKindsAtWave(15);
+    const total = roster.reduce((sum, e) => sum + e.weight, 0);
+    const before = roster.slice(0, index).reduce((sum, e) => sum + e.weight, 0);
+    c.Math.random = () => (before + entry.weight / 2) / total;
+    c.spawnFromQueue();
+    enemy = c.enemies[c.enemies.length - 1];
+    assert.equal(enemy.kind, entry.kind, `normal wave must create ${entry.name}`);
+    assert.equal(enemy.hitBody.userData.enemyRef, enemy);
+    assert.ok(Number.isFinite(enemy.health) && enemy.health > 0);
+  });
+}
+
 test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all archetypes, LZ arrival, rotor wash, and victory cinematic', () => {
   const c = useProductionWaveLifecycle(createFullMatchContext());
   c.streakBank = [];
@@ -5914,16 +5941,17 @@ test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all 
   assert.ok(c.extraction.helicopter, 'helicopter mesh must be created');
   assert.ok(c.extraction.smokeMarker, 'LZ smoke marker must be created');
 
-  // 2. Surge spawns draw across all 5 archetypes (scout 0, rifleman 1, advancer 2, grenadier 3, breacher 4)
+  // 2. Surge spawns draw across the production roster.
   const kindsSpawned = new Set();
-  for (let i = 0; i < 5; i++) {
-    c.Math.random = () => (i + 0.5) / 5;
+  const roster = CORE.ENEMY_KIND_UNLOCK;
+  for (let i = 0; i < roster.length; i++) {
+    c.Math.random = () => (i + 0.5) / roster.length;
     c.spawnFromQueue();
     const lastSpawned = c.enemies[c.enemies.length - 1];
     if (lastSpawned) kindsSpawned.add(lastSpawned.kind);
   }
-  for (let k = 0; k <= 4; k++) {
-    assert.ok(kindsSpawned.has(k), 'surge must spawn archetype ' + k);
+  for (const entry of roster) {
+    assert.ok(kindsSpawned.has(entry.kind), 'surge must spawn ' + entry.name + ' (' + entry.kind + ')');
   }
 
   // 3. 90s surge countdown in updateWaves
