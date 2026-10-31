@@ -516,6 +516,56 @@ let openDistricts = [];
 
 function getWaveNum() { return waveNum; }
 
+function captureObjectiveState() {
+  if (!objective || typeof objective !== 'object') return null;
+  const done = !!objective.done;
+  const failed = !!objective.failed;
+  const out = {
+    type: objective.type,
+    done,
+    failed
+  };
+  if (typeof objective.rewarded === 'boolean') out.rewarded = objective.rewarded;
+  if (typeof objective.x === 'number') out.x = objective.x;
+  if (typeof objective.z === 'number') out.z = objective.z;
+
+  if (objective.type === 'defend') {
+    if (objective.target && typeof objective.target.health === 'number') {
+      out.hp = objective.target.health;
+      out.maxHealth = objective.target.maxHealth || CORE.DEFEND_MAX_HP;
+    } else if (typeof objective.hp === 'number') {
+      out.hp = objective.hp;
+      out.maxHealth = objective.maxHealth || CORE.DEFEND_MAX_HP;
+    }
+  } else if (objective.type === 'retrieve') {
+    if (objective.intel) {
+      out.intel = {
+        x: objective.intel.x,
+        z: objective.intel.z,
+        pickedUp: !!objective.intel.pickedUp
+      };
+    }
+    if (objective.dropoff) {
+      out.dropoff = {
+        x: objective.dropoff.x,
+        z: objective.dropoff.z
+      };
+    }
+  } else if (objective.type === 'demolition') {
+    if (Array.isArray(objective.sites)) {
+      out.sites = objective.sites.map(s => ({
+        x: s.x,
+        z: s.z,
+        planted: !!s.planted,
+        t: typeof s.t === 'number' ? s.t : 0
+      }));
+    }
+  } else if (objective.type === 'hold') {
+    if (typeof objective.t === 'number') out.t = objective.t;
+  }
+  return out;
+}
+
 // Snapshot of everything a resumed run needs. Only ever called between waves.
 function captureRunState() {
   const weapons = [];
@@ -539,11 +589,7 @@ function captureRunState() {
     mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
     spawnProtectionT: 0,
     objectivesCompleted: objectivesCompleted,
-    objectiveState: objective ? Object.assign({
-      type: objective.type,
-      done: !!objective.done,
-      failed: !!objective.failed
-    }, (objective.type === 'defend' && objective.target && typeof objective.target.health === 'number') ? { hp: objective.target.health } : null) : null,
+    objectiveState: captureObjectiveState(),
     equipment: { lethal: equippedLethal, tactical: equippedTactical,
       tacticalCount: tacticalCount, fieldCharge: fieldCharge, streakBank: streakBank }
   };
@@ -622,7 +668,7 @@ function clearObjectiveVisuals() {
   if (objRing) { scene.remove(objRing); objRing = null; }
   if (objPillar) { scene.remove(objPillar); objPillar = null; }
   for (let i = 0; i < objMeshes.length; i++) {
-    scene.remove(objMeshes[i]);
+    if (objMeshes[i]) scene.remove(objMeshes[i]);
   }
   objMeshes.length = 0;
   if (_objHudState.visible) resetObjectiveHudCache();
@@ -634,8 +680,9 @@ function clearObjective() {
 }
 
 function completeObjective(label) {
-  if (!objective || objective.done) return;
+  if (!objective || objective.done || objective.rewarded) return;
   objective.done = true;
+  objective.rewarded = true;
   objectivesCompleted++;
   addCredits(CORE.OBJECTIVE_CREDITS);
   addScore(CORE.OBJECTIVE_CREDITS, label || 'Objective complete');
@@ -750,32 +797,136 @@ function startObjective(n, forcedType) {
 function restoreObjective(state) {
   clearObjective();
   if (!state || typeof state !== 'object' || !state.type) return;
-  if (state.done || state.failed) {
+  const done = !!state.done;
+  const failed = !!state.failed;
+  const rewarded = typeof state.rewarded === 'boolean' ? state.rewarded : (done && !failed);
+
+  if (done || failed) {
     objective = {
       type: state.type,
-      done: !!state.done,
-      failed: !!state.failed
+      done: done,
+      failed: failed,
+      rewarded: rewarded
     };
+    if (typeof state.x === 'number') objective.x = state.x;
+    if (typeof state.z === 'number') objective.z = state.z;
     return;
   }
-  startObjective(waveNum, state.type);
-  if (objective) {
-    objective.done = !!state.done;
-    objective.failed = !!state.failed;
-    if (objective.type === 'defend' && objective.target && typeof state.hp === 'number') {
-      objective.target.health = Math.max(0, Math.min(objective.target.maxHealth || CORE.DEFEND_MAX_HP, state.hp));
-      if (objective.target.health <= 0) {
-        objective.target.dead = true;
-        objective.failed = true;
-        objective.done = true;
+
+  const type = state.type;
+  const ring = openSpawnPoints();
+  const fallbackIdx = (ring && ring.length > 0) ? CORE.pickObjectiveSpot(ring, player.pos.x, player.pos.z) : -1;
+  const fallbackSpot = (fallbackIdx >= 0 && ring[fallbackIdx]) ? ring[fallbackIdx] : ((ring && ring[0]) || [0, 0]);
+
+  if (type === 'defend') {
+    const spotX = typeof state.x === 'number' ? state.x : fallbackSpot[0];
+    const spotZ = typeof state.z === 'number' ? state.z : fallbackSpot[1];
+    const maxHp = (typeof state.maxHealth === 'number') ? state.maxHealth : CORE.DEFEND_MAX_HP;
+    const hp = (typeof state.hp === 'number') ? Math.max(0, Math.min(maxHp, state.hp)) : maxHp;
+    const dead = hp <= 0;
+    const target = {
+      pos: new THREE.Vector3(spotX, 0.9, spotZ),
+      health: hp,
+      maxHealth: maxHp,
+      team: 'friendly',
+      dead: dead,
+      isObjectiveTarget: true,
+      kind: 'generator'
+    };
+    objective = {
+      type: 'defend',
+      target: target,
+      x: spotX,
+      z: spotZ,
+      done: dead,
+      failed: dead,
+      rewarded: false
+    };
+    if (!dead) {
+      const mesh = new THREE.Mesh(objDefendGeo, objDefendMat);
+      mesh.position.set(spotX, 0.9, spotZ);
+      scene.add(mesh);
+      objMeshes.push(mesh);
+    }
+  } else if (type === 'retrieve') {
+    const intelX = (state.intel && typeof state.intel.x === 'number') ? state.intel.x : (typeof state.x === 'number' ? state.x : fallbackSpot[0]);
+    const intelZ = (state.intel && typeof state.intel.z === 'number') ? state.intel.z : (typeof state.z === 'number' ? state.z : fallbackSpot[1]);
+    const pickedUp = !!(state.intel ? state.intel.pickedUp : state.pickedUp);
+    const dropSpot = (typeof activeMap !== 'undefined' && activeMap && activeMap.playerSpawn)
+      ? activeMap.playerSpawn
+      : { x: 0, z: 0 };
+    const defaultDropX = Array.isArray(dropSpot) ? dropSpot[0] : (dropSpot.x || 0);
+    const defaultDropZ = Array.isArray(dropSpot)
+      ? (dropSpot.length >= 3 ? dropSpot[2] : dropSpot[1])
+      : (dropSpot.z || 0);
+    const dropX = (state.dropoff && typeof state.dropoff.x === 'number') ? state.dropoff.x : defaultDropX;
+    const dropZ = (state.dropoff && typeof state.dropoff.z === 'number') ? state.dropoff.z : defaultDropZ;
+
+    objective = {
+      type: 'retrieve',
+      intel: { x: intelX, z: intelZ, pickedUp: pickedUp },
+      dropoff: { x: dropX, z: dropZ },
+      x: intelX,
+      z: intelZ,
+      done: false,
+      failed: false,
+      rewarded: false
+    };
+    if (!pickedUp) {
+      const mesh = new THREE.Mesh(objIntelGeo, objIntelMat);
+      mesh.position.set(intelX, 0.3, intelZ);
+      scene.add(mesh);
+      objMeshes.push(mesh);
+    }
+  } else if (type === 'demolition') {
+    let sites = null;
+    if (Array.isArray(state.sites) && state.sites.length >= 2) {
+      sites = state.sites.slice(0, 2).map(s => ({
+        x: typeof s.x === 'number' ? s.x : 0,
+        z: typeof s.z === 'number' ? s.z : 0,
+        planted: !!s.planted,
+        t: typeof s.t === 'number' ? s.t : 0
+      }));
+    } else {
+      const spot2Idx = (ring && ring.length > 1) ? Math.floor(ring.length / 2) : 0;
+      const spot2 = (ring && ring[spot2Idx]) || fallbackSpot;
+      sites = [
+        { x: fallbackSpot[0], z: fallbackSpot[1], planted: false, t: 0 },
+        { x: spot2[0], z: spot2[1], planted: false, t: 0 }
+      ];
+    }
+    objective = {
+      type: 'demolition',
+      sites: sites,
+      x: sites[0].x,
+      z: sites[0].z,
+      done: false,
+      failed: false,
+      rewarded: false
+    };
+    for (let i = 0; i < sites.length; i++) {
+      if (!sites[i].planted) {
+        const m = new THREE.Mesh(objMortarGeo, objMortarMat);
+        m.position.set(sites[i].x, 0.5, sites[i].z);
+        scene.add(m);
+        objMeshes.push(m);
+      } else {
+        objMeshes.push(null);
       }
     }
   } else {
-    objective = {
-      type: state.type,
-      done: !!state.done,
-      failed: !!state.failed
-    };
+    // 'hold'
+    const holdX = typeof state.x === 'number' ? state.x : fallbackSpot[0];
+    const holdZ = typeof state.z === 'number' ? state.z : fallbackSpot[1];
+    const holdT = typeof state.t === 'number' ? Math.max(0, Math.min(CORE.OBJECTIVE_HOLD, state.t)) : 0;
+    objective = { type: 'hold', x: holdX, z: holdZ, t: holdT, done: false, failed: false, rewarded: false };
+    objRing = new THREE.Mesh(objRingGeo, objRingMat);
+    objRing.rotation.x = -Math.PI / 2;
+    objRing.position.set(holdX, 0.05, holdZ);
+    scene.add(objRing);
+    objPillar = new THREE.Mesh(objPillarGeo, objPillarMat);
+    objPillar.position.set(holdX, 2, holdZ);
+    scene.add(objPillar);
   }
 }
 
@@ -824,7 +975,10 @@ function updateObjective(dt) {
         objective.intel.pickedUp = true;
         showCenterMsg('INTEL RECOVERED — DELIVER TO BASE');
         playSound('ammo_pickup');
-        if (objMeshes.length > 0) scene.remove(objMeshes[0]);
+        if (objMeshes.length > 0) {
+          if (objMeshes[0]) scene.remove(objMeshes[0]);
+          objMeshes.length = 0;
+        }
       }
       if (CORE.objectiveHudChanged(_objHudState, true, false, 0)) {
         CORE.syncObjectiveHudState(_objHudState, true, false, 0);
@@ -871,7 +1025,10 @@ function updateObjective(dt) {
         plantedCount++;
         showCenterMsg('CHARGE PLANTED — MORTAR DESTROYED');
         playSound('grenade_bounce');
-        if (objMeshes[i]) scene.remove(objMeshes[i]);
+        if (objMeshes[i]) {
+          scene.remove(objMeshes[i]);
+          objMeshes[i] = null;
+        }
       }
     }
     if (objective.sites.every(function (s) { return s.planted; })) {
@@ -901,7 +1058,7 @@ function updateObjective(dt) {
         if (_objTxtEl) _objTxtEl.textContent = CORE.objectiveLabel(inside, pct, 'hold');
       }
     }
-    if (objRing && CORE.objectiveRingOpacityChanged(_objHudState.ringInside, inside)) {
+    if (objRing && objRing.material && CORE.objectiveRingOpacityChanged(_objHudState.ringInside, inside)) {
       _objHudState.ringInside = inside;
       objRing.material.opacity = CORE.objectiveRingOpacity(inside);
     }

@@ -1281,6 +1281,109 @@ const CORE = (function () {
   // closed tab was the single worst quality-of-life problem left. Saved between
   // waves only, so it can never capture a half-resolved combat state.
   const SAVE_VERSION = 3;
+
+  function _serializeObjectiveState(obj) {
+    if (!_isObj(obj) || typeof obj.type !== 'string') return null;
+    const type = obj.type;
+    const done = !!obj.done;
+    const failed = !!obj.failed;
+    const out = { type, done, failed };
+    if (typeof obj.rewarded === 'boolean') out.rewarded = obj.rewarded;
+    if (_isNum(obj.x)) out.x = obj.x;
+    if (_isNum(obj.z)) out.z = obj.z;
+
+    if (type === 'defend') {
+      let hp = null;
+      let maxHp = null;
+      if (_isNum(obj.hp)) hp = obj.hp;
+      else if (obj.target && _isNum(obj.target.health)) hp = obj.target.health;
+      if (_isNum(obj.maxHealth)) maxHp = obj.maxHealth;
+      else if (obj.target && _isNum(obj.target.maxHealth)) maxHp = obj.target.maxHealth;
+      if (_isNum(hp)) out.hp = hp;
+      if (_isNum(maxHp)) out.maxHealth = maxHp;
+    } else if (type === 'retrieve') {
+      const intel = _isObj(obj.intel) ? obj.intel : {};
+      const pickedUp = !!(intel.pickedUp || obj.pickedUp);
+      out.intel = {
+        x: _isNum(intel.x) ? intel.x : (_isNum(obj.x) ? obj.x : 0),
+        z: _isNum(intel.z) ? intel.z : (_isNum(obj.z) ? obj.z : 0),
+        pickedUp
+      };
+      if (_isObj(obj.dropoff)) {
+        out.dropoff = {
+          x: _isNum(obj.dropoff.x) ? obj.dropoff.x : 0,
+          z: _isNum(obj.dropoff.z) ? obj.dropoff.z : 0
+        };
+      }
+    } else if (type === 'demolition') {
+      if (Array.isArray(obj.sites)) {
+        out.sites = obj.sites.map(s => ({
+          x: _isObj(s) && _isNum(s.x) ? s.x : 0,
+          z: _isObj(s) && _isNum(s.z) ? s.z : 0,
+          planted: !!(s && s.planted),
+          t: _isObj(s) && _isNum(s.t) ? s.t : 0
+        }));
+      }
+    } else if (type === 'hold') {
+      if (_isNum(obj.t)) out.t = obj.t;
+    }
+    return out;
+  }
+
+  function _validateObjectiveState(raw, num) {
+    if (!_isObj(raw) || typeof raw.type !== 'string') return null;
+    const type = raw.type.slice(0, 32);
+    const validTypes = ['hold', 'defend', 'retrieve', 'demolition'];
+    if (!validTypes.includes(type)) return null;
+
+    const done = !!raw.done;
+    const failed = !!raw.failed;
+    const out = { type, done, failed };
+    if (typeof raw.rewarded === 'boolean') out.rewarded = raw.rewarded;
+
+    if (_isNum(raw.x)) out.x = num(raw.x, -500, 500, 0);
+    if (_isNum(raw.z)) out.z = num(raw.z, -500, 500, 0);
+
+    if (type === 'defend') {
+      const maxHp = _isNum(raw.maxHealth) ? num(raw.maxHealth, 1, 5000, 500) : (_isObj(raw.target) && _isNum(raw.target.maxHealth) ? num(raw.target.maxHealth, 1, 5000, 500) : null);
+      const rawHp = _isNum(raw.hp) ? raw.hp : (_isObj(raw.target) && _isNum(raw.target.health) ? raw.target.health : null);
+      if (_isNum(rawHp)) {
+        const ceiling = _isNum(maxHp) ? maxHp : 500;
+        out.hp = num(rawHp, 0, ceiling, ceiling);
+      }
+      if (_isNum(maxHp)) {
+        out.maxHealth = maxHp;
+      }
+    } else if (type === 'retrieve') {
+      const intel = _isObj(raw.intel) ? raw.intel : {};
+      const pickedUp = !!(intel.pickedUp || raw.pickedUp);
+      const ix = _isNum(intel.x) ? num(intel.x, -500, 500, 0) : (_isNum(out.x) ? out.x : 0);
+      const iz = _isNum(intel.z) ? num(intel.z, -500, 500, 0) : (_isNum(out.z) ? out.z : 0);
+      out.intel = { x: ix, z: iz, pickedUp };
+      if (_isObj(raw.dropoff)) {
+        out.dropoff = {
+          x: num(raw.dropoff.x, -500, 500, 0),
+          z: num(raw.dropoff.z, -500, 500, 0)
+        };
+      }
+    } else if (type === 'demolition') {
+      if (Array.isArray(raw.sites)) {
+        out.sites = raw.sites.slice(0, 4).map(s => {
+          if (!_isObj(s)) return { x: 0, z: 0, planted: false, t: 0 };
+          return {
+            x: num(s.x, -500, 500, 0),
+            z: num(s.z, -500, 500, 0),
+            planted: !!s.planted,
+            t: num(s.t, 0, 3.0, 0)
+          };
+        });
+      }
+    } else if (type === 'hold') {
+      if (_isNum(raw.t)) out.t = num(raw.t, 0, 60, 0);
+    }
+    return out;
+  }
+
   function makeCheckpoint(state) {
     return {
       v: SAVE_VERSION,
@@ -1312,11 +1415,7 @@ const CORE = (function () {
         streakBank: (state.equipment && state.equipment.streakBank || []).slice()
       },
       objectivesCompleted: _isNum(state.objectivesCompleted) ? state.objectivesCompleted : 0,
-      objectiveState: (state.objectiveState && typeof state.objectiveState === 'object') ? Object.assign({
-        type: state.objectiveState.type,
-        done: !!state.objectiveState.done,
-        failed: !!state.objectiveState.failed
-      }, _isNum(state.objectiveState.hp) ? { hp: state.objectiveState.hp } : null) : null,
+      objectiveState: _serializeObjectiveState(state.objectiveState),
       savedAt: state.savedAt || 0
     };
   }
@@ -1410,11 +1509,7 @@ const CORE = (function () {
           .filter(function (k) { return !!streakByKey(k); }).slice(0, 20)
       },
       objectivesCompleted: Math.round(num(raw.objectivesCompleted, 0, 999, 0)),
-      objectiveState: (_isObj(raw.objectiveState) && typeof raw.objectiveState.type === 'string') ? Object.assign({
-        type: raw.objectiveState.type.slice(0, 32),
-        done: !!raw.objectiveState.done,
-        failed: !!raw.objectiveState.failed
-      }, _isNum(raw.objectiveState.hp) ? { hp: raw.objectiveState.hp } : null) : null,
+      objectiveState: _validateObjectiveState(raw.objectiveState, num),
       savedAt: num(raw.savedAt, 0, 8.64e15, 0)
     };
   }

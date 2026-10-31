@@ -225,9 +225,9 @@ kill-everything waves.
   - a proper victory cinematic
 - Endless mode continues after extraction as before.
 
-**Status:** PARTIAL INCREMENT DELIVERED (v179; hardened in v179.1). Objective waves framework, 4 objective types (Defend, Retrieve, Demolition, Hold), team-aware AI hostility against Defend generator, free scorestreak rewards, HUD/minimap markers, and checkpoint persistence across live wave clear and resumeRun lifecycles are fully implemented and verified with unit and match lifecycle regressions.
+**Status:** SCOPE IMPLEMENTED IN PR12 (PENDING INDEPENDENT REVIEW & DELIVERY; extraction still incomplete). Objective waves framework, 4 objective types (Defend, Retrieve, Demolition, Hold), team-aware AI hostility against Defend generator, free scorestreak rewards, HUD/minimap markers, and full checkpoint persistence across live wave clear and resumeRun lifecycles are implemented and verified locally with unit and match lifecycle regressions. Wave 15 Extraction finale remains incomplete.
 
-**Next dependency:** Milestone 4 increment 2 — Wave 15 Extraction finale (90 s surge, extraction LZ arrival, smoke markers, rotor wash particles, victory cinematic, and browser acceptance probe coverage).
+**Next dependency:** Milestone 4 increment 2 — Wave 15 Extraction finale (90 s surge, extraction LZ arrival, smoke markers, rotor wash particles, victory cinematic, and browser acceptance probe coverage) remains incomplete.
 
 **Done when:** core tests cover the objective schedule and its rules. The probe can
 force an objective wave and the extraction.

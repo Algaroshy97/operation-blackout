@@ -10611,15 +10611,54 @@ test('milestone 4: objective types (defend, retrieve, demolition, hold), schedul
   const cpState = {
     wave: 4, score: 1000, difficulty: 'regular', weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
     objectivesCompleted: 1,
-    objectiveState: { type: 'defend', done: false, failed: false, hp: 450 }
+    objectiveState: { type: 'defend', done: false, failed: false, hp: 450, x: 12.5, z: -8.0, maxHealth: 500 }
   };
   const cp = CORE.makeCheckpoint(cpState);
   assert.strictEqual(cp.objectivesCompleted, 1);
-  assert.deepStrictEqual(cp.objectiveState, { type: 'defend', done: false, failed: false, hp: 450 });
+  assert.strictEqual(cp.objectiveState.type, 'defend');
+  assert.strictEqual(cp.objectiveState.x, 12.5);
+  assert.strictEqual(cp.objectiveState.z, -8.0);
+  assert.strictEqual(cp.objectiveState.hp, 450);
 
   const validated = CORE.validateCheckpoint(cp, 4, 100);
   assert.strictEqual(validated.objectivesCompleted, 1);
-  assert.deepStrictEqual(validated.objectiveState, { type: 'defend', done: false, failed: false, hp: 450 });
+  assert.strictEqual(validated.objectiveState.type, 'defend');
+  assert.strictEqual(validated.objectiveState.x, 12.5);
+  assert.strictEqual(validated.objectiveState.z, -8.0);
+  assert.strictEqual(validated.objectiveState.hp, 450);
+
+  // 7. Full round-trip for retrieve, demolition, and hold checkpoint state
+  const retrieveCp = CORE.makeCheckpoint({
+    wave: 8, score: 2000, weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    objectiveState: { type: 'retrieve', done: false, failed: false, x: 14, z: -20, intel: { x: 14, z: -20, pickedUp: true }, dropoff: { x: 0, z: 0 } }
+  });
+  assert.strictEqual(retrieveCp.objectiveState.intel.pickedUp, true);
+  const validatedRetrieve = CORE.validateCheckpoint(retrieveCp, 4, 100);
+  assert.strictEqual(validatedRetrieve.objectiveState.intel.pickedUp, true);
+  assert.strictEqual(validatedRetrieve.objectiveState.intel.x, 14);
+
+  const demoCp = CORE.makeCheckpoint({
+    wave: 12, score: 3000, weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    objectiveState: {
+      type: 'demolition', done: false, failed: false,
+      sites: [{ x: 5, z: 10, planted: true, t: 3.0 }, { x: -5, z: 15, planted: false, t: 1.2 }]
+    }
+  });
+  assert.strictEqual(demoCp.objectiveState.sites[0].planted, true);
+  assert.strictEqual(demoCp.objectiveState.sites[1].planted, false);
+  const validatedDemo = CORE.validateCheckpoint(demoCp, 4, 100);
+  assert.strictEqual(validatedDemo.objectiveState.sites[0].planted, true);
+  assert.strictEqual(validatedDemo.objectiveState.sites[1].planted, false);
+  assert.strictEqual(validatedDemo.objectiveState.sites[1].t, 1.2);
+
+  const holdCp = CORE.makeCheckpoint({
+    wave: 16, score: 4000, weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    objectiveState: { type: 'hold', done: false, failed: false, x: 22, z: -18, t: 25.5 }
+  });
+  assert.strictEqual(holdCp.objectiveState.t, 25.5);
+  const validatedHold = CORE.validateCheckpoint(holdCp, 4, 100);
+  assert.strictEqual(validatedHold.objectiveState.t, 25.5);
+  assert.strictEqual(validatedHold.objectiveState.x, 22);
 });
 
 
