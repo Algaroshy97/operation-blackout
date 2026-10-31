@@ -54,6 +54,18 @@ function breakStreak() {
   updateHudStreaks();
 }
 
+function awardFreeStreak(preferredStreak) {
+  const choices = ['uav', 'airstrike', 'sentry'];
+  const streak = preferredStreak || choices[Math.floor(Math.random() * choices.length)];
+  streakBank.push(streak);
+  runStreaksEarned = (typeof runStreaksEarned !== 'undefined' ? runStreaksEarned : 0) + 1;
+  const d = (typeof CORE !== 'undefined' && typeof CORE.streakByKey === 'function') ? CORE.streakByKey(streak) : null;
+  const name = d ? d.name : streak.toUpperCase();
+  if (typeof showCenterMsg === 'function') showCenterMsg(name + ' READY');
+  if (typeof updateHudStreaks === 'function') updateHudStreaks();
+  return streak;
+}
+
 // The field upgrade charges on damage DEALT, so it rewards fighting rather than
 // waiting out a timer.
 function addFieldCharge(dmg) {

@@ -4,6 +4,89 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Objective wave-clear and grenade recovery
+
+- Mark incomplete wave objectives failed before the between-wave checkpoint, reset the completion counter for a fresh run, and apply hostile grenade blast damage to the Defend generator with radius and cover checks.
+- Add production wave-start, wave-update, checkpoint persistence and resume coverage on both maps. The v179.3 entry below overstated its lifecycle coverage: those tests originally substituted wave functions; the relevant wave-clear cases now execute production functions.
+- Allow more wall time for the same live spawn assertion on slow software rendering; the movement and grounding assertions remain unchanged.
+- Schedule Hold on wave 14 so all four objective types are reachable before the wave 15 finale, without overlapping a special wave.
+- Treat unfinished objectives in older between-wave checkpoints as failed history rather than restoring them as active.
+- Require ground-level reach for retrieve, demolition and hold interactions, preventing progress through an upper floor.
+
+## v179.3 — Objective checkpoint lifecycle round-trip fidelity, position persistence, and wave-clear ordering recovery
+
+- **Objective state serialization & validation round-trip (`src/01_core.js`, `src/60_hud_waves.js`).**
+  - Resolved reviewer findings on objective checkpoint persistence: active objective coordinates (`x`, `z`) are now fully serialized and restored without randomized resampling on resume.
+  - Defend objectives persist exact generator target coordinates, current HP, and maxHealth, restoring the friendly generator actor and visual mesh at the saved position.
+  - Retrieve objectives serialize intel case coordinates, base dropoff coordinates, and `pickedUp` status; visual intel mesh is removed on pickup and suppressed upon resume if already picked up.
+  - Demolition objectives serialize coordinates, individual `planted` flags, and plant progress timer `t` across all mortar sites (up to 4, typically dual sites); visual meshes are restored only for unplanted sites.
+  - Hold objectives serialize zone coordinates and progress timer `t` (bounded to `OBJECTIVE_HOLD = 60`), restoring the zone ring and pillar at original coordinates.
+  - Sanitization: `_validateObjectiveState` validates objective types against `OBJECTIVE_TYPES`, sanitizes spatial coordinates (-500 to 500 m) and timers, cleanly defaulting corrupt or unknown types to `null`. Non-Survival checkpoints (e.g. TDM) are rejected.
+  - Exactly-once reward semantics: completed objectives track `rewarded` flag across serialization, ensuring resumed wave-clear runs never replay or award duplicate credits or scorestreaks.
+  - Wave-clear ordering: production `updateWaves` clears wave -> completes defend objective -> saves checkpoint with captured state -> clears live objective state, preventing duplicate rewards or stale visual meshes on subsequent waves.
+- **Test harness & integration regressions (`tests/test_modes_and_teams.js`, `tests/test_core.js`).**
+  - Corrected test harness VM slicing in `tests/test_modes_and_teams.js` to include `captureObjectiveState` alongside `captureRunState`, eliminating previous `ReferenceError` test aborts.
+  - Added full lifecycle integration tests across both Urban and Snowy Compound maps exercising production `captureRunState` -> `makeCheckpoint` -> `validateCheckpoint` -> `saveCheckpoint` -> `loadCheckpoint` -> `resumeRun` -> `restoreObjective` -> `updateObjective` -> `updateWaves`.
+  - Added unit regression tests in `tests/test_core.js` verifying round-trip serialization and sanitization for all 4 objective types.
+- **Verification & release build.**
+  - 612/612 Node tests passing across all test files (`tests/*.js`): 431 in `test_core.js`, 97 in `test_modes_and_teams.js`, and 84 in other suites.
+  - 19/19 release build and probe contract tests passing (`python3 -m unittest tests.test_release_build tests.test_probe_matrix -v`).
+  - 24/24 full python test suite passing (`python3 -m unittest discover -s tests -p 'test_*.py'`).
+  - Single-file release artifact rebuilt via `python3 scripts/build.py .` (`dist/Operation Blackout.html`): 2,075,546 bytes (21,606 bytes below the 2,097,152 byte limit).
+  - Baseline RED failure evidence preserved at `/home/server/server/maintenance/state/pr12-once-red-20261031.log` (526 pass / 2 fail, demonstrating behavioral AssertionError failures against baseline code).
+  - Verified GREEN evidence saved at `/home/server/server/maintenance/state/pr12-once-green-20261031.log` (612 pass / 0 fail).
+
+## v179.2 — Live probe bullet control isolation and delayed cover re-check hardening
+
+- **Live gameplay probe bullet control isolation (`scripts/probe_live.py`, `tests/test_probe_matrix.py`).**
+  - Resolved asynchronous probe flake in the `bullets-still-land-in-the-open` check: during the preceding through-floor check wait, the enemy soldier navigated toward the central staircase (`z >= 6.0`), placing it behind a solid staircase collider (`box(0, 2.0, 6.4, 3.2, 4.0, 0.82)`) and blocking subsequent open-field control shots.
+  - Reset enemy list and spawned a clean enemy at `(0, 0, 5)` with reset player pose/health before executing the open-field baseline check, ensuring deterministic execution independent of loop 1 timing.
+  - Added regression test `test_probe_bullets_in_open_control_resets_enemy_state` in `tests/test_probe_matrix.py` enforcing contract isolation for the baseline probe evaluate block.
+- **Enemy spawn hierarchy synchronization & cover re-check precision (`src/40_enemies.js`, `tests/test_modes_and_teams.js`).**
+  - Synchronized soldier bone and gun joint world matrices immediately upon spawning via `updateMatrixWorld(true)` on `parts.group`.
+  - Adjusted delayed projectile cover re-check impact height for non-player targets in `enemyShoot` and `breacherShoot` to chest height (`tgtCheckY`), matching initial LOS evaluation rather than ground-plane origin (`y = 0`).
+  - Added regression test in `tests/test_modes_and_teams.js` verifying delayed impact cover re-checks across through-floor slab occlusions, central staircase cover, and open line-of-fire target states.
+- **Verification & release build.**
+  - 611/611 Node tests passing across all test suites (`tests/*.js`).
+  - 19/19 release build and probe contract tests passing (`python3 -m unittest tests.test_release_build tests.test_probe_matrix -v`).
+  - Rebuilt self-contained single-file release artifact `dist/Operation Blackout.html` (2,067,786 bytes, within 2 MiB budget).
+
+## v179.1 — Objective checkpoint save/resume lifecycle hardening and roadmap reconciliation
+
+- **Survival checkpoint persistence & objective restoration (`src/60_hud_waves.js`, `src/70_main.js`).**
+  - Resolved checkpoint save order in `src/60_hud_waves.js`: `saveCheckpoint(captureRunState())` now captures active/completed `objectiveState` prior to invoking `clearObjective()`, ensuring real gameplay wave-clear saves genuinely capture objective state rather than null.
+  - Implemented objective restoration in `src/60_hud_waves.js` via `restoreObjective(state)` and wired it into `resumeRun` in `src/70_main.js`. Resuming a checkpoint now re-instantiates active or completed objective state (including generator target and HP for defend objectives) in the live run.
+- **Roadmap specifications reconciliation (`ROADMAP.md`).**
+  - Corrected Defend generator HP from 300 to 500 HP to align with authoritative `CORE.DEFEND_MAX_HP = 500`.
+  - Corrected objective completion bonus credits from 500 to 900 credits to align with authoritative `CORE.OBJECTIVE_CREDITS = 900`.
+  - Revised milestone 4 status line to accurately represent verified checkpoint save and resume coverage.
+- **Regression coverage & release verification (`tests/test_modes_and_teams.js`).**
+  - Extended `'milestone 4: Survival checkpoint save and resume preserves objective state and completed stats'` in `tests/test_modes_and_teams.js` to exercise real `resumeRun` execution, verifying that both completed and active objectives (with generator health) are restored into the live run, and that real gameplay wave-clear checkpoints record non-null objective state.
+  - 610/610 Node tests passing across all suites (`tests/*.js`).
+  - 15/15 release build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - Rebuilt self-contained single-file HTML release artifact `dist/Operation Blackout.html`.
+
+## v179 — Milestone 4: Survival wave objectives framework, Defend/Retrieve/Demolition/Hold lifecycles, and streak rewards
+
+- **Objective Waves framework (`src/01_core.js`, `src/60_hud_waves.js`, `src/40_enemies.js`, `src/58_streaks.js`, `src/70_main.js`).**
+  - Added pure objective rules and scheduling in `src/01_core.js`: registration array `OBJECTIVE_TYPES` (`['hold', 'defend', 'retrieve', 'demolition']`), rotation ordering in `objectiveTypeAtWave` (`['defend', 'retrieve', 'demolition', 'hold']`), `OBJECTIVE_HOLD` (60 s), `DEFEND_MAX_HP` (500), `DEMOLITION_PLANT_TIME` (3.0 s), `DEMOLITION_RADIUS` (3.5 m), `RETRIEVE_PICKUP_RADIUS` (2.5 m), and `RETRIEVE_DROPOFF_RADIUS` (3.5 m).
+  - Implemented objective wave selection `CORE.objectiveTypeAtWave(waveNum)` rotating through all 4 types starting at wave 4 (waves 4, 8, 12...), never occurring back-to-back.
+  - Implemented pure helpers for demolition progress (`demolitionProgress`, `demolitionComplete`), defend HP percentage (`defendHpPct`), target destruction (`isDefendTargetDestroyed`), streak reward selection (`pickObjectiveRewardStreak`), and dynamic HUD labels (`objectiveLabel`).
+  - Integrated team-aware AI hostility in `src/40_enemies.js`: `findNearestHostileActor` evaluates friendly defend objective targets; enemy melee swings, bullet hits, and breacher shotgun blasts inflict damage via `damageObjectiveTarget(target, damage)`. Target destruction triggers `onObjectiveTargetDestroyed` failing the objective without ending the player's run.
+  - Implemented complete lifecycles in `src/60_hud_waves.js` for Defend (protect generator until wave clear), Retrieve (recover intel case from open spawn point and deliver to map spawn dropoff), Demolition (interact and plant charges on dual mortar sites), and Hold (maintain position within the zone for 60 s).
+  - Added free scorestreak rewards (`awardFreeStreak` in `src/58_streaks.js`) granting an earned streak directly into `streakBank` alongside bonus credits (`CORE.OBJECTIVE_CREDITS` = 900) upon objective completion.
+  - Added procedural 3D visual markers for objectives in `src/60_hud_waves.js` (cyan defend generator, golden intel case, red mortar cylinders, green hold ring/pillar) and dedicated minimap icons in `drawObjectiveMinimapMarker`.
+  - Checkpoint preservation: initial partial checkpoint implementation in `makeCheckpoint`/`validateCheckpoint` (`src/01_core.js`), `captureRunState` (`src/60_hud_waves.js`), and `resumeRun` (`src/70_main.js`) persisting `objectivesCompleted` and basic `type`/`done`/`failed` (full position/sub-state round-trip addressed in subsequent repair).
+- **Regression coverage & release gates.**
+  - Added unit regressions in `tests/test_core.js` covering `OBJECTIVE_TYPES`, `objectiveTypeAtWave`, `pickObjectiveRewardStreak`, `demolitionProgress/Complete`, `defendHpPct`, `isDefendTargetDestroyed`, `objectiveLabel`, and checkpoint serialization.
+  - Added initial match lifecycle integration tests in `tests/test_modes_and_teams.js`:
+    1. Defend generator lifecycle with hostile enemy target acquisition, melee/firearm damage, target destruction vs survival through wave completion, bonus credits, and free scorestreak award.
+    2. Retrieve and Demolition lifecycles verifying intel pickup/delivery, dual mortar site charge planting, and streak awards.
+    3. Checkpoint save and resume preservation of `objectivesCompleted` and active `objectiveState`.
+  - Initial historical suite counts (610 Node tests across `tests/*.js` claimed prior to full objective checkpoint test suite expansion).
+  - 15/15 release-build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - Rebuilt single-file HTML (`dist/Operation Blackout.html`): 2,066,209 bytes (30,943 bytes below the 2 MiB limit).
+
 ## v178.2 — Snowy Compound software acceptance closure
 
 - Added a permanent 10-case Urban/Snowy × Survival/TDM/FFA/Domination/Gun Game

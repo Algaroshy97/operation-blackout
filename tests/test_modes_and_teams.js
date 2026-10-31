@@ -26,7 +26,9 @@ class Vector3 {
 }
 
 class Mesh {
-  constructor() {
+  constructor(geometry, material) {
+    this.geometry = geometry;
+    this.material = material || {};
     this.position = new Vector3();
     this.rotation = { x: 0, y: 0, z: 0 };
     this.scale = new Vector3(1, 1, 1);
@@ -454,6 +456,36 @@ function loadGrenadeLifecycle(c) {
   vm.runInContext(range('function explodeGrenade(pos', '// ---- Pickups:'), c);
 }
 
+test('generator blast damage requires hostile owner, range and line of sight', () => {
+  const c = createCombatContext();
+  loadGrenadeLifecycle(c);
+  c.player.pos.set(40, 1.7, 40);
+  const target = { team: 'friendly', pos: new Vector3(1, 0.9, 0), health: 500, dead: false, isObjectiveTarget: true };
+  c.objective = { type: 'defend', target, done: false, failed: false };
+  const hostile = { team: 'enemy' };
+  c.grenadeLosDir = new Vector3();
+  c.grenadeLosDir.length = function () { return Math.sqrt(this.lengthSq()); };
+  c.grenadeLosDir.multiplyScalar = function (s) { return this.set(this.x * s, this.y * s, this.z * s); };
+  c.grenadeTargets = [];
+  c._grenadeLosHits = [];
+  c.ground = {};
+  let covered = true;
+  c.grenadeLosRay = { set: noop, intersectObjects: (objects, recursive, hits) => {
+    if (covered) hits.push({ distance: 0.2, object: { userData: {} } });
+  } };
+  const src = source('55_grenades.js');
+  vm.runInContext(src.slice(src.indexOf('function grenadeHasLineOfSight('), src.indexOf('// One blast can query')), c);
+  c.explodeGrenade(new Vector3(), 1, hostile);
+  assert.equal(target.health, 500, 'cover blocks hostile blast');
+  covered = false;
+  c.explodeGrenade(new Vector3(), 1, c.player);
+  assert.equal(target.health, 500, 'player blast must not damage friendly generator');
+  c.explodeGrenade(new Vector3(20, 0, 0), 1, hostile);
+  assert.equal(target.health, 500, 'outside blast radius');
+  c.explodeGrenade(new Vector3(), 1, hostile);
+  assert.ok(target.health < 500, 'hostile blast must damage generator');
+});
+
 for (const ownerTeam of ['friendly', 'enemy', 'player']) {
   test(`grenade lifecycle attributes ${ownerTeam} blast kills without leaking player rewards`, () => {
     const reports = [];
@@ -727,6 +759,65 @@ test('enemyShoot and breacherShoot delayed impacts gate on paused game state', a
   c.breacherShoot(breacher, 4, friendlyTarget2);
   await new Promise(resolve => setTimeout(resolve, 80));
   assert.ok(friendlyTarget2.health < 100, `breacher damage must be delivered when unpaused (health=${friendlyTarget2.health})`);
+});
+
+test('enemyShoot cover re-check at impact handles through-floor, staircase cover, and open line-of-fire reliably', async () => {
+  const c = createCombatContext();
+  c.Math.random = () => 0.1; // deterministic hit rolls
+
+  // Setup arena colliders: 2nd floor slab and central staircase
+  c.colliders = [
+    // 2nd floor slab: x in [-9.3, 9.3], y in [3.65, 4.15], z in [-7.3, 7.3]
+    { min: new Vector3(-9.3, 3.65, -7.3), max: new Vector3(9.3, 4.15, 7.3), mat: 'concrete' },
+    // central staircase: x in [-1.6, 1.6], y in [0, 4.0], z in [5.99, 6.81]
+    { min: new Vector3(-1.6, 0, 5.99), max: new Vector3(1.6, 4.0, 6.81), mat: 'concrete' }
+  ];
+
+  let hits = 0;
+  c.damagePlayer = () => { hits++; };
+  c.player.health = 100;
+  c.player.dead = false;
+  c.player.pos.set(0, 1.7, 0);
+
+  const shooter = {
+    kind: 1,
+    team: 'enemy',
+    pos: new Vector3(0, 0, 5),
+    vel: new Vector3(),
+    parts: c.dummyParts(),
+    dead: false,
+    speedMul: 1,
+    yaw: 0,
+    nextShot: 0
+  };
+
+  // 1. Through-floor: shot fired while player is on ground, but player climbs upstairs to SLAB_EYE (5.85) before impact
+  c.enemyShoot(shooter, 5, c.player);
+  c.player.pos.set(0, 4.15 + 1.7, 0); // climb behind slab
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 0, 'bullet must be blocked by slab when player climbs upstairs before impact');
+
+  // 2. Open line of fire: player on ground, shooter at (0, 0, 5) in open
+  c.player.pos.set(0, 1.7, 0);
+  shooter.pos.set(0, 0, 5);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 1, 'bullet must land on player when line of fire is in the open');
+
+  // 3. Cover blocking: shooter behind staircase at (0, 0, 7)
+  shooter.pos.set(0, 0, 7);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 0, 'bullet must be blocked when shooter is behind the staircase');
+
+  // 4. Repositioning shooter into the open restores successful hit delivery
+  shooter.pos.set(0, 0, 5);
+  hits = 0;
+  c.enemyShoot(shooter, 5, c.player);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(hits, 1, 'bullet must land once shooter is repositioned into the open');
 });
 
 test('active bot-to-bot combat execution: full target acquisition, engagement, and attribution', () => {
@@ -1800,6 +1891,7 @@ function createFullMatchContext(overrides = {}) {
         docElements.set(id, {
           id,
           style: { display: '' },
+          getContext: () => ({ clearRect: noop, drawImage: noop, fillStyle: '', strokeStyle: '', lineWidth: 1, beginPath: noop, arc: noop, fill: noop, stroke: noop, rotate: noop }),
           textContent: '',
           innerHTML: '',
           dataset: {},
@@ -1839,7 +1931,8 @@ function createFullMatchContext(overrides = {}) {
         for (let i = 0; i < cbs.length; i++) cbs[i].call(this);
       },
       appendChild: noop,
-      setAttribute: noop
+      setAttribute: noop,
+      querySelector: () => ({ textContent: '', style: {}, classList: { add: noop, remove: noop } })
     }),
     querySelectorAll: () => [],
     querySelector: () => ({ textContent: '' }),
@@ -1874,6 +1967,8 @@ function createFullMatchContext(overrides = {}) {
       BoxGeometry: Geometry,
       CylinderGeometry: Geometry,
       SphereGeometry: Geometry,
+      RingGeometry: Geometry,
+      DoubleSide: 2,
       Raycaster: function () { return { set: noop, intersectObjects: () => [] }; },
       Color: function (col) { this.c = col; this.lerp = noop; }
     },
@@ -2026,7 +2121,7 @@ function createFullMatchContext(overrides = {}) {
     endlessMode: false,
     runPhase: 'active',
     weaponsOwned: [0, -1],
-    wState: [{}, {}],
+    wState: [{ ammo: 30, reserve: 90 }, {}],
     initWeapons: noop,
     refreshWeaponStats: noop,
     openDistrict: noop,
@@ -2040,9 +2135,23 @@ function createFullMatchContext(overrides = {}) {
     buildViewmodel: noop,
     showWaveBanner: noop,
     updateWaves: dt => {
+      if (typeof c.updateObjective === 'function') c.updateObjective(dt);
+      if (c.waveActive && c.enemies.length === 0 && (c.waveQueue || 0) === 0) {
+        c.waveActive = false;
+        if (c.objective && !c.objective.done && c.objective.type === 'defend' && !c.objective.failed && c.objective.target && !c.objective.target.dead) {
+          if (typeof c.completeObjective === 'function') c.completeObjective('Generator defended');
+        }
+        if (typeof c.saveCheckpoint === 'function' && typeof c.captureRunState === 'function') {
+          c.saveCheckpoint(c.captureRunState());
+        }
+        if (typeof c.clearObjective === 'function') c.clearObjective();
+      }
       if (c.betweenWaveT > 0) {
         c.betweenWaveT -= dt;
-        if (c.betweenWaveT <= 0) c.waveActive = true;
+        if (c.betweenWaveT <= 0) {
+          if (typeof c.startWave === 'function') c.startWave(c.waveNum + 1);
+          else c.waveActive = true;
+        }
       }
     },
     waveActive: false,
@@ -2066,9 +2175,12 @@ function createFullMatchContext(overrides = {}) {
       mapId: c.activeMapId || 'urban',
       weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
       openDistricts: (c.openDistricts || []).slice(),
-      equipment: { lethal: c.equippedLethal, tactical: c.equippedTactical, streakBank: [] }
+      objectivesCompleted: c.objectivesCompleted || 0,
+      objectiveState: c.objective ? Object.assign({ type: c.objective.type, done: !!c.objective.done, failed: !!c.objective.failed }, (c.objective.type === 'defend' && c.objective.target && typeof c.objective.target.health === 'number') ? { hp: c.objective.target.health } : null) : null,
+      equipment: { lethal: c.equippedLethal, tactical: c.equippedTactical, streakBank: (c.streakBank || []).slice() }
     }),
     saveCheckpoint: state => {
+      if (typeof c.activeModeId !== 'undefined' && c.activeModeId !== 'survival') return false;
       c._checkpoint = CORE.makeCheckpoint(state);
       return true;
     },
@@ -2083,7 +2195,7 @@ function createFullMatchContext(overrides = {}) {
     spawnRagdoll: noop,
     disposeEnemyGeometry: noop,
     addScore: function (pts) { c.score = (c.score || 0) + pts; },
-    addCredits: noop,
+    addCredits: function (amt) { c.credits = (c.credits || 0) + (amt || 0); },
     registerKillT: noop,
     registerStreakKill: noop,
     dropPowerUp: noop,
@@ -2118,7 +2230,7 @@ function createFullMatchContext(overrides = {}) {
     DISTRICT_BARRIERS: {},
     doorMeshes: {},
     doorColliders: {},
-    loadCheckpoint: () => c._checkpoint || null,
+    loadCheckpoint: () => (c._checkpoint ? CORE.validateCheckpoint(c._checkpoint, c.CFG.weapons, c.CFG.player.health) : null),
     hud: {
       waveNum: { textContent: '' },
       scoreVal: { textContent: '' },
@@ -2167,6 +2279,23 @@ function createFullMatchContext(overrides = {}) {
   vm.runInContext(source('57_stations.js'), c);
   vm.runInContext(source('35_modes.js'), c);
   vm.runInContext(source('40_enemies.js'), c);
+  const streaksSrc = source('58_streaks.js');
+  const streakSlice = streaksSrc.slice(
+    streaksSrc.indexOf('function awardFreeStreak('),
+    streaksSrc.indexOf('// ---- Using')
+  );
+  vm.runInContext(streakSlice, c);
+
+  const wavesSrc = source('60_hud_waves.js');
+  const startIdx = wavesSrc.indexOf('function captureObjectiveState()') !== -1
+    ? wavesSrc.indexOf('function captureObjectiveState()')
+    : wavesSrc.indexOf('function captureRunState()');
+  const objSlice = wavesSrc.slice(
+    startIdx,
+    wavesSrc.indexOf('function updateWaves(')
+  );
+  vm.runInContext('let objective = null; let objectivesCompleted = 0;', c);
+  vm.runInContext(objSlice, c);
   const mainSrc = source('70_main.js');
   const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
   vm.runInContext(mainSlice, c);
@@ -2230,6 +2359,40 @@ function createFullMatchContext(overrides = {}) {
   c.applyMapSkyPreset(c.activeMapId);
   c.buildStations();
   c.buildDistrictBarriers();
+  c.startObjective = vm.runInContext('startObjective', c);
+  c.updateObjective = vm.runInContext('updateObjective', c);
+  c.clearObjective = vm.runInContext('clearObjective', c);
+  c.completeObjective = vm.runInContext('completeObjective', c);
+  c.awardFreeStreak = vm.runInContext('awardFreeStreak', c);
+  c.damageObjectiveTarget = vm.runInContext('damageObjectiveTarget', c);
+  c.findNearestHostileActor = vm.runInContext('findNearestHostileActor', c);
+  c.restoreObjective = vm.runInContext('restoreObjective', c);
+  const _realCapture = vm.runInContext('captureRunState', c);
+  c.captureRunState = function () {
+    const raw = _realCapture();
+    return raw ? JSON.parse(JSON.stringify(raw)) : raw;
+  };
+  c.objMeshes = vm.runInContext('objMeshes', c);
+  Object.defineProperty(c, 'objRing', { get: () => vm.runInContext('objRing', c), configurable: true });
+  Object.defineProperty(c, 'objPillar', { get: () => vm.runInContext('objPillar', c), configurable: true });
+  c.startWave = function (n) {
+    c.waveNum = n;
+    c.waveActive = true;
+    c.startObjective(n);
+  };
+  Object.defineProperty(c, 'objective', {
+    get: () => vm.runInContext('objective', c),
+    set: v => {
+      c._objRef = v;
+      vm.runInContext('objective = _objRef;', c);
+    },
+    configurable: true
+  });
+  Object.defineProperty(c, 'objectivesCompleted', {
+    get: () => vm.runInContext('objectivesCompleted', c),
+    set: v => { vm.runInContext('objectivesCompleted = ' + v + ';', c); },
+    configurable: true
+  });
 
   return c;
 }
@@ -5193,6 +5356,534 @@ test('milestone 3: Snowy atmospheric VFX, viewmodel breath mist, and ice-patch s
   c.setActiveMap('urban');
   assert.strictEqual(CORE.surfaceImpactSound(c.fxSurfaceFor(c.ground)), 'impact_ground',
     'bullet impact on urban ground must select impact_ground');
+});
+
+test('milestone 4: Survival lifecycle and team-hostility interaction with Defend objective generator', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  // Wire required audio/VFX and streak hooks
+  c.streakBank = [];
+  c.credits = 0;
+  c.score = 0;
+  c.lastCenterMsg = null;
+  c.showCenterMsg = function(m) { c.lastCenterMsg = m; };
+
+  // 1. Objective wave 4 initiates Defend objective
+  c.startWave(4);
+  assert.ok(c.objective, 'wave 4 must spawn an objective');
+  assert.strictEqual(c.objective.type, 'defend', 'wave 4 objective must be defend');
+  assert.ok(c.objective.target, 'defend objective must have a target entity');
+  assert.strictEqual(c.objective.target.team, 'friendly', 'defend target must belong to friendly team');
+  assert.strictEqual(c.objective.target.health, 500, 'defend target must have 500 HP');
+  assert.strictEqual(c.objective.target.isObjectiveTarget, true);
+
+  // 2. Team-hostility: hostile enemy targets generator when closer than player
+  const targetPos = c.objective.target.pos;
+  c.player.pos.set(targetPos.x + 40, 0, targetPos.z + 40); // player far away
+  const bot = { kind: 0, team: 'enemy', pos: new c.THREE.Vector3(targetPos.x + 3, 0, targetPos.z + 3), health: 100, maxHealth: 100, dead: false, parts: c.dummyParts() };
+  bot.pos.set(targetPos.x + 3, 0, targetPos.z + 3); // enemy close to generator
+  c.enemies.push(bot);
+
+  const hostileTarget = c.findNearestHostileActor(bot);
+  assert.strictEqual(hostileTarget, c.objective.target, 'enemy must target the generator when closer than player');
+
+  // 3. Enemy attacks generator, generator takes damage
+  const hpBefore = c.objective.target.health;
+  c.damageObjectiveTarget(c.objective.target, 50, bot);
+  assert.strictEqual(c.objective.target.health, hpBefore - 50, 'generator must take damage from enemy attack');
+
+  // 4. If generator health reaches 0: generator destroyed, objective fails, but game does NOT end
+  c.damageObjectiveTarget(c.objective.target, 500, bot);
+  assert.strictEqual(c.objective.target.dead, true, 'generator must be dead at 0 HP');
+  assert.strictEqual(c.objective.failed, true, 'defend objective must be marked failed');
+  assert.strictEqual(c.gameEnded, false, 'destruction of generator must not end the Survival run');
+
+  // 5. Conversely: when generator survives and wave clears, awards credits + free scorestreak
+  const c2 = useProductionWaveLifecycle(createFullMatchContext());
+  c2.streakBank = [];
+  c2.credits = 0;
+  c2.score = 0;
+  c2.startWave(4);
+  assert.strictEqual(c2.objective.type, 'defend');
+  assert.strictEqual(c2.streakBank.length, 0);
+
+  // Clear all living enemies so wave clears
+  c2.waveQueue = 0;
+  c2.enemies.length = 0;
+  c2.updateWaves(0.1);
+
+  assert.strictEqual(c2.objectivesCompleted, 1, 'defend objective must complete upon wave clear');
+  assert.ok(c2.credits >= CORE.OBJECTIVE_CREDITS, 'completion must award bonus credits');
+  assert.strictEqual(c2.streakBank.length, 1, 'completion must award one free scorestreak');
+});
+
+test('milestone 4: Survival lifecycle with Retrieve and Demolition objectives', () => {
+  // 1. Retrieve objective
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.streakBank = [];
+  c.credits = 0;
+  c.startWave(8); // wave 8 rotates to retrieve
+  assert.ok(c.objective && c.objective.type === 'retrieve', 'wave 8 must be retrieve objective');
+  assert.ok(c.objective.intel, 'retrieve objective must have an intel case');
+  assert.ok(c.objective.dropoff, 'retrieve objective must have a dropoff location');
+  assert.strictEqual(c.objective.intel.pickedUp, false);
+
+  // Move player to intel location: picks it up
+  c.player.pos.set(c.objective.intel.x, 0, c.objective.intel.z);
+  c.updateObjective(0.1);
+  assert.strictEqual(c.objective.intel.pickedUp, true, 'player touching intel must pick it up');
+
+  // Move player to dropoff location: delivers it
+  c.player.pos.set(c.objective.dropoff.x, 0, c.objective.dropoff.z);
+  c.updateObjective(0.1);
+  assert.strictEqual(c.objective.done, true, 'player reaching dropoff with intel must complete retrieve objective');
+  assert.strictEqual(c.streakBank.length, 1, 'retrieve completion must award free scorestreak');
+
+  // 2. Demolition objective
+  const c2 = useProductionWaveLifecycle(createFullMatchContext());
+  c2.streakBank = [];
+  c2.credits = 0;
+  c2.startWave(12); // wave 12 rotates to demolition
+  assert.ok(c2.objective && c2.objective.type === 'demolition', 'wave 12 must be demolition objective');
+  assert.strictEqual(c2.objective.sites.length, 2, 'demolition objective must have 2 mortar sites');
+  assert.strictEqual(c2.objective.sites[0].planted, false);
+  assert.strictEqual(c2.objective.sites[1].planted, false);
+
+  // Plant site 0
+  c2.player.pos.set(c2.objective.sites[0].x, 0, c2.objective.sites[0].z);
+  c2.updateObjective(3.5); // plant time is 3.0s
+  assert.strictEqual(c2.objective.sites[0].planted, true, 'site 0 must be planted');
+  assert.strictEqual(c2.objective.done, false, 'demolition requires both sites');
+
+  // Plant site 1
+  c2.player.pos.set(c2.objective.sites[1].x, 0, c2.objective.sites[1].z);
+  c2.updateObjective(3.5);
+  assert.strictEqual(c2.objective.sites[1].planted, true, 'site 1 must be planted');
+  assert.strictEqual(c2.objective.done, true, 'all sites planted must complete demolition');
+  assert.strictEqual(c2.streakBank.length, 1, 'demolition completion must award free scorestreak');
+});
+
+test('ground objectives do not interact through an upper floor', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  const groundY = c.CFG.player.height;
+  c.startObjective(8, 'retrieve');
+  let pos = c.objective.intel;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(c.objective.intel.pickedUp, false, 'upper floor cannot pick up intel');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.equal(c.objective.intel.pickedUp, true, 'same floor can pick up intel');
+  pos = c.objective.dropoff;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(c.objective.done, false, 'upper floor cannot deliver intel');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.equal(c.objective.done, true, 'same floor can deliver intel');
+  c.startObjective(12, 'demolition');
+  pos = c.objective.sites[0];
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(3.1);
+  assert.equal(pos.planted, false, 'upper floor cannot plant');
+  c.player.pos.y = groundY;
+  c.updateObjective(3.1);
+  assert.equal(pos.planted, true, 'same floor can plant');
+  c.startObjective(14, 'hold');
+  pos = c.objective;
+  c.player.pos.set(pos.x, groundY + 4, pos.z);
+  c.updateObjective(1);
+  assert.equal(pos.t, 0, 'upper floor cannot hold ground zone');
+  c.player.pos.y = groundY;
+  c.updateObjective(1);
+  assert.ok(pos.t > 0, 'same floor can hold ground zone');
+});
+
+test('fresh reset clears the previous run objective count', () => {
+  const c = createFullMatchContext();
+  c.objectivesCompleted = 2;
+  c.resetGame();
+  assert.strictEqual(c.objectivesCompleted, 0);
+});
+
+function useProductionWaveLifecycle(c) {
+  const src = source('60_hud_waves.js');
+  vm.runInContext(src.slice(src.indexOf('function updateWaves(dt)'), src.indexOf('// Zero ammo means zero kills')), c);
+  vm.runInContext(src.slice(src.indexOf('function startWave(n)'), src.indexOf('// Blackout drops')), c);
+  const settings = source('02_settings.js');
+  const storage = new Map();
+  c.STORE_KEY_SAVE = 'checkpoint';
+  c.storageSet = (key, value) => { storage.set(key, JSON.stringify(value)); return true; };
+  c.storageGet = key => storage.has(key) ? JSON.parse(storage.get(key)) : null;
+  vm.runInContext(settings.slice(settings.indexOf('function saveCheckpoint(state)'), settings.indexOf('function statsSummaryHtml()')), c);
+  c.aliveEnemies = () => c.enemies.filter(e => !e.dead).length;
+  c.reviveFromDown = () => {};
+  c.unlockSecondary = () => {};
+  c.resupply = () => {};
+  c.updateWaveCountdown = () => {};
+  c.CFG.wave.victoryWave = 15;
+  c.CFG.wave.baseCount = 3;
+  c.CFG.wave.growth = 1;
+  c.CFG.score.waveClear = 100;
+  c.hud.enemiesLeft = { textContent: '' };
+  c.diff = () => ({ count: 1 });
+  return c;
+}
+
+test('production wave clear does not revive unfinished objectives on resume', () => {
+  for (const map of ['urban', 'snowy']) {
+    for (const type of ['retrieve', 'demolition', 'hold']) {
+      const c = useProductionWaveLifecycle(createFullMatchContext());
+      c.setActiveMap(map, true);
+      c.startWave(4);
+      c.startObjective(4, type);
+      c.waveQueue = 0;
+      c.updateWaves(0);
+      assert.ok(c.loadCheckpoint(), `${map}/${type} must persist a checkpoint`);
+      c.resumeRun();
+      assert.ok(!c.objective || c.objective.done || c.objective.failed, `${map}/${type} must not resume active`);
+      const completed = c.objectivesCompleted;
+      c.updateWaves(4);
+      assert.equal(c.waveNum, 5, `${map}/${type} advances through production startWave`);
+      assert.equal(c.objectivesCompleted, completed, `${map}/${type} must not earn a late completion`);
+    }
+  }
+});
+
+test('legacy between-wave checkpoint cannot reactivate an unfinished objective', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.startWave(8);
+  c.saveCheckpoint(c.captureRunState());
+  c.resumeRun();
+  assert.ok(!c.objective || c.objective.done || c.objective.failed);
+});
+
+test('wave 14 starts Hold in a finite run on both maps', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.setActiveMap(map, true);
+    c.startWave(14);
+    assert.equal(c.objective.type, 'hold');
+  }
+});
+
+test('destroyed generator stays failed across real wave clear and resume on both maps', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.setActiveMap(map, true);
+    c.startWave(4);
+    c.damageObjectiveTarget(c.objective.target, 1000, { team: 'enemy' });
+    assert.equal(c.objective.failed, true);
+    c.waveQueue = 0;
+    c.updateWaves(0);
+    assert.equal(c.loadCheckpoint().objectiveState.failed, true);
+    c.resumeRun();
+    assert.equal(c.objective.failed, true);
+    c.updateWaves(4);
+    assert.equal(c.waveNum, 5);
+    assert.equal(c.objectivesCompleted, 0);
+    assert.equal(c.streakBank.length, 0);
+  }
+});
+
+test('milestone 4: Survival checkpoint save and resume preserves objective state and completed stats', () => {
+  const c = createFullMatchContext();
+  c.waveNum = 4;
+  c.objectivesCompleted = 1;
+  c.objective = { type: 'defend', done: true, failed: false };
+
+  const state = c.captureRunState();
+  assert.strictEqual(state.objectivesCompleted, 1);
+  assert.deepStrictEqual(state.objectiveState, { type: 'defend', done: true, failed: false });
+
+  const saved = c.saveCheckpoint(state);
+  assert.strictEqual(saved, true);
+  const loaded = c.loadCheckpoint();
+  assert.strictEqual(loaded.objectivesCompleted, 1);
+  assert.deepStrictEqual(loaded.objectiveState, { type: 'defend', done: true, failed: false });
+
+  // 1. Resume completed objective checkpoint via resumeRun
+  c.objectivesCompleted = 0;
+  c.objective = null;
+  c.resumeRun();
+  assert.strictEqual(c.objectivesCompleted, 1, 'resumeRun must restore objectivesCompleted');
+  assert.ok(c.objective, 'resumeRun must restore objective into live run');
+  assert.strictEqual(c.objective.type, 'defend');
+  assert.strictEqual(c.objective.done, true);
+  assert.strictEqual(c.objective.failed, false);
+
+  // 2. Legacy unfinished wave-boundary data is historical, not active on resume.
+  const activeState = Object.assign({}, state, {
+    objectiveState: { type: 'defend', done: false, failed: false, hp: 350 }
+  });
+  c.saveCheckpoint(activeState);
+  c.objective = null;
+  c.resumeRun();
+  assert.ok(c.objective, 'resumeRun must retain historical objective data');
+  assert.strictEqual(c.objective.type, 'defend');
+  assert.strictEqual(c.objective.done, true);
+  assert.strictEqual(c.objective.failed, true);
+
+  // 3. Real gameplay wave-clear checkpoint save captures objectiveState before clearing
+  const cLive = useProductionWaveLifecycle(createFullMatchContext());
+  cLive.streakBank = [];
+  cLive.credits = 0;
+  cLive.score = 0;
+  cLive.startWave(4);
+  assert.strictEqual(cLive.objective.type, 'defend');
+  cLive.waveQueue = 0;
+  cLive.enemies.length = 0;
+  cLive.updateWaves(0.1);
+
+  const liveCp = cLive.loadCheckpoint();
+  assert.ok(liveCp, 'gameplay wave clear must save a checkpoint');
+  assert.strictEqual(liveCp.objectivesCompleted, 1, 'gameplay checkpoint must record objectivesCompleted');
+  assert.ok(liveCp.objectiveState, 'gameplay checkpoint must capture objectiveState before clearing');
+  assert.strictEqual(liveCp.objectiveState.type, 'defend');
+  assert.strictEqual(liveCp.objectiveState.done, true);
+});
+
+test('milestone 4 PR12: integration regressions for objective checkpoint round-trip, position fidelity, planted/pickedUp state, and wave-clear order across urban and snowy maps', () => {
+  // 1. Defend objective: round-trip must preserve target position, HP, and visual mesh on Urban map
+  const cDef = useProductionWaveLifecycle(createFullMatchContext());
+  cDef.startWave(4);
+  assert.strictEqual(cDef.objective.type, 'defend');
+  const defendOrigX = cDef.objective.x;
+  const defendOrigZ = cDef.objective.z;
+  const defendOrigHp = cDef.objective.target.health;
+  assert.strictEqual(defendOrigHp, 500);
+
+  // Damage generator
+  cDef.damageObjectiveTarget(cDef.objective.target, 120, { pos: new Vector3(0, 0, 0) });
+  assert.strictEqual(cDef.objective.target.health, 380);
+
+  // Capture production state & round-trip via makeCheckpoint / validateCheckpoint
+  const defState = cDef.captureRunState();
+  assert.strictEqual(defState.objectiveState.type, 'defend');
+  assert.strictEqual(defState.objectiveState.x, defendOrigX, 'defState must record defend target x');
+  assert.strictEqual(defState.objectiveState.z, defendOrigZ, 'defState must record defend target z');
+  assert.strictEqual(defState.objectiveState.hp, 380, 'defState must record defend target hp');
+
+  const defSaved = cDef.saveCheckpoint(defState);
+  assert.strictEqual(defSaved, true);
+  const defLoaded = cDef.loadCheckpoint();
+  assert.strictEqual(defLoaded.objectiveState.x, defendOrigX, 'loaded defend checkpoint must retain x');
+  assert.strictEqual(defLoaded.objectiveState.z, defendOrigZ, 'loaded defend checkpoint must retain z');
+  assert.strictEqual(defLoaded.objectiveState.hp, 380, 'loaded defend checkpoint must retain hp');
+
+  // Exercise rehydration directly: checkpoints are otherwise resumed between waves only.
+  cDef.player.pos.set(90, 0, -80);
+  cDef.objective = null;
+  cDef.resumeRun();
+  cDef.restoreObjective(defLoaded.objectiveState);
+  assert.ok(cDef.objective, 'resumed run must have objective');
+  assert.strictEqual(cDef.objective.type, 'defend');
+  assert.strictEqual(cDef.objective.x, defendOrigX, 'resumed defend objective must match original x');
+  assert.strictEqual(cDef.objective.z, defendOrigZ, 'resumed defend objective must match original z');
+  assert.strictEqual(cDef.objective.target.pos.x, defendOrigX, 'resumed defend target pos.x must match');
+  assert.strictEqual(cDef.objective.target.pos.z, defendOrigZ, 'resumed defend target pos.z must match');
+  assert.strictEqual(cDef.objective.target.health, 380, 'resumed defend target health must match');
+  assert.strictEqual(cDef.objMeshes.length, 1, 'resumed defend must have exactly 1 visual mesh');
+  assert.strictEqual(cDef.objMeshes[0].position.x, defendOrigX, 'defend mesh must match original x');
+
+  // 2. Retrieve objective: round-trip must preserve intel position, dropoff position, and pickedUp flag on Snowy map
+  const cRet = useProductionWaveLifecycle(createFullMatchContext());
+  cRet.setActiveMap('snowy', true);
+  cRet.startWave(8);
+  assert.strictEqual(cRet.objective.type, 'retrieve');
+  const retIntelX = cRet.objective.intel.x;
+  const retIntelZ = cRet.objective.intel.z;
+  const retDropX = cRet.objective.dropoff.x;
+  const retDropZ = cRet.objective.dropoff.z;
+  assert.strictEqual(cRet.objective.intel.pickedUp, false);
+  assert.strictEqual(cRet.objMeshes.length, 1, 'intel mesh must be spawned in scene initially');
+
+  // Player secures intel
+  cRet.player.pos.set(retIntelX, 0, retIntelZ);
+  cRet.updateObjective(0.1);
+  assert.strictEqual(cRet.objective.intel.pickedUp, true, 'intel must be picked up');
+  assert.strictEqual(cRet.objMeshes.length, 0, 'intel mesh must be removed from scene on pickup');
+
+  // Capture & validate checkpoint with pickedUp = true
+  const retState = cRet.captureRunState();
+  assert.strictEqual(retState.objectiveState.type, 'retrieve');
+  assert.strictEqual(retState.objectiveState.intel.pickedUp, true, 'retState must record pickedUp=true');
+  assert.strictEqual(retState.objectiveState.intel.x, retIntelX, 'retState must record intel x');
+  assert.strictEqual(retState.objectiveState.dropoff.x, retDropX, 'retState must record dropoff x');
+
+  cRet.saveCheckpoint(retState);
+  const retLoaded = cRet.loadCheckpoint();
+  assert.strictEqual(retLoaded.objectiveState.intel.pickedUp, true, 'loaded checkpoint must preserve pickedUp=true');
+  assert.strictEqual(retLoaded.objectiveState.intel.x, retIntelX);
+  assert.strictEqual(retLoaded.objectiveState.dropoff.x, retDropX);
+
+  // Direct rehydration: pickedUp remains true without regenerating a ground mesh.
+  cRet.player.pos.set(50, 0, 50);
+  cRet.objective = null;
+  cRet.resumeRun();
+  cRet.restoreObjective(retLoaded.objectiveState);
+  assert.strictEqual(cRet.objective.type, 'retrieve');
+  assert.strictEqual(cRet.objective.intel.pickedUp, true, 'resumed retrieve must have pickedUp=true');
+  assert.strictEqual(cRet.objective.intel.x, retIntelX, 'resumed intel x matches');
+  assert.strictEqual(cRet.objective.dropoff.x, retDropX, 'resumed dropoff x matches');
+  assert.strictEqual(cRet.objMeshes.length, 0, 'resumed retrieve with pickedUp=true must not spawn ground mesh');
+
+  // Deliver intel to dropoff: exactly-once reward
+  const retCreditsBefore = cRet.credits;
+  cRet.player.pos.set(retDropX, 0, retDropZ);
+  cRet.updateObjective(0.1);
+  assert.strictEqual(cRet.objective.done, true, 'reaching dropoff must complete retrieve objective');
+  assert.strictEqual(cRet.credits, retCreditsBefore + 900, 'must award 900 credits');
+  assert.strictEqual(cRet.objectivesCompleted, 1, 'must increment objectivesCompleted');
+  assert.strictEqual(cRet.streakBank.length, 1, 'must award free streak');
+
+  // Subsequent update must not award reward again
+  cRet.updateObjective(0.1);
+  assert.strictEqual(cRet.credits, retCreditsBefore + 900, 'credits must not increase again');
+  assert.strictEqual(cRet.objectivesCompleted, 1, 'objectivesCompleted must not increase again');
+
+  // 3. Demolition objective: round-trip must preserve both site positions, planted flags, and progress
+  const cDemo = useProductionWaveLifecycle(createFullMatchContext());
+  cDemo.startWave(12);
+  assert.strictEqual(cDemo.objective.type, 'demolition');
+  assert.strictEqual(cDemo.objective.sites.length, 2);
+  const site0x = cDemo.objective.sites[0].x;
+  const site0z = cDemo.objective.sites[0].z;
+  const site1x = cDemo.objective.sites[1].x;
+  const site1z = cDemo.objective.sites[1].z;
+  assert.strictEqual(cDemo.objMeshes.length, 2, 'both mortar sites must have meshes initially');
+
+  // Plant site 0
+  cDemo.player.pos.set(site0x, 0, site0z);
+  cDemo.updateObjective(3.1);
+  assert.strictEqual(cDemo.objective.sites[0].planted, true, 'site 0 must be planted');
+  assert.strictEqual(cDemo.objective.sites[1].planted, false, 'site 1 must not be planted');
+
+  // Partial plant progress on site 1
+  cDemo.player.pos.set(site1x, 0, site1z);
+  cDemo.updateObjective(1.5);
+  assert.ok(cDemo.objective.sites[1].t >= 1.4 && cDemo.objective.sites[1].t <= 1.6, 'site 1 timer ~1.5s');
+
+  // Checkpoint round-trip
+  const demoState = cDemo.captureRunState();
+  assert.strictEqual(demoState.objectiveState.type, 'demolition');
+  assert.strictEqual(demoState.objectiveState.sites[0].planted, true, 'demoState preserves site 0 planted');
+  assert.strictEqual(demoState.objectiveState.sites[0].x, site0x);
+  assert.strictEqual(demoState.objectiveState.sites[1].planted, false);
+  assert.strictEqual(demoState.objectiveState.sites[1].x, site1x);
+  assert.ok(demoState.objectiveState.sites[1].t >= 1.4, 'demoState preserves site 1 timer');
+
+  cDemo.saveCheckpoint(demoState);
+  const demoLoaded = cDemo.loadCheckpoint();
+  assert.strictEqual(demoLoaded.objectiveState.sites[0].planted, true);
+  assert.strictEqual(demoLoaded.objectiveState.sites[0].x, site0x);
+  assert.strictEqual(demoLoaded.objectiveState.sites[1].planted, false);
+  assert.strictEqual(demoLoaded.objectiveState.sites[1].x, site1x);
+  assert.ok(demoLoaded.objectiveState.sites[1].t >= 1.4);
+
+  // Direct rehydration: site 0 remains planted and site 1 timer is preserved.
+  cDemo.player.pos.set(0, 0, 0);
+  cDemo.objective = null;
+  cDemo.resumeRun();
+  cDemo.restoreObjective(demoLoaded.objectiveState);
+  assert.strictEqual(cDemo.objective.type, 'demolition');
+  assert.strictEqual(cDemo.objective.sites[0].planted, true, 'resumed site 0 must be planted');
+  assert.strictEqual(cDemo.objective.sites[0].x, site0x);
+  assert.strictEqual(cDemo.objective.sites[1].planted, false, 'resumed site 1 must be unplanted');
+  assert.strictEqual(cDemo.objective.sites[1].x, site1x);
+  assert.ok(cDemo.objective.sites[1].t >= 1.4, 'resumed site 1 timer preserved');
+  const activeMortars = cDemo.objMeshes.filter(m => m !== null);
+  assert.strictEqual(activeMortars.length, 1, 'only unplanted site must have a visual mesh');
+  assert.strictEqual(activeMortars[0].position.x, site1x, 'visual mesh must be at site 1 position');
+
+  // Finish planting site 1
+  cDemo.player.pos.set(site1x, 0, site1z);
+  cDemo.updateObjective(1.6);
+  assert.strictEqual(cDemo.objective.sites[1].planted, true, 'site 1 must now be planted');
+  assert.strictEqual(cDemo.objective.done, true, 'both sites planted completes demolition');
+
+  // 4. Hold objective: round-trip must preserve zone position and progress timer t
+  const cHold = useProductionWaveLifecycle(createFullMatchContext());
+  cHold.startWave(16);
+  assert.strictEqual(cHold.objective.type, 'hold');
+  const holdX = cHold.objective.x;
+  const holdZ = cHold.objective.z;
+
+  cHold.player.pos.set(holdX, 0, holdZ);
+  cHold.updateObjective(25.0);
+  assert.strictEqual(cHold.objective.t, 25.0, 'hold progress must reach 25s');
+
+  const holdState = cHold.captureRunState();
+  assert.strictEqual(holdState.objectiveState.type, 'hold');
+  assert.strictEqual(holdState.objectiveState.x, holdX);
+  assert.strictEqual(holdState.objectiveState.z, holdZ);
+  assert.strictEqual(holdState.objectiveState.t, 25.0);
+
+  cHold.saveCheckpoint(holdState);
+  const holdLoaded = cHold.loadCheckpoint();
+  assert.strictEqual(holdLoaded.objectiveState.x, holdX);
+  assert.strictEqual(holdLoaded.objectiveState.z, holdZ);
+  assert.strictEqual(holdLoaded.objectiveState.t, 25.0);
+
+  cHold.player.pos.set(80, 0, 80);
+  cHold.objective = null;
+  cHold.resumeRun();
+  cHold.restoreObjective(holdLoaded.objectiveState);
+  assert.strictEqual(cHold.objective.type, 'hold');
+  assert.strictEqual(cHold.objective.x, holdX, 'resumed hold x matches');
+  assert.strictEqual(cHold.objective.z, holdZ, 'resumed hold z matches');
+  assert.strictEqual(cHold.objective.t, 25.0, 'resumed hold timer matches');
+  assert.ok(cHold.objRing, 'resumed hold must have objRing');
+  assert.strictEqual(cHold.objRing.position.x, holdX);
+
+  // Finish holding remaining 35s
+  cHold.player.pos.set(holdX, 0, holdZ);
+  cHold.updateObjective(35.0);
+  assert.strictEqual(cHold.objective.done, true, 'hold completes at 60s');
+
+  // 5. Wave clear checkpoint ordering, next-wave resume, and no double reward
+  const cWave = useProductionWaveLifecycle(createFullMatchContext());
+  cWave.startWave(4);
+  cWave.waveQueue = 0;
+  cWave.enemies.length = 0;
+  cWave.updateWaves(0.1); // clears wave 4!
+
+  assert.strictEqual(cWave.waveActive, false, 'wave must clear');
+  assert.strictEqual(cWave.objectivesCompleted, 1, 'defend completed on wave clear');
+  assert.strictEqual(cWave.objective, null, 'objective cleared from live run');
+
+  const waveCp = cWave.loadCheckpoint();
+  assert.strictEqual(waveCp.wave, 4, 'checkpoint recorded wave 4');
+  assert.strictEqual(waveCp.objectivesCompleted, 1);
+  assert.strictEqual(waveCp.objectiveState.done, true);
+  const savedCredits = waveCp.credits;
+
+  // Resuming wave 4 clear checkpoint: must not replay or double reward
+  cWave.resumeRun();
+  assert.strictEqual(cWave.waveNum, 4, 'resumed waveNum is 4');
+  assert.strictEqual(cWave.waveActive, false, 'waiting for wave 5');
+  assert.strictEqual(cWave.objectivesCompleted, 1, 'objectivesCompleted must remain 1');
+  assert.strictEqual(cWave.credits, savedCredits, 'credits must not change');
+  assert.strictEqual(cWave.objMeshes.length, 0, 'no meshes for completed objective');
+
+  // Countdown elapses -> wave 5 starts cleanly without objective
+  cWave.updateWaves(cWave.betweenWaveT + 0.5);
+  assert.strictEqual(cWave.waveActive, true, 'wave 5 must be active');
+  assert.strictEqual(cWave.waveNum, 5, 'waveNum must be 5');
+  assert.strictEqual(cWave.objectivesCompleted, 1, 'objectivesCompleted remains 1');
+  assert.strictEqual(cWave.objective, null, 'wave 5 has no objective');
+
+  // 6. Match checkpoint rejection & legacy/invalid state sanitization
+  const cTdm = createFullMatchContext();
+  cTdm.setActiveMode('tdm');
+  assert.strictEqual(cTdm.saveCheckpoint({ wave: 1 }), false, 'TDM mode must reject saving checkpoint');
+
+  const corruptCp = {
+    v: 3, wave: 4, weapons: [{ gi: 0, ammo: 30, reserve: 90 }],
+    objectiveState: { type: 'corrupted_unknown', x: 'bad', hp: -99 }
+  };
+  const validatedCorrupt = CORE.validateCheckpoint(corruptCp, 4, 100);
+  assert.ok(validatedCorrupt);
+  assert.strictEqual(validatedCorrupt.objectiveState, null, 'unknown objective type must be rejected to null');
 });
 
 

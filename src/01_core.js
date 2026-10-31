@@ -1281,6 +1281,109 @@ const CORE = (function () {
   // closed tab was the single worst quality-of-life problem left. Saved between
   // waves only, so it can never capture a half-resolved combat state.
   const SAVE_VERSION = 3;
+
+  function _serializeObjectiveState(obj) {
+    if (!_isObj(obj) || typeof obj.type !== 'string') return null;
+    const type = obj.type;
+    const done = !!obj.done;
+    const failed = !!obj.failed;
+    const out = { type, done, failed };
+    if (typeof obj.rewarded === 'boolean') out.rewarded = obj.rewarded;
+    if (_isNum(obj.x)) out.x = obj.x;
+    if (_isNum(obj.z)) out.z = obj.z;
+
+    if (type === 'defend') {
+      let hp = null;
+      let maxHp = null;
+      if (_isNum(obj.hp)) hp = obj.hp;
+      else if (obj.target && _isNum(obj.target.health)) hp = obj.target.health;
+      if (_isNum(obj.maxHealth)) maxHp = obj.maxHealth;
+      else if (obj.target && _isNum(obj.target.maxHealth)) maxHp = obj.target.maxHealth;
+      if (_isNum(hp)) out.hp = hp;
+      if (_isNum(maxHp)) out.maxHealth = maxHp;
+    } else if (type === 'retrieve') {
+      const intel = _isObj(obj.intel) ? obj.intel : {};
+      const pickedUp = !!(intel.pickedUp || obj.pickedUp);
+      out.intel = {
+        x: _isNum(intel.x) ? intel.x : (_isNum(obj.x) ? obj.x : 0),
+        z: _isNum(intel.z) ? intel.z : (_isNum(obj.z) ? obj.z : 0),
+        pickedUp
+      };
+      if (_isObj(obj.dropoff)) {
+        out.dropoff = {
+          x: _isNum(obj.dropoff.x) ? obj.dropoff.x : 0,
+          z: _isNum(obj.dropoff.z) ? obj.dropoff.z : 0
+        };
+      }
+    } else if (type === 'demolition') {
+      if (Array.isArray(obj.sites)) {
+        out.sites = obj.sites.map(s => ({
+          x: _isObj(s) && _isNum(s.x) ? s.x : 0,
+          z: _isObj(s) && _isNum(s.z) ? s.z : 0,
+          planted: !!(s && s.planted),
+          t: _isObj(s) && _isNum(s.t) ? s.t : 0
+        }));
+      }
+    } else if (type === 'hold') {
+      if (_isNum(obj.t)) out.t = obj.t;
+    }
+    return out;
+  }
+
+  function _validateObjectiveState(raw, num) {
+    if (!_isObj(raw) || typeof raw.type !== 'string') return null;
+    const type = raw.type.slice(0, 32);
+    const validTypes = ['hold', 'defend', 'retrieve', 'demolition'];
+    if (!validTypes.includes(type)) return null;
+
+    const done = !!raw.done;
+    const failed = !!raw.failed;
+    const out = { type, done, failed };
+    if (typeof raw.rewarded === 'boolean') out.rewarded = raw.rewarded;
+
+    if (_isNum(raw.x)) out.x = num(raw.x, -500, 500, 0);
+    if (_isNum(raw.z)) out.z = num(raw.z, -500, 500, 0);
+
+    if (type === 'defend') {
+      const maxHp = _isNum(raw.maxHealth) ? num(raw.maxHealth, 1, 5000, 500) : (_isObj(raw.target) && _isNum(raw.target.maxHealth) ? num(raw.target.maxHealth, 1, 5000, 500) : null);
+      const rawHp = _isNum(raw.hp) ? raw.hp : (_isObj(raw.target) && _isNum(raw.target.health) ? raw.target.health : null);
+      if (_isNum(rawHp)) {
+        const ceiling = _isNum(maxHp) ? maxHp : 500;
+        out.hp = num(rawHp, 0, ceiling, ceiling);
+      }
+      if (_isNum(maxHp)) {
+        out.maxHealth = maxHp;
+      }
+    } else if (type === 'retrieve') {
+      const intel = _isObj(raw.intel) ? raw.intel : {};
+      const pickedUp = !!(intel.pickedUp || raw.pickedUp);
+      const ix = _isNum(intel.x) ? num(intel.x, -500, 500, 0) : (_isNum(out.x) ? out.x : 0);
+      const iz = _isNum(intel.z) ? num(intel.z, -500, 500, 0) : (_isNum(out.z) ? out.z : 0);
+      out.intel = { x: ix, z: iz, pickedUp };
+      if (_isObj(raw.dropoff)) {
+        out.dropoff = {
+          x: num(raw.dropoff.x, -500, 500, 0),
+          z: num(raw.dropoff.z, -500, 500, 0)
+        };
+      }
+    } else if (type === 'demolition') {
+      if (Array.isArray(raw.sites)) {
+        out.sites = raw.sites.slice(0, 4).map(s => {
+          if (!_isObj(s)) return { x: 0, z: 0, planted: false, t: 0 };
+          return {
+            x: num(s.x, -500, 500, 0),
+            z: num(s.z, -500, 500, 0),
+            planted: !!s.planted,
+            t: num(s.t, 0, 3.0, 0)
+          };
+        });
+      }
+    } else if (type === 'hold') {
+      if (_isNum(raw.t)) out.t = num(raw.t, 0, 60, 0);
+    }
+    return out;
+  }
+
   function makeCheckpoint(state) {
     return {
       v: SAVE_VERSION,
@@ -1311,6 +1414,8 @@ const CORE = (function () {
         fieldCharge: state.equipment && state.equipment.fieldCharge || 0,
         streakBank: (state.equipment && state.equipment.streakBank || []).slice()
       },
+      objectivesCompleted: _isNum(state.objectivesCompleted) ? state.objectivesCompleted : 0,
+      objectiveState: _serializeObjectiveState(state.objectiveState),
       savedAt: state.savedAt || 0
     };
   }
@@ -1403,6 +1508,8 @@ const CORE = (function () {
         streakBank: (Array.isArray(raw.equipment?.streakBank) ? raw.equipment.streakBank : [])
           .filter(function (k) { return !!streakByKey(k); }).slice(0, 20)
       },
+      objectivesCompleted: Math.round(num(raw.objectivesCompleted, 0, 999, 0)),
+      objectiveState: _validateObjectiveState(raw.objectiveState, num),
       savedAt: num(raw.savedAt, 0, 8.64e15, 0)
     };
   }
@@ -4144,15 +4251,56 @@ const CORE = (function () {
   //
   // Never on a special wave: two announced modifiers at once reads as noise, and the
   // player would not know which one killed them.
+  const OBJECTIVE_TYPES = ['hold', 'defend', 'retrieve', 'demolition'];
   const OBJECTIVE_EVERY = 4;
-  // seconds of occupancy to complete
-  const OBJECTIVE_HOLD = 25;
+  // seconds of occupancy to complete (60 s per roadmap)
+  const OBJECTIVE_HOLD = 60;
   const OBJECTIVE_RADIUS = 5.5;
   const OBJECTIVE_CREDITS = 900;
+  const DEFEND_MAX_HP = 500;
+  const DEMOLITION_PLANT_TIME = 3.0;
+  const DEMOLITION_RADIUS = 3.5;
+  const RETRIEVE_PICKUP_RADIUS = 2.5;
+  const RETRIEVE_DROPOFF_RADIUS = 3.5;
+
   function objectiveWaveAt(n) {
-    if (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0) return false;
+    if (n !== 14 && (n < OBJECTIVE_EVERY || n % OBJECTIVE_EVERY !== 0)) return false;
     if (specialWaveAt(n)) return false;
     return true;
+  }
+  function objectiveTypeAtWave(n) {
+    if (!objectiveWaveAt(n)) return null;
+    // Include Hold in the finite 15-wave run without sharing a special wave.
+    if (n === 14) return 'hold';
+    const order = ['defend', 'retrieve', 'demolition', 'hold'];
+    const idx = Math.floor(n / OBJECTIVE_EVERY - 1);
+    return order[((idx % order.length) + order.length) % order.length];
+  }
+  function pickObjectiveRewardStreak(wave, roll) {
+    const list = ['uav', 'airstrike', 'sentry'];
+    if (_isNum(roll)) {
+      const idx = Math.floor(roll * list.length);
+      return list[Math.min(list.length - 1, Math.max(0, idx))];
+    }
+    const w = _isNum(wave) ? Math.floor(wave) : 4;
+    return list[Math.abs(w) % list.length];
+  }
+  function demolitionProgress(current, dt, inside, plantTime) {
+    const need = plantTime === undefined ? DEMOLITION_PLANT_TIME : plantTime;
+    const next = inside ? current + dt : current - dt * 0.5;
+    if (next < 0) return 0;
+    return next > need ? need : next;
+  }
+  function demolitionComplete(current, plantTime) {
+    return current >= (plantTime === undefined ? DEMOLITION_PLANT_TIME : plantTime);
+  }
+  function defendHpPct(hp, maxHp) {
+    const max = (maxHp === undefined || maxHp <= 0) ? DEFEND_MAX_HP : maxHp;
+    const cur = _isNum(hp) ? hp : 0;
+    return Math.max(0, Math.min(100, Math.round((cur / max) * 100)));
+  }
+  function isDefendTargetDestroyed(hp) {
+    return !(_isNum(hp) && hp > 0);
   }
   // Progress only moves while the player is inside, and it DRAINS when they leave —
   // otherwise the objective is "stand here once", which is not a hold.
@@ -5109,7 +5257,18 @@ const CORE = (function () {
     return 'inset 0 0 90px 30px rgba(0,0,0,' + a + ')';
   }
 
-  function objectiveLabel(inside, pct) {
+  function objectiveLabel(inside, pct, type) {
+    if (type === 'defend') {
+      const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+      return 'DEFEND GENERATOR — ' + p + '%';
+    }
+    if (type === 'retrieve') {
+      return inside ? 'DELIVER INTEL TO BASE' : 'RECOVER INTEL';
+    }
+    if (type === 'demolition') {
+      if (typeof pct === 'string' && pct.includes('/')) return 'DEMOLITION: ' + pct;
+      return 'DEMOLITION: ' + (pct || 0) + '/2 SITES';
+    }
     const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
     return inside ? 'HOLDING — ' + p + '%' : 'RETURN TO THE ZONE — ' + p + '%';
   }
@@ -7844,8 +8003,10 @@ const CORE = (function () {
     WEAPON_UNLOCK_RANK, weaponUnlockRank, weaponUnlocked, CHALLENGES, challengeProgress,
     challengesDone, ATTACH_SLOTS, ATTACH_SLOT_NAME, ATTACHMENTS, attachmentByKey,
     attachmentsForSlot, attachmentUnlocked, sanitizeLoadout, applyAttachments,
-    attachmentDelta, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RADIUS, OBJECTIVE_CREDITS,
-    objectiveWaveAt, objectiveProgress, objectiveComplete, pickObjectiveSpot,
+    attachmentDelta, OBJECTIVE_TYPES, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RADIUS, OBJECTIVE_CREDITS,
+    DEFEND_MAX_HP, DEMOLITION_PLANT_TIME, DEMOLITION_RADIUS, RETRIEVE_PICKUP_RADIUS, RETRIEVE_DROPOFF_RADIUS,
+    objectiveWaveAt, objectiveTypeAtWave, pickObjectiveRewardStreak, demolitionProgress, demolitionComplete,
+    defendHpPct, isDefendTargetDestroyed, objectiveProgress, objectiveComplete, pickObjectiveSpot,
     REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
     SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
     spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,

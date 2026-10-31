@@ -778,6 +778,19 @@ function explodeGrenade(pos, scale, owner) {
       damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
     }
   }
+  // The generator is not part of the actor roster, but is a valid hostile target.
+  const objTarget = typeof objective !== 'undefined' && objective && !objective.done && !objective.failed && objective.type === 'defend' ? objective.target : null;
+  const blastOwner = owner || player;
+  if (objTarget && !objTarget.dead && CORE.isHostile(blastOwner, objTarget)) {
+    const dx = objTarget.pos.x - pos.x, dy = objTarget.pos.y - pos.y, dz = objTarget.pos.z - pos.z;
+    if (CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) {
+      _blastTarget.set(objTarget.pos.x, objTarget.pos.y, objTarget.pos.z);
+      if (grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
+        const d = CORE.blastTargetDistance(dx, dy, dz);
+        damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale), blastOwner);
+      }
+    }
+  }
   // player self-damage (half, encourages careful use; solid cover blocks it)
   const pd = playerDistToBlast;
   _blastPlayerTarget.set(player.pos.x, player.pos.y - 0.5, player.pos.z);

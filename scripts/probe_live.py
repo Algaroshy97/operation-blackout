@@ -519,7 +519,9 @@ def main() -> int:
         checks.append(("telemetry-runtime-snapshot", telemetry_snapshot["before"]["enabled"] is False and
                        telemetry_final["enabled"] is True and telemetry_after))
         page.evaluate("() => window.fpsGameTelemetry.disable()")
-        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 60)))
+        # Software rendering can advance the 3.5s in-game countdown much more
+        # slowly than wall time. Still require real spawning, movement and ground.
+        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 120)))
 
         # Observe the real UI deployment before destructive combat probes can
         # end the run. Reviving player flags later does not restart the score.
@@ -693,7 +695,14 @@ def main() -> int:
         page.wait_for_timeout(1000)
         climbed = page.evaluate("() => { const n = window.__hits; window.__hits = 0; return n; }")
         page.evaluate("""() => {
+            for (const e of enemies) e.dead = true;
+            enemies.length = 0;
+            player.pos.set(0, CFG.player.height, 0);
+            player.dead = false; player.downed = false;
+            player.health = 100; player.armor = 0; godMode = false;
+            spawnEnemy(1, 0, 5);
             const g = enemies[0];
+            g.pos.set(0, 0, 5); g.parts.group.position.copy(g.pos); g.dead = false;
             for (let i = 0; i < 60; i++) {
                 player.pos.set(0, CFG.player.height, 0);
                 enemyShoot(g, 5);

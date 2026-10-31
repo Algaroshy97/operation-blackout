@@ -189,6 +189,7 @@ function spawnEnemy(kind, x, z, opts) {
   // Place the mesh immediately; otherwise it renders and raycasts at the world origin for its first frame.
   parts.group.position.set(x, 0, z);
   parts.group.rotation.y = parts.soldier ? initYaw : (initYaw + Math.PI);
+  if (parts.group && typeof parts.group.updateMatrixWorld === 'function') parts.group.updateMatrixWorld(true);
   if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') scene.add(parts.group);
   enemies.push(en);
   return en;
@@ -604,7 +605,26 @@ function findNearestHostileActor(en) {
       if (o && o !== en && !o.dead && CORE.isHostile(en, o)) candidates.push(o);
     }
   }
+  if (typeof objective !== 'undefined' && objective && objective.type === 'defend' && objective.target && !objective.target.dead) {
+    if (CORE.isHostile(en, objective.target)) {
+      candidates.push(objective.target);
+    }
+  }
   return CORE.pickNearestHostile(en, candidates);
+}
+
+function damageObjectiveTarget(target, dmg, attacker) {
+  if (!target || target.dead) return;
+  target.health = Math.max(0, target.health - dmg);
+  if (target.pos && typeof spawnImpact === 'function') {
+    spawnImpact(target.pos, null, null, null, 'MELEE');
+  }
+  if (target.health <= 0) {
+    target.dead = true;
+    if (typeof onObjectiveTargetDestroyed === 'function') {
+      onObjectiveTargetDestroyed(target, attacker);
+    }
+  }
 }
 
 function findHostileTarget(en) {
@@ -790,6 +810,10 @@ function updateEnemies(dt) {
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
+          } else if (target && target.isObjectiveTarget) {
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            damageObjectiveTarget(target, meleeDmg, en);
+            playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           } else if (typeof damageEnemy === 'function') {
             const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
             damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
@@ -1000,12 +1024,15 @@ function enemyShoot(en, dist, target) {
       // that time — enough to climb the stairs and get behind the second-floor
       // slab. Without this, rounds fired a moment ago land through the floor the
       // player has already reached, which reads as being shot through the ceiling.
+      const tgtCheckY = isTargetPlayer ? tgt.pos.y : (tgt.pos.y + ((typeof E_DIM !== 'undefined' && E_DIM && E_DIM.pelvisH) ? E_DIM.pelvisH : 0.95) + 0.55);
       if (CORE.segmentBlocked(ox, oy, oz,
-          tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
+          tgt.pos.x, tgtCheckY, tgt.pos.z, colliders, 0.25)) return;
       if (CORE.smokeBlocks(ox, oy, oz,
           tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
       if (isTargetPlayer) {
         damagePlayer(earnedWeapon ? dmg / actorDamageMul(en) : dmg, hitDeg, earnedWeapon ? shotType : 'bullet', en);
+      } else if (tgt && tgt.isObjectiveTarget) {
+        damageObjectiveTarget(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, en);
       } else if (typeof damageEnemy === 'function') {
         damageEnemy(tgt, earnedWeapon ? dmg / actorDamageMul(en) : dmg, tgt.pos, false, false, shotType, en);
       }
@@ -1056,10 +1083,12 @@ function breacherShoot(en, dist, target) {
   setTimeout(function () {
     if (runId !== firedInRun) return;
     if (tgt.dead || !started || paused) return;
-    if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, colliders, 0.25)) return;
+    const tgtCheckY = isTargetPlayer ? tgt.pos.y : (tgt.pos.y + ((typeof E_DIM !== 'undefined' && E_DIM && E_DIM.pelvisH) ? E_DIM.pelvisH : 0.95) + 0.55);
+    if (CORE.segmentBlocked(ox, oy, oz, tgt.pos.x, tgtCheckY, tgt.pos.z, colliders, 0.25)) return;
     if (CORE.smokeBlocks(ox, oy, oz, tgt.pos.x, tgt.pos.y, tgt.pos.z, smokeVolumes())) return;
     if (hits > 0) {
       if (isTargetPlayer) damagePlayer(perPellet * hits, hitDeg, 'bullet', en);
+      else if (tgt && tgt.isObjectiveTarget) damageObjectiveTarget(tgt, perPellet * hits, en);
       else if (typeof damageEnemy === 'function') damageEnemy(tgt, perPellet * hits, tgt.pos, false, false, 'SG', en);
     } else if (isTargetPlayer) {
       noteNearMiss(hitDeg);
