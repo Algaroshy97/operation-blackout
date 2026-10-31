@@ -1165,6 +1165,23 @@ function updateObjective(dt) {
   }
 }
 
+function settleClearedWave() {
+  waveActive = false;
+  betweenWaveT = 4;
+  addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
+  addCredits(CORE.creditsForWave(waveNum));
+  if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
+    completeObjective('Generator defended');
+  }
+  if (objective && !objective.done) {
+    objective.failed = true;
+    objective.done = true;
+  }
+  reviveFromDown();
+  unlockSecondary();
+  resupply();
+}
+
 function updateWaves(dt) {
   updateObjective(dt);
   if (gameEnded || player.dead) return;
@@ -1196,12 +1213,13 @@ function updateWaves(dt) {
         hud.enemiesLeft.textContent = CORE.extractionHudLabel('lz', 0, dist);
       }
       if (typeof pfxEmit === 'function' && typeof PFX_SMOKE !== 'undefined') {
-        pfxEmit(PFX_SMOKE, extraction.lz.x, 0.3, extraction.lz.z, (Math.random()-0.5)*0.5, 2.0, (Math.random()-0.5)*0.5, 1.8, 0.4, 2.8, [0.25, 0.88, 0.35], [0.1, 0.45, 0.2], 0.7, 0.8, -0.3, PF_RISE);
+        pfxEmit(PFX_SMOKE, extraction.lz.x, 0.3, extraction.lz.z, (Math.random()-0.5)*0.5, 2.0, (Math.random()-0.5)*0.5, 1.8, 0.4, 2.8, 0x40e059, 0x1a7333, 0.7, 0.8, -0.3, PF_RISE);
       }
-      if (CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
+      if (extraction.helicopter && extraction.helicopter.position.y <= 1.0 && CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
         extraction.phase = 'cinematic';
         extraction.cinematicTimer = 0;
         runPhase = 'cinematic';
+        reviveFromDown();
         player.invulnerable = true;
         if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
       }
@@ -1218,7 +1236,15 @@ function updateWaves(dt) {
         hud.enemiesLeft.textContent = CORE.extractionHudLabel('cinematic');
       }
       if (step.complete) {
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          scene.remove(enemies[i].parts.group);
+          disposeEnemyGeometry(enemies[i]);
+        }
+        enemies.length = 0;
+        waveQueue = 0;
+        settleClearedWave();
         clearExtractionVisuals();
+        player.invulnerable = false;
         victory();
         return;
       }
@@ -1246,21 +1272,7 @@ function updateWaves(dt) {
       }
     } else if (living === 0 && !extraction) {
       // wave cleared
-      waveActive = false;
-      betweenWaveT = 4;
-      addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
-      addCredits(CORE.creditsForWave(waveNum));
-      if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
-        completeObjective('Generator defended');
-      }
-      if (objective && !objective.done) {
-        objective.failed = true;
-        objective.done = true;
-      }
-      // holding out to the wave clear is the other way back up
-      reviveFromDown();
-      unlockSecondary();
-      resupply();
+      settleClearedWave();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) {
         saveCheckpoint(captureRunState());
         clearObjective();
@@ -1282,7 +1294,9 @@ function updateWaves(dt) {
   let left = waveQueue + living;
   // Between waves the queue is empty; show what is coming, not "0 HOSTILES".
   if (!waveActive && left === 0) left = CORE.waveEnemyCount(waveNum + 1, CFG.wave.baseCount, CFG.wave.growth);
-  if (CORE.enemiesRemainingChanged(_hudEnemiesLeft, left)) {
+  if (extraction) {
+    _hudEnemiesLeft = -1;
+  } else if (CORE.enemiesRemainingChanged(_hudEnemiesLeft, left)) {
     _hudEnemiesLeft = CORE.syncEnemiesRemaining(left);
     hud.enemiesLeft.textContent = CORE.hostilesRemainingLabel(left);
   }

@@ -5515,7 +5515,7 @@ test('fresh reset clears the previous run objective count', () => {
 
 function useProductionWaveLifecycle(c) {
   const src = source('60_hud_waves.js');
-  vm.runInContext(src.slice(src.indexOf('function updateWaves(dt)'), src.indexOf('// Zero ammo means zero kills')), c);
+  vm.runInContext(src.slice(src.indexOf('function settleClearedWave()'), src.indexOf('// Zero ammo means zero kills')), c);
   vm.runInContext(src.slice(src.indexOf('function startWave(n)'), src.indexOf('// Blackout drops')), c);
   vm.runInContext(src.slice(src.indexOf('function spawnFromQueue()'), src.indexOf('function resupply()')), c);
   const settings = source('02_settings.js');
@@ -5916,7 +5916,8 @@ test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all 
 
   // 2. Surge spawns draw across all 5 archetypes (scout 0, rifleman 1, advancer 2, grenadier 3, breacher 4)
   const kindsSpawned = new Set();
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 5; i++) {
+    c.Math.random = () => (i + 0.5) / 5;
     c.spawnFromQueue();
     const lastSpawned = c.enemies[c.enemies.length - 1];
     if (lastSpawned) kindsSpawned.add(lastSpawned.kind);
@@ -5958,6 +5959,118 @@ test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all 
   // 7. Clicking endless mode transitions into endless wave 16
   c.document.getElementById('btn-endless').click();
   assert.strictEqual(c.endlessMode, true, 'endlessMode must be true after clicking endless button');
+});
+
+function extractionReviewContext() {
+  const c = createFullMatchContext();
+  const revive = c.reviveFromDown;
+  useProductionWaveLifecycle(c);
+  c.reviveFromDown = revive;
+  const waves = source('60_hud_waves.js');
+  vm.runInContext(waves.slice(waves.indexOf('function resupply()'), waves.indexOf('// ---- Secondary weapon unlock')), c);
+  c.CFG.grenade.count = 3;
+  c.CFG.grenade.countPerWaves = 1;
+  c.wState[1] = null;
+  c.Math.random = () => 0.5;
+  c.startWave(15);
+  return c;
+}
+
+test('PR13 extraction waits for landing with player already at LZ', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.updateWaves(0.1);
+  assert.equal(c.extraction.phase, 'lz');
+  c.updateWaves(5);
+  assert.equal(c.extraction.phase, 'cinematic');
+});
+
+test('PR13 extraction HUD keeps precedence when hostile counts change', () => {
+  const c = extractionReviewContext();
+  c.CFG.wave.maxActive = 0;
+  c.updateWaves(1);
+  assert.equal(c.hud.enemiesLeft.textContent, CORE.extractionHudLabel('surge', 89));
+  c.updateWaves(89);
+  c.player.pos.set(c.extraction.lz.x + 20, 1.7, c.extraction.lz.z);
+  c.waveQueue += 1;
+  c.updateWaves(0.1);
+  assert.equal(c.hud.enemiesLeft.textContent, CORE.extractionHudLabel('lz', 0, 20));
+});
+
+test('PR13 extraction signal uses production particle emitter green colors', () => {
+  const c = extractionReviewContext();
+  c.THREE.Color = function () { this.setHex = function (hex) {
+    this.r = ((hex >> 16) & 255) / 255; this.g = ((hex >> 8) & 255) / 255; this.b = (hex & 255) / 255; return this;
+  }; };
+  const pfx = source('48_particles.js');
+  vm.runInContext('const PF_RISE = 4; const PFX_SMOKE = {cap: 1, cursor: 0, additive: false, pos: [], vel: [], c0: [], c1: [], life: [], maxLife: [], s0: [], s1: [], a0: [], drag: [], grav: [], flags: [], rot: [], rotV: [], size: [], alpha: []};' + pfx.slice(pfx.indexOf('const _pc ='), pfx.indexOf('function updatePfxLayer')), c);
+  c.player.pos.set(c.extraction.lz.x + 20, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.updateWaves(0.1);
+  const colors = vm.runInContext('[PFX_SMOKE.c0, PFX_SMOKE.c1]', c);
+  for (const color of colors) assert.ok(color[1] > color[0] && color[1] > color[2], 'signal smoke must be green');
+});
+
+test('PR13 downed extraction survives cinematic frame bleedout', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.extraction.helicopter.position.y = 1;
+  c.damagePlayer(10000, 0, 'bullet');
+  c.updateDowned(CORE.DOWN_TIME - 0.1);
+  c.updateWaves(0.2);
+  c.updateDowned(0.2);
+  assert.equal(c.player.dead, false);
+  assert.equal(c.player.downed, false);
+});
+
+test('PR13 direct endless continuation removes cinematic damage immunity', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.extraction.helicopter.position.y = 1;
+  c.updateWaves(0.1);
+  c.updateWaves(3.1);
+  c.document.getElementById('btn-endless').click();
+  c.player.armor = 0;
+  const health = c.player.health;
+  c.damagePlayer(10, 0, 'bullet');
+  assert.ok(c.player.health < health);
+});
+
+test('PR13 finale settles and both endless continuation paths take damage and start wave 16', () => {
+  for (const resume of [false, true]) {
+    const c = extractionReviewContext();
+    c.score = 0; c.credits = 0;
+    c.wState[0].reserve = 0;
+    c.player.armor = 0;
+    c.spawnFromQueue();
+    assert.ok(c.enemies.length);
+    c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+    c.updateWaves(90);
+    c.extraction.helicopter.position.y = 1;
+    c.updateWaves(0.1);
+    c.updateWaves(3.1);
+    assert.equal(c.score, CORE.waveClearScore(c.CFG.score.waveClear, 15, CORE.WAVE_SCORE_PER_WAVE));
+    assert.equal(c.credits, CORE.creditsForWave(15));
+    assert.equal(c.player.armor, c.CFG.player.armor);
+    assert.ok(c.wState[0].reserve > 0, 'wave clear resupplies ammunition');
+    assert.equal(c.enemies.length, 0);
+    const cp = c.loadCheckpoint();
+    assert.equal(cp.score, c.score);
+    assert.equal(cp.credits, c.credits);
+    assert.equal(cp.weapons[0].reserve, c.wState[0].reserve);
+    if (resume) c.resumeRun();
+    c.document.getElementById('btn-endless').click();
+    c.player.armor = 0;
+    const health = c.player.health;
+    c.damagePlayer(10, 0, 'bullet');
+    assert.ok(c.player.health < health, 'endless player must take damage');
+    c.updateWaves(c.CFG.wave.startDelay + 0.1);
+    assert.equal(c.waveNum, 16);
+    assert.equal(c.waveActive, true);
+  }
 });
 
 

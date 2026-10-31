@@ -4,6 +4,12 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## PR13 extraction review repairs
+
+- Wait for the helicopter to land before boarding, revive a downed player on boarding, and end cinematic invulnerability at victory.
+- Settle the finale with the normal wave-clear rewards and resupply, remove remaining enemies before saving victory, and preserve extraction HUD priority. Use supported hexadecimal particle colors for the green signal.
+- Add deterministic archetype and extraction lifecycle regressions for landing, bleed-out, particle emission, HUD, checkpoint continuation, damage and wave 16.
+
 ## v180 — Milestone 4: Wave 15 Survival Extraction finale, 90s surge with all archetypes, helicopter LZ landing, smoke markers, particle rotor wash, and victory cinematic
 
 - **Wave 15 Extraction finale lifecycle (`src/01_core.js`, `src/60_hud_waves.js`, `src/20_player.js`, `src/70_main.js`, `src/50_vfx_audio.js`, `src/48_particles.js`).**
