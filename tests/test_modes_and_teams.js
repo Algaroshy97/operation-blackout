@@ -5976,6 +5976,62 @@ function extractionReviewContext() {
   return c;
 }
 
+test('PR13 R4 production minimap tracks extraction direction throughout lifecycle and clears it', () => {
+  for (const end of ['restart', 'reset', 'victory']) {
+    const c = extractionReviewContext(), calls = [];
+    const ctx = new Proxy({}, { get(target, key) {
+      return key in target ? target[key] : (...args) => calls.push([key, ...args]);
+    } });
+    c.hud.minimap = { getContext: () => ctx };
+    c.hud.compass = { getContext: () => ctx };
+    c.document.createElement = () => ({ getContext: () => ctx });
+    c.uavActive = () => false;
+    c.getSetting = () => false;
+    c.CFG.world = { size: 90 };
+    c.stations = []; c.enemies = [];
+    c.colliders = [{min: {x: -100, y: 0, z: -10}, max: {x: 0, y: 20, z: 10}}];
+    c.extraction.smokeMarker.visible = false;
+    const waves = source('60_hud_waves.js');
+    vm.runInContext(waves.slice(waves.indexOf('const mmCtx =')), c);
+    const marker = () => {
+      calls.length = 0; c.drawMinimap();
+      return calls.filter(call => call[0] === 'fillText' && call[1] === 'LZ');
+    };
+    c.player.pos.set(c.extraction.lz.x - 200, 1.7, c.extraction.lz.z);
+    c.player.yaw = 0;
+    let m = marker();
+    assert.equal(m.length, 1, 'surge must show a labelled LZ even beyond minimap range');
+    assert.ok(m[0][2] > 75 && Math.hypot(m[0][2] - 75, m[0][3] - 75) < 72, 'distant LZ is clamped inside the map in the correct direction');
+    c.player.yaw = Math.PI / 2;
+    m = marker();
+    assert.ok(m[0][3] > 75 && Math.abs(m[0][2] - 75) < 0.01, 'marker rotates with the map');
+    c.updateWaves(90);
+    assert.equal(c.extraction.phase, 'lz');
+    assert.equal(marker().length, 1, 'LZ remains visible during landing');
+    c.player.pos.set(c.extraction.lz.x + 10, 1.7, c.extraction.lz.z);
+    c.player.yaw = 0;
+    m = marker();
+    assert.ok(Math.abs(m[0][2] - (75 - 10 * CORE.minimapScale(75, 90, 8))) < 0.01 && m[0][3] === 75, 'nearby LZ uses its actual relative position');
+    if (end === 'restart') {
+      c.startExtraction({x: 30, z: 10});
+      m = marker();
+      assert.equal(m.length, 1, 'replacement has one marker');
+      assert.ok(m[0][2] > 75 && m[0][3] > 75, 'replacement follows the new LZ');
+      c.clearExtractionVisuals();
+    } else if (end === 'reset') {
+      c.resetGame();
+    } else {
+      c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+      c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+      assert.equal(c.extraction.phase, 'cinematic');
+      c.updateWaves(3.1);
+    }
+    assert.equal(marker().length, 0, `${end} removes the marker`);
+    c.setActiveMode('tdm');
+    assert.equal(marker().length, 0, 'other modes have no extraction marker');
+  }
+});
+
 test('PR13 extraction waits for landing with player already at LZ', () => {
   const c = extractionReviewContext();
   c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);

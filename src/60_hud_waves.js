@@ -1667,6 +1667,24 @@ function drawMinimap() {
   mmCtx.beginPath();
   mmCtx.moveTo(R, R - 7); mmCtx.lineTo(R - 5, R + 5); mmCtx.lineTo(R + 5, R + 5);
   mmCtx.closePath(); mmCtx.fill();
+  // Extraction is a HUD marker, not a world effect: keep it above all map
+  // layers and clamp distant LZs to the rim so their direction stays visible.
+  if (typeof extraction !== 'undefined' && extraction && extraction.lz) {
+    mmCtx.save();
+    CORE.minimapBlipOffset(extraction.lz.x, extraction.lz.z, px, pz, scale, _mmBlipOut);
+    const distance = Math.hypot(_mmBlipOut.x, _mmBlipOut.z);
+    const clamp = distance > R - 13 ? (R - 13) / distance : 1;
+    const cos = Math.cos(player.yaw), sin = Math.sin(player.yaw);
+    const x = R + (_mmBlipOut.x * cos - _mmBlipOut.z * sin) * clamp;
+    const y = R + (_mmBlipOut.x * sin + _mmBlipOut.z * cos) * clamp;
+    mmCtx.fillStyle = '#102a18';
+    mmCtx.strokeStyle = '#72ff9b'; mmCtx.lineWidth = 2;
+    mmCtx.beginPath(); mmCtx.arc(x, y, 10, 0, Math.PI * 2); mmCtx.fill(); mmCtx.stroke();
+    mmCtx.fillStyle = '#ffffff'; mmCtx.font = 'bold 9px sans-serif';
+    mmCtx.textAlign = 'center'; mmCtx.textBaseline = 'middle';
+    mmCtx.fillText('LZ', x, y);
+    mmCtx.restore();
+  }
 }
 
 // UI-02: the canvas was 560 px wide inside a 280 px overflow:hidden strip with no
