@@ -519,7 +519,9 @@ def main() -> int:
         checks.append(("telemetry-runtime-snapshot", telemetry_snapshot["before"]["enabled"] is False and
                        telemetry_final["enabled"] is True and telemetry_after))
         page.evaluate("() => window.fpsGameTelemetry.disable()")
-        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 60)))
+        # Software rendering can advance the 3.5s in-game countdown much more
+        # slowly than wall time. Still require real spawning, movement and ground.
+        checks.append(("enemies-spawned", wait_until(page, "() => typeof enemies !== 'undefined' && enemies.length > 0", 120)))
 
         # Observe the real UI deployment before destructive combat probes can
         # end the run. Reviving player flags later does not restart the score.

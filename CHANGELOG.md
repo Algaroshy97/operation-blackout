@@ -4,6 +4,12 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Objective wave-clear and grenade recovery
+
+- Mark incomplete wave objectives failed before the between-wave checkpoint, reset the completion counter for a fresh run, and apply hostile grenade blast damage to the Defend generator with radius and cover checks.
+- Add production wave-start, wave-update, checkpoint persistence and resume coverage on both maps. The v179.3 entry below overstated its lifecycle coverage: those tests originally substituted wave functions; the relevant wave-clear cases now execute production functions.
+- Allow more wall time for the same live spawn assertion on slow software rendering; the movement and grounding assertions remain unchanged.
+
 ## v179.3 — Objective checkpoint lifecycle round-trip fidelity, position persistence, and wave-clear ordering recovery
 
 - **Objective state serialization & validation round-trip (`src/01_core.js`, `src/60_hud_waves.js`).**

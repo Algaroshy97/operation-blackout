@@ -456,6 +456,36 @@ function loadGrenadeLifecycle(c) {
   vm.runInContext(range('function explodeGrenade(pos', '// ---- Pickups:'), c);
 }
 
+test('generator blast damage requires hostile owner, range and line of sight', () => {
+  const c = createCombatContext();
+  loadGrenadeLifecycle(c);
+  c.player.pos.set(40, 1.7, 40);
+  const target = { team: 'friendly', pos: new Vector3(1, 0.9, 0), health: 500, dead: false, isObjectiveTarget: true };
+  c.objective = { type: 'defend', target, done: false, failed: false };
+  const hostile = { team: 'enemy' };
+  c.grenadeLosDir = new Vector3();
+  c.grenadeLosDir.length = function () { return Math.sqrt(this.lengthSq()); };
+  c.grenadeLosDir.multiplyScalar = function (s) { return this.set(this.x * s, this.y * s, this.z * s); };
+  c.grenadeTargets = [];
+  c._grenadeLosHits = [];
+  c.ground = {};
+  let covered = true;
+  c.grenadeLosRay = { set: noop, intersectObjects: (objects, recursive, hits) => {
+    if (covered) hits.push({ distance: 0.2, object: { userData: {} } });
+  } };
+  const src = source('55_grenades.js');
+  vm.runInContext(src.slice(src.indexOf('function grenadeHasLineOfSight('), src.indexOf('// One blast can query')), c);
+  c.explodeGrenade(new Vector3(), 1, hostile);
+  assert.equal(target.health, 500, 'cover blocks hostile blast');
+  covered = false;
+  c.explodeGrenade(new Vector3(), 1, c.player);
+  assert.equal(target.health, 500, 'player blast must not damage friendly generator');
+  c.explodeGrenade(new Vector3(20, 0, 0), 1, hostile);
+  assert.equal(target.health, 500, 'outside blast radius');
+  c.explodeGrenade(new Vector3(), 1, hostile);
+  assert.ok(target.health < 500, 'hostile blast must damage generator');
+});
+
 for (const ownerTeam of ['friendly', 'enemy', 'player']) {
   test(`grenade lifecycle attributes ${ownerTeam} blast kills without leaking player rewards`, () => {
     const reports = [];
@@ -5329,7 +5359,7 @@ test('milestone 3: Snowy atmospheric VFX, viewmodel breath mist, and ice-patch s
 });
 
 test('milestone 4: Survival lifecycle and team-hostility interaction with Defend objective generator', () => {
-  const c = createFullMatchContext();
+  const c = useProductionWaveLifecycle(createFullMatchContext());
   // Wire required audio/VFX and streak hooks
   c.streakBank = [];
   c.credits = 0;
@@ -5368,7 +5398,7 @@ test('milestone 4: Survival lifecycle and team-hostility interaction with Defend
   assert.strictEqual(c.gameEnded, false, 'destruction of generator must not end the Survival run');
 
   // 5. Conversely: when generator survives and wave clears, awards credits + free scorestreak
-  const c2 = createFullMatchContext();
+  const c2 = useProductionWaveLifecycle(createFullMatchContext());
   c2.streakBank = [];
   c2.credits = 0;
   c2.score = 0;
@@ -5388,7 +5418,7 @@ test('milestone 4: Survival lifecycle and team-hostility interaction with Defend
 
 test('milestone 4: Survival lifecycle with Retrieve and Demolition objectives', () => {
   // 1. Retrieve objective
-  const c = createFullMatchContext();
+  const c = useProductionWaveLifecycle(createFullMatchContext());
   c.streakBank = [];
   c.credits = 0;
   c.startWave(8); // wave 8 rotates to retrieve
@@ -5409,7 +5439,7 @@ test('milestone 4: Survival lifecycle with Retrieve and Demolition objectives', 
   assert.strictEqual(c.streakBank.length, 1, 'retrieve completion must award free scorestreak');
 
   // 2. Demolition objective
-  const c2 = createFullMatchContext();
+  const c2 = useProductionWaveLifecycle(createFullMatchContext());
   c2.streakBank = [];
   c2.credits = 0;
   c2.startWave(12); // wave 12 rotates to demolition
@@ -5430,6 +5460,76 @@ test('milestone 4: Survival lifecycle with Retrieve and Demolition objectives', 
   assert.strictEqual(c2.objective.sites[1].planted, true, 'site 1 must be planted');
   assert.strictEqual(c2.objective.done, true, 'all sites planted must complete demolition');
   assert.strictEqual(c2.streakBank.length, 1, 'demolition completion must award free scorestreak');
+});
+
+test('fresh reset clears the previous run objective count', () => {
+  const c = createFullMatchContext();
+  c.objectivesCompleted = 2;
+  c.resetGame();
+  assert.strictEqual(c.objectivesCompleted, 0);
+});
+
+function useProductionWaveLifecycle(c) {
+  const src = source('60_hud_waves.js');
+  vm.runInContext(src.slice(src.indexOf('function updateWaves(dt)'), src.indexOf('// Zero ammo means zero kills')), c);
+  vm.runInContext(src.slice(src.indexOf('function startWave(n)'), src.indexOf('// Blackout drops')), c);
+  const settings = source('02_settings.js');
+  const storage = new Map();
+  c.STORE_KEY_SAVE = 'checkpoint';
+  c.storageSet = (key, value) => { storage.set(key, JSON.stringify(value)); return true; };
+  c.storageGet = key => storage.has(key) ? JSON.parse(storage.get(key)) : null;
+  vm.runInContext(settings.slice(settings.indexOf('function saveCheckpoint(state)'), settings.indexOf('function statsSummaryHtml()')), c);
+  c.aliveEnemies = () => c.enemies.filter(e => !e.dead).length;
+  c.reviveFromDown = () => {};
+  c.unlockSecondary = () => {};
+  c.resupply = () => {};
+  c.updateWaveCountdown = () => {};
+  c.CFG.wave.victoryWave = 15;
+  c.CFG.wave.baseCount = 3;
+  c.CFG.wave.growth = 1;
+  c.CFG.score.waveClear = 100;
+  c.hud.enemiesLeft = { textContent: '' };
+  c.diff = () => ({ count: 1 });
+  return c;
+}
+
+test('production wave clear does not revive unfinished objectives on resume', () => {
+  for (const map of ['urban', 'snowy']) {
+    for (const type of ['retrieve', 'demolition', 'hold']) {
+      const c = useProductionWaveLifecycle(createFullMatchContext());
+      c.setActiveMap(map, true);
+      c.startWave(4);
+      c.startObjective(4, type);
+      c.waveQueue = 0;
+      c.updateWaves(0);
+      assert.ok(c.loadCheckpoint(), `${map}/${type} must persist a checkpoint`);
+      c.resumeRun();
+      assert.ok(!c.objective || c.objective.done || c.objective.failed, `${map}/${type} must not resume active`);
+      const completed = c.objectivesCompleted;
+      c.updateWaves(4);
+      assert.equal(c.waveNum, 5, `${map}/${type} advances through production startWave`);
+      assert.equal(c.objectivesCompleted, completed, `${map}/${type} must not earn a late completion`);
+    }
+  }
+});
+
+test('destroyed generator stays failed across real wave clear and resume on both maps', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.setActiveMap(map, true);
+    c.startWave(4);
+    c.damageObjectiveTarget(c.objective.target, 1000, { team: 'enemy' });
+    assert.equal(c.objective.failed, true);
+    c.waveQueue = 0;
+    c.updateWaves(0);
+    assert.equal(c.loadCheckpoint().objectiveState.failed, true);
+    c.resumeRun();
+    assert.equal(c.objective.failed, true);
+    c.updateWaves(4);
+    assert.equal(c.waveNum, 5);
+    assert.equal(c.objectivesCompleted, 0);
+    assert.equal(c.streakBank.length, 0);
+  }
 });
 
 test('milestone 4: Survival checkpoint save and resume preserves objective state and completed stats', () => {
@@ -5472,7 +5572,7 @@ test('milestone 4: Survival checkpoint save and resume preserves objective state
   assert.strictEqual(c.objective.target.health, 350, 'target generator HP must be restored');
 
   // 3. Real gameplay wave-clear checkpoint save captures objectiveState before clearing
-  const cLive = createFullMatchContext();
+  const cLive = useProductionWaveLifecycle(createFullMatchContext());
   cLive.streakBank = [];
   cLive.credits = 0;
   cLive.score = 0;
@@ -5492,7 +5592,7 @@ test('milestone 4: Survival checkpoint save and resume preserves objective state
 
 test('milestone 4 PR12: integration regressions for objective checkpoint round-trip, position fidelity, planted/pickedUp state, and wave-clear order across urban and snowy maps', () => {
   // 1. Defend objective: round-trip must preserve target position, HP, and visual mesh on Urban map
-  const cDef = createFullMatchContext();
+  const cDef = useProductionWaveLifecycle(createFullMatchContext());
   cDef.startWave(4);
   assert.strictEqual(cDef.objective.type, 'defend');
   const defendOrigX = cDef.objective.x;
@@ -5533,7 +5633,7 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(cDef.objMeshes[0].position.x, defendOrigX, 'defend mesh must match original x');
 
   // 2. Retrieve objective: round-trip must preserve intel position, dropoff position, and pickedUp flag on Snowy map
-  const cRet = createFullMatchContext();
+  const cRet = useProductionWaveLifecycle(createFullMatchContext());
   cRet.setActiveMap('snowy', true);
   cRet.startWave(8);
   assert.strictEqual(cRet.objective.type, 'retrieve');
@@ -5588,7 +5688,7 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(cRet.objectivesCompleted, 1, 'objectivesCompleted must not increase again');
 
   // 3. Demolition objective: round-trip must preserve both site positions, planted flags, and progress
-  const cDemo = createFullMatchContext();
+  const cDemo = useProductionWaveLifecycle(createFullMatchContext());
   cDemo.startWave(12);
   assert.strictEqual(cDemo.objective.type, 'demolition');
   assert.strictEqual(cDemo.objective.sites.length, 2);
@@ -5647,7 +5747,7 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(cDemo.objective.done, true, 'both sites planted completes demolition');
 
   // 4. Hold objective: round-trip must preserve zone position and progress timer t
-  const cHold = createFullMatchContext();
+  const cHold = useProductionWaveLifecycle(createFullMatchContext());
   cHold.startWave(16);
   assert.strictEqual(cHold.objective.type, 'hold');
   const holdX = cHold.objective.x;
@@ -5685,7 +5785,7 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.strictEqual(cHold.objective.done, true, 'hold completes at 60s');
 
   // 5. Wave clear checkpoint ordering, next-wave resume, and no double reward
-  const cWave = createFullMatchContext();
+  const cWave = useProductionWaveLifecycle(createFullMatchContext());
   cWave.startWave(4);
   cWave.waveQueue = 0;
   cWave.enemies.length = 0;

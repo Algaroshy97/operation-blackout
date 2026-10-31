@@ -123,6 +123,7 @@ function victory() {
 function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
+  objectivesCompleted = 0;
   // never reset into a paused state
   paused = false;
   if (typeof document !== 'undefined') {

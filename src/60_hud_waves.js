@@ -1101,6 +1101,10 @@ function updateWaves(dt) {
       if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
         completeObjective('Generator defended');
       }
+      if (objective && !objective.done) {
+        objective.failed = true;
+        objective.done = true;
+      }
       // holding out to the wave clear is the other way back up
       reviveFromDown();
       unlockSecondary();

@@ -20489,6 +20489,18 @@ const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgS
 damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
 }
 }
+const objTarget = typeof objective !== 'undefined' && objective && !objective.done && !objective.failed && objective.type === 'defend' ? objective.target : null;
+const blastOwner = owner || player;
+if (objTarget && !objTarget.dead && CORE.isHostile(blastOwner, objTarget)) {
+const dx = objTarget.pos.x - pos.x, dy = objTarget.pos.y - pos.y, dz = objTarget.pos.z - pos.z;
+if (CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) {
+_blastTarget.set(objTarget.pos.x, objTarget.pos.y, objTarget.pos.z);
+if (grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
+const d = CORE.blastTargetDistance(dx, dy, dz);
+damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale), blastOwner);
+}
+}
+}
 const pd = playerDistToBlast;
 _blastPlayerTarget.set(player.pos.x, player.pos.y - 0.5, player.pos.z);
 if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOfSight(_blastFrom, _blastPlayerTarget, null)) {
@@ -22429,6 +22441,10 @@ addCredits(CORE.creditsForWave(waveNum));
 if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
 completeObjective('Generator defended');
 }
+if (objective && !objective.done) {
+objective.failed = true;
+objective.done = true;
+}
 reviveFromDown();
 unlockSecondary();
 resupply();
@@ -23064,6 +23080,7 @@ $id('victory-screen').style.display = 'flex';
 function resetGame() {
 settlementSnapshot = null;
 runPhase = 'active';
+objectivesCompleted = 0;
 paused = false;
 if (typeof document !== 'undefined') {
 if (!started && document.body) document.body.classList.remove('started');
