@@ -5179,6 +5179,7 @@ return BASE_SENSITIVITY * settingsSensitivity * ads;
 }
 function combatIntensity(state) {
 if (!state || !state.inCombat) return 0;
+if (state.isExtraction) return 0.95;
 const num = function (v, def) {
 const n = typeof v === 'number' ? v : parseFloat(v);
 return isFinite(n) ? n : def;
@@ -8084,6 +8085,56 @@ if (d > farD) { farD = d; far = i; }
 return far;
 }
 return best;
+}
+const EXTRACTION_WAVE = 15;
+const EXTRACTION_SURGE_TIME = 90;
+const EXTRACTION_LZ_RADIUS = 5.0;
+const EXTRACTION_CINEMATIC_DURATION = 3.0;
+const EXTRACTION_ROTOR_WASH_RADIUS = 16.0;
+const EXTRACTION_ROTOR_WASH_FORCE = 8.0;
+function isExtractionWave(waveNum, endlessMode) {
+return waveNum === EXTRACTION_WAVE && !endlessMode;
+}
+function extractionSurgeProgress(remainingTime, totalTime) {
+const tot = _isPos(totalTime) ? totalTime : EXTRACTION_SURGE_TIME;
+const rem = _isNum(remainingTime) ? Math.max(0, Math.min(tot, remainingTime)) : 0;
+return 1 - rem / tot;
+}
+function pickExtractionSurgeKind(roll) {
+const r = _isNum(roll) ? Math.max(0, Math.min(0.999999, roll)) : Math.random();
+return Math.floor(r * 5);
+}
+function isPlayerInsideLz(px, pz, lzX, lzZ, radius) {
+const rad = _isPos(radius) ? radius : EXTRACTION_LZ_RADIUS;
+return Math.hypot(px - lzX, pz - lzZ) <= rad;
+}
+function rotorWashImpulse(px, pz, lzX, lzZ, maxRadius, force) {
+const maxR = _isPos(maxRadius) ? maxRadius : EXTRACTION_ROTOR_WASH_RADIUS;
+const f = _isPos(force) ? force : EXTRACTION_ROTOR_WASH_FORCE;
+const dx = px - lzX, dz = pz - lzZ;
+const dist = Math.hypot(dx, dz);
+if (dist <= 1e-4 || dist >= maxR) return { vx: 0, vz: 0 };
+const str = f * (1 - dist / maxR);
+return { vx: (dx / dist) * str, vz: (dz / dist) * str };
+}
+function extractionCinematicStep(timer, dt, duration) {
+const dur = _isPos(duration) ? duration : EXTRACTION_CINEMATIC_DURATION;
+const t = (_isNum(timer) ? timer : 0) + (_isNum(dt) ? dt : 0);
+return { nextTimer: t, complete: t >= dur };
+}
+function extractionHudLabel(phase, surgeTimer, distToLz) {
+if (phase === 'surge') {
+const s = Math.max(0, Math.ceil(surgeTimer || 0));
+const mins = Math.floor(s / 60);
+const secs = s % 60;
+return 'EXTRACTION SURGE — ' + (mins > 0 ? (mins + ':' + (secs < 10 ? '0' : '') + secs) : (s + 'S'));
+}
+if (phase === 'lz') {
+const d = Math.max(0, Math.round(distToLz || 0));
+return 'REACH EXTRACTION LZ — ' + d + 'M';
+}
+if (phase === 'cinematic') return 'EXTRACTING…';
+return '';
 }
 const CREDITS = { hit: 10, kill: 60, headshotKill: 100, waveClear: 250 };
 function creditsForDamage(isKill, isHead) {
@@ -11208,6 +11259,10 @@ attachmentDelta, OBJECTIVE_TYPES, OBJECTIVE_EVERY, OBJECTIVE_HOLD, OBJECTIVE_RAD
 DEFEND_MAX_HP, DEMOLITION_PLANT_TIME, DEMOLITION_RADIUS, RETRIEVE_PICKUP_RADIUS, RETRIEVE_DROPOFF_RADIUS,
 objectiveWaveAt, objectiveTypeAtWave, pickObjectiveRewardStreak, demolitionProgress, demolitionComplete,
 defendHpPct, isDefendTargetDestroyed, objectiveProgress, objectiveComplete, pickObjectiveSpot,
+EXTRACTION_WAVE, EXTRACTION_SURGE_TIME, EXTRACTION_LZ_RADIUS, EXTRACTION_CINEMATIC_DURATION,
+EXTRACTION_ROTOR_WASH_RADIUS, EXTRACTION_ROTOR_WASH_FORCE,
+isExtractionWave, extractionSurgeProgress, pickExtractionSurgeKind,
+isPlayerInsideLz, rotorWashImpulse, extractionCinematicStep, extractionHudLabel,
 REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
 SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
 spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,
@@ -13381,6 +13436,7 @@ if (player.pos.y < -5) { player.pos.set(0, CFG.player.height, 24); player.vel.se
 function damagePlayer(amount, dirDeg, damageType, attacker) {
 if (player.dead || godMode) return;
 if (player.spawnProtectionT > 0) return;
+if (player.invulnerable || (typeof runPhase !== 'undefined' && runPhase === 'cinematic')) return;
 const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
 const isSettled = (typeof matchSettled === 'function')
 ? matchSettled()
@@ -18510,9 +18566,29 @@ const a = L.geo.attributes;
 a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
 }
 }
+function updateRotorWash(dt) {
+if (dt <= 0 || typeof extraction === 'undefined' || !extraction || (extraction.phase !== 'lz' && extraction.phase !== 'cinematic')) return;
+if (typeof CORE === 'undefined' || !CORE.rotorWashImpulse) return;
+const L = _PFX_LAYERS[1];
+if (!L || !L.alive) return;
+const maxR = CORE.EXTRACTION_ROTOR_WASH_RADIUS;
+const force = CORE.EXTRACTION_ROTOR_WASH_FORCE;
+const hx = extraction.lz.x, hz = extraction.lz.z;
+for (let i = 0; i < L.cap; i++) {
+if (L.life[i] <= 0) continue;
+const i3 = i * 3;
+const px = L.pos[i3], pz = L.pos[i3 + 2];
+const imp = CORE.rotorWashImpulse(px, pz, hx, hz, maxR, force);
+if (imp.vx !== 0 || imp.vz !== 0) {
+L.vel[i3] += imp.vx * dt * 5;
+L.vel[i3 + 2] += imp.vz * dt * 5;
+}
+}
+}
 function updateParticles(dt) {
 updateWeatherParticles(dt);
 updateBreathMist(dt);
+updateRotorWash(dt);
 const h = renderer.getDrawingBufferSize(_pfxBuf).y;
 const scale = CORE.particlePerspectiveScale(h, camera.fov);
 for (let i = 0; i < _PFX_LAYERS.length; i++) {
@@ -21975,7 +22051,11 @@ waveNum = n;
 waveBehaviours = CORE.behavioursAtWave(n);
 waveSpecial = CORE.specialWaveAt(n);
 applySpecialLighting(waveSpecial);
+if (typeof CORE !== 'undefined' && typeof CORE.isExtractionWave === 'function' && CORE.isExtractionWave(n, endlessMode)) {
+startExtraction();
+} else {
 startObjective(n);
+}
 waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
 CFG.wave.victoryWave, diff().count, waveSpecial);
 if (waveSpecial) {
@@ -22039,6 +22119,79 @@ function clearObjective() {
 objective = null;
 clearObjectiveVisuals();
 }
+var extraction = null;
+function clearExtractionVisuals() {
+if (!extraction) return;
+if (extraction.helicopter && typeof scene !== 'undefined' && scene && scene.remove) {
+scene.remove(extraction.helicopter);
+}
+if (extraction.smokeMarker && typeof scene !== 'undefined' && scene && scene.remove) {
+scene.remove(extraction.smokeMarker);
+}
+if (extraction.lzRing && typeof scene !== 'undefined' && scene && scene.remove) {
+scene.remove(extraction.lzRing);
+}
+extraction = null;
+}
+function startExtraction(forcedSpot) {
+clearObjective();
+clearExtractionVisuals();
+const m = (typeof getActiveMap === 'function') ? getActiveMap() : null;
+const pSpawn = (m && m.playerSpawn) || { x: 0, z: 0 };
+const spot = forcedSpot || {
+x: Array.isArray(pSpawn) ? pSpawn[0] : (pSpawn.x || 0),
+z: Array.isArray(pSpawn) ? (pSpawn.length >= 3 ? pSpawn[2] : pSpawn[1]) : (pSpawn.z || 0)
+};
+const heliGroup = new THREE.Group();
+const heliMat = (typeof MAT !== 'undefined' && MAT && MAT.metal) ? MAT.metal : new THREE.MeshBasicMaterial({ color: 0x2e353b });
+const rotorMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 5.0), heliMat);
+body.position.y = 1.0;
+heliGroup.add(body);
+const boom = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 4.0), heliMat);
+boom.position.set(0, 1.3, -4.0);
+heliGroup.add(boom);
+const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.2), rotorMat);
+tailRotor.position.set(0.35, 1.6, -5.8);
+heliGroup.add(tailRotor);
+const mainRotor = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.08, 0.4), rotorMat);
+mainRotor.position.set(0, 2.1, 0);
+heliGroup.add(mainRotor);
+const skid1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 4.4), rotorMat);
+skid1.position.set(-1.1, 0.06, 0);
+const skid2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 4.4), rotorMat);
+skid2.position.set(1.1, 0.06, 0);
+heliGroup.add(skid1);
+heliGroup.add(skid2);
+heliGroup.position.set(spot.x, 35, spot.z);
+heliGroup.userData = { mainRotor: mainRotor, tailRotor: tailRotor };
+if (typeof scene !== 'undefined' && scene && scene.add) scene.add(heliGroup);
+const lzRingGeo = new THREE.RingGeometry(CORE.EXTRACTION_LZ_RADIUS - 0.25, CORE.EXTRACTION_LZ_RADIUS, 48);
+const lzRingMat = new THREE.MeshBasicMaterial({ color: 0x38e078, transparent: true, opacity: 0.65, side: THREE.DoubleSide });
+const lzRing = new THREE.Mesh(lzRingGeo, lzRingMat);
+lzRing.rotation.x = -Math.PI / 2;
+lzRing.position.set(spot.x, 0.05, spot.z);
+if (typeof scene !== 'undefined' && scene && scene.add) scene.add(lzRing);
+const markerGeo = new THREE.CylinderGeometry(0.15, 0.18, 0.45, 12);
+const markerMat = new THREE.MeshBasicMaterial({ color: 0x38e078 });
+const smokeMarker = new THREE.Mesh(markerGeo, markerMat);
+smokeMarker.position.set(spot.x, 0.22, spot.z);
+if (typeof scene !== 'undefined' && scene && scene.add) scene.add(smokeMarker);
+extraction = {
+active: true,
+phase: 'surge',
+surgeTimer: CORE.EXTRACTION_SURGE_TIME,
+lz: spot,
+helicopter: heliGroup,
+lzRing: lzRing,
+smokeMarker: smokeMarker,
+cinematicTimer: 0
+};
+setTimeout(function () {
+if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION PROTOCOL ACTIVATED');
+if (typeof pushKillfeed === 'function') pushKillfeed('<span class="xp">EXTRACTION PROTOCOL</span> — SURVIVE 90S FOR HELICOPTER EVAC');
+}, 500);
+}
 function completeObjective(label) {
 if (!objective || objective.done || objective.rewarded) return;
 objective.done = true;
@@ -22061,6 +22214,10 @@ clearObjectiveVisuals();
 }
 function startObjective(n, forcedType) {
 clearObjective();
+if (forcedType === 'extraction') {
+startExtraction();
+return;
+}
 const type = forcedType || ((typeof CORE !== 'undefined' && typeof CORE.objectiveTypeAtWave === 'function')
 ? CORE.objectiveTypeAtWave(n)
 : (CORE.objectiveWaveAt(n) ? 'hold' : null));
@@ -22419,6 +22576,60 @@ function updateWaves(dt) {
 updateObjective(dt);
 if (gameEnded || player.dead) return;
 const living = aliveEnemies();
+if (typeof extraction !== 'undefined' && extraction) {
+if (extraction.phase === 'surge') {
+extraction.surgeTimer = Math.max(0, extraction.surgeTimer - dt);
+if (waveActive && living < CFG.wave.maxActive) {
+waveQueue = Math.max(waveQueue, 4);
+}
+if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+hud.enemiesLeft.textContent = CORE.extractionHudLabel('surge', extraction.surgeTimer);
+}
+if (extraction.surgeTimer <= 0) {
+extraction.phase = 'lz';
+if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION HELICOPTER LANDING — REACH THE LZ!');
+if (typeof pushKillfeed === 'function') pushKillfeed('<span class="xp">EXTRACTION LZ OPEN</span> — GET TO THE HELICOPTER');
+}
+} else if (extraction.phase === 'lz') {
+if (extraction.helicopter) {
+extraction.helicopter.position.y = Math.max(1.0, extraction.helicopter.position.y - dt * 8);
+if (extraction.helicopter.userData && extraction.helicopter.userData.mainRotor) {
+extraction.helicopter.userData.mainRotor.rotation.y += dt * 30;
+}
+}
+const dist = Math.hypot(player.pos.x - extraction.lz.x, player.pos.z - extraction.lz.z);
+if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+hud.enemiesLeft.textContent = CORE.extractionHudLabel('lz', 0, dist);
+}
+if (typeof pfxEmit === 'function' && typeof PFX_SMOKE !== 'undefined') {
+pfxEmit(PFX_SMOKE, extraction.lz.x, 0.3, extraction.lz.z, (Math.random()-0.5)*0.5, 2.0, (Math.random()-0.5)*0.5, 1.8, 0.4, 2.8, [0.25, 0.88, 0.35], [0.1, 0.45, 0.2], 0.7, 0.8, -0.3, PF_RISE);
+}
+if (CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
+extraction.phase = 'cinematic';
+extraction.cinematicTimer = 0;
+runPhase = 'cinematic';
+player.invulnerable = true;
+if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
+}
+} else if (extraction.phase === 'cinematic') {
+const step = CORE.extractionCinematicStep(extraction.cinematicTimer, dt, CORE.EXTRACTION_CINEMATIC_DURATION);
+extraction.cinematicTimer = step.nextTimer;
+if (extraction.helicopter) {
+extraction.helicopter.position.y += dt * 10;
+if (extraction.helicopter.userData && extraction.helicopter.userData.mainRotor) {
+extraction.helicopter.userData.mainRotor.rotation.y += dt * 45;
+}
+}
+if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+hud.enemiesLeft.textContent = CORE.extractionHudLabel('cinematic');
+}
+if (step.complete) {
+clearExtractionVisuals();
+victory();
+return;
+}
+}
+}
 if (waveActive) {
 if (waveQueue > 0) {
 spawnTimer -= dt;
@@ -22435,7 +22646,7 @@ spawnTimer = CORE.waveSpawnDelay(pressure, Math.random());
 spawnTimer = 0.5;
 }
 }
-} else if (living === 0) {
+} else if (living === 0 && !extraction) {
 waveActive = false;
 betweenWaveT = 4;
 addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
@@ -22516,7 +22727,11 @@ const jz = sp[1] + (Math.random() - 0.5) * CORE.WAVE_SPAWN_JITTER;
 if (CORE.isSpawnValid(jx, jz, colliders, 0.6, 1.8)) { x = jx; z = jz; break; }
 }
 let kind = null;
-if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+if (typeof extraction !== 'undefined' && extraction && extraction.phase === 'surge') {
+kind = CORE.pickExtractionSurgeKind(Math.random());
+} else if (waveSpecial) {
+kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+}
 if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
 const elite = CORE.rollElite(waveNum, Math.random());
 spawnEnemy(kind, x, z, { elite: elite });
@@ -23083,6 +23298,8 @@ function resetGame() {
 settlementSnapshot = null;
 runPhase = 'active';
 objectivesCompleted = 0;
+if (typeof clearExtractionVisuals === 'function') clearExtractionVisuals();
+if (typeof player !== 'undefined' && player) player.invulnerable = false;
 paused = false;
 if (typeof document !== 'undefined') {
 if (!started && document.body) document.body.classList.remove('started');
@@ -24229,6 +24446,7 @@ _musicState.inCombat = waveActive && !player.dead;
 _musicState.aliveEnemies = _combatEvalOut.aliveCount;
 _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
 _musicState.health = player.health;
+_musicState.isExtraction = (typeof extraction !== 'undefined' && extraction && extraction.active);
 updateMusic(dt, _musicState);
 updateHitArcs();
 updateGrenadeWarnings();

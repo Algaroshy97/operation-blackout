@@ -224,6 +224,49 @@ def run_isolated(args, filter_pat: str) -> int:
                                     fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
                                     fb_check["playerImmuneToAlly"])))
 
+            if matches("force-objective-wave-and-extraction"):
+                ext_check = page.evaluate("""() => {
+                    startObjective(4, 'defend');
+                    const objOk = !!(objective && objective.type === 'defend' && objective.target && objective.target.team === 'friendly');
+                    clearObjective();
+
+                    startObjective(15, 'extraction');
+                    const surgeOk = !!(extraction && extraction.active && extraction.phase === 'surge' &&
+                                       extraction.surgeTimer === CORE.EXTRACTION_SURGE_TIME &&
+                                       extraction.helicopter && extraction.smokeMarker);
+
+                    updateWaves(CORE.EXTRACTION_SURGE_TIME + 0.1);
+                    const lzOk = !!(extraction && extraction.phase === 'lz');
+
+                    updateWaves(5.0);
+                    const heliLandedOk = !!(extraction && extraction.helicopter && extraction.helicopter.position.y <= 1.5);
+
+                    player.pos.set(extraction.lz.x, 0.9, extraction.lz.z);
+                    updateWaves(0.1);
+                    const cinematicOk = !!(extraction && extraction.phase === 'cinematic' && player.invulnerable === true);
+
+                    updateWaves(CORE.EXTRACTION_CINEMATIC_DURATION + 0.5);
+                    const victoryOk = gameEnded === true && runPhase === 'victory' && extraction === null;
+
+                    resetGame();
+                    const resetOk = gameEnded === false && player.invulnerable === false;
+
+                    return {
+                        objOk: objOk,
+                        surgeOk: surgeOk,
+                        lzOk: lzOk,
+                        heliLandedOk: heliLandedOk,
+                        cinematicOk: cinematicOk,
+                        victoryOk: victoryOk,
+                        resetOk: resetOk
+                    };
+                }""")
+                checks.append(("force-objective-wave-and-extraction",
+                               bool(ext_check["objOk"] and ext_check["surgeOk"] and
+                                    ext_check["lzOk"] and ext_check["heliLandedOk"] and
+                                    ext_check["cinematicOk"] and ext_check["victoryOk"] and
+                                    ext_check["resetOk"])))
+
             if matches("snowy-survival-checkpoint-and-arena-restoration"):
                 snowy_resume = page.evaluate("""() => {
                     const savedState = captureRunState();
@@ -5724,6 +5767,49 @@ def main() -> int:
                        bool(fb_check["hasTeam"] and fb_check["hasIff"] and
                             fb_check["isFriendlyColor"] and fb_check["immuneToPlayer"] and
                             fb_check["playerImmuneToAlly"])))
+
+        # 113k-1.5) Force objective wave and extraction
+        ext_check = page.evaluate("""() => {
+            startObjective(4, 'defend');
+            const objOk = !!(objective && objective.type === 'defend' && objective.target && objective.target.team === 'friendly');
+            clearObjective();
+
+            startObjective(15, 'extraction');
+            const surgeOk = !!(extraction && extraction.active && extraction.phase === 'surge' &&
+                               extraction.surgeTimer === CORE.EXTRACTION_SURGE_TIME &&
+                               extraction.helicopter && extraction.smokeMarker);
+
+            updateWaves(CORE.EXTRACTION_SURGE_TIME + 0.1);
+            const lzOk = !!(extraction && extraction.phase === 'lz');
+
+            updateWaves(5.0);
+            const heliLandedOk = !!(extraction && extraction.helicopter && extraction.helicopter.position.y <= 1.5);
+
+            player.pos.set(extraction.lz.x, 0.9, extraction.lz.z);
+            updateWaves(0.1);
+            const cinematicOk = !!(extraction && extraction.phase === 'cinematic' && player.invulnerable === true);
+
+            updateWaves(CORE.EXTRACTION_CINEMATIC_DURATION + 0.5);
+            const victoryOk = gameEnded === true && runPhase === 'victory' && extraction === null;
+
+            resetGame();
+            const resetOk = gameEnded === false && player.invulnerable === false;
+
+            return {
+                objOk: objOk,
+                surgeOk: surgeOk,
+                lzOk: lzOk,
+                heliLandedOk: heliLandedOk,
+                cinematicOk: cinematicOk,
+                victoryOk: victoryOk,
+                resetOk: resetOk
+            };
+        }""")
+        checks.append(("force-objective-wave-and-extraction",
+                       bool(ext_check["objOk"] and ext_check["surgeOk"] and
+                            ext_check["lzOk"] and ext_check["heliLandedOk"] and
+                            ext_check["cinematicOk"] and ext_check["victoryOk"] and
+                            ext_check["resetOk"])))
 
         # 113k-2) Snowy Survival checkpoint save, validate, and resume restoring arena and purchased districts
         snowy_resume = page.evaluate("""() => {

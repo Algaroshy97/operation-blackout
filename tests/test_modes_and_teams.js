@@ -1898,11 +1898,19 @@ function createFullMatchContext(overrides = {}) {
           classList: { add: noop, remove: noop, contains: () => false },
           querySelector: () => null,
           querySelectorAll: () => [],
-          addEventListener: noop,
+          _listeners: {},
+          addEventListener: function (type, fn) {
+            (this._listeners[type] = this._listeners[type] || []).push(fn);
+          },
           removeEventListener: noop,
           click: function () {
-            if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
-            if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+            const cbs = this._listeners['click'] || [];
+            if (cbs.length > 0) {
+              for (let i = 0; i < cbs.length; i++) cbs[i].call(this);
+            } else {
+              if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
+              if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+            }
           },
           appendChild: function (child) {
             this.children = this.children || [];
@@ -2294,7 +2302,7 @@ function createFullMatchContext(overrides = {}) {
     startIdx,
     wavesSrc.indexOf('function updateWaves(')
   );
-  vm.runInContext('let objective = null; let objectivesCompleted = 0;', c);
+  vm.runInContext('let objective = null; let objectivesCompleted = 0; var extraction = null;', c);
   vm.runInContext(objSlice, c);
   const mainSrc = source('70_main.js');
   const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
@@ -5509,6 +5517,7 @@ function useProductionWaveLifecycle(c) {
   const src = source('60_hud_waves.js');
   vm.runInContext(src.slice(src.indexOf('function updateWaves(dt)'), src.indexOf('// Zero ammo means zero kills')), c);
   vm.runInContext(src.slice(src.indexOf('function startWave(n)'), src.indexOf('// Blackout drops')), c);
+  vm.runInContext(src.slice(src.indexOf('function spawnFromQueue()'), src.indexOf('function resupply()')), c);
   const settings = source('02_settings.js');
   const storage = new Map();
   c.STORE_KEY_SAVE = 'checkpoint';
@@ -5885,6 +5894,72 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.ok(validatedCorrupt);
   assert.strictEqual(validatedCorrupt.objectiveState, null, 'unknown objective type must be rejected to null');
 });
+
+test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all archetypes, LZ arrival, rotor wash, and victory cinematic', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.streakBank = [];
+  c.credits = 0;
+  c.score = 0;
+  c.lastCenterMsg = null;
+  c.showCenterMsg = function(m) { c.lastCenterMsg = m; };
+
+  // 1. Wave 15 triggers Extraction protocol
+  c.startWave(15);
+  assert.ok(c.extraction, 'Wave 15 in survival must initialize extraction');
+  assert.strictEqual(c.extraction.phase, 'surge', 'initial extraction phase must be surge');
+  assert.strictEqual(c.extraction.surgeTimer, CORE.EXTRACTION_SURGE_TIME, 'surgeTimer must start at 90s');
+  assert.ok(c.extraction.lz, 'extraction must define LZ location');
+  assert.strictEqual(typeof c.extraction.lz.x, 'number');
+  assert.strictEqual(typeof c.extraction.lz.z, 'number');
+  assert.ok(c.extraction.helicopter, 'helicopter mesh must be created');
+  assert.ok(c.extraction.smokeMarker, 'LZ smoke marker must be created');
+
+  // 2. Surge spawns draw across all 5 archetypes (scout 0, rifleman 1, advancer 2, grenadier 3, breacher 4)
+  const kindsSpawned = new Set();
+  for (let i = 0; i < 25; i++) {
+    c.spawnFromQueue();
+    const lastSpawned = c.enemies[c.enemies.length - 1];
+    if (lastSpawned) kindsSpawned.add(lastSpawned.kind);
+  }
+  for (let k = 0; k <= 4; k++) {
+    assert.ok(kindsSpawned.has(k), 'surge must spawn archetype ' + k);
+  }
+
+  // 3. 90s surge countdown in updateWaves
+  c.updateWaves(45.0);
+  assert.strictEqual(c.extraction.phase, 'surge');
+  assert.strictEqual(c.extraction.surgeTimer, 45.0);
+
+  // Complete surge
+  c.updateWaves(45.1);
+  assert.strictEqual(c.extraction.phase, 'lz', 'surge completion must transition to lz phase');
+  // Helicopter descends to ground level
+  c.updateWaves(5.0);
+  assert.ok(c.extraction.helicopter.position.y <= 1.5, 'helicopter must land at LZ');
+
+  // 4. Player reaches LZ
+  c.player.pos.set(c.extraction.lz.x + 2.0, 0, c.extraction.lz.z + 2.0); // within 5m
+  c.updateWaves(0.1);
+  assert.strictEqual(c.extraction.phase, 'cinematic', 'player reaching LZ must transition to cinematic phase');
+  assert.strictEqual(c.player.invulnerable, true, 'player must be invulnerable during extraction cinematic');
+
+  // 5. Cinematic advances and triggers victory
+  c.updateWaves(1.5);
+  assert.strictEqual(c.gameEnded, false, 'cinematic still playing at 1.5s');
+  c.updateWaves(1.6);
+  assert.strictEqual(c.gameEnded, true, 'cinematic completing must end game with victory');
+  assert.strictEqual(c.extraction, null, 'extraction state cleared after victory');
+
+  // 6. Checkpoint records settled victory
+  const cp = c.loadCheckpoint();
+  assert.ok(cp, 'victory must save checkpoint');
+  assert.strictEqual(cp.runPhase, 'victory');
+
+  // 7. Clicking endless mode transitions into endless wave 16
+  c.document.getElementById('btn-endless').click();
+  assert.strictEqual(c.endlessMode, true, 'endlessMode must be true after clicking endless button');
+});
+
 
 
 

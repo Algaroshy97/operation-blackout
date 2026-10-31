@@ -124,6 +124,8 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   objectivesCompleted = 0;
+  if (typeof clearExtractionVisuals === 'function') clearExtractionVisuals();
+  if (typeof player !== 'undefined' && player) player.invulnerable = false;
   // never reset into a paused state
   paused = false;
   if (typeof document !== 'undefined') {
@@ -1377,6 +1379,7 @@ function frame(now) {
     _musicState.aliveEnemies = _combatEvalOut.aliveCount;
     _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
     _musicState.health = player.health;
+    _musicState.isExtraction = (typeof extraction !== 'undefined' && extraction && extraction.active);
     updateMusic(dt, _musicState);
     updateHitArcs();
     updateGrenadeWarnings();

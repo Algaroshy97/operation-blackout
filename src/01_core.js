@@ -586,6 +586,7 @@ const CORE = (function () {
   // soundtrack follows the fight instead of looping regardless of it.
   function combatIntensity(state) {
     if (!state || !state.inCombat) return 0;
+    if (state.isExtraction) return 0.95;
     // Sanitise first: Math.min/Math.max propagate NaN rather than clamping it, and
     // a NaN here would silently pin the music gain to NaN for the rest of the run.
     const num = function (v, def) {
@@ -4337,6 +4338,59 @@ const CORE = (function () {
     return best;
   }
 
+  // ---- Wave 15 Extraction Finale ---------------------------------------------
+  const EXTRACTION_WAVE = 15;
+  const EXTRACTION_SURGE_TIME = 90;
+  const EXTRACTION_LZ_RADIUS = 5.0;
+  const EXTRACTION_CINEMATIC_DURATION = 3.0;
+  const EXTRACTION_ROTOR_WASH_RADIUS = 16.0;
+  const EXTRACTION_ROTOR_WASH_FORCE = 8.0;
+
+  function isExtractionWave(waveNum, endlessMode) {
+    return waveNum === EXTRACTION_WAVE && !endlessMode;
+  }
+  function extractionSurgeProgress(remainingTime, totalTime) {
+    const tot = _isPos(totalTime) ? totalTime : EXTRACTION_SURGE_TIME;
+    const rem = _isNum(remainingTime) ? Math.max(0, Math.min(tot, remainingTime)) : 0;
+    return 1 - rem / tot;
+  }
+  function pickExtractionSurgeKind(roll) {
+    const r = _isNum(roll) ? Math.max(0, Math.min(0.999999, roll)) : Math.random();
+    return Math.floor(r * 5);
+  }
+  function isPlayerInsideLz(px, pz, lzX, lzZ, radius) {
+    const rad = _isPos(radius) ? radius : EXTRACTION_LZ_RADIUS;
+    return Math.hypot(px - lzX, pz - lzZ) <= rad;
+  }
+  function rotorWashImpulse(px, pz, lzX, lzZ, maxRadius, force) {
+    const maxR = _isPos(maxRadius) ? maxRadius : EXTRACTION_ROTOR_WASH_RADIUS;
+    const f = _isPos(force) ? force : EXTRACTION_ROTOR_WASH_FORCE;
+    const dx = px - lzX, dz = pz - lzZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= 1e-4 || dist >= maxR) return { vx: 0, vz: 0 };
+    const str = f * (1 - dist / maxR);
+    return { vx: (dx / dist) * str, vz: (dz / dist) * str };
+  }
+  function extractionCinematicStep(timer, dt, duration) {
+    const dur = _isPos(duration) ? duration : EXTRACTION_CINEMATIC_DURATION;
+    const t = (_isNum(timer) ? timer : 0) + (_isNum(dt) ? dt : 0);
+    return { nextTimer: t, complete: t >= dur };
+  }
+  function extractionHudLabel(phase, surgeTimer, distToLz) {
+    if (phase === 'surge') {
+      const s = Math.max(0, Math.ceil(surgeTimer || 0));
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      return 'EXTRACTION SURGE — ' + (mins > 0 ? (mins + ':' + (secs < 10 ? '0' : '') + secs) : (s + 'S'));
+    }
+    if (phase === 'lz') {
+      const d = Math.max(0, Math.round(distToLz || 0));
+      return 'REACH EXTRACTION LZ — ' + d + 'M';
+    }
+    if (phase === 'cinematic') return 'EXTRACTING…';
+    return '';
+  }
+
   // ---- Credits ----------------------------------------------------------------
   // Score only ever went up and nothing in the game read it back, so a 30-minute
   // run had no shape. Credits are earned in parallel and SPENT. Score stays the
@@ -8007,6 +8061,10 @@ const CORE = (function () {
     DEFEND_MAX_HP, DEMOLITION_PLANT_TIME, DEMOLITION_RADIUS, RETRIEVE_PICKUP_RADIUS, RETRIEVE_DROPOFF_RADIUS,
     objectiveWaveAt, objectiveTypeAtWave, pickObjectiveRewardStreak, demolitionProgress, demolitionComplete,
     defendHpPct, isDefendTargetDestroyed, objectiveProgress, objectiveComplete, pickObjectiveSpot,
+    EXTRACTION_WAVE, EXTRACTION_SURGE_TIME, EXTRACTION_LZ_RADIUS, EXTRACTION_CINEMATIC_DURATION,
+    EXTRACTION_ROTOR_WASH_RADIUS, EXTRACTION_ROTOR_WASH_FORCE,
+    isExtractionWave, extractionSurgeProgress, pickExtractionSurgeKind,
+    isPlayerInsideLz, rotorWashImpulse, extractionCinematicStep, extractionHudLabel,
     REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
     SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
     spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,

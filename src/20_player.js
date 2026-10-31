@@ -456,6 +456,7 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
+  if (player.invulnerable || (typeof runPhase !== 'undefined' && runPhase === 'cinematic')) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const isSettled = (typeof matchSettled === 'function')
     ? matchSettled()
