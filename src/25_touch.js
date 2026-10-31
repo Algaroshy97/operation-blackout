@@ -57,6 +57,7 @@ function onGyroOrientation(event) {
 let joyBaseEl = null;
 let resetTouchControls = function () {};
 function touchGameplayEnabled() {
+  if (typeof extraction !== 'undefined' && extraction && extraction.phase === 'cinematic') return false;
   const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
   const isDead = typeof player !== 'undefined' && !!(player && player.dead);
   return (typeof CORE !== 'undefined' && typeof CORE.isTouchGameplayEnabled === 'function')
@@ -219,6 +220,7 @@ function touchGameplayEnabled() {
     }
     el.addEventListener('touchstart', function (e) {
       e.preventDefault();
+      if (!touchGameplayEnabled()) return;
       const isDowned = typeof player !== 'undefined' && !!player.downed;
       const isDead = typeof player !== 'undefined' && !!player.dead;
       const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
@@ -239,6 +241,7 @@ function touchGameplayEnabled() {
   const fireBtn = document.getElementById('tbtn-fire');
   fireBtn.addEventListener('touchstart', function (e) {
     e.preventDefault();
+    if (!touchGameplayEnabled()) return;
     const isDowned = typeof player !== 'undefined' && !!player.downed;
     const isDead = typeof player !== 'undefined' && !!player.dead;
     const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');

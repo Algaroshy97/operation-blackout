@@ -10667,5 +10667,52 @@ test('milestone 4: objective types (defend, retrieve, demolition, hold), schedul
   assert.strictEqual(validatedHold.objectiveState.x, 22);
 });
 
+test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detection, and cinematic step', () => {
+  // 1. Constants
+  assert.strictEqual(CORE.EXTRACTION_WAVE, 15, 'extraction wave must be wave 15');
+  assert.strictEqual(CORE.EXTRACTION_SURGE_TIME, 90, 'surge must last 90 seconds per roadmap');
+  assert.strictEqual(CORE.EXTRACTION_LZ_RADIUS, 5.0, 'LZ radius must be 5.0m');
+  assert.strictEqual(CORE.EXTRACTION_CINEMATIC_DURATION, 3.0, 'cinematic must last 3.0s');
+  assert.strictEqual(CORE.EXTRACTION_ROTOR_WASH_RADIUS, 16.0, 'rotor wash radius must be 16m');
+
+  // 2. Scheduling
+  assert.strictEqual(CORE.isExtractionWave(15, false), true, 'wave 15 in standard survival must be extraction wave');
+  assert.strictEqual(CORE.isExtractionWave(14, false), false, 'wave 14 must not be extraction wave');
+  assert.strictEqual(CORE.isExtractionWave(16, false), false, 'wave 16 must not be extraction wave');
+  assert.strictEqual(CORE.isExtractionWave(15, true), false, 'endless mode at wave 15 must not repeat extraction wave');
+
+  // 3. Surge progress and archetypes
+  assert.strictEqual(CORE.extractionSurgeProgress(90, 90), 0.0);
+  assert.strictEqual(CORE.extractionSurgeProgress(45, 90), 0.5);
+  assert.strictEqual(CORE.extractionSurgeProgress(0, 90), 1.0);
+  assert.strictEqual(CORE.extractionSurgeProgress(-5, 90), 1.0);
+
+  const roster = CORE.ENEMY_KIND_UNLOCK;
+  const kinds = roster.map((_, i) => CORE.pickExtractionSurgeKind((i + 0.5) / roster.length));
+  assert.deepStrictEqual(new Set(kinds), new Set(roster.map(e => e.kind)), 'extraction surge must include every production archetype');
+
+  // 4. LZ detection
+  assert.strictEqual(CORE.isPlayerInsideLz(0, 0, 0, 0, 5.0), true);
+  assert.strictEqual(CORE.isPlayerInsideLz(3.0, 3.0, 0, 0, 5.0), true);
+  assert.strictEqual(CORE.isPlayerInsideLz(4.0, 4.0, 0, 0, 5.0), false, 'hypot(4, 4) > 5.0');
+
+  // 5. Rotor wash impulse
+  const pushNear = CORE.rotorWashImpulse(2, 0, 0, 0, 16.0, 10.0);
+  assert.ok(pushNear.vx > 0, 'rotor wash must push outward along x');
+  assert.strictEqual(pushNear.vz, 0);
+  const pushFar = CORE.rotorWashImpulse(20, 0, 0, 0, 16.0, 10.0);
+  assert.strictEqual(pushFar.vx, 0, 'outside rotor wash radius must have 0 force');
+  assert.strictEqual(pushFar.vz, 0);
+
+  // 6. Cinematic step
+  const step1 = CORE.extractionCinematicStep(0, 1.0, 3.0);
+  assert.strictEqual(step1.nextTimer, 1.0);
+  assert.strictEqual(step1.complete, false);
+  const step2 = CORE.extractionCinematicStep(2.5, 0.6, 3.0);
+  assert.strictEqual(step2.nextTimer, 3.1);
+  assert.strictEqual(step2.complete, true);
+});
+
+
 
 

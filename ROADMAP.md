@@ -18,7 +18,7 @@ no new binary assets.
 | 1 | ✅ New weapons: shotgun, LMG, sidearm, enemy breacher | M | — |
 | 2 | ✅ Game modes: TDM, FFA, Domination, Gun Game | L | 1 (Gun Game ladder) |
 | 3 | ✅ Second map: Snowy Compound (software acceptance; physical checks pending) | L | 2 (per-map spawns) |
-| 4 | 🔄 Survival climax + wave objectives (objective framework done; extraction pending) | M | 3 (per-map points) |
+| 4 | ✅ Survival climax + wave objectives (software acceptance; physical checks pending) | M | 3 (per-map points) |
 | 5 | Feel & AI: audio, warnings, cover, weather | M | — |
 | 6 | Retention: unlocks + daily challenge | S | 1–4 |
 
@@ -217,17 +217,19 @@ kill-everything waves.
 - ✅ A completed objective pays bonus credits (900) and a free scorestreak into `streakBank`. Failure costs no
   run, only the bonus.
 - ✅ Objective markers rendered in the 3D scene, HUD status bar, and on the minimap. Objective state and completed counts saved in the checkpoint.
-- **Wave 15 — Extraction (pending next increment).** A helicopter is called in. You survive a 90 s surge with
+- ✅ **Wave 15 — Extraction (done in v180).** A helicopter is called in. You survive a 90 s surge with
   every archetype, then reach the LZ while it lands. The finale includes:
   - smoke markers
   - rotor wash on the particles
   - heavier music
   - a proper victory cinematic
-- Endless mode continues after extraction as before.
+- ✅ Endless mode continues after extraction as before.
 
-**Status:** SCOPE IMPLEMENTED IN PR12 (PENDING INDEPENDENT REVIEW & DELIVERY; extraction still incomplete). Objective waves framework, 4 objective types (Defend, Retrieve, Demolition, Hold), team-aware AI hostility against Defend generator, free scorestreak rewards, HUD/minimap markers, and full checkpoint persistence across live wave clear and resumeRun lifecycles are implemented and verified locally with unit and match lifecycle regressions. Wave 15 Extraction finale remains incomplete.
+**Status:** SOFTWARE ACCEPTANCE & SCOPE COMPLETE (v180; pending independent review & PR gates). Objective waves framework (Hold, Defend, Retrieve, Demolition) and Wave 15 Extraction finale (90 s surge across all 5 archetypes, helicopter LZ landing, smoke markers, particle rotor wash, heavier music intensity, victory cinematic, and browser probe forcing) are implemented and verified locally with unit and integration regressions.
 
-**Next dependency:** Milestone 4 increment 2 — Wave 15 Extraction finale (90 s surge, extraction LZ arrival, smoke markers, rotor wash particles, victory cinematic, and browser acceptance probe coverage) remains incomplete.
+**Next dependency:** Milestone 5 — Feel & AI (cover points generated from colliders at nav-build time, weather and time of day per match).
+
+**Evidence gaps:** Physical-device balance and audio playtesting (Android touch controls, mobile speaker balance, and hardware-GPU frame rates on Lenovo LOQ) remain unverified.
 
 **Done when:** core tests cover the objective schedule and its rules. The probe can
 force an objective wave and the extraction.

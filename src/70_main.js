@@ -124,6 +124,8 @@ function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
   objectivesCompleted = 0;
+  if (typeof clearExtractionVisuals === 'function') clearExtractionVisuals();
+  if (typeof player !== 'undefined' && player) player.invulnerable = false;
   // never reset into a paused state
   paused = false;
   if (typeof document !== 'undefined') {
@@ -1348,7 +1350,8 @@ function frame(now) {
     const isSettled = (typeof matchSettled === 'function')
       ? matchSettled()
       : ((typeof gameEnded !== 'undefined' && gameEnded) || (!!(activeMode && activeMode.id && activeMode.id !== 'survival') && typeof activeMode.isOver === 'function' && activeMode.isOver()));
-    if (!isSettled) {
+    const extractionCinematic = typeof extraction !== 'undefined' && extraction && extraction.phase === 'cinematic';
+    if (!isSettled && !extractionCinematic) {
       updatePlayer(dt);
       updateWeapons(dt);
       updateEnemies(dt);
@@ -1356,7 +1359,7 @@ function frame(now) {
     if (activeMode && typeof activeMode.update === 'function') activeMode.update(dt);
     else updateWaves(dt);
     updateVfx(dt);
-    if (!isSettled) {
+    if (!isSettled && !extractionCinematic && !(typeof gameEnded !== 'undefined' && gameEnded) && !(typeof extraction !== 'undefined' && extraction && extraction.phase === 'cinematic')) {
       updateGrenades(dt);
       updatePickups(dt);
       updateAmmoRelief(dt);
@@ -1377,6 +1380,7 @@ function frame(now) {
     _musicState.aliveEnemies = _combatEvalOut.aliveCount;
     _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
     _musicState.health = player.health;
+    _musicState.isExtraction = (typeof extraction !== 'undefined' && extraction && extraction.active);
     updateMusic(dt, _musicState);
     updateHitArcs();
     updateGrenadeWarnings();

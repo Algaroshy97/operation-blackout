@@ -48,7 +48,7 @@ addEventListener('blur', clearInputState);
 document.addEventListener('visibilitychange', function () { if (document.hidden) clearInputState(); });
 addEventListener('contextmenu', function (e) { e.preventDefault(); });
 canvas.addEventListener('wheel', function (e) {
-  if (started && !paused && !player.dead && !player.downed) cycleWeapon(e.deltaY > 0 ? 1 : -1);
+  if (started && !paused && !player.dead && !player.downed && !(typeof extraction !== 'undefined' && extraction && extraction.phase === 'cinematic')) cycleWeapon(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
 
 document.addEventListener('pointerlockchange', function () {
@@ -456,6 +456,7 @@ function updatePlayer(dt) {
 function damagePlayer(amount, dirDeg, damageType, attacker) {
   if (player.dead || godMode) return;
   if (player.spawnProtectionT > 0) return;
+  if (player.invulnerable || (typeof runPhase !== 'undefined' && runPhase === 'cinematic')) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const isSettled = (typeof matchSettled === 'function')
     ? matchSettled()

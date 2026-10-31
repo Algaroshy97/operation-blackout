@@ -1898,11 +1898,19 @@ function createFullMatchContext(overrides = {}) {
           classList: { add: noop, remove: noop, contains: () => false },
           querySelector: () => null,
           querySelectorAll: () => [],
-          addEventListener: noop,
+          _listeners: {},
+          addEventListener: function (type, fn) {
+            (this._listeners[type] = this._listeners[type] || []).push(fn);
+          },
           removeEventListener: noop,
           click: function () {
-            if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
-            if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+            const cbs = this._listeners['click'] || [];
+            if (cbs.length > 0) {
+              for (let i = 0; i < cbs.length; i++) cbs[i].call(this);
+            } else {
+              if (id === 'btn-match-restart' && typeof c.restartMatch === 'function') c.restartMatch();
+              if (id === 'btn-match-quit' && typeof c.quitMatchToMenu === 'function') c.quitMatchToMenu();
+            }
           },
           appendChild: function (child) {
             this.children = this.children || [];
@@ -2265,7 +2273,7 @@ function createFullMatchContext(overrides = {}) {
     gameEnded: false,
     pointerLocked: true,
     CFG: {
-      player: { height: 1.7, health: 100, armor: 50, maxStamina: 100, radius: 0.4 },
+      player: { height: 1.7, crouchHeight: 1.05, health: 100, armor: 50, maxStamina: 100, radius: 0.4 },
       score: { kill: 100, headshot: 50 },
       wave: { startDelay: 3 },
       ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
@@ -2294,7 +2302,7 @@ function createFullMatchContext(overrides = {}) {
     startIdx,
     wavesSrc.indexOf('function updateWaves(')
   );
-  vm.runInContext('let objective = null; let objectivesCompleted = 0;', c);
+  vm.runInContext('let objective = null; let objectivesCompleted = 0; var extraction = null;', c);
   vm.runInContext(objSlice, c);
   const mainSrc = source('70_main.js');
   const mainSlice = mainSrc.slice(0, mainSrc.indexOf('applyAllSettings();'));
@@ -5507,8 +5515,9 @@ test('fresh reset clears the previous run objective count', () => {
 
 function useProductionWaveLifecycle(c) {
   const src = source('60_hud_waves.js');
-  vm.runInContext(src.slice(src.indexOf('function updateWaves(dt)'), src.indexOf('// Zero ammo means zero kills')), c);
+  vm.runInContext(src.slice(src.indexOf('function settleClearedWave()'), src.indexOf('// Zero ammo means zero kills')), c);
   vm.runInContext(src.slice(src.indexOf('function startWave(n)'), src.indexOf('// Blackout drops')), c);
+  vm.runInContext(src.slice(src.indexOf('function spawnFromQueue()'), src.indexOf('function resupply()')), c);
   const settings = source('02_settings.js');
   const storage = new Map();
   c.STORE_KEY_SAVE = 'checkpoint';
@@ -5885,6 +5894,447 @@ test('milestone 4 PR12: integration regressions for objective checkpoint round-t
   assert.ok(validatedCorrupt);
   assert.strictEqual(validatedCorrupt.objectiveState, null, 'unknown objective type must be rejected to null');
 });
+
+for (const [index, entry] of CORE.ENEMY_KIND_UNLOCK.entries()) {
+  test(`PR13 R5 production spawn queue creates ${entry.name} in surge and normal waves`, () => {
+    const c = useProductionWaveLifecycle(createFullMatchContext());
+    c.startWave(15);
+    // A special wave must not override the surge roster.
+    c.waveSpecial = { kinds: [0] };
+    c.Math.random = () => (index + 0.5) / CORE.ENEMY_KIND_UNLOCK.length;
+    c.spawnFromQueue();
+    let enemy = c.enemies[c.enemies.length - 1];
+    assert.equal(enemy.kind, entry.kind, `surge must create ${entry.name}`);
+    assert.equal(enemy.hitBody.userData.enemyRef, enemy, 'production spawnEnemy initializes hitboxes');
+    assert.ok(Number.isFinite(enemy.health) && enemy.health > 0);
+
+    c.extraction = null;
+    c.waveSpecial = null;
+    const roster = CORE.enemyKindsAtWave(15);
+    const total = roster.reduce((sum, e) => sum + e.weight, 0);
+    const before = roster.slice(0, index).reduce((sum, e) => sum + e.weight, 0);
+    c.Math.random = () => (before + entry.weight / 2) / total;
+    c.spawnFromQueue();
+    enemy = c.enemies[c.enemies.length - 1];
+    assert.equal(enemy.kind, entry.kind, `normal wave must create ${entry.name}`);
+    assert.equal(enemy.hitBody.userData.enemyRef, enemy);
+    assert.ok(Number.isFinite(enemy.health) && enemy.health > 0);
+  });
+}
+
+test('milestone 4: Survival Wave 15 extraction finale lifecycle with surge, all archetypes, LZ arrival, rotor wash, and victory cinematic', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.streakBank = [];
+  c.credits = 0;
+  c.score = 0;
+  c.lastCenterMsg = null;
+  c.showCenterMsg = function(m) { c.lastCenterMsg = m; };
+
+  // 1. Wave 15 triggers Extraction protocol
+  c.startWave(15);
+  assert.ok(c.extraction, 'Wave 15 in survival must initialize extraction');
+  assert.strictEqual(c.extraction.phase, 'surge', 'initial extraction phase must be surge');
+  assert.strictEqual(c.extraction.surgeTimer, CORE.EXTRACTION_SURGE_TIME, 'surgeTimer must start at 90s');
+  assert.ok(c.extraction.lz, 'extraction must define LZ location');
+  assert.strictEqual(typeof c.extraction.lz.x, 'number');
+  assert.strictEqual(typeof c.extraction.lz.z, 'number');
+  assert.ok(c.extraction.helicopter, 'helicopter mesh must be created');
+  assert.ok(c.extraction.smokeMarker, 'LZ smoke marker must be created');
+
+  // 2. Surge spawns draw across the production roster.
+  const kindsSpawned = new Set();
+  const roster = CORE.ENEMY_KIND_UNLOCK;
+  for (let i = 0; i < roster.length; i++) {
+    c.Math.random = () => (i + 0.5) / roster.length;
+    c.spawnFromQueue();
+    const lastSpawned = c.enemies[c.enemies.length - 1];
+    if (lastSpawned) kindsSpawned.add(lastSpawned.kind);
+  }
+  for (const entry of roster) {
+    assert.ok(kindsSpawned.has(entry.kind), 'surge must spawn ' + entry.name + ' (' + entry.kind + ')');
+  }
+
+  // 3. 90s surge countdown in updateWaves
+  c.updateWaves(45.0);
+  assert.strictEqual(c.extraction.phase, 'surge');
+  assert.strictEqual(c.extraction.surgeTimer, 45.0);
+
+  // Complete surge
+  c.updateWaves(45.1);
+  assert.strictEqual(c.extraction.phase, 'lz', 'surge completion must transition to lz phase');
+  // Helicopter descends to ground level
+  c.updateWaves(5.0);
+  assert.ok(c.extraction.helicopter.position.y <= 1.5, 'helicopter must land at LZ');
+
+  // 4. Player reaches LZ
+  c.player.pos.set(c.extraction.lz.x + 2.0, 0, c.extraction.lz.z + 2.0); // within 5m
+  c.updateWaves(0.1);
+  assert.strictEqual(c.extraction.phase, 'cinematic', 'player reaching LZ must transition to cinematic phase');
+  assert.strictEqual(c.player.invulnerable, true, 'player must be invulnerable during extraction cinematic');
+
+  // 5. Cinematic advances and triggers victory
+  c.updateWaves(1.5);
+  assert.strictEqual(c.gameEnded, false, 'cinematic still playing at 1.5s');
+  c.updateWaves(1.6);
+  assert.strictEqual(c.gameEnded, true, 'cinematic completing must end game with victory');
+  assert.strictEqual(c.extraction, null, 'extraction state cleared after victory');
+
+  // 6. Checkpoint records settled victory
+  const cp = c.loadCheckpoint();
+  assert.ok(cp, 'victory must save checkpoint');
+  assert.strictEqual(cp.runPhase, 'victory');
+
+  // 7. Clicking endless mode transitions into endless wave 16
+  c.document.getElementById('btn-endless').click();
+  assert.strictEqual(c.endlessMode, true, 'endlessMode must be true after clicking endless button');
+});
+
+function extractionReviewContext() {
+  const c = createFullMatchContext();
+  const revive = c.reviveFromDown;
+  useProductionWaveLifecycle(c);
+  c.reviveFromDown = revive;
+  const waves = source('60_hud_waves.js');
+  vm.runInContext(waves.slice(waves.indexOf('function resupply()'), waves.indexOf('// ---- Secondary weapon unlock')), c);
+  c.CFG.grenade.count = 3;
+  c.CFG.grenade.countPerWaves = 1;
+  c.wState[1] = null;
+  c.Math.random = () => 0.5;
+  c.startWave(15);
+  return c;
+}
+
+test('PR13 R4 production minimap tracks extraction direction throughout lifecycle and clears it', () => {
+  for (const end of ['restart', 'reset', 'victory']) {
+    const c = extractionReviewContext(), calls = [];
+    const ctx = new Proxy({}, { get(target, key) {
+      return key in target ? target[key] : (...args) => calls.push([key, ...args]);
+    } });
+    c.hud.minimap = { getContext: () => ctx };
+    c.hud.compass = { getContext: () => ctx };
+    c.document.createElement = () => ({ getContext: () => ctx });
+    c.uavActive = () => false;
+    c.getSetting = () => false;
+    c.CFG.world = { size: 90 };
+    c.stations = []; c.enemies = [];
+    c.colliders = [{min: {x: -100, y: 0, z: -10}, max: {x: 0, y: 20, z: 10}}];
+    c.extraction.smokeMarker.visible = false;
+    const waves = source('60_hud_waves.js');
+    vm.runInContext(waves.slice(waves.indexOf('const mmCtx =')), c);
+    const marker = () => {
+      calls.length = 0; c.drawMinimap();
+      return calls.filter(call => call[0] === 'fillText' && call[1] === 'LZ');
+    };
+    c.player.pos.set(c.extraction.lz.x - 200, 1.7, c.extraction.lz.z);
+    c.player.yaw = 0;
+    let m = marker();
+    assert.equal(m.length, 1, 'surge must show a labelled LZ even beyond minimap range');
+    assert.ok(m[0][2] > 75 && Math.hypot(m[0][2] - 75, m[0][3] - 75) < 72, 'distant LZ is clamped inside the map in the correct direction');
+    c.player.yaw = Math.PI / 2;
+    m = marker();
+    assert.ok(m[0][3] > 75 && Math.abs(m[0][2] - 75) < 0.01, 'marker rotates with the map');
+    c.updateWaves(90);
+    assert.equal(c.extraction.phase, 'lz');
+    assert.equal(marker().length, 1, 'LZ remains visible during landing');
+    c.player.pos.set(c.extraction.lz.x + 10, 1.7, c.extraction.lz.z);
+    c.player.yaw = 0;
+    m = marker();
+    assert.ok(Math.abs(m[0][2] - (75 - 10 * CORE.minimapScale(75, 90, 8))) < 0.01 && m[0][3] === 75, 'nearby LZ uses its actual relative position');
+    if (end === 'restart') {
+      c.startExtraction({x: 30, z: 10});
+      m = marker();
+      assert.equal(m.length, 1, 'replacement has one marker');
+      assert.ok(m[0][2] > 75 && m[0][3] > 75, 'replacement follows the new LZ');
+      c.clearExtractionVisuals();
+    } else if (end === 'reset') {
+      c.resetGame();
+    } else {
+      c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+      c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+      assert.equal(c.extraction.phase, 'cinematic');
+      c.updateWaves(3.1);
+    }
+    assert.equal(marker().length, 0, `${end} removes the marker`);
+    c.setActiveMode('tdm');
+    assert.equal(marker().length, 0, 'other modes have no extraction marker');
+  }
+});
+
+test('PR13 extraction waits for landing with player already at LZ', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.updateWaves(0.1);
+  assert.equal(c.extraction.phase, 'lz');
+  c.updateWaves(5);
+  assert.equal(c.extraction.phase, 'cinematic');
+});
+
+test('PR13 extraction HUD keeps precedence when hostile counts change', () => {
+  const c = extractionReviewContext();
+  c.CFG.wave.maxActive = 0;
+  c.updateWaves(1);
+  assert.equal(c.hud.enemiesLeft.textContent, CORE.extractionHudLabel('surge', 89));
+  c.updateWaves(89);
+  c.player.pos.set(c.extraction.lz.x + 20, 1.7, c.extraction.lz.z);
+  c.waveQueue += 1;
+  c.updateWaves(0.1);
+  assert.equal(c.hud.enemiesLeft.textContent, CORE.extractionHudLabel('lz', 0, 20));
+});
+
+test('PR13 extraction signal uses production particle emitter green colors', () => {
+  const c = extractionReviewContext();
+  c.THREE.Color = function () { this.setHex = function (hex) {
+    this.r = ((hex >> 16) & 255) / 255; this.g = ((hex >> 8) & 255) / 255; this.b = (hex & 255) / 255; return this;
+  }; };
+  const pfx = source('48_particles.js');
+  vm.runInContext('const PF_RISE = 4; const PFX_SMOKE = {cap: 1, cursor: 0, additive: false, pos: [], vel: [], c0: [], c1: [], life: [], maxLife: [], s0: [], s1: [], a0: [], drag: [], grav: [], flags: [], rot: [], rotV: [], size: [], alpha: []};' + pfx.slice(pfx.indexOf('const _pc ='), pfx.indexOf('function updatePfxLayer')), c);
+  c.player.pos.set(c.extraction.lz.x + 20, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.updateWaves(0.1);
+  const colors = vm.runInContext('[PFX_SMOKE.c0, PFX_SMOKE.c1]', c);
+  for (const color of colors) assert.ok(color[1] > color[0] && color[1] > color[2], 'signal smoke must be green');
+});
+
+test('PR13 downed extraction survives cinematic frame bleedout', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.extraction.helicopter.position.y = 1;
+  c.damagePlayer(10000, 0, 'bullet');
+  c.updateDowned(CORE.DOWN_TIME - 0.1);
+  c.updateWaves(0.2);
+  c.updateDowned(0.2);
+  assert.equal(c.player.dead, false);
+  assert.equal(c.player.downed, false);
+});
+
+test('PR13 direct endless continuation removes cinematic damage immunity', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90);
+  c.extraction.helicopter.position.y = 1;
+  c.updateWaves(0.1);
+  c.updateWaves(3.1);
+  c.document.getElementById('btn-endless').click();
+  c.player.armor = 0;
+  const health = c.player.health;
+  c.damagePlayer(10, 0, 'bullet');
+  assert.ok(c.player.health < health);
+});
+
+test('PR13 finale settles and both endless continuation paths take damage and start wave 16', () => {
+  for (const resume of [false, true]) {
+    const c = extractionReviewContext();
+    c.score = 0; c.credits = 0;
+    c.wState[0].reserve = 0;
+    c.player.armor = 0;
+    c.spawnFromQueue();
+    assert.ok(c.enemies.length);
+    c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+    c.updateWaves(90);
+    c.extraction.helicopter.position.y = 1;
+    c.updateWaves(0.1);
+    c.updateWaves(3.1);
+    assert.equal(c.score, CORE.waveClearScore(c.CFG.score.waveClear, 15, CORE.WAVE_SCORE_PER_WAVE));
+    assert.equal(c.credits, CORE.creditsForWave(15));
+    assert.equal(c.player.armor, c.CFG.player.armor);
+    assert.ok(c.wState[0].reserve > 0, 'wave clear resupplies ammunition');
+    assert.equal(c.enemies.length, 0);
+    const cp = c.loadCheckpoint();
+    assert.equal(cp.score, c.score);
+    assert.equal(cp.credits, c.credits);
+    assert.equal(cp.weapons[0].reserve, c.wState[0].reserve);
+    if (resume) c.resumeRun();
+    c.document.getElementById('btn-endless').click();
+    c.player.armor = 0;
+    const health = c.player.health;
+    c.damagePlayer(10, 0, 'bullet');
+    assert.ok(c.player.health < health, 'endless player must take damage');
+    c.updateWaves(c.CFG.wave.startDelay + 0.1);
+    assert.equal(c.waveNum, 16);
+    assert.equal(c.waveActive, true);
+  }
+});
+
+for (const continuation of ['direct', 'resumed', 'reset']) {
+  test(`PR13 R3 real ordnance and effects are settled on ${continuation}`, () => {
+    const c = extractionReviewContext();
+    loadGrenadeLifecycle(c);
+    const objects = new Set();
+    c.scene.add = o => objects.add(o);
+    c.scene.remove = o => objects.delete(o);
+    c.THREE.RingGeometry = Geometry;
+    c.THREE.SphereGeometry = Geometry;
+    c.THREE.MeshBasicMaterial = Material;
+    c.THREE.Mesh = class extends Mesh {
+      constructor(...args) { super(...args); this.scale.setScalar = s => this.scale.set(s, s, s); }
+    };
+    const src = source('55_grenades.js');
+    const range = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
+    vm.runInContext(range('const blastRingGeo', '// ---- Live grenade pooling'), c);
+    vm.runInContext(range('const burnPatches', '// ---- Blast scorch decals'), c);
+    c.clearScorches = noop; c.updateScorches = noop;
+    c._burnHitPoint = new Vector3();
+    vm.runInContext(range('let playerFlashT = 0', 'const grenadeLosRay'), c);
+    const burn = CORE.equipmentByKey('thermite');
+    const smoke = CORE.equipmentByKey('smoke');
+    c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+    c.updateWaves(90); c.extraction.helicopter.position.y = 1;
+    const enemy = {team: 'enemy', pos: new Vector3(c.player.pos.x, 0, c.player.pos.z), dead: false};
+    c.CFG.grenade.fuse = 3;
+    c.throwEnemyGrenade(enemy, c.player);
+    const g = c.liveGrenades[0], mesh = g.m;
+    g.fuse = 0.01; g.stuck = true;
+    g.ring = c.getBlastRing(); c.scene.add(g.ring);
+    const ring = g.ring;
+    c.addBurnPatch(c.player.pos.x, c.player.pos.z, burn);
+    c.addSmokeCloud(c.player.pos.x, 1, c.player.pos.z, smoke);
+    const burnMesh = vm.runInContext('burnPatches[0].m', c);
+    const smokeMesh = vm.runInContext('smokeClouds[0].m', c);
+    c.equippedLethal = 'thermite'; c.equippedTactical = 'smoke'; c.tacticalCount = 1;
+    if (continuation === 'reset') c.resetGame();
+    else {
+      c.updateWaves(0.1);
+      assert.equal(c.extraction.phase, 'cinematic');
+      assert.equal(c.liveGrenades.length, 0, 'ordnance is cleared at boarding');
+      assert.equal(vm.runInContext('burnPatches.length + smokeClouds.length', c), 0, 'effects are cleared at boarding');
+      assert.equal(c.equippedLethal, 'thermite');
+      assert.equal(c.equippedTactical, 'smoke');
+      assert.equal(c.tacticalCount, 1);
+      c.updateWaves(3.1);
+      if (continuation === 'resumed') c.resumeRun();
+      c.document.getElementById('btn-endless').click();
+    }
+    assert.equal(c.liveGrenades.length, 0, 'no frozen hostile grenade');
+    assert.equal(vm.runInContext('burnPatches.length + smokeClouds.length', c), 0, 'no frozen ground effects');
+    for (const o of [mesh, ring, burnMesh, smokeMesh]) assert.equal(objects.has(o), false, 'owned mesh removed');
+    assert.equal(g.owner, null, 'pooled record releases owner');
+    c.testGrenade = g;
+    assert.equal(vm.runInContext('_grenadePool.filter(x => x === testGrenade).length', c), 1);
+    c.testRing = ring; c.testBurn = burnMesh; c.testSmoke = smokeMesh;
+    assert.equal(vm.runInContext('blastRingPool.filter(x => x === testRing).length', c), 1);
+    assert.equal(vm.runInContext('burnPatchPool.filter(x => x === testBurn).length', c), 1);
+    assert.equal(vm.runInContext('smokeCloudPool.filter(x => x === testSmoke).length', c), 1);
+    c.player.armor = 0;
+    const health = c.player.health;
+    c.updateGrenades(0.1);
+    assert.equal(c.player.health, health, 'old grenade cannot explode after continuation');
+  });
+}
+
+test('PR13 R2 landing footprint clears both production arenas and scattered props', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = extractionReviewContext();
+    c.activeMapId = map; c.startExtraction();
+    const {x, z} = c.extraction.lz;
+    const boxes = [];
+    const addCollider = (x, y, z, w, h, d) => boxes.push({min: {x:x-w/2,y:y-h/2,z:z-d/2}, max: {x:x+w/2,y:y+h/2,z:z+d/2}});
+    class Geo { clone() { return new Geo(); } applyMatrix4() {} }
+    class Matrix { compose() {} }
+    class Quat { setFromEuler() { return this; } }
+    class Prop { constructor() { this.position = new Vector3(); this.rotation = {}; this.scale = {setScalar: noop}; } traverse() {} }
+    const world = vm.createContext({CORE, CFG: {world: {size: 90}}, MAT: new Proxy({}, {get: () => ({})}),
+      THREE: {Mesh, PlaneGeometry: Geo, CylinderGeometry: Geo, Matrix4: Matrix, Quaternion: Quat, Euler: Vector3, Vector3, MeshStandardMaterial: Material},
+      addBox: (x,y,z,w,h,d,mat,opts) => { if (!opts || !opts.noCollide) addCollider(x,y,z,w,h,d); }, addCollider,
+      withSkyEnv: m => m, queueStatic: noop, districtSignAccentMat: {}, scene: {add: noop}, raycastColliders: [],
+      GLB_PARSED: {}, graphicsAtBoot: () => ({sceneryDetailed: false}), IS_TOUCH: false, makeMobileProp: () => new Prop(),
+      colliders: boxes, batchScatteredProps: noop, rebuildNavGrid: noop, rebuildWorldRayGrid: noop});
+    const src = source('10_config_world.js');
+    vm.runInContext(src.slice(src.indexOf('function buildUrbanArena()'), src.indexOf('// ---- Map Registry ----')), world);
+    vm.runInContext(src.slice(src.indexOf('function scatterProps()'), src.indexOf('\n}', src.indexOf('// 48 GLB clones')) + 2), world);
+    world[map === 'urban' ? 'buildUrbanArena' : 'buildSnowyArena']();
+    world.scatterProps();
+    const blocked = boxes.filter(b => b.max.y > 0.05 && b.min.y < 38 &&
+      b.max.x > x - 3.75 && b.min.x < x + 3.75 && b.max.z > z - 6 && b.min.z < z + 3.75);
+    assert.equal(blocked.length, 0, `${map} helicopter footprint intersects map collision`);
+    const nav = CORE.buildNavGrid(boxes, {cell: 1, halfExtent: 45});
+    CORE.computeFlowField(nav, x, z);
+    const spawn = CORE.getMapDef(map).playerSpawn;
+    assert.notEqual(nav.dist[CORE.worldToCell(nav, spawn.x, spawn.z)], CORE.UNREACHABLE, `${map} LZ reachable from spawn`);
+  }
+});
+
+test('PR13 R2 boarding requires ground level and carries player with helicopter', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = extractionReviewContext();
+    c.activeMapId = map; c.startExtraction();
+    c.updateWaves(90); c.extraction.helicopter.position.y = 1;
+    c.player.pos.set(c.extraction.lz.x, 6, c.extraction.lz.z);
+    c.updateWaves(0.1);
+    assert.equal(c.extraction.phase, 'lz', `${map} upper floor cannot board`);
+    c.player.pos.y = 1.7; c.updateWaves(0.1);
+    assert.equal(c.extraction.phase, 'cinematic');
+    const y = c.player.pos.y, hy = c.extraction.helicopter.position.y;
+    c.updateWaves(0.5);
+    assert.equal(c.player.pos.y - y, c.extraction.helicopter.position.y - hy, 'player ascends with helicopter');
+  }
+});
+
+test('PR13 R2 resources dispose once on restart, death reset, and victory without shared metal', () => {
+  for (const end of ['restart', 'death reset', 'victory']) {
+    const c = extractionReviewContext();
+    const shared = c.MAT.metal = new Material(); let sharedCount = 0;
+    shared.dispose = () => sharedCount++;
+    c.startExtraction();
+    const resources = new Set();
+    for (const root of [c.extraction.helicopter, c.extraction.lzRing, c.extraction.smokeMarker]) {
+      root.traverse(o => { if (o.geometry) resources.add(o.geometry); if (o.material && o.material !== shared && o.geometry) resources.add(o.material); });
+    }
+    const counts = new Map();
+    for (const r of resources) r.dispose = () => counts.set(r, (counts.get(r) || 0) + 1);
+    if (end === 'restart') c.startExtraction();
+    else if (end === 'death reset') { c.killPlayer(); c.resetGame(); }
+    else { c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z); c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1); c.updateWaves(3.1); }
+    for (const r of resources) assert.equal(counts.get(r), 1, `${end} must dispose each owned resource once`);
+    assert.equal(sharedCount, 0, 'shared map material must survive');
+  }
+});
+
+test('PR13 R2 cinematic frame gates movement weapons enemies and combat systems', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+  const calls = [];
+  for (const name of ['updatePlayer', 'updateWeapons', 'updateEnemies', 'updateGrenades', 'updatePickups', 'updateAmmoRelief', 'updateStations', 'updateDowned', 'updateStreaks']) c[name] = () => calls.push(name);
+  Object.assign(c, {started: true, paused: false, gameT: 0, fireClockT: 0, wallDt: 0.016, dt: 0.016, FIRE_CLOCK_MAX_STEP: 1, SKY_UNIFORMS: {time: {value: 0}}, updateSway: noop, updateVfx: noop, getActiveMode: () => ({id: 'survival', update: noop}), matchSettled: () => false});
+  const main = source('70_main.js');
+  const start = main.indexOf('  if (started && !paused) {', main.indexOf('function frame(now)'));
+  const end = main.indexOf('    updateRagdolls(dt);', start);
+  vm.runInContext(main.slice(start, end) + '\n}', c);
+  assert.deepEqual(calls, [], 'cinematic must not advance gameplay or combat');
+});
+
+test('PR13 R2 fallback helicopter material is disposed over repeated reset cycles', () => {
+  const c = extractionReviewContext();
+  delete c.MAT.metal;
+  for (let i = 0; i < 3; i++) {
+    c.startExtraction();
+    const material = c.extraction.helicopter.children[0].material;
+    let disposed = 0; material.dispose = () => disposed++;
+    c.resetGame();
+    c.clearExtractionVisuals();
+    assert.equal(disposed, 1);
+  }
+});
+
+test('PR13 R2 queued airstrike cannot detonate during cinematic or after victory', () => {
+  const c = extractionReviewContext(), pending = [];
+  c.started = true;
+  c.setTimeout = fn => pending.push(fn);
+  let blasts = 0; c.explodeGrenade = () => blasts++;
+  const src = source('58_streaks.js');
+  vm.runInContext(src.slice(src.indexOf('const _airstrikeCoordOut'), src.indexOf('// ---- Sentry gun')), c);
+  c.callAirstrike();
+  assert.ok(pending.length);
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+  pending.shift()();
+  c.updateWaves(3.1);
+  for (const fn of pending) fn();
+  assert.equal(blasts, 0, 'queued combat must not continue during or after extraction');
+});
+
 
 
 

@@ -4,6 +4,35 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## PR13 extraction review repairs
+
+- Select surge enemies from the production roster, including grenadiers and breachers; exercise every roster kind through the production spawn queue and enemy creation in surge and normal waves.
+- Show a persistent labelled LZ on the rotating minimap, clamped to its edge when distant and independent of smoke and world occlusion; remove it with extraction state.
+- Settle live grenades and equipment ground effects at boarding, returning their meshes and records to their pools without resetting the player's equipment; cover direct, checkpoint-resumed and reset lifecycles.
+- Move the LZ to an open approach on both maps, require ground-level boarding, and carry the player with the helicopter while gameplay and touch/weapon-swap input are gated. Return the player to ground for endless continuation.
+- Dispose extraction-owned geometries and materials on replacement, reset and victory without disposing shared map metal; add lifecycle, navigation, boarding and input regressions.
+- Wait for the helicopter to land before boarding, revive a downed player on boarding, and end cinematic invulnerability at victory.
+- Settle the finale with the normal wave-clear rewards and resupply, remove remaining enemies before saving victory, and preserve extraction HUD priority. Use supported hexadecimal particle colors for the green signal.
+- Add deterministic archetype and extraction lifecycle regressions for landing, bleed-out, particle emission, HUD, checkpoint continuation, damage and wave 16.
+
+## v180 — Milestone 4: Wave 15 Survival Extraction finale, 90s surge with all archetypes, helicopter LZ landing, smoke markers, particle rotor wash, and victory cinematic
+
+- **Wave 15 Extraction finale lifecycle (`src/01_core.js`, `src/60_hud_waves.js`, `src/20_player.js`, `src/70_main.js`, `src/50_vfx_audio.js`, `src/48_particles.js`).**
+  - Added pure extraction rules, constants and calculations in `src/01_core.js`: `EXTRACTION_WAVE` (15), `EXTRACTION_SURGE_TIME` (90 s), `EXTRACTION_LZ_RADIUS` (5.0 m), `EXTRACTION_CINEMATIC_DURATION` (3.0 s), `EXTRACTION_ROTOR_WASH_RADIUS` (16.0 m), `EXTRACTION_ROTOR_WASH_FORCE` (8.0), `isExtractionWave(waveNum, endlessMode)`, `extractionSurgeProgress(remaining, total)`, `pickExtractionSurgeKind(roll)`, `isPlayerInsideLz(px, pz, lzX, lzZ, radius)`, `rotorWashImpulse(px, pz, lzX, lzZ, maxR, force)`, `extractionCinematicStep(timer, dt, duration)`, and `extractionHudLabel(phase, surgeTimer, dist)`.
+  - Implemented 90 s extraction surge in `src/60_hud_waves.js`: at wave 15, extraction activates with countdown clock; hostiles spawned during the surge draw across the production roster; spawn pressure keeps queue replenished until the surge finishes. The original five-kind selection was corrected in the PR13 review repairs above.
+  - Implemented LZ arrival and procedural helicopter landing in `src/60_hud_waves.js`: green extraction LZ landing ring, signal smoke cannister mesh, and procedural helicopter model descending from altitude to ground level with rotating main/tail rotors.
+  - Implemented green signal smoke markers and particle rotor wash in `src/48_particles.js`: outward particle impulse applied to `PFX_SMOKE` particles within 16 m of the helicopter, and green signal smoke plumes emitted at the LZ cannister.
+  - Implemented heavier soundtrack layer activation in `src/50_vfx_audio.js` and `src/70_main.js`: during extraction, combat intensity returns 0.95 driving full drums, horns, and bass.
+  - Implemented victory cinematic in `src/60_hud_waves.js` and `src/20_player.js`: player reaching within 5 m of LZ initiates 3.0 s extraction cinematic with player invulnerability, helicopter ascent, HUD status, followed by authoritative `victory()`, settled checkpoint save, and seamless endless mode continuation on Wave 16 upon player selection.
+  - Probe forcing support: `startObjective(15, 'extraction')` forces the extraction lifecycle, and `startObjective(n, type)` forces objective waves.
+- **Verification & release build.**
+  - 622/622 Node tests passing across all test suites (`tests/*.js`): 433 in `test_core.js`, 105 in `test_modes_and_teams.js`, and 84 in other suites.
+  - 15/15 release build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - 5/5 probe matrix contract tests passing (`python3 -m unittest tests.test_probe_matrix`).
+  - Added unit regressions in `tests/test_core.js` and full production integration regression in `tests/test_modes_and_teams.js`.
+  - Added browser acceptance check `force-objective-wave-and-extraction` in `scripts/probe_live.py`.
+  - Rebuilt self-contained single-file release artifact `dist/Operation Blackout.html`: 2,086,313 bytes (10,839 bytes below the 2 MiB ceiling).
+
 ## Objective wave-clear and grenade recovery
 
 - Mark incomplete wave objectives failed before the between-wave checkpoint, reset the completion counter for a fresh run, and apply hostile grenade blast damage to the Defend generator with radius and cover checks.

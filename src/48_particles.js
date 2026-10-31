@@ -154,9 +154,30 @@ function updatePfxLayer(L, dt) {
     a.position.needsUpdate = true; a.color.needsUpdate = true; a.alpha.needsUpdate = true; a.size.needsUpdate = true; a.rot.needsUpdate = true;
   }
 }
+function updateRotorWash(dt) {
+  if (dt <= 0 || typeof extraction === 'undefined' || !extraction || (extraction.phase !== 'lz' && extraction.phase !== 'cinematic')) return;
+  if (typeof CORE === 'undefined' || !CORE.rotorWashImpulse) return;
+  const L = _PFX_LAYERS[1];
+  if (!L || !L.alive) return;
+  const maxR = CORE.EXTRACTION_ROTOR_WASH_RADIUS;
+  const force = CORE.EXTRACTION_ROTOR_WASH_FORCE;
+  const hx = extraction.lz.x, hz = extraction.lz.z;
+  for (let i = 0; i < L.cap; i++) {
+    if (L.life[i] <= 0) continue;
+    const i3 = i * 3;
+    const px = L.pos[i3], pz = L.pos[i3 + 2];
+    const imp = CORE.rotorWashImpulse(px, pz, hx, hz, maxR, force);
+    if (imp.vx !== 0 || imp.vz !== 0) {
+      L.vel[i3] += imp.vx * dt * 5;
+      L.vel[i3 + 2] += imp.vz * dt * 5;
+    }
+  }
+}
+
 function updateParticles(dt) {
   updateWeatherParticles(dt);
   updateBreathMist(dt);
+  updateRotorWash(dt);
   const h = renderer.getDrawingBufferSize(_pfxBuf).y;
   const scale = CORE.particlePerspectiveScale(h, camera.fov);
   for (let i = 0; i < _PFX_LAYERS.length; i++) {

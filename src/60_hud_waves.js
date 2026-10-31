@@ -600,7 +600,11 @@ function startWave(n) {
   waveBehaviours = CORE.behavioursAtWave(n);
   waveSpecial = CORE.specialWaveAt(n);
   applySpecialLighting(waveSpecial);
-  startObjective(n);
+  if (typeof CORE !== 'undefined' && typeof CORE.isExtractionWave === 'function' && CORE.isExtractionWave(n, endlessMode)) {
+    startExtraction();
+  } else {
+    startObjective(n);
+  }
   waveQueue = CORE.waveQueueSize(n, CFG.wave.baseCount, CFG.wave.growth,
     CFG.wave.victoryWave, diff().count, waveSpecial);
   if (waveSpecial) {
@@ -679,6 +683,93 @@ function clearObjective() {
   clearObjectiveVisuals();
 }
 
+var extraction = null;
+
+function clearExtractionVisuals() {
+  if (!extraction) return;
+  if (extraction.helicopter && typeof scene !== 'undefined' && scene && scene.remove) {
+    scene.remove(extraction.helicopter);
+  }
+  if (extraction.smokeMarker && typeof scene !== 'undefined' && scene && scene.remove) {
+    scene.remove(extraction.smokeMarker);
+  }
+  if (extraction.lzRing && typeof scene !== 'undefined' && scene && scene.remove) {
+    scene.remove(extraction.lzRing);
+  }
+  for (const resource of extraction.ownedResources) resource.dispose();
+  extraction = null;
+}
+
+function startExtraction(forcedSpot) {
+  clearObjective();
+  clearExtractionVisuals();
+  // Open approach west of the central building on both supported maps.
+  const spot = forcedSpot || { x: -15, z: -1 };
+
+  const heliGroup = new THREE.Group();
+  const heliMat = (typeof MAT !== 'undefined' && MAT && MAT.metal) ? MAT.metal : new THREE.MeshBasicMaterial({ color: 0x2e353b });
+  const rotorMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 5.0), heliMat);
+  body.position.y = 1.0;
+  heliGroup.add(body);
+
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 4.0), heliMat);
+  boom.position.set(0, 1.3, -4.0);
+  heliGroup.add(boom);
+
+  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.2), rotorMat);
+  tailRotor.position.set(0.35, 1.6, -5.8);
+  heliGroup.add(tailRotor);
+
+  const mainRotor = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.08, 0.4), rotorMat);
+  mainRotor.position.set(0, 2.1, 0);
+  heliGroup.add(mainRotor);
+
+  const skid1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 4.4), rotorMat);
+  skid1.position.set(-1.1, 0.06, 0);
+  const skid2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 4.4), rotorMat);
+  skid2.position.set(1.1, 0.06, 0);
+  heliGroup.add(skid1);
+  heliGroup.add(skid2);
+
+  heliGroup.position.set(spot.x, 35, spot.z);
+  heliGroup.userData = { mainRotor: mainRotor, tailRotor: tailRotor };
+  if (typeof scene !== 'undefined' && scene && scene.add) scene.add(heliGroup);
+
+  const lzRingGeo = new THREE.RingGeometry(CORE.EXTRACTION_LZ_RADIUS - 0.25, CORE.EXTRACTION_LZ_RADIUS, 48);
+  const lzRingMat = new THREE.MeshBasicMaterial({ color: 0x38e078, transparent: true, opacity: 0.65, side: THREE.DoubleSide });
+  const lzRing = new THREE.Mesh(lzRingGeo, lzRingMat);
+  lzRing.rotation.x = -Math.PI / 2;
+  lzRing.position.set(spot.x, 0.05, spot.z);
+  if (typeof scene !== 'undefined' && scene && scene.add) scene.add(lzRing);
+
+  const markerGeo = new THREE.CylinderGeometry(0.15, 0.18, 0.45, 12);
+  const markerMat = new THREE.MeshBasicMaterial({ color: 0x38e078 });
+  const smokeMarker = new THREE.Mesh(markerGeo, markerMat);
+  smokeMarker.position.set(spot.x, 0.22, spot.z);
+  if (typeof scene !== 'undefined' && scene && scene.add) scene.add(smokeMarker);
+
+  extraction = {
+    active: true,
+    phase: 'surge',
+    surgeTimer: CORE.EXTRACTION_SURGE_TIME,
+    lz: spot,
+    helicopter: heliGroup,
+    lzRing: lzRing,
+    smokeMarker: smokeMarker,
+    cinematicTimer: 0,
+    ownedResources: [body.geometry, boom.geometry, tailRotor.geometry, mainRotor.geometry,
+      skid1.geometry, skid2.geometry, rotorMat, lzRingGeo, lzRingMat, markerGeo, markerMat]
+  };
+  if (heliMat !== (typeof MAT !== 'undefined' && MAT && MAT.metal)) extraction.ownedResources.push(heliMat);
+
+  setTimeout(function () {
+    if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION PROTOCOL ACTIVATED');
+    if (typeof pushKillfeed === 'function') pushKillfeed('<span class="xp">EXTRACTION PROTOCOL</span> — SURVIVE 90S FOR HELICOPTER EVAC');
+  }, 500);
+}
+
 function completeObjective(label) {
   if (!objective || objective.done || objective.rewarded) return;
   objective.done = true;
@@ -703,6 +794,10 @@ function onObjectiveTargetDestroyed(target, attacker) {
 
 function startObjective(n, forcedType) {
   clearObjective();
+  if (forcedType === 'extraction') {
+    startExtraction();
+    return;
+  }
   const type = forcedType || ((typeof CORE !== 'undefined' && typeof CORE.objectiveTypeAtWave === 'function')
     ? CORE.objectiveTypeAtWave(n)
     : (CORE.objectiveWaveAt(n) ? 'hold' : null));
@@ -1070,12 +1165,104 @@ function updateObjective(dt) {
   }
 }
 
+function settleClearedWave() {
+  waveActive = false;
+  betweenWaveT = 4;
+  addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
+  addCredits(CORE.creditsForWave(waveNum));
+  if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
+    completeObjective('Generator defended');
+  }
+  if (objective && !objective.done) {
+    objective.failed = true;
+    objective.done = true;
+  }
+  reviveFromDown();
+  unlockSecondary();
+  resupply();
+}
+
 function updateWaves(dt) {
   updateObjective(dt);
   if (gameEnded || player.dead) return;
   const living = aliveEnemies();
+
+  if (typeof extraction !== 'undefined' && extraction) {
+    if (extraction.phase === 'surge') {
+      extraction.surgeTimer = Math.max(0, extraction.surgeTimer - dt);
+      if (waveActive && living < CFG.wave.maxActive) {
+        waveQueue = Math.max(waveQueue, 4);
+      }
+      if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+        hud.enemiesLeft.textContent = CORE.extractionHudLabel('surge', extraction.surgeTimer);
+      }
+      if (extraction.surgeTimer <= 0) {
+        extraction.phase = 'lz';
+        if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION HELICOPTER LANDING — REACH THE LZ!');
+        if (typeof pushKillfeed === 'function') pushKillfeed('<span class="xp">EXTRACTION LZ OPEN</span> — GET TO THE HELICOPTER');
+      }
+    } else if (extraction.phase === 'lz') {
+      if (extraction.helicopter) {
+        extraction.helicopter.position.y = Math.max(1.0, extraction.helicopter.position.y - dt * 8);
+        if (extraction.helicopter.userData && extraction.helicopter.userData.mainRotor) {
+          extraction.helicopter.userData.mainRotor.rotation.y += dt * 30;
+        }
+      }
+      const dist = Math.hypot(player.pos.x - extraction.lz.x, player.pos.z - extraction.lz.z);
+      if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+        hud.enemiesLeft.textContent = CORE.extractionHudLabel('lz', 0, dist);
+      }
+      if (typeof pfxEmit === 'function' && typeof PFX_SMOKE !== 'undefined') {
+        pfxEmit(PFX_SMOKE, extraction.lz.x, 0.3, extraction.lz.z, (Math.random()-0.5)*0.5, 2.0, (Math.random()-0.5)*0.5, 1.8, 0.4, 2.8, 0x40e059, 0x1a7333, 0.7, 0.8, -0.3, PF_RISE);
+      }
+      if (extraction.helicopter && extraction.helicopter.position.y <= 1.0 && Math.abs(player.pos.y - eyeHeight() - GROUND) <= 2 && CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
+        extraction.phase = 'cinematic';
+        extraction.cinematicTimer = 0;
+        runPhase = 'cinematic';
+        // Invalidate in-flight shots and scheduled airstrikes before boarding.
+        runId++;
+        reviveFromDown();
+        player.invulnerable = true;
+        player.pos.set(extraction.lz.x, GROUND + eyeHeight(), extraction.lz.z);
+        player.vel.set(0, 0, 0);
+        if (typeof clearInputState === 'function') clearInputState();
+        if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+        if (typeof clearExtractionOrdnance === 'function') clearExtractionOrdnance();
+        if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
+      }
+    } else if (extraction.phase === 'cinematic') {
+      const step = CORE.extractionCinematicStep(extraction.cinematicTimer, dt, CORE.EXTRACTION_CINEMATIC_DURATION);
+      extraction.cinematicTimer = step.nextTimer;
+      if (extraction.helicopter) {
+        extraction.helicopter.position.y += dt * 10;
+        player.pos.y = GROUND + eyeHeight() + extraction.helicopter.position.y - 1;
+        if (extraction.helicopter.userData && extraction.helicopter.userData.mainRotor) {
+          extraction.helicopter.userData.mainRotor.rotation.y += dt * 45;
+        }
+      }
+      if (typeof hud !== 'undefined' && hud && hud.enemiesLeft) {
+        hud.enemiesLeft.textContent = CORE.extractionHudLabel('cinematic');
+      }
+      if (step.complete) {
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          scene.remove(enemies[i].parts.group);
+          disposeEnemyGeometry(enemies[i]);
+        }
+        enemies.length = 0;
+        waveQueue = 0;
+        settleClearedWave();
+        player.pos.y = GROUND + eyeHeight();
+        if (typeof clearInputState === 'function') clearInputState();
+        clearExtractionVisuals();
+        player.invulnerable = false;
+        victory();
+        return;
+      }
+    }
+  }
+
+  if (extraction && extraction.phase === 'cinematic') return;
   if (waveActive) {
-    // spawn queue drains in bursts of 3-4 enemies, respecting max active
     if (waveQueue > 0) {
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
@@ -1094,23 +1281,9 @@ function updateWaves(dt) {
           spawnTimer = 0.5;
         }
       }
-    } else if (living === 0) {
+    } else if (living === 0 && !extraction) {
       // wave cleared
-      waveActive = false;
-      betweenWaveT = 4;
-      addScore(CORE.waveClearScore(CFG.score.waveClear, waveNum, CORE.WAVE_SCORE_PER_WAVE), 'Wave ' + waveNum + ' cleared');
-      addCredits(CORE.creditsForWave(waveNum));
-      if (objective && !objective.done && objective.type === 'defend' && !objective.failed && objective.target && !objective.target.dead) {
-        completeObjective('Generator defended');
-      }
-      if (objective && !objective.done) {
-        objective.failed = true;
-        objective.done = true;
-      }
-      // holding out to the wave clear is the other way back up
-      reviveFromDown();
-      unlockSecondary();
-      resupply();
+      settleClearedWave();
       if (!endlessMode && waveNum >= CFG.wave.victoryWave) {
         saveCheckpoint(captureRunState());
         clearObjective();
@@ -1132,7 +1305,9 @@ function updateWaves(dt) {
   let left = waveQueue + living;
   // Between waves the queue is empty; show what is coming, not "0 HOSTILES".
   if (!waveActive && left === 0) left = CORE.waveEnemyCount(waveNum + 1, CFG.wave.baseCount, CFG.wave.growth);
-  if (CORE.enemiesRemainingChanged(_hudEnemiesLeft, left)) {
+  if (extraction) {
+    _hudEnemiesLeft = -1;
+  } else if (CORE.enemiesRemainingChanged(_hudEnemiesLeft, left)) {
     _hudEnemiesLeft = CORE.syncEnemiesRemaining(left);
     hud.enemiesLeft.textContent = CORE.hostilesRemainingLabel(left);
   }
@@ -1198,7 +1373,11 @@ function spawnFromQueue() {
   // A special wave draws from its own kind list, falling back to the normal table
   // when none of its kinds has unlocked yet.
   let kind = null;
-  if (waveSpecial) kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+  if (typeof extraction !== 'undefined' && extraction && extraction.phase === 'surge') {
+    kind = CORE.pickExtractionSurgeKind(Math.random());
+  } else if (waveSpecial) {
+    kind = CORE.specialKind(waveSpecial, waveNum, Math.random());
+  }
   if (kind === null) kind = CORE.pickEnemyKind(waveNum, Math.random());
   const elite = CORE.rollElite(waveNum, Math.random());
   spawnEnemy(kind, x, z, { elite: elite });
@@ -1488,6 +1667,24 @@ function drawMinimap() {
   mmCtx.beginPath();
   mmCtx.moveTo(R, R - 7); mmCtx.lineTo(R - 5, R + 5); mmCtx.lineTo(R + 5, R + 5);
   mmCtx.closePath(); mmCtx.fill();
+  // Extraction is a HUD marker, not a world effect: keep it above all map
+  // layers and clamp distant LZs to the rim so their direction stays visible.
+  if (typeof extraction !== 'undefined' && extraction && extraction.lz) {
+    mmCtx.save();
+    CORE.minimapBlipOffset(extraction.lz.x, extraction.lz.z, px, pz, scale, _mmBlipOut);
+    const distance = Math.hypot(_mmBlipOut.x, _mmBlipOut.z);
+    const clamp = distance > R - 13 ? (R - 13) / distance : 1;
+    const cos = Math.cos(player.yaw), sin = Math.sin(player.yaw);
+    const x = R + (_mmBlipOut.x * cos - _mmBlipOut.z * sin) * clamp;
+    const y = R + (_mmBlipOut.x * sin + _mmBlipOut.z * cos) * clamp;
+    mmCtx.fillStyle = '#102a18';
+    mmCtx.strokeStyle = '#72ff9b'; mmCtx.lineWidth = 2;
+    mmCtx.beginPath(); mmCtx.arc(x, y, 10, 0, Math.PI * 2); mmCtx.fill(); mmCtx.stroke();
+    mmCtx.fillStyle = '#ffffff'; mmCtx.font = 'bold 9px sans-serif';
+    mmCtx.textAlign = 'center'; mmCtx.textBaseline = 'middle';
+    mmCtx.fillText('LZ', x, y);
+    mmCtx.restore();
+  }
 }
 
 // UI-02: the canvas was 560 px wide inside a 280 px overflow:hidden strip with no
