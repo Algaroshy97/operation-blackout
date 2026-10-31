@@ -66,6 +66,19 @@ function host(touch = true) {
 }
 const finger = (identifier, clientX = 80, clientY = 160) => ({ identifier, clientX, clientY });
 
+test('PR13 R2 extraction cinematic rejects touch movement, firing, and direct weapon swap', () => {
+  const h = host(); let swaps = 0;
+  h.ctx.cycleWeapon = () => swaps++;
+  h.ctx.extraction = {phase: 'cinematic'};
+  h.elements.get('joy-base').emit('touchstart', [finger(1)]);
+  h.elements.get('tbtn-fire').emit('touchstart', [finger(2)]);
+  h.elements.get('tbtn-swap').emit('touchstart', [finger(3)]);
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, false);
+  assert.notEqual(h.ctx.keys.KeyW, true);
+  assert.equal(swaps, 0);
+});
+
 test('transparent controls have no expensive paint effects and keep minimum hitboxes', () => {
   const css = head.slice(head.indexOf('/* ---- Touch UI'), head.indexOf('/* Right-hand cluster.'));
   assert.match(css, /\.tbtn\{[^}]*background:transparent/);

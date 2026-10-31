@@ -696,18 +696,15 @@ function clearExtractionVisuals() {
   if (extraction.lzRing && typeof scene !== 'undefined' && scene && scene.remove) {
     scene.remove(extraction.lzRing);
   }
+  for (const resource of extraction.ownedResources) resource.dispose();
   extraction = null;
 }
 
 function startExtraction(forcedSpot) {
   clearObjective();
   clearExtractionVisuals();
-  const m = (typeof getActiveMap === 'function') ? getActiveMap() : null;
-  const pSpawn = (m && m.playerSpawn) || { x: 0, z: 0 };
-  const spot = forcedSpot || {
-    x: Array.isArray(pSpawn) ? pSpawn[0] : (pSpawn.x || 0),
-    z: Array.isArray(pSpawn) ? (pSpawn.length >= 3 ? pSpawn[2] : pSpawn[1]) : (pSpawn.z || 0)
-  };
+  // Open approach west of the central building on both supported maps.
+  const spot = forcedSpot || { x: -15, z: -1 };
 
   const heliGroup = new THREE.Group();
   const heliMat = (typeof MAT !== 'undefined' && MAT && MAT.metal) ? MAT.metal : new THREE.MeshBasicMaterial({ color: 0x2e353b });
@@ -761,8 +758,11 @@ function startExtraction(forcedSpot) {
     helicopter: heliGroup,
     lzRing: lzRing,
     smokeMarker: smokeMarker,
-    cinematicTimer: 0
+    cinematicTimer: 0,
+    ownedResources: [body.geometry, boom.geometry, tailRotor.geometry, mainRotor.geometry,
+      skid1.geometry, skid2.geometry, rotorMat, lzRingGeo, lzRingMat, markerGeo, markerMat]
   };
+  if (heliMat !== (typeof MAT !== 'undefined' && MAT && MAT.metal)) extraction.ownedResources.push(heliMat);
 
   setTimeout(function () {
     if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION PROTOCOL ACTIVATED');
@@ -1215,12 +1215,18 @@ function updateWaves(dt) {
       if (typeof pfxEmit === 'function' && typeof PFX_SMOKE !== 'undefined') {
         pfxEmit(PFX_SMOKE, extraction.lz.x, 0.3, extraction.lz.z, (Math.random()-0.5)*0.5, 2.0, (Math.random()-0.5)*0.5, 1.8, 0.4, 2.8, 0x40e059, 0x1a7333, 0.7, 0.8, -0.3, PF_RISE);
       }
-      if (extraction.helicopter && extraction.helicopter.position.y <= 1.0 && CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
+      if (extraction.helicopter && extraction.helicopter.position.y <= 1.0 && Math.abs(player.pos.y - eyeHeight() - GROUND) <= 2 && CORE.isPlayerInsideLz(player.pos.x, player.pos.z, extraction.lz.x, extraction.lz.z, CORE.EXTRACTION_LZ_RADIUS)) {
         extraction.phase = 'cinematic';
         extraction.cinematicTimer = 0;
         runPhase = 'cinematic';
+        // Invalidate in-flight shots and scheduled airstrikes before boarding.
+        runId++;
         reviveFromDown();
         player.invulnerable = true;
+        player.pos.set(extraction.lz.x, GROUND + eyeHeight(), extraction.lz.z);
+        player.vel.set(0, 0, 0);
+        if (typeof clearInputState === 'function') clearInputState();
+        if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
         if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
       }
     } else if (extraction.phase === 'cinematic') {
@@ -1228,6 +1234,7 @@ function updateWaves(dt) {
       extraction.cinematicTimer = step.nextTimer;
       if (extraction.helicopter) {
         extraction.helicopter.position.y += dt * 10;
+        player.pos.y = GROUND + eyeHeight() + extraction.helicopter.position.y - 1;
         if (extraction.helicopter.userData && extraction.helicopter.userData.mainRotor) {
           extraction.helicopter.userData.mainRotor.rotation.y += dt * 45;
         }
@@ -1243,6 +1250,8 @@ function updateWaves(dt) {
         enemies.length = 0;
         waveQueue = 0;
         settleClearedWave();
+        player.pos.y = GROUND + eyeHeight();
+        if (typeof clearInputState === 'function') clearInputState();
         clearExtractionVisuals();
         player.invulnerable = false;
         victory();
@@ -1251,6 +1260,7 @@ function updateWaves(dt) {
     }
   }
 
+  if (extraction && extraction.phase === 'cinematic') return;
   if (waveActive) {
     if (waveQueue > 0) {
       spawnTimer -= dt;

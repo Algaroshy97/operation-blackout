@@ -2273,7 +2273,7 @@ function createFullMatchContext(overrides = {}) {
     gameEnded: false,
     pointerLocked: true,
     CFG: {
-      player: { height: 1.7, health: 100, armor: 50, maxStamina: 100, radius: 0.4 },
+      player: { height: 1.7, crouchHeight: 1.05, health: 100, armor: 50, maxStamina: 100, radius: 0.4 },
       score: { kill: 100, headshot: 50 },
       wave: { startDelay: 3 },
       ai: { speed: 3.2, chaseSpeed: 4.9, rangedSpeed: 2.8, attackRange: 2.1, meleeDamage: 18, meleeCd: 1.1, rangedRange: 44, rangedDamage: 8, rangedROF: 1.35, rangedAccuracy: 0.5, maxHealth: 100, headshotMul: 1.8, giveUpDist: 70, accPerWave: 0.035, accMax: 0.75 },
@@ -6071,6 +6071,118 @@ test('PR13 finale settles and both endless continuation paths take damage and st
     assert.equal(c.waveNum, 16);
     assert.equal(c.waveActive, true);
   }
+});
+
+test('PR13 R2 landing footprint clears both production arenas and scattered props', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = extractionReviewContext();
+    c.activeMapId = map; c.startExtraction();
+    const {x, z} = c.extraction.lz;
+    const boxes = [];
+    const addCollider = (x, y, z, w, h, d) => boxes.push({min: {x:x-w/2,y:y-h/2,z:z-d/2}, max: {x:x+w/2,y:y+h/2,z:z+d/2}});
+    class Geo { clone() { return new Geo(); } applyMatrix4() {} }
+    class Matrix { compose() {} }
+    class Quat { setFromEuler() { return this; } }
+    class Prop { constructor() { this.position = new Vector3(); this.rotation = {}; this.scale = {setScalar: noop}; } traverse() {} }
+    const world = vm.createContext({CORE, CFG: {world: {size: 90}}, MAT: new Proxy({}, {get: () => ({})}),
+      THREE: {Mesh, PlaneGeometry: Geo, CylinderGeometry: Geo, Matrix4: Matrix, Quaternion: Quat, Euler: Vector3, Vector3, MeshStandardMaterial: Material},
+      addBox: (x,y,z,w,h,d,mat,opts) => { if (!opts || !opts.noCollide) addCollider(x,y,z,w,h,d); }, addCollider,
+      withSkyEnv: m => m, queueStatic: noop, districtSignAccentMat: {}, scene: {add: noop}, raycastColliders: [],
+      GLB_PARSED: {}, graphicsAtBoot: () => ({sceneryDetailed: false}), IS_TOUCH: false, makeMobileProp: () => new Prop(),
+      colliders: boxes, batchScatteredProps: noop, rebuildNavGrid: noop, rebuildWorldRayGrid: noop});
+    const src = source('10_config_world.js');
+    vm.runInContext(src.slice(src.indexOf('function buildUrbanArena()'), src.indexOf('// ---- Map Registry ----')), world);
+    vm.runInContext(src.slice(src.indexOf('function scatterProps()'), src.indexOf('\n}', src.indexOf('// 48 GLB clones')) + 2), world);
+    world[map === 'urban' ? 'buildUrbanArena' : 'buildSnowyArena']();
+    world.scatterProps();
+    const blocked = boxes.filter(b => b.max.y > 0.05 && b.min.y < 38 &&
+      b.max.x > x - 3.75 && b.min.x < x + 3.75 && b.max.z > z - 6 && b.min.z < z + 3.75);
+    assert.equal(blocked.length, 0, `${map} helicopter footprint intersects map collision`);
+    const nav = CORE.buildNavGrid(boxes, {cell: 1, halfExtent: 45});
+    CORE.computeFlowField(nav, x, z);
+    const spawn = CORE.getMapDef(map).playerSpawn;
+    assert.notEqual(nav.dist[CORE.worldToCell(nav, spawn.x, spawn.z)], CORE.UNREACHABLE, `${map} LZ reachable from spawn`);
+  }
+});
+
+test('PR13 R2 boarding requires ground level and carries player with helicopter', () => {
+  for (const map of ['urban', 'snowy']) {
+    const c = extractionReviewContext();
+    c.activeMapId = map; c.startExtraction();
+    c.updateWaves(90); c.extraction.helicopter.position.y = 1;
+    c.player.pos.set(c.extraction.lz.x, 6, c.extraction.lz.z);
+    c.updateWaves(0.1);
+    assert.equal(c.extraction.phase, 'lz', `${map} upper floor cannot board`);
+    c.player.pos.y = 1.7; c.updateWaves(0.1);
+    assert.equal(c.extraction.phase, 'cinematic');
+    const y = c.player.pos.y, hy = c.extraction.helicopter.position.y;
+    c.updateWaves(0.5);
+    assert.equal(c.player.pos.y - y, c.extraction.helicopter.position.y - hy, 'player ascends with helicopter');
+  }
+});
+
+test('PR13 R2 resources dispose once on restart, death reset, and victory without shared metal', () => {
+  for (const end of ['restart', 'death reset', 'victory']) {
+    const c = extractionReviewContext();
+    const shared = c.MAT.metal = new Material(); let sharedCount = 0;
+    shared.dispose = () => sharedCount++;
+    c.startExtraction();
+    const resources = new Set();
+    for (const root of [c.extraction.helicopter, c.extraction.lzRing, c.extraction.smokeMarker]) {
+      root.traverse(o => { if (o.geometry) resources.add(o.geometry); if (o.material && o.material !== shared && o.geometry) resources.add(o.material); });
+    }
+    const counts = new Map();
+    for (const r of resources) r.dispose = () => counts.set(r, (counts.get(r) || 0) + 1);
+    if (end === 'restart') c.startExtraction();
+    else if (end === 'death reset') { c.killPlayer(); c.resetGame(); }
+    else { c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z); c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1); c.updateWaves(3.1); }
+    for (const r of resources) assert.equal(counts.get(r), 1, `${end} must dispose each owned resource once`);
+    assert.equal(sharedCount, 0, 'shared map material must survive');
+  }
+});
+
+test('PR13 R2 cinematic frame gates movement weapons enemies and combat systems', () => {
+  const c = extractionReviewContext();
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+  const calls = [];
+  for (const name of ['updatePlayer', 'updateWeapons', 'updateEnemies', 'updateGrenades', 'updatePickups', 'updateAmmoRelief', 'updateStations', 'updateDowned', 'updateStreaks']) c[name] = () => calls.push(name);
+  Object.assign(c, {started: true, paused: false, gameT: 0, fireClockT: 0, wallDt: 0.016, dt: 0.016, FIRE_CLOCK_MAX_STEP: 1, SKY_UNIFORMS: {time: {value: 0}}, updateSway: noop, updateVfx: noop, getActiveMode: () => ({id: 'survival', update: noop}), matchSettled: () => false});
+  const main = source('70_main.js');
+  const start = main.indexOf('  if (started && !paused) {', main.indexOf('function frame(now)'));
+  const end = main.indexOf('    updateRagdolls(dt);', start);
+  vm.runInContext(main.slice(start, end) + '\n}', c);
+  assert.deepEqual(calls, [], 'cinematic must not advance gameplay or combat');
+});
+
+test('PR13 R2 fallback helicopter material is disposed over repeated reset cycles', () => {
+  const c = extractionReviewContext();
+  delete c.MAT.metal;
+  for (let i = 0; i < 3; i++) {
+    c.startExtraction();
+    const material = c.extraction.helicopter.children[0].material;
+    let disposed = 0; material.dispose = () => disposed++;
+    c.resetGame();
+    c.clearExtractionVisuals();
+    assert.equal(disposed, 1);
+  }
+});
+
+test('PR13 R2 queued airstrike cannot detonate during cinematic or after victory', () => {
+  const c = extractionReviewContext(), pending = [];
+  c.started = true;
+  c.setTimeout = fn => pending.push(fn);
+  let blasts = 0; c.explodeGrenade = () => blasts++;
+  const src = source('58_streaks.js');
+  vm.runInContext(src.slice(src.indexOf('const _airstrikeCoordOut'), src.indexOf('// ---- Sentry gun')), c);
+  c.callAirstrike();
+  assert.ok(pending.length);
+  c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+  c.updateWaves(90); c.extraction.helicopter.position.y = 1; c.updateWaves(0.1);
+  pending.shift()();
+  c.updateWaves(3.1);
+  for (const fn of pending) fn();
+  assert.equal(blasts, 0, 'queued combat must not continue during or after extraction');
 });
 
 

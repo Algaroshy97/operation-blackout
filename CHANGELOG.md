@@ -6,6 +6,8 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## PR13 extraction review repairs
 
+- Move the LZ to an open approach on both maps, require ground-level boarding, and carry the player with the helicopter while gameplay and touch/weapon-swap input are gated. Return the player to ground for endless continuation.
+- Dispose extraction-owned geometries and materials on replacement, reset and victory without disposing shared map metal; add lifecycle, navigation, boarding and input regressions.
 - Wait for the helicopter to land before boarding, revive a downed player on boarding, and end cinematic invulnerability at victory.
 - Settle the finale with the normal wave-clear rewards and resupply, remove remaining enemies before saving victory, and preserve extraction HUD priority. Use supported hexadecimal particle colors for the green signal.
 - Add deterministic archetype and extraction lifecycle regressions for landing, bleed-out, particle emission, HUD, checkpoint continuation, damage and wave 16.
