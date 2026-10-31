@@ -674,10 +674,7 @@ function updateEquipmentEffects(dt) {
   updateScorches(dt);
 }
 
-function resetEquipment() {
-  equippedLethal = 'frag';
-  equippedTactical = null;
-  tacticalCount = 0;
+function clearEquipmentEffects() {
   playerFlashT = 0;
   _lastFlashOpacity = 0;
   if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
@@ -691,6 +688,21 @@ function resetEquipment() {
   }
   smokeClouds.length = 0;
   clearScorches();
+}
+
+function resetEquipment() {
+  equippedLethal = 'frag';
+  equippedTactical = null;
+  tacticalCount = 0;
+  clearEquipmentEffects();
+}
+
+function clearExtractionOrdnance() {
+  for (let i = liveGrenades.length - 1; i >= 0; i--) {
+    releaseLiveGrenadeRecord(liveGrenades[i]);
+  }
+  liveGrenades.length = 0;
+  clearEquipmentEffects();
 }
 
 const grenadeLosRay = new THREE.Raycaster();

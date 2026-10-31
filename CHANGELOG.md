@@ -6,6 +6,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## PR13 extraction review repairs
 
+- Settle live grenades and equipment ground effects at boarding, returning their meshes and records to their pools without resetting the player's equipment; cover direct, checkpoint-resumed and reset lifecycles.
 - Move the LZ to an open approach on both maps, require ground-level boarding, and carry the player with the helicopter while gameplay and touch/weapon-swap input are gated. Return the player to ground for endless continuation.
 - Dispose extraction-owned geometries and materials on replacement, reset and victory without disposing shared map metal; add lifecycle, navigation, boarding and input regressions.
 - Wait for the helicopter to land before boarding, revive a downed player on boarding, and end cinematic invulnerability at victory.

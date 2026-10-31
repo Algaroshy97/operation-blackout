@@ -1227,6 +1227,7 @@ function updateWaves(dt) {
         player.vel.set(0, 0, 0);
         if (typeof clearInputState === 'function') clearInputState();
         if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+        if (typeof clearExtractionOrdnance === 'function') clearExtractionOrdnance();
         if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
       }
     } else if (extraction.phase === 'cinematic') {

@@ -6073,6 +6073,72 @@ test('PR13 finale settles and both endless continuation paths take damage and st
   }
 });
 
+for (const continuation of ['direct', 'resumed', 'reset']) {
+  test(`PR13 R3 real ordnance and effects are settled on ${continuation}`, () => {
+    const c = extractionReviewContext();
+    loadGrenadeLifecycle(c);
+    const objects = new Set();
+    c.scene.add = o => objects.add(o);
+    c.scene.remove = o => objects.delete(o);
+    c.THREE.RingGeometry = Geometry;
+    c.THREE.SphereGeometry = Geometry;
+    c.THREE.MeshBasicMaterial = Material;
+    c.THREE.Mesh = class extends Mesh {
+      constructor(...args) { super(...args); this.scale.setScalar = s => this.scale.set(s, s, s); }
+    };
+    const src = source('55_grenades.js');
+    const range = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
+    vm.runInContext(range('const blastRingGeo', '// ---- Live grenade pooling'), c);
+    vm.runInContext(range('const burnPatches', '// ---- Blast scorch decals'), c);
+    c.clearScorches = noop; c.updateScorches = noop;
+    c._burnHitPoint = new Vector3();
+    vm.runInContext(range('let playerFlashT = 0', 'const grenadeLosRay'), c);
+    const burn = CORE.equipmentByKey('thermite');
+    const smoke = CORE.equipmentByKey('smoke');
+    c.player.pos.set(c.extraction.lz.x, 1.7, c.extraction.lz.z);
+    c.updateWaves(90); c.extraction.helicopter.position.y = 1;
+    const enemy = {team: 'enemy', pos: new Vector3(c.player.pos.x, 0, c.player.pos.z), dead: false};
+    c.CFG.grenade.fuse = 3;
+    c.throwEnemyGrenade(enemy, c.player);
+    const g = c.liveGrenades[0], mesh = g.m;
+    g.fuse = 0.01; g.stuck = true;
+    g.ring = c.getBlastRing(); c.scene.add(g.ring);
+    const ring = g.ring;
+    c.addBurnPatch(c.player.pos.x, c.player.pos.z, burn);
+    c.addSmokeCloud(c.player.pos.x, 1, c.player.pos.z, smoke);
+    const burnMesh = vm.runInContext('burnPatches[0].m', c);
+    const smokeMesh = vm.runInContext('smokeClouds[0].m', c);
+    c.equippedLethal = 'thermite'; c.equippedTactical = 'smoke'; c.tacticalCount = 1;
+    if (continuation === 'reset') c.resetGame();
+    else {
+      c.updateWaves(0.1);
+      assert.equal(c.extraction.phase, 'cinematic');
+      assert.equal(c.liveGrenades.length, 0, 'ordnance is cleared at boarding');
+      assert.equal(vm.runInContext('burnPatches.length + smokeClouds.length', c), 0, 'effects are cleared at boarding');
+      assert.equal(c.equippedLethal, 'thermite');
+      assert.equal(c.equippedTactical, 'smoke');
+      assert.equal(c.tacticalCount, 1);
+      c.updateWaves(3.1);
+      if (continuation === 'resumed') c.resumeRun();
+      c.document.getElementById('btn-endless').click();
+    }
+    assert.equal(c.liveGrenades.length, 0, 'no frozen hostile grenade');
+    assert.equal(vm.runInContext('burnPatches.length + smokeClouds.length', c), 0, 'no frozen ground effects');
+    for (const o of [mesh, ring, burnMesh, smokeMesh]) assert.equal(objects.has(o), false, 'owned mesh removed');
+    assert.equal(g.owner, null, 'pooled record releases owner');
+    c.testGrenade = g;
+    assert.equal(vm.runInContext('_grenadePool.filter(x => x === testGrenade).length', c), 1);
+    c.testRing = ring; c.testBurn = burnMesh; c.testSmoke = smokeMesh;
+    assert.equal(vm.runInContext('blastRingPool.filter(x => x === testRing).length', c), 1);
+    assert.equal(vm.runInContext('burnPatchPool.filter(x => x === testBurn).length', c), 1);
+    assert.equal(vm.runInContext('smokeCloudPool.filter(x => x === testSmoke).length', c), 1);
+    c.player.armor = 0;
+    const health = c.player.health;
+    c.updateGrenades(0.1);
+    assert.equal(c.player.health, health, 'old grenade cannot explode after continuation');
+  });
+}
+
 test('PR13 R2 landing footprint clears both production arenas and scattered props', () => {
   for (const map of ['urban', 'snowy']) {
     const c = extractionReviewContext();

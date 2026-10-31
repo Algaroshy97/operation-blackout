@@ -20476,10 +20476,7 @@ if (c.t <= 0) { releaseSmokeCloudMesh(c.m); smokeClouds.splice(i, 1); }
 }
 updateScorches(dt);
 }
-function resetEquipment() {
-equippedLethal = 'frag';
-equippedTactical = null;
-tacticalCount = 0;
+function clearEquipmentEffects() {
 playerFlashT = 0;
 _lastFlashOpacity = 0;
 if (!_flashOverlayEl) _flashOverlayEl = $id('flash-overlay');
@@ -20493,6 +20490,19 @@ releaseSmokeCloudMesh(smokeClouds[i].m);
 }
 smokeClouds.length = 0;
 clearScorches();
+}
+function resetEquipment() {
+equippedLethal = 'frag';
+equippedTactical = null;
+tacticalCount = 0;
+clearEquipmentEffects();
+}
+function clearExtractionOrdnance() {
+for (let i = liveGrenades.length - 1; i >= 0; i--) {
+releaseLiveGrenadeRecord(liveGrenades[i]);
+}
+liveGrenades.length = 0;
+clearEquipmentEffects();
 }
 const grenadeLosRay = new THREE.Raycaster();
 const grenadeLosDir = new THREE.Vector3();
@@ -22633,6 +22643,7 @@ player.pos.set(extraction.lz.x, GROUND + eyeHeight(), extraction.lz.z);
 player.vel.set(0, 0, 0);
 if (typeof clearInputState === 'function') clearInputState();
 if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+if (typeof clearExtractionOrdnance === 'function') clearExtractionOrdnance();
 if (typeof showCenterMsg === 'function') showCenterMsg('EXTRACTION IN PROGRESS');
 }
 } else if (extraction.phase === 'cinematic') {
