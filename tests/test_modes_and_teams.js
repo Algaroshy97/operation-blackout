@@ -6548,6 +6548,43 @@ test('deploy difficulty selection persists when switching among all modes', () =
   }
 });
 
+test('settings difficulty and reset synchronize the next deploy choice', () => {
+  const c = createFullMatchContext();
+  c.document.body.classList.toggle = noop;
+  vm.runInContext(source('02_settings.js'), c);
+  vm.runInContext('applyQuality = () => {};', c);
+  c.started = false;
+  c.setSetting('difficulty', 'very-easy');
+  c.buildDifficultyRow();
+  assert.equal(c.runDifficulty, 'very-easy');
+  c.setSetting('difficulty', 'veteran');
+  assert.equal(c.runDifficulty, 'veteran');
+  c.resetSettings();
+  assert.equal(c.runDifficulty, 'regular');
+});
+
+test('a resumed difficulty does not override the saved next-deploy preference', () => {
+  const c = createFullMatchContext(); modeSettings(c, { difficulty: 'very-easy' });
+  c.runDifficulty = 'veteran';
+  c.started = false;
+  c.buildGunSelect(0);
+  assert.equal(c.runDifficulty, 'very-easy');
+  assert.ok(c.$id('diff-row').children[0].className.includes('on'));
+});
+
+test('simplified rig crouches its visible body and hitboxes together and restores them', () => {
+  const c = createFullMatchContext();
+  const bot = c.spawnEnemy(1, 0, 0, {team:'enemy'});
+  bot.parts = c.makeEnemyMesh(1, 'enemy');
+  bot.crouch = 0; c.animateEnemy(bot, 0.016, 10);
+  const standing = [bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y];
+  bot.crouch = 1; c.animateEnemy(bot, 0.016, 10);
+  const crouched = [bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y];
+  for (let i = 0; i < standing.length; i++) assert.ok(crouched[i] < standing[i] - 0.35);
+  bot.crouch = 0; c.animateEnemy(bot, 0.016, 10);
+  assert.deepEqual([bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y], standing);
+});
+
 test('difficulty changes real gun game bot shot cadence', () => {
   function nextShot(level) {
     const c = createFullMatchContext({ setTimeout: noop, spawnTracer: noop, flashLight: noop });

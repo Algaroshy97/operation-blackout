@@ -51,6 +51,11 @@ class CssCompactionTests(unittest.TestCase):
         source = '// banner\nif (a === b) go();\nconst text = "a === b";\nconst t = `a === b`;\n'
         self.assertEqual(strip_line_comments(source), '// banner\nif (a===b) go();\nconst text = "a === b";\nconst t = `a === b`;')
 
+    def test_js_logical_compaction_preserves_quoted_and_template_text(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nif (a && b || c) go();\nconst text = "a && b";\nconst t = `a || b`;'
+        self.assertEqual(strip_line_comments(source), '// banner\nif (a&&b||c) go();\nconst text = "a && b";\nconst t = `a || b`;')
+
     def test_html_indentation_preserves_inter_element_newlines(self) -> None:
         from scripts.build import strip_css_comments
         self.assertEqual(strip_css_comments('<style> .a { color: red; } </style>\n  <div>text</div>\n'),

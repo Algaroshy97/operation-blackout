@@ -90,6 +90,7 @@ def strip_line_comments(js: str) -> str:
             line = re.sub(r'''^([^/'"`]*;)\s+//.*$''', r'\1', line)
             if not any(char in line for char in "'\"`/"):
                 line = line.replace(' === ', '===').replace(' !== ', '!==')
+                line = line.replace(' && ', '&&').replace(' || ', '||')
         if line.count('`') % 2:
             in_template = not in_template
         kept.append(line)

@@ -720,6 +720,7 @@ function buildTdmSettingsRow() {
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
   if (pickingSlot === 0) {
+    if (typeof getSetting === 'function') runDifficulty = getSetting('difficulty');
     pendingSecondary = -1;
     buildMapPickerRow();
     buildModePickerRow();

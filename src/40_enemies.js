@@ -1234,5 +1234,8 @@ function animateEnemy(en, dt, dist) {
   p.armL.rotation.x = pose.armLRotX;
   p.armR.rotation.x = pose.armRRotX;
   p.body.rotation.x = pose.bodyRotX;
-  p.body.position.y = pose.bodyPosY;
+  const crouchDrop = (en.crouch || 0) * 0.4;
+  p.body.position.y = pose.bodyPosY - crouchDrop;
+  if (p.hitBody) p.hitBody.position.y = 1.24 - crouchDrop;
+  if (p.hitHead) p.hitHead.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.16 - crouchDrop;
 }
