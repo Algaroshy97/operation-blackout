@@ -14,6 +14,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
   clear cover state on respawn, knife promotion, lost targets and flag orders.
 - Keep simplified rigs and their hitboxes aligned while crouched, and synchronize
   saved difficulty across settings, checkpoint resume and new deployment.
+- Reject low cover when its crouched head remains visible to the threat.
 - Compact the offline build while retaining its size budget and add build tests.
 
 ## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI

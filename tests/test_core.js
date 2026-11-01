@@ -10727,6 +10727,13 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(step2.complete, true);
 });
 
+test('low cover is rejected when the crouched head remains visible', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'low'};
+  assert.equal(CORE.segmentBlocked(0, 1.7, 8, 0, 1.5, -1.3, wall, 0), false);
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 1.7, 8, wall), false);
+});
+
 test('milestone 5: cover point generation, occlusion evaluation, and scoring rules', () => {
   // 1. Generation on synthetic colliders
   const colliders = [
