@@ -747,7 +747,7 @@ function refreshGrenadeTargets() {
 
 function explodeGrenade(pos, scale, owner) {
   const dmgScale = scale === undefined ? 1 : scale;
-  const aiScale = owner && owner !== player && !owner.isPlayer ? diff().dmg : 1;
+  const aiScale = owner && owner !== player && !owner.isPlayer ? enemyDifficulty(owner).dmg : 1;
   playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND

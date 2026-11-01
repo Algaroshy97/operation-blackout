@@ -1129,6 +1129,7 @@ function enemyShoot(en, dist, target) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
+  if (CORE.segmentBlocked(from.x, from.y, from.z, to.x, to.y, to.z, colliders, 0)) return;
   spawnTracer(from, to, CORE.tracerColor(true), shotType);
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
@@ -1192,7 +1193,9 @@ function breacherShoot(en, dist, target) {
   for (let i = 0; i < 3; i++) {
     const to = _eshotTo.copy(tgt.pos);
     to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
-    spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+    if (!CORE.segmentBlocked(from.x, from.y, from.z, to.x, to.y, to.z, colliders, 0)) {
+      spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+    }
   }
   for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (enemyDifficulty(en).accuracy || 1);
   const hits = CORE.breacherPelletHits(dist, _breacherRolls);

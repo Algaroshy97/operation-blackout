@@ -19,7 +19,8 @@ not proof of deployment status, device support or measured frame-rate improvemen
   while reusing the navigation field for unchanged destinations.
 - Refresh line of sight at firing time so stale cached visibility cannot fire
   a tracer through an obstacle after an actor or target moves, including edges.
-- Keep friendly team bots at Medium combat ability when difficulty changes.
+- Keep friendly team bots at Medium combat ability, including grenade damage,
+  and check the actual tracer path against cover.
 - Compact the offline build while retaining its size budget and add build tests.
 
 ## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI

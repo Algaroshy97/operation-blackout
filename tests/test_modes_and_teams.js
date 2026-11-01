@@ -456,6 +456,20 @@ function loadGrenadeLifecycle(c) {
   vm.runInContext(range('function explodeGrenade(pos', '// ---- Pickups:'), c);
 }
 
+test('friendly grenade damage does not scale with difficulty', () => {
+  function blast(level) {
+    const c = createCombatContext(); loadGrenadeLifecycle(c);
+    c.player.team = 'friendly'; c.player.pos.set(40, 1.7, 40);
+    c.diff = () => CORE.difficulty(level);
+    let dealt = 0; c.damageEnemy = (en, amount) => { dealt += amount; };
+    c.enemies.push({ team:'enemy', dead:false, pos:new Vector3(1, 0, 0) });
+    c.explodeGrenade(new Vector3(), 1, {team:'friendly', kind:5});
+    return dealt;
+  }
+  assert.ok(blast('regular') > 0);
+  assert.equal(blast('very-easy'), blast('regular'));
+});
+
 test('enemy grenade explosion scales actual player damage without weakening player throws', () => {
   function blast(level, isPlayer) {
     const c = createCombatContext(); loadGrenadeLifecycle(c);
@@ -6530,6 +6544,17 @@ test('friendly bot fire retains medium accuracy and damage on very easy', () => 
     return target.health;
   }
   assert.equal(hit('very-easy'), hit('regular'));
+});
+
+test('hostile tracer does not pass through low cover below an open eye ray', () => {
+  const traces = [];
+  const c = createFullMatchContext({spawnTracer: (...args) => traces.push(args), setTimeout: noop});
+  c.addBox(0, 0.775, 10, 2, 1.55, 1, 'concrete');
+  c.player.pos.set(0, 1.7, 12); c.Math.random = () => 0;
+  const bot = c.spawnEnemy(1, 0, 0, {team:'enemy'});
+  assert.equal(c.hasLOS(bot, c.player, true), true, 'eye ray is open above the wall');
+  c.enemyShoot(bot, 12, c.player);
+  assert.equal(traces.length, 0, 'the lower tracer must not pass through the wall');
 });
 
 test('forced firing LOS does not jitter around wall edges', () => {
