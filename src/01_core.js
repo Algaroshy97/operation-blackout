@@ -1917,10 +1917,15 @@ const CORE = (function () {
 
   function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders) {
     if (!coverPoint || !Array.isArray(colliders) || colliders.length === 0) return false;
-    // Protect the top of the crouched head, not a lower imaginary eye point.
-    const eyeY = coverPoint.y + 1.5;
+    // Require protection at the top and both sides of the head hit volume.
+    const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9);
     const thY = _isNum(threatY) ? threatY : 1.7;
-    return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0);
+    const dx = threatX - coverPoint.x, dz = threatZ - coverPoint.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const sx = dz / length * 0.17, sz = -dx / length * 0.17;
+    return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0) &&
+      segmentBlocked(threatX, thY, threatZ, coverPoint.x + sx, eyeY, coverPoint.z + sz, colliders, 0) &&
+      segmentBlocked(threatX, thY, threatZ, coverPoint.x - sx, eyeY, coverPoint.z - sz, colliders, 0);
   }
 
   function scoreCoverPoint(coverPt, actorX, actorZ, threatX, threatZ, colliders, opts) {

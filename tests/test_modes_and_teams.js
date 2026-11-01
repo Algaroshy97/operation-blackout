@@ -6632,6 +6632,15 @@ test('a peeking rifleman behind a wide wall does not fire without line of sight'
   assert.equal(traces.length, 0, 'occluded peek must never fire through the wall');
 });
 
+test('cover arrival does not hold at an exposed position beside a narrow wall', () => {
+  const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
+  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 1, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const point = {x:0, y:0, z:-1.3, nx:0, nz:-1, type:'high'};
+  const bot = c.spawnEnemy(1, 0.79, -1.3, {team:'enemy', spawnProtection:false});
+  bot.coverPoint = point; bot.state = 'take_cover'; c.updateEnemies(0.016);
+  assert.notEqual(bot.state, 'in_cover', 'must not hold while exposed at the edge');
+});
+
 test('cover approach does not strand a rifleman against an intervening wall', () => {
   const c = createFullMatchContext({ spawnTracer: noop, setTimeout: noop }); c.player.pos.set(0, 1.7, 15);
   c.addBox(0, 1.5, -5, 8, 3, 1, 'concrete');

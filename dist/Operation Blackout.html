@@ -5837,9 +5837,14 @@ return points;
 }
 function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders) {
 if (!coverPoint||!Array.isArray(colliders)||colliders.length===0) return false;
-const eyeY = coverPoint.y + 1.5;
+const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9);
 const thY = _isNum(threatY) ? threatY : 1.7;
-return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0);
+const dx = threatX - coverPoint.x, dz = threatZ - coverPoint.z;
+const length = Math.hypot(dx, dz)||1;
+const sx = dz / length * 0.17, sz = -dx / length * 0.17;
+return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0) &&
+segmentBlocked(threatX, thY, threatZ, coverPoint.x + sx, eyeY, coverPoint.z + sz, colliders, 0) &&
+segmentBlocked(threatX, thY, threatZ, coverPoint.x - sx, eyeY, coverPoint.z - sz, colliders, 0);
 }
 function scoreCoverPoint(coverPt, actorX, actorZ, threatX, threatZ, colliders, opts) {
 if (!coverPt) return -Infinity;
@@ -17685,15 +17690,17 @@ en.stateT = 0;
 }
 } else if (en.coverPoint) {
 const dCover = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+const coverHere = { x: en.pos.x, y: en.pos.y, z: en.pos.z, type: en.coverPoint.type };
+const targetY = target===player||target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
 if (en.state === 'take_cover') {
-if (dCover <= 0.8) {
+if (dCover <= 0.8&&CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
 en.state = 'in_cover';
 en.stateT = 0;
 en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
 }
 } else if (en.state === 'in_cover') {
 en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
-if (dist < 4.0||!CORE.evalCoverOcclusion(en.coverPoint, target.pos.x, target.pos.y, target.pos.z, colliders)) {
+if (dist < 4.0||!CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
 en.coverPoint = null;
 en.crouch = 0;
 en.state = 'chase';

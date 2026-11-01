@@ -10727,6 +10727,13 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(step2.complete, true);
 });
 
+test('standing cover is rejected when the standing head remains visible', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1.7,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};
+  assert.equal(CORE.segmentBlocked(0, 2, 8, 0, 1.9, -1.3, wall, 0), false);
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 2, 8, wall), false);
+});
+
 test('low cover is rejected when the crouched head remains visible', () => {
   const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1,z:0.5}}];
   const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'low'};

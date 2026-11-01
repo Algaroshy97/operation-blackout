@@ -785,15 +785,17 @@ function updateEnemies(dt) {
         }
       } else if (en.coverPoint) {
         const dCover = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+        const coverHere = { x: en.pos.x, y: en.pos.y, z: en.pos.z, type: en.coverPoint.type };
+        const targetY = target === player || target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
         if (en.state === 'take_cover') {
-          if (dCover <= 0.8) {
+          if (dCover <= 0.8 && CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
             en.state = 'in_cover';
             en.stateT = 0;
             en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
           }
         } else if (en.state === 'in_cover') {
           en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
-          if (dist < 4.0 || !CORE.evalCoverOcclusion(en.coverPoint, target.pos.x, target.pos.y, target.pos.z, colliders)) {
+          if (dist < 4.0 || !CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
             en.coverPoint = null;
             en.crouch = 0;
             en.state = 'chase';
