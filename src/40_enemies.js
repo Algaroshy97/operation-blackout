@@ -673,14 +673,12 @@ function objectiveSteerTarget(en, target) {
   if (target && !target.dead && distToTarget(en, target) <= OBJECTIVE_ENGAGE_RANGE) return null;
   const order = mode.objectiveFor(en);
   if (!order) return null;
-  return {
-    pos: { x: order.point[0], y: 0, z: order.point[1] },
-    isPlayer: false,
-    objective: true,
-    objectiveRole: order.role,
-    objectiveName: order.name,
-    dead: false
-  };
+  const dest = en._objectiveNavTarget || (en._objectiveNavTarget = {
+    pos: { x: 0, y: 0, z: 0 }, isPlayer: false, objective: true, dead: false
+  });
+  dest.pos.x = order.point[0]; dest.pos.z = order.point[1];
+  dest.objectiveRole = order.role; dest.objectiveName = order.name;
+  return dest;
 }
 
 // Resolve only in Gun Game; archetype combat remains unchanged in every other mode.

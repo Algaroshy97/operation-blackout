@@ -6640,6 +6640,10 @@ test('domination flag order navigates around an intervening wall', () => {
   for (const flag of c.MODES.domination.flags) { flag.x = 0; flag.z = 10; flag.owner = null; }
   c.player.pos.set(45, 1.7, 45); bot.pos.set(0, 0, -10); bot.kind = 1;
   c.addBox(0, 1.5, -2, 8, 3, 1, 'concrete'); c.rebuildNavGrid();
+  c.updateEnemies(0.1);
+  const firstOrder = bot.objectiveTarget;
+  c.updateEnemies(0.1);
+  assert.equal(bot.objectiveTarget, firstOrder, 'unchanged flag retains its flow-cache key');
   for (let i = 0; i < 300; i++) { c.gameT = i * 0.1; c.updateEnemies(0.1); }
   assert.ok(bot.pos.z > 0, `bot must route around the wall: ${JSON.stringify(bot.pos)}`);
 });

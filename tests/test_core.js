@@ -10727,6 +10727,14 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(step2.complete, true);
 });
 
+test('generated 1.6m low cover protects a crouched bot on level ground', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1.6,z:0.5}}];
+  const nav = CORE.buildNavGrid(wall, {halfExtent:25, cell:1, agentRadius:0.5, stepH:0.6, walkerHeight:1.8});
+  const point = CORE.generateCoverPoints(wall, nav, {standoff:0.8}).find(p => Math.abs(p.x) < 0.1 && p.z < -1);
+  assert.ok(point); assert.equal(point.type, 'low');
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 1.7, 8, wall), true);
+});
+
 test('scaled bot cover rejects walls below its larger head', () => {
   const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:2.1,z:0.5}}];
   const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};
