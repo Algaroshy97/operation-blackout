@@ -6637,6 +6637,35 @@ test('rifleman retreats to cover after ending a peek', () => {
   assert.ok(CORE.horizDist(bot.pos.x, bot.pos.z, point.x, point.z) < before, 'must retreat rather than stand exposed');
 });
 
+test('losing a target clears cover before combat resumes', () => {
+  const c = createFullMatchContext(); c.player.pos.set(0, 1.7, 12);
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const bot = c.spawnEnemy(1, 0, -6, {team:'enemy', spawnProtection:false});
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint); bot.state = 'in_cover'; bot.crouch = 1;
+  c.player.dead = true; c.updateEnemies(0.1);
+  assert.equal(bot.coverPoint, null); assert.equal(bot.crouch, 0);
+  c.player.dead = false; c.gameT = 10; c.updateEnemies(0.1);
+  assert.ok(bot.coverPoint, 'reacquiring a target permits fresh cover selection');
+});
+
+test('domination flag order clears cover and permits reacquisition', () => {
+  const c = createFullMatchContext(); modeSettings(c); c.setActiveMode('domination');
+  c.MODES.domination.setup();
+  const bot = c.enemies.find(a => a.team === 'enemy');
+  for (const actor of c.enemies) if (actor !== bot) actor.dead = true;
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  bot.pos.set(0, 0, -6); bot.kind = 1; c.player.pos.set(45, 1.7, 45);
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint); bot.state = 'in_cover'; bot.crouch = 1;
+  c.updateEnemies(0.1);
+  assert.ok(bot.objectiveTarget, 'actual mode must issue a flag order');
+  assert.equal(bot.coverPoint, null); assert.equal(bot.crouch, 0);
+  bot.pos.set(0, 0, -6); c.player.pos.set(0, 1.7, 12); c.gameT = 10;
+  c.updateEnemies(0.1);
+  assert.ok(bot.coverPoint, 'combat after flag order permits new cover selection');
+});
+
 
 
 

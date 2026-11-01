@@ -11,7 +11,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 - Restore touch fire after match respawn and allow the knife action when no firearm
   is equipped. Add a Chromium touch-event lifecycle probe.
 - Route cover approaches, abandon stalled assignments, test peek sightlines and
-  clear cover state on respawn or knife promotion.
+  clear cover state on respawn, knife promotion, lost targets and flag orders.
 - Compact the offline build while retaining its size budget and add build tests.
 
 ## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI

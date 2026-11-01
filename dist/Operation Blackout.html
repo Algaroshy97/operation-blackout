@@ -17598,6 +17598,11 @@ const mode = typeof getActiveMode === 'function' ? getActiveMode() : null;
 if (!mode || mode.id !== 'gun-game') return null;
 return en.ggWeapon < 0 ? { type: 'MELEE', range: CFG.ai.attackRange } : CFG.weapons[en.ggWeapon];
 }
+function clearEnemyCover(en) {
+en.coverPoint = null; en.crouch = 0; en.coverT = 0;
+en._peekPoint = null; en._peekTravelT = 0; en._coverProgress = null;
+en._coverNavTarget = null; en._nextCoverCheck = 0;
+}
 function updateEnemies(dt) {
 updateStatusEffects(dt);
 losFrame++;
@@ -17625,6 +17630,7 @@ en.stateT += dt;
 const dist = target ? distToTarget(en, target) : distToPlayer(en);
 const order = objectiveSteerTarget(en, target);
 if (order) {
+clearEnemyCover(en);
 en.objectiveTarget = order;
 en.target = order;
 moveEnemy(en, dt, distToTarget(en, order));
@@ -17635,6 +17641,7 @@ animateEnemy(en, dt, dist);
 continue;
 }
 if (targetGone) {
+clearEnemyCover(en);
 if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
 animateEnemy(en, dt, dist);
 continue;
