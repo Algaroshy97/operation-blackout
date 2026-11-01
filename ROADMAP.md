@@ -41,8 +41,10 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   Diagnose audio initialization, routing, saved settings and mobile gesture unlock,
   plus pause/death/respawn/resume. Do not assume the music code was removed or
   override intentional mute/zero-volume settings.
-- Retain the existing musical style; make it clearly audible and increase intensity
-  during combat without masking footsteps or warnings. Separate music volume.
+- Retain the existing musical style (the sequenced D-minor score); make it clearly
+  audible from the very first gameplay moments and increase intensity during combat
+  without masking footsteps or warnings. Separate music volume. User decision: keep
+  the same score, not a new style — the fix is audibility from match start.
 - Manual OR random weather/time selection before deployment, fixed for the match:
   clear/day, dusk, night, Urban rain and Snowy blizzard. Keep maps compatible.
 - Night muzzle/flashlight lighting, readable gameplay, mobile/Low-quality frame
