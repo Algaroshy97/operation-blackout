@@ -1,5 +1,66 @@
 # Operation Blackout — Roadmap
 
+## User-approved phased delivery plan (supersedes remaining milestone scope below)
+
+The historical milestone ledger below is retained as evidence, not as approval of
+unmerged work. The following four stages replace the former all-in-one remaining
+batch. No periodic development cron is authorized. Each stage requires production
+regressions, full build/release/browser gates, independent exact-head review and
+exact-head CI before its own GitHub PR merge, canonical acceptance and publication.
+Push each stage to GitHub and verify published bytes; do not defer all publication
+to the end. Do not claim physical Android/LOQ acceptance from headless checks.
+
+### Stage 1 — Fair combat, mobile lifecycle and reliable AI
+- Four meaningful difficulty levels: Very Easy, Easy, Medium, Hard, selectable in
+  every mode including Gun Game; migrate old saves safely and persist selection.
+- Keep tactical intelligence on easier levels, but reduce reaction speed, aim
+  accuracy, damage and combat pressure so mistakes are survivable. Existing Easy
+  is reported too lethal on a phone. Preserve a distinct harder challenge.
+- Reproduce and fix mobile Gun Game weapon becoming unusable after death; cover
+  real touch fire, repeated death/respawn, reload, promotion, knife and cancellation.
+- Reduce early Survival wave congestion and concurrency on easier settings;
+  validate actual early-wave play rather than only tuning helper constants.
+- Repair retained PR14 cover-AI review findings, including stalled navigation,
+  occluded peeks, melee cover misuse and stale state on respawn, with real lifecycle
+  regression coverage. CI-green rejected code is not accepted baseline.
+- Status: pending; earlier stopped worker changes are retained but not approved.
+
+### Stage 2 — Understandable Gunsmith and progression
+- All base weapons available from the start; rank must not gate base weapons.
+  Gun Game always issues its required ladder weapon independently of unlocks.
+- Cover every suitable weapon with explicitly compatible attachments, clear
+  benefits AND trade-offs, readable before/after comparisons and per-weapon saved
+  builds; actual deployed effects must match the explanation. No fake knife mods.
+- Career challenges unlock procedural weapon camos and operator kit colours.
+- Allow one balanced starting perk choice; rank opens cosmetics and optional
+  extras, never compulsory access to a basic weapon. Preserve existing save data.
+- Status: pending.
+
+### Stage 3 — Audible music, atmosphere and visibility
+- Phone report: music is missing from initial gameplay while other sounds work.
+  Diagnose audio initialization, routing, saved settings and mobile gesture unlock,
+  plus pause/death/respawn/resume. Do not assume the music code was removed or
+  override intentional mute/zero-volume settings.
+- Retain the existing musical style; make it clearly audible and increase intensity
+  during combat without masking footsteps or warnings. Separate music volume.
+- Manual OR random weather/time selection before deployment, fixed for the match:
+  clear/day, dusk, night, Urban rain and Snowy blizzard. Keep maps compatible.
+- Night muzzle/flashlight lighting, readable gameplay, mobile/Low-quality frame
+  budget, reduced-motion support and restrained effects are acceptance criteria.
+- Status: pending.
+
+### Stage 4 — Per-mode statistics and completion audit
+- Per-mode K/D, accuracy, favourite weapon and wins with clear presentation,
+  durable storage/migration and correct attribution across real match lifecycles.
+- Audit all approved stages and earlier delivered milestones against actual source,
+  regressions and release evidence; do not infer completion from stale board cards.
+- Daily challenge is explicitly DEFERRED by the user; do not implement a seeded
+  challenge, daily modifiers or counted daily attempt as part of this plan.
+- Status: pending.
+
+Historical scope below is subordinate to these decisions, especially base-weapon
+rank gates, daily challenges and the old milestone numbering/delivery granularity.
+
 What comes next. The game already has a lot of systems: perks, wall buys, plates,
 scorestreaks, five archetypes, checkpoints, endless, graphics settings for every device
 class. The original variety gap (one mode, one map, four rifles) is now addressed by
