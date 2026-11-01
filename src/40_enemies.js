@@ -518,15 +518,15 @@ const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
 // round-robin: each enemy checks LOS at most every 3 frames
 let losFrame = 0;
-function hasLOS(en, target) {
+function hasLOS(en, target, force) {
   const tgt = target || en.target || player;
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
-  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
+  if (!force && losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
   // Riflemen ask twice on their own frame — once in the state machine, once in the
   // ranged-attack block. The old throttle only cached on SKIPPED frames, so the
   // second call redid a full-scene raycast. Cache per tick, not just per skip.
-  if (en._losTick === losFrame) return en._losCache;
+  if (!force && en._losTick === losFrame) return en._losCache;
   en._losTick = losFrame;
   _losFrom.set(en.pos.x, CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y), en.pos.z);
   _losTo.copy(tgt.pos);
@@ -944,14 +944,14 @@ function updateEnemies(dt) {
     }
     // breacher: a shotgun blast whenever the target is inside its range
     if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
-      if (hasLOS(en, target)) {
+      if (hasLOS(en, target, true)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (diff().reaction || 1);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
     // ranged attack (rifleman)
     if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot) {
-      if (hasLOS(en, target)) {
+      if (hasLOS(en, target, true)) {
         if (ggWeapon) {
           en.nextShot = gameT + 60 / ggWeapon.rpm * (diff().reaction || 1);
         } else if (waveBehaviours.burstFire || en.state === 'peek') {

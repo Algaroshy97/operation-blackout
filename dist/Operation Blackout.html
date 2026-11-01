@@ -17467,11 +17467,11 @@ const losRay = new THREE.Raycaster();
 const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
 let losFrame = 0;
-function hasLOS(en, target) {
+function hasLOS(en, target, force) {
 const tgt = target||en.target||player;
 if (en._losSkip===undefined) en._losSkip = 0;
-if (losFrame % 3!==en._losSkip) { if (en._losCache===undefined) return false; return en._losCache; }
-if (en._losTick===losFrame) return en._losCache;
+if (!force&&losFrame % 3!==en._losSkip) { if (en._losCache===undefined) return false; return en._losCache; }
+if (!force&&en._losTick===losFrame) return en._losCache;
 en._losTick = losFrame;
 _losFrom.set(en.pos.x, CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y), en.pos.z);
 _losTo.copy(tgt.pos);
@@ -17824,13 +17824,13 @@ en.attackReadyT = CORE.enemyAttackReadyTime(gameT, CORE.enemyAttackCooldown(en.k
 if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
 }
 if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
-if (hasLOS(en, target)) {
+if (hasLOS(en, target, true)) {
 en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (diff().reaction||1);
 breacherShoot(en, dist, target);
 } else en.nextShot = gameT + 0.4;
 }
 if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot) {
-if (hasLOS(en, target)) {
+if (hasLOS(en, target, true)) {
 if (ggWeapon) {
 en.nextShot = gameT + 60 / ggWeapon.rpm * (diff().reaction || 1);
 } else if (waveBehaviours.burstFire || en.state === 'peek') {

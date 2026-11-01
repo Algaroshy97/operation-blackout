@@ -6626,6 +6626,7 @@ test('a peeking rifleman behind a wide wall does not fire without line of sight'
   c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
   const bot = c.spawnEnemy(1, 0, -1.3, { team: 'enemy', spawnProtection: false });
   bot.state = 'peek'; bot.stateT = 0; bot.nextShot = 0;
+  bot._losCache = true; bot._losSkip = 0;
   bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
   assert.ok(bot.coverPoint);
   c.Math.random = () => 0.5; c.gameT = 10; c.updateEnemies(0.016);
