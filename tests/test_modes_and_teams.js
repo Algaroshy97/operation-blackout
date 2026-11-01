@@ -6518,6 +6518,29 @@ test('difficulty changes actual hostile gun game hit probability and damage', ()
   assert.ok(fireOn('very-easy', 0) > fireOn('veteran', 0), 'an actual easy hit does less damage');
 });
 
+test('friendly bot fire retains medium accuracy and damage on very easy', () => {
+  function hit(level) {
+    const pending = [];
+    const c = createFullMatchContext({setTimeout: fn => pending.push(fn), spawnTracer: noop});
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => 0;
+    c.started = true; c.paused = false; c.player.pos.set(40, 1.7, 40);
+    const attacker = c.spawnEnemy(1, 0, 0, {team:'friendly', spawnProtection:false});
+    const target = c.spawnEnemy(0, 0, 8, {team:'enemy', spawnProtection:false});
+    target.health = 1000; c.enemyShoot(attacker, 8, target); pending.forEach(fn => fn());
+    return target.health;
+  }
+  assert.equal(hit('very-easy'), hit('regular'));
+});
+
+test('forced firing LOS does not jitter around wall edges', () => {
+  const c = createFullMatchContext();
+  c.addBox(0, 1.5, 10, 1, 3, 1, 'concrete');
+  c.player.pos.set(0.49, 1.7, 12);
+  const bot = c.spawnEnemy(1, 0.49, 0, {team:'enemy'});
+  c.Math.random = () => 1;
+  assert.equal(c.hasLOS(bot, c.player, true), false);
+});
+
 test('breacher pellet accuracy scales through real impact resolution', () => {
   function hit(level) {
     const pending = [];

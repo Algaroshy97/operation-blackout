@@ -95,6 +95,11 @@ function makeEnemyMesh(kind, team) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
+function enemyDifficulty(en) {
+  return en && en.team && typeof player !== 'undefined' && player && en.team === player.team
+    ? CORE.difficulty('regular') : diff();
+}
+
 function spawnEnemy(kind, x, z, opts) {
   const spawnOpts = opts || {};
   let parts = null;
@@ -118,7 +123,7 @@ function spawnEnemy(kind, x, z, opts) {
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
   const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, enemyDifficulty({team: spawnTeam}).hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
@@ -532,8 +537,8 @@ function hasLOS(en, target, force) {
   _losTo.copy(tgt.pos);
   const tgtEyeY = (tgt === player || (tgt && tgt.isPlayer)) ? tgt.pos.y : (tgt.pos.y + (typeof E_DIM !== 'undefined' ? E_DIM.pelvisH : 0.95) + 0.55);
   _losTo.y = tgtEyeY;
-  _losTo.x = CORE.enemyLosTargetCoord(tgt.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
-  _losTo.z = CORE.enemyLosTargetCoord(tgt.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.x = force ? tgt.pos.x : CORE.enemyLosTargetCoord(tgt.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.z = force ? tgt.pos.z : CORE.enemyLosTargetCoord(tgt.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
   // Analytic slab test against the collider AABBs rather than a mesh raycast.
   // Once static geometry was merged into a few large batches, the mesh version
   // cost 1.37 ms per frame because three walks every triangle of every candidate;
@@ -716,7 +721,7 @@ function updateEnemies(dt) {
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);
     if (target && target !== en.target) {
-      en._reactionUntil = gameT + Math.max(0, (diff().reaction || 1) - 1) * 0.6;
+      en._reactionUntil = gameT + Math.max(0, (enemyDifficulty(en).reaction || 1) - 1) * 0.6;
     }
     en.target = target;
     const targetGone = !target || target.dead;
@@ -921,17 +926,17 @@ function updateEnemies(dt) {
           if (target === player || (target && target.isPlayer)) {
             // global melee damage cap: max 2 melee hits landing within any 0.8s window
             if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
-              const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+              const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
               damagePlayer(meleeDmg, dirToDeg(en), 'melee', en);
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
           } else if (target && target.isObjectiveTarget) {
-            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
             damageObjectiveTarget(target, meleeDmg, en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           } else if (typeof damageEnemy === 'function') {
-            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
             damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           }
@@ -945,7 +950,7 @@ function updateEnemies(dt) {
     // breacher: a shotgun blast whenever the target is inside its range
     if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target, true)) {
-        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (diff().reaction || 1);
+        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (enemyDifficulty(en).reaction || 1);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
@@ -953,15 +958,15 @@ function updateEnemies(dt) {
     if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot) {
       if (hasLOS(en, target, true)) {
         if (ggWeapon) {
-          en.nextShot = gameT + 60 / ggWeapon.rpm * (diff().reaction || 1);
+          en.nextShot = gameT + 60 / ggWeapon.rpm * (enemyDifficulty(en).reaction || 1);
         } else if (waveBehaviours.burstFire || en.state === 'peek') {
           // Bursts of 3 with a longer recovery: same average output, far more
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
-          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random()) * (diff().reaction || 1);
+          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random()) * (enemyDifficulty(en).reaction || 1);
         } else {
-          en.nextShot = gameT + (CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random()) - gameT) * (diff().reaction || 1);
+          en.nextShot = gameT + (CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
         }
         enemyShoot(en, dist, target);
       } else {
@@ -972,14 +977,14 @@ function updateEnemies(dt) {
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
     if (!ggWeapon && en.kind === 5 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
-      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(true, gameT, Math.random()) - gameT) * (diff().reaction || 1);
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(true, gameT, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
       throwEnemyGrenade(en, target);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a target who is actually behind cover.
     if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
-      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(false, gameT, Math.random()) - gameT) * (diff().reaction || 1);
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(false, gameT, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
       // only when the target IS in cover
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
     }
@@ -1107,7 +1112,7 @@ function enemyShoot(en, dist, target) {
     !!player.crouching,
     !player.onGround
   ) : 1;
-  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul) * (diff().accuracy || 1);
+  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul) * (enemyDifficulty(en).accuracy || 1);
   const isHit = Math.random() < acc;
   const to = _eshotTo.copy(tgt.pos);
   const chestOffsetY = isTargetPlayer ? CORE.ENEMY_SHOT_CHEST_Y_OFFSET : 0.95;
@@ -1130,8 +1135,8 @@ function enemyShoot(en, dist, target) {
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1) * diff().dmg
-      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1) * enemyDifficulty(en).dmg
+      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, enemyDifficulty(en).dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (tgt.dead || !started || paused) return;
@@ -1189,9 +1194,9 @@ function breacherShoot(en, dist, target) {
     to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
     spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
   }
-  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (diff().accuracy || 1);
+  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (enemyDifficulty(en).accuracy || 1);
   const hits = CORE.breacherPelletHits(dist, _breacherRolls);
-  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
+  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, enemyDifficulty(en).dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const isTargetPlayer = (tgt === player || (tgt && tgt.isPlayer));

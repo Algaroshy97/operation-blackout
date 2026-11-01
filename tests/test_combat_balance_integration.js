@@ -80,6 +80,7 @@ function enemyHarness() {
     _enemyStateOut: {}, _pushoutOut: {}, _sepOut: {}
   });
   const text = source('40_enemies.js');
+  vm.runInContext(section(text, 'function enemyDifficulty(', 'function spawnEnemy('), c);
   vm.runInContext(section(text, 'const _losFrom =', 'const tmpV2 ='), c);
   vm.runInContext(section(text, 'function updateStatusEffects(', '// Last-resort unstick:'), c);
   vm.runInContext(section(text, 'const _enemyGrenadeVelOut =', 'let _shieldMsgT ='), c);
