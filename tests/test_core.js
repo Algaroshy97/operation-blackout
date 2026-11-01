@@ -10727,6 +10727,12 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   assert.strictEqual(step2.complete, true);
 });
 
+test('scaled bot cover rejects walls below its larger head', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:2.1,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 2.4, 8, wall, 1.25), false);
+});
+
 test('standing cover is rejected when the standing head remains visible', () => {
   const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1.7,z:0.5}}];
   const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};

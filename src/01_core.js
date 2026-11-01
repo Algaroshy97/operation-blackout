@@ -1915,14 +1915,15 @@ const CORE = (function () {
     return points;
   }
 
-  function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders) {
+  function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders, actorScale) {
     if (!coverPoint || !Array.isArray(colliders) || colliders.length === 0) return false;
     // Require protection at the top and both sides of the head hit volume.
-    const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9);
+    const scale = _isPos(actorScale) ? actorScale : 1;
+    const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9) * scale;
     const thY = _isNum(threatY) ? threatY : 1.7;
     const dx = threatX - coverPoint.x, dz = threatZ - coverPoint.z;
     const length = Math.hypot(dx, dz) || 1;
-    const sx = dz / length * 0.17, sz = -dx / length * 0.17;
+    const sx = dz / length * 0.17 * scale, sz = -dx / length * 0.17 * scale;
     return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0) &&
       segmentBlocked(threatX, thY, threatZ, coverPoint.x + sx, eyeY, coverPoint.z + sz, colliders, 0) &&
       segmentBlocked(threatX, thY, threatZ, coverPoint.x - sx, eyeY, coverPoint.z - sz, colliders, 0);
@@ -1945,7 +1946,7 @@ const CORE = (function () {
     const toTz = dz / dThreat;
     const dot = toTx * coverPt.nx + toTz * coverPt.nz;
 
-    const isOccluded = evalCoverOcclusion(coverPt, threatX, opts.threatY, threatZ, colliders);
+    const isOccluded = evalCoverOcclusion(coverPt, threatX, opts.threatY, threatZ, colliders, opts.actorScale);
     const baseScore = isOccluded ? 60 : -100;
     const distScore = 30 - dActor * 2.0;
     const threatDistScore = 15 - Math.abs(dThreat - 18) * 0.7;

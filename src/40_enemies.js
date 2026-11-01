@@ -730,6 +730,7 @@ function updateEnemies(dt) {
     const order = objectiveSteerTarget(en, target);
     if (order) {
       clearEnemyCover(en);
+      if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; }
       en.objectiveTarget = order;
       en.target = order;
       moveEnemy(en, dt, distToTarget(en, order));
@@ -776,7 +777,7 @@ function updateEnemies(dt) {
       if (!en.coverPoint && (en.state === 'chase' || en.state === 'strafe')) {
         if (!en._nextCoverCheck || gameT >= en._nextCoverCheck) {
           en._nextCoverCheck = gameT + 1.2;
-          const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18 });
+          const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18, actorScale: CORE.enemyScale(en.kind) });
           if (bestPt) {
             en.coverPoint = bestPt;
             en.state = 'take_cover';
@@ -788,14 +789,14 @@ function updateEnemies(dt) {
         const coverHere = { x: en.pos.x, y: en.pos.y, z: en.pos.z, type: en.coverPoint.type };
         const targetY = target === player || target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
         if (en.state === 'take_cover') {
-          if (dCover <= 0.8 && CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
+          if (dCover <= 0.8 && CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
             en.state = 'in_cover';
             en.stateT = 0;
             en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
           }
         } else if (en.state === 'in_cover') {
           en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
-          if (dist < 4.0 || !CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
+          if (dist < 4.0 || !CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
             en.coverPoint = null;
             en.crouch = 0;
             en.state = 'chase';

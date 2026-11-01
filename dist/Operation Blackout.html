@@ -5835,13 +5835,14 @@ colliderIndex: i
 }
 return points;
 }
-function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders) {
+function evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders, actorScale) {
 if (!coverPoint||!Array.isArray(colliders)||colliders.length===0) return false;
-const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9);
+const scale = _isPos(actorScale) ? actorScale : 1;
+const eyeY = coverPoint.y + (coverPoint.type === 'low' ? 1.5 : 1.9) * scale;
 const thY = _isNum(threatY) ? threatY : 1.7;
 const dx = threatX - coverPoint.x, dz = threatZ - coverPoint.z;
 const length = Math.hypot(dx, dz)||1;
-const sx = dz / length * 0.17, sz = -dx / length * 0.17;
+const sx = dz / length * 0.17 * scale, sz = -dx / length * 0.17 * scale;
 return segmentBlocked(threatX, thY, threatZ, coverPoint.x, eyeY, coverPoint.z, colliders, 0) &&
 segmentBlocked(threatX, thY, threatZ, coverPoint.x + sx, eyeY, coverPoint.z + sz, colliders, 0) &&
 segmentBlocked(threatX, thY, threatZ, coverPoint.x - sx, eyeY, coverPoint.z - sz, colliders, 0);
@@ -5860,7 +5861,7 @@ if (dThreat < minThreatDist) return -Infinity;
 const toTx = dx / dThreat;
 const toTz = dz / dThreat;
 const dot = toTx * coverPt.nx + toTz * coverPt.nz;
-const isOccluded = evalCoverOcclusion(coverPt, threatX, opts.threatY, threatZ, colliders);
+const isOccluded = evalCoverOcclusion(coverPt, threatX, opts.threatY, threatZ, colliders, opts.actorScale);
 const baseScore = isOccluded ? 60 : -100;
 const distScore = 30 - dActor * 2.0;
 const threatDistScore = 15 - Math.abs(dThreat - 18) * 0.7;
@@ -17639,6 +17640,7 @@ const dist = target ? distToTarget(en, target) : distToPlayer(en);
 const order = objectiveSteerTarget(en, target);
 if (order) {
 clearEnemyCover(en);
+if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; }
 en.objectiveTarget = order;
 en.target = order;
 moveEnemy(en, dt, distToTarget(en, order));
@@ -17681,7 +17683,7 @@ if ((attackKind === 1 || (en.isBot && !ggWeapon)) && typeof navGrid !== 'undefin
 if (!en.coverPoint && (en.state === 'chase' || en.state === 'strafe')) {
 if (!en._nextCoverCheck||gameT >= en._nextCoverCheck) {
 en._nextCoverCheck = gameT + 1.2;
-const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18 });
+const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18, actorScale: CORE.enemyScale(en.kind) });
 if (bestPt) {
 en.coverPoint = bestPt;
 en.state = 'take_cover';
@@ -17693,14 +17695,14 @@ const dCover = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint
 const coverHere = { x: en.pos.x, y: en.pos.y, z: en.pos.z, type: en.coverPoint.type };
 const targetY = target===player||target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
 if (en.state === 'take_cover') {
-if (dCover <= 0.8&&CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
+if (dCover <= 0.8&&CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
 en.state = 'in_cover';
 en.stateT = 0;
 en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
 }
 } else if (en.state === 'in_cover') {
 en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
-if (dist < 4.0||!CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders)) {
+if (dist < 4.0||!CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
 en.coverPoint = null;
 en.crouch = 0;
 en.state = 'chase';

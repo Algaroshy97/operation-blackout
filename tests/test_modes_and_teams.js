@@ -6704,8 +6704,10 @@ test('domination flag order clears cover and permits reacquisition', () => {
   bot.pos.set(0, 0, -6); bot.kind = 1; c.player.pos.set(45, 1.7, 45);
   bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
   assert.ok(bot.coverPoint); bot.state = 'in_cover'; bot.crouch = 1;
+  const beforeOrder = { x: bot.pos.x, z: bot.pos.z };
   c.updateEnemies(0.1);
   assert.ok(bot.objectiveTarget, 'actual mode must issue a flag order');
+  assert.ok(CORE.horizDist(beforeOrder.x, beforeOrder.z, bot.pos.x, bot.pos.z) > 0, 'flag order moves on the transition frame');
   assert.equal(bot.coverPoint, null); assert.equal(bot.crouch, 0);
   bot.pos.set(0, 0, -6); c.player.pos.set(0, 1.7, 12); c.gameT = 10;
   c.updateEnemies(0.1);
