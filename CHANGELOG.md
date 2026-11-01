@@ -15,7 +15,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 - Keep simplified rigs and their hitboxes aligned while crouched, and synchronize
   saved difficulty across settings, checkpoint resume and new deployment.
 - Reject cover when the actual standing or crouched head remains exposed, including
-  scaled rigs and the actor's arrival position; resume flag steering immediately.
+  scaled rigs and the actor's arrival position; route flag orders around walls.
 - Compact the offline build while retaining its size budget and add build tests.
 
 ## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI

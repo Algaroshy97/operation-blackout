@@ -6632,6 +6632,18 @@ test('a peeking rifleman behind a wide wall does not fire without line of sight'
   assert.equal(traces.length, 0, 'occluded peek must never fire through the wall');
 });
 
+test('domination flag order navigates around an intervening wall', () => {
+  const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
+  modeSettings(c); c.setActiveMode('domination'); c.MODES.domination.setup();
+  const bot = c.enemies.find(a => a.team === 'enemy');
+  for (const actor of c.enemies) if (actor !== bot) actor.dead = true;
+  for (const flag of c.MODES.domination.flags) { flag.x = 0; flag.z = 10; flag.owner = null; }
+  c.player.pos.set(45, 1.7, 45); bot.pos.set(0, 0, -10); bot.kind = 1;
+  c.addBox(0, 1.5, -2, 8, 3, 1, 'concrete'); c.rebuildNavGrid();
+  for (let i = 0; i < 300; i++) { c.gameT = i * 0.1; c.updateEnemies(0.1); }
+  assert.ok(bot.pos.z > 0, `bot must route around the wall: ${JSON.stringify(bot.pos)}`);
+});
+
 test('cover arrival does not hold at an exposed position beside a narrow wall', () => {
   const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
   c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 1, 3, 1, 'concrete'); c.rebuildNavGrid();

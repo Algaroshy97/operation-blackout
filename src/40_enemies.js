@@ -730,7 +730,7 @@ function updateEnemies(dt) {
     const order = objectiveSteerTarget(en, target);
     if (order) {
       clearEnemyCover(en);
-      if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; }
+      if (en.state !== 'chase') { en.state = 'chase'; en.stateT = 0; }
       en.objectiveTarget = order;
       en.target = order;
       moveEnemy(en, dt, distToTarget(en, order));
