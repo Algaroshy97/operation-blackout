@@ -10,6 +10,20 @@ const path = require('node:path');
 
 const CORE = require(path.join(__dirname, '..', 'src', '01_core.js'));
 
+test('difficulty has four ordered combat levels and saved legacy values remain valid', () => {
+  const levels = Object.values(CORE.DIFFICULTIES);
+  assert.deepEqual(levels.map(d => d.label), ['VERY EASY', 'EASY', 'MEDIUM', 'HARD']);
+  for (let i = 1; i < levels.length; i++) {
+    assert.ok(levels[i].dmg > levels[i - 1].dmg);
+    assert.ok(levels[i].accuracy > levels[i - 1].accuracy);
+    assert.ok(levels[i].reaction < levels[i - 1].reaction);
+  }
+  for (const key of ['recruit', 'regular', 'veteran']) {
+    assert.equal(CORE.sanitizeSettings({difficulty: key}).difficulty, key);
+  }
+  assert.equal(CORE.sanitizeSettings({difficulty: 'invalid'}).difficulty, 'regular');
+});
+
 test('gyro look converts wrapped sensor angles into finite scaled camera deltas', () => {
   const out = {};
   CORE.gyroLookDelta(1, 2, 0.5, out);
@@ -712,7 +726,7 @@ test('difficulty presets are ordered and never zero out a multiplier', () => {
   for (const d of [r, n, v]) {
     for (const k of ['hp', 'dmg', 'count', 'regen']) assert.ok(d[k] > 0, `${k} must stay positive`);
   }
-  assert.strictEqual(CORE.difficulty('nonsense').label, 'REGULAR', 'unknown key falls back');
+  assert.strictEqual(CORE.difficulty('nonsense').label, 'MEDIUM', 'unknown key falls back');
 });
 
 // ---------------------------------------------------------------- GAP-05

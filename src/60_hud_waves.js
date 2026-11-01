@@ -497,8 +497,8 @@ let nextEstepT = 0;
 // Bumped by resetGame(). Anything scheduled with setTimeout captures the value at
 // schedule time and drops itself if the run has changed since.
 let runId = 0;
-// Per-run, chosen at deploy — not a saved setting.
-let runDifficulty = 'regular';
+// The saved deploy choice is fixed for the run (or restored by a checkpoint).
+let runDifficulty = (typeof getSetting === 'function' && getSetting('difficulty')) || 'regular';
 let endlessMode = false;
 function diff() { return CORE.difficulty(runDifficulty); }
 // Behaviour unlocks replace the accuracy ramp that capped out at wave 8.
@@ -1266,7 +1266,9 @@ function updateWaves(dt) {
     if (waveQueue > 0) {
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
-        const canSpawn = Math.max(0, CFG.wave.maxActive - living);
+        const earlyCap = waveNum <= 4 && runDifficulty === 'very-easy' ? 4
+          : waveNum <= 4 && runDifficulty === 'recruit' ? 7 : CFG.wave.maxActive;
+        const canSpawn = Math.max(0, Math.min(CFG.wave.maxActive, earlyCap) - living);
         if (canSpawn > 0) {
           // Burst size and cadence scale with how much of the wave is still
           // queued: wave 15 used to need ~37 s of pure spawn gating before kill
@@ -1276,7 +1278,8 @@ function updateWaves(dt) {
           for (let i = 0; i < count; i++) {
             spawnFromQueue();
           }
-          spawnTimer = CORE.waveSpawnDelay(pressure, Math.random());
+          spawnTimer = CORE.waveSpawnDelay(pressure, Math.random()) *
+            (waveNum <= 4 && runDifficulty === 'very-easy' ? 1.7 : waveNum <= 4 && runDifficulty === 'recruit' ? 1.3 : 1);
         } else {
           spawnTimer = 0.5;
         }

@@ -4,6 +4,16 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Stage 1 — combat difficulty, touch lifecycle and cover repairs
+
+- Add four saved deploy difficulties for every mode, with gentler early Survival
+  crowds and difficulty-scaled bot aim, reaction and Gun Game damage.
+- Restore touch fire after match respawn and allow the knife action when no firearm
+  is equipped. Add a Chromium touch-event lifecycle probe.
+- Route cover approaches, abandon stalled assignments, test peek sightlines and
+  clear cover state on respawn or knife promotion.
+- Compact the offline build while retaining its size budget and add build tests.
+
 ## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI
 
 - **Cover point generation & evaluation framework (`src/01_core.js`).**

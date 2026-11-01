@@ -442,10 +442,15 @@ function moveEnemy(en, dt, dist) {
     const cdz = en.coverPoint.z - en.pos.z;
     const cd = Math.hypot(cdx, cdz) || 0.001;
     mvx = cdx / cd; mvz = cdz / cd;
+    if (!en._coverNavTarget) en._coverNavTarget = { pos: en.coverPoint };
+    en._coverNavTarget.pos = en.coverPoint;
+    const field = navGrid ? flowFieldForTarget(en._coverNavTarget) : null;
+    const routed = field ? CORE.flowDirAt(field, en.pos.x, en.pos.z, _flowDir) : null;
+    if (routed && cd > 2) { mvx = routed.x; mvz = routed.z; }
   } else if (en.state === 'in_cover') {
     mvx = 0; mvz = 0;
   } else if (en.state === 'peek' && en.coverPoint) {
-    const peekPos = CORE.coverPeekPosition(en.coverPoint, target.pos.x, target.pos.z, en.strafeDir || 1, _flankOut);
+    const peekPos = en._peekPoint || en.coverPoint;
     const pdx = peekPos.x - en.pos.x;
     const pdz = peekPos.z - en.pos.z;
     const pd = Math.hypot(pdx, pdz);
@@ -706,6 +711,9 @@ function updateEnemies(dt) {
     }
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);
+    if (target && target !== en.target) {
+      en._reactionUntil = gameT + Math.max(0, (diff().reaction || 1) - 1) * 0.6;
+    }
     en.target = target;
     const targetGone = !target || target.dead;
     en.stateT += dt;
@@ -734,12 +742,24 @@ function updateEnemies(dt) {
     const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
     const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
     const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
+    if (en.state === 'peek' && nxt.state === 'in_cover' && en.coverPoint) nxt.state = 'take_cover';
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
+    if (en.state !== 'peek') en._peekPoint = null;
 
+    // A Gun Game promotion can turn a ranged bot into a knife combatant.
+    if (ggWeapon && attackKind === 0 && en.coverPoint) {
+      en.coverPoint = null;
+      en.crouch = 0;
+      en.coverT = 0;
+      if (en.state === 'take_cover' || en.state === 'in_cover' || en.state === 'peek') {
+        en.state = 'chase';
+        en.stateT = 0;
+      }
+    }
     // Tactical cover evaluation for ranged combatants
-    if ((attackKind === 1 || en.isBot) && typeof navGrid !== 'undefined' && navGrid && navGrid.coverPoints && navGrid.coverPoints.length > 0) {
+    if ((attackKind === 1 || (en.isBot && !ggWeapon)) && typeof navGrid !== 'undefined' && navGrid && navGrid.coverPoints && navGrid.coverPoints.length > 0) {
       if (!en.coverPoint && (en.state === 'chase' || en.state === 'strafe')) {
         if (!en._nextCoverCheck || gameT >= en._nextCoverCheck) {
           en._nextCoverCheck = gameT + 1.2;
@@ -768,15 +788,45 @@ function updateEnemies(dt) {
           }
         } else if (en.state === 'peek') {
           en.crouch = 0;
+          if (!en._peekPoint) {
+            const pt = en.coverPoint;
+            const eyeY = CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y);
+            const targetY = target === player || target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
+            for (const side of [en.strafeDir || 1, -(en.strafeDir || 1)]) {
+              for (let offset = 0.75; offset <= 6; offset += 0.5) {
+                const x = pt.x - pt.nz * side * offset, z = pt.z + pt.nx * side * offset;
+                let occupied = false;
+                for (const collider of colliders) {
+                  if (CORE.isColliderRelevantXZ(collider.min.y, collider.max.y, en.pos.y, eyeY, CORE.STEP_HEIGHT) &&
+                      CORE.resolveAabbXZ(x, z, CORE.enemyColliderRadius(en.kind), collider, _enResolveOut)) { occupied = true; break; }
+                }
+                if (!occupied && !CORE.segmentBlocked(x, eyeY, z, target.pos.x, targetY, target.pos.z, colliders, 0.25)) {
+                  en._peekPoint = { x, z }; break;
+                }
+              }
+              if (en._peekPoint) break;
+            }
+            if (!en._peekPoint) {
+              en.coverPoint = null; en.state = 'chase'; en.stateT = 0; en._nextCoverCheck = gameT + 5;
+            }
+          }
           if (dist < 4.0) {
             en.coverPoint = null;
             en.state = 'chase';
             en.stateT = 0;
           }
-        }
+        } else en._peekPoint = null;
       }
     }
     moveEnemy(en, dt, dist);
+    if (en.state === 'take_cover' && en.coverPoint) {
+      if (!en._coverProgress) en._coverProgress = {};
+      const coverDist = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+      if (CORE.updateProgress(en._coverProgress, coverDist, dt, { giveUpAfter: 10 }) === 'reposition') {
+        en.coverPoint = null; en.crouch = 0; en.state = 'chase'; en.stateT = 0;
+        en._nextCoverCheck = gameT + 5; en._coverProgress = null;
+      }
+    } else en._coverProgress = null;
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
     // well past that, relocate it to a valid ring point rather than leaving a
@@ -842,7 +892,7 @@ function updateEnemies(dt) {
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
     const canMelee = CORE.canEnemyMelee(attackKind);
     const reach = CORE.enemyMeleeReach(attackKind, CFG.ai.attackRange);
-    if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
+    if (canMelee && gameT >= (en._reactionUntil || 0) && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       en.swinging = CORE.enemyMeleeWindup(Math.random());
@@ -879,25 +929,25 @@ function updateEnemies(dt) {
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
     // breacher: a shotgun blast whenever the target is inside its range
-    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target)) {
         en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
     // ranged attack (rifleman)
-    if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT > en.nextShot) {
-      if (hasLOS(en, target) || en.state === 'peek') {
+    if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot) {
+      if (hasLOS(en, target)) {
         if (ggWeapon) {
-          en.nextShot = gameT + 60 / ggWeapon.rpm;
+          en.nextShot = gameT + 60 / ggWeapon.rpm * (diff().reaction || 1);
         } else if (waveBehaviours.burstFire || en.state === 'peek') {
           // Bursts of 3 with a longer recovery: same average output, far more
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
-          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
+          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random()) * (diff().reaction || 1);
         } else {
-          en.nextShot = CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random());
+          en.nextShot = gameT + (CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random()) - gameT) * (diff().reaction || 1);
         }
         enemyShoot(en, dist, target);
       } else {
@@ -1043,7 +1093,7 @@ function enemyShoot(en, dist, target) {
     !!player.crouching,
     !player.onGround
   ) : 1;
-  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul);
+  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul) * (diff().accuracy || 1);
   const isHit = Math.random() < acc;
   const to = _eshotTo.copy(tgt.pos);
   const chestOffsetY = isTargetPlayer ? CORE.ENEMY_SHOT_CHEST_Y_OFFSET : 0.95;
@@ -1066,7 +1116,7 @@ function enemyShoot(en, dist, target) {
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1)
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1) * diff().dmg
       : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;

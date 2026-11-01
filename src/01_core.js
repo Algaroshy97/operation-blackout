@@ -408,6 +408,7 @@ const CORE = (function () {
     colorblindMarkers: { type: 'bool', def: false, label: 'High-contrast enemy markers' },
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
+    difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
     gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
@@ -1054,11 +1055,12 @@ const CORE = (function () {
   }
 
   // ---- Difficulty -------------------------------------------------------------
-  // A run-time choice, not a saved setting: picked at deploy, fixed for the run.
+  // Legacy keys are retained so old checkpoints continue to select the same tier.
   const DIFFICULTIES = {
-    recruit:  { label: 'RECRUIT',  hp: 0.8,  dmg: 0.65, count: 0.8, regen: 1.4, blurb: 'Learn the map' },
-    regular:  { label: 'REGULAR',  hp: 1.0,  dmg: 1.0,  count: 1.0, regen: 1.0, blurb: 'As designed' },
-    veteran:  { label: 'VETERAN',  hp: 1.25, dmg: 1.35, count: 1.2, regen: 0.6, blurb: 'Cover matters' }
+    'very-easy': { label: 'VERY EASY', hp: 0.7, dmg: 0.35, count: 0.65, regen: 1.6, accuracy: 0.45, reaction: 2.0, blurb: 'Learn the fight' },
+    recruit: { label: 'EASY', hp: 0.8, dmg: 0.55, count: 0.8, regen: 1.4, accuracy: 0.65, reaction: 1.5, blurb: 'More forgiving' },
+    regular: { label: 'MEDIUM', hp: 1.0, dmg: 1.0, count: 1.0, regen: 1.0, accuracy: 1.0, reaction: 1.0, blurb: 'Balanced' },
+    veteran: { label: 'HARD', hp: 1.25, dmg: 1.35, count: 1.2, regen: 0.6, accuracy: 1.15, reaction: 0.8, blurb: 'Cover matters' }
   };
   function difficulty(key) { return DIFFICULTIES[key] || DIFFICULTIES.regular; }
 

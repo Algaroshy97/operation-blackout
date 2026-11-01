@@ -6520,6 +6520,12 @@ def main() -> int:
 
         browser.close()
 
+    from contextlib import redirect_stdout
+    from probe_stage1_touch import main as probe_stage1_touch
+    with redirect_stdout(sys.stderr):
+        probe_stage1_touch(args.build)
+    checks.append(('stage1-touch-lifecycle', True))
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

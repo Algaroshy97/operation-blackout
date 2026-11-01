@@ -234,7 +234,7 @@ function defaultOnRespawn(actor, pt) {
       if (ds) ds.style.display = 'none';
     }
     if (typeof updateHudHealth === 'function') updateHudHealth();
-    if (typeof updateHudAmmo === 'function') updateHudAmmo();
+    if (typeof updateHudAmmo === 'function') updateHudAmmo(true);
     if (typeof pointerLocked !== 'undefined' && !pointerLocked && typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
       if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function' && typeof isTouchDevice !== 'undefined' && !isTouchDevice) {
         try { canvas.requestPointerLock(); } catch (e) {}
@@ -249,6 +249,13 @@ function defaultOnRespawn(actor, pt) {
     actor.stateT = 0;
     actor.attackT = 0;
     actor.target = null;
+    actor.coverPoint = null;
+    actor.crouch = 0;
+    actor.coverT = 0;
+    actor._nextCoverCheck = 0;
+    actor._peekPoint = null;
+    actor._coverProgress = null;
+    actor._coverNavTarget = null;
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
     rebuildEnemyRig(actor);
     if (actor.parts && actor.parts.group) {

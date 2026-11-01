@@ -184,6 +184,9 @@ function tryReload() {
 }
 
 function updateWeapons(dt) {
+  if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
+  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+  if ((pressed['KeyV'] || pressed['__melee']) && CORE.canPlayerMelee(player.dead, player.downed, meleeT)) doMelee();
   const s = curS(); if (!s) return;
   const w = curW();
   // A shotgun reload is shell by shell, and pulling the trigger with anything in
@@ -263,10 +266,7 @@ function updateWeapons(dt) {
   // hipfire number while scoped would recover an ADS bloom far too fast.
   const bp0 = CORE.bloomParams(w.spread, w.adsSpread, adsDown(), w ? w.type : '');
   bloom = CORE.bloomDecay(bloom, dt, bp0.recover);
-  if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
-  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
-  // KeyF became USE when stations landed, which is where CoD players expect it.
-  if ((pressed['KeyV'] || pressed['__melee']) && CORE.canPlayerMelee(player.dead, player.downed, meleeT)) doMelee();
+
   // grenade input is handled in updateGrenades() to support hold-to-charge
   if (pressed['KeyR']) tryReload();
   if (pressed['Digit1']) switchWeapon(0);
