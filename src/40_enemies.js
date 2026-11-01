@@ -741,12 +741,17 @@ function updateEnemies(dt) {
     const ggWeapon = gunGameBotWeapon(en);
     const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
     const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+    if (en.state === 'peek' && en._peekPoint && CORE.horizDist(en.pos.x, en.pos.z, en._peekPoint.x, en._peekPoint.z) > 0.4) {
+      en._peekTravelT = (en._peekTravelT || 0) + dt;
+      if (en._peekTravelT < 8) en.stateT = 0;
+      else { en.coverPoint = null; en.state = 'chase'; en._nextCoverCheck = gameT + 5; }
+    }
     const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
     if (en.state === 'peek' && nxt.state === 'in_cover' && en.coverPoint) nxt.state = 'take_cover';
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
-    if (en.state !== 'peek') en._peekPoint = null;
+    if (en.state !== 'peek') { en._peekPoint = null; en._peekTravelT = 0; }
 
     // A Gun Game promotion can turn a ranged bot into a knife combatant.
     if (ggWeapon && attackKind === 0 && en.coverPoint) {
@@ -931,7 +936,7 @@ function updateEnemies(dt) {
     // breacher: a shotgun blast whenever the target is inside its range
     if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
       if (hasLOS(en, target)) {
-        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
+        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (diff().reaction || 1);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
@@ -957,15 +962,15 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (!ggWeapon && en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
-      en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
+    if (!ggWeapon && en.kind === 5 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(true, gameT, Math.random()) - gameT) * (diff().reaction || 1);
       throwEnemyGrenade(en, target);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a target who is actually behind cover.
-    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
-      en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(false, gameT, Math.random()) - gameT) * (diff().reaction || 1);
       // only when the target IS in cover
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
     }
@@ -1175,7 +1180,7 @@ function breacherShoot(en, dist, target) {
     to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
     spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
   }
-  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random();
+  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (diff().accuracy || 1);
   const hits = CORE.breacherPelletHits(dist, _breacherRolls);
   const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
   const firedInRun = runId;

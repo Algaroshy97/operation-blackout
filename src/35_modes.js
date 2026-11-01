@@ -254,6 +254,7 @@ function defaultOnRespawn(actor, pt) {
     actor.coverT = 0;
     actor._nextCoverCheck = 0;
     actor._peekPoint = null;
+    actor._peekTravelT = 0;
     actor._coverProgress = null;
     actor._coverNavTarget = null;
     if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);

@@ -172,6 +172,27 @@ test('updateEnemies preserves grenade delay, cooldown and real throw trajectory 
   assert.notEqual(c.liveGrenades[0].vel, c.liveGrenades[1].vel, 'scratch output cannot alias live physics vectors');
 });
 
+test('grenadier throw cooldown scales with combat difficulty', () => {
+  function interval(level) {
+    const c = enemyHarness(); c.diff = () => CORE.difficulty(level);
+    const en = c.addEnemy(5, { state:'chase', target:c.player });
+    c.gameT = 10; c.updateEnemies(1 / 60);
+    assert.equal(c.liveGrenades.length, 1);
+    return en.nextNade - c.gameT;
+  }
+  assert.ok(interval('very-easy') > interval('veteran'));
+});
+
+test('breacher repeat fire interval scales with combat difficulty', () => {
+  function interval(level) {
+    const c = enemyHarness(); c.diff = () => CORE.difficulty(level); c.breacherShoot = noop;
+    const en = c.addEnemy(6, { state:'chase', target:c.player, nextShot:0, _losSkip:1 });
+    c.gameT = 10; c.updateEnemies(1 / 60);
+    return en.nextShot - c.gameT;
+  }
+  assert.ok(interval('very-easy') > interval('veteran'));
+});
+
 test('rifleman cover flush uses real LOS and remains wave-gated while grenadier ignores cover', () => {
   const wall = { min: { x: 4, y: -1, z: -2 }, max: { x: 5, y: 4, z: 2 } };
   for (const [kind, covered, unlocked, expected] of [

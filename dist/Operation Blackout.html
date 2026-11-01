@@ -15334,6 +15334,7 @@ actor.crouch = 0;
 actor.coverT = 0;
 actor._nextCoverCheck = 0;
 actor._peekPoint = null;
+actor._peekTravelT = 0;
 actor._coverProgress = null;
 actor._coverNavTarget = null;
 if (actor.vel && typeof actor.vel.set === 'function') actor.vel.set(0, 0, 0);
@@ -17641,12 +17642,17 @@ continue;
 const ggWeapon = gunGameBotWeapon(en);
 const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
 const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+if (en.state === 'peek' && en._peekPoint && CORE.horizDist(en.pos.x, en.pos.z, en._peekPoint.x, en._peekPoint.z) > 0.4) {
+en._peekTravelT = (en._peekTravelT || 0) + dt;
+if (en._peekTravelT < 8) en.stateT = 0;
+else { en.coverPoint = null; en.state = 'chase'; en._nextCoverCheck = gameT + 5; }
+}
 const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
 if (en.state === 'peek' && nxt.state === 'in_cover' && en.coverPoint) nxt.state = 'take_cover';
 en.state = nxt.state;
 if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
 if (nxt.resetStateT) en.stateT = 0;
-if (en.state !== 'peek') en._peekPoint = null;
+if (en.state !== 'peek') { en._peekPoint = null; en._peekTravelT = 0; }
 if (ggWeapon && attackKind===0 && en.coverPoint) {
 en.coverPoint = null;
 en.crouch = 0;
@@ -17802,7 +17808,7 @@ if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE
 }
 if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
 if (hasLOS(en, target)) {
-en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
+en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (diff().reaction || 1);
 breacherShoot(en, dist, target);
 } else en.nextShot = gameT + 0.4;
 }
@@ -17823,13 +17829,13 @@ en.nextShot = gameT + CORE.RIFLEMAN_LOS_RETRY_DELAY;
 en.burst = 0;
 }
 }
-if (!ggWeapon && en.kind===5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
-en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
+if (!ggWeapon && en.kind===5 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+en.nextNade = gameT + (CORE.enemyGrenadeCooldown(true, gameT, Math.random()) - gameT) * (diff().reaction || 1);
 throwEnemyGrenade(en, target);
 }
-if (!ggWeapon && waveBehaviours.enemyNades && en.kind===1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+if (!ggWeapon && waveBehaviours.enemyNades && en.kind===1 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
 gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
-en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
+en.nextNade = gameT + (CORE.enemyGrenadeCooldown(false, gameT, Math.random()) - gameT) * (diff().reaction || 1);
 if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
 }
 animateEnemy(en, dt, dist);
@@ -18011,7 +18017,7 @@ const to = _eshotTo.copy(tgt.pos);
 to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
 spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
 }
-for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random();
+for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (diff().accuracy || 1);
 const hits = CORE.breacherPelletHits(dist, _breacherRolls);
 const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
 const firedInRun = runId;
@@ -20371,6 +20377,7 @@ grenadeTargets.push(enemies[i].parts.group);
 }
 function explodeGrenade(pos, scale, owner) {
 const dmgScale = scale===undefined ? 1 : scale;
+const aiScale = owner && owner!==player && !owner.isPlayer ? diff().dmg : 1;
 playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
 refreshGrenadeTargets();
 const flash = blastFlashPool.length ? blastFlashPool.pop() : (function () {
@@ -20405,7 +20412,7 @@ const d = (typeof CORE !== 'undefined' && typeof CORE.blastTargetDistance === 'f
 : en.pos.distanceTo(pos);
 _blastTarget.set(en.pos.x, 1.1, en.pos.z);
 if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
-const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
+const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale) * aiScale;
 damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
 }
 }
@@ -20417,7 +20424,7 @@ if (CORE.isTargetInBlastRadius(dx, dy, dz, blastRadSq)) {
 _blastTarget.set(objTarget.pos.x, objTarget.pos.y, objTarget.pos.z);
 if (grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
 const d = CORE.blastTargetDistance(dx, dy, dz);
-damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale), blastOwner);
+damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale) * aiScale, blastOwner);
 }
 }
 }
@@ -20427,7 +20434,7 @@ if (pd < CFG.grenade.radius * CORE.GRENADE_SELF_RADIUS_RATIO && grenadeHasLineOf
 const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
 if (selfDmg > 0) {
 const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-damagePlayer(selfDmg, blastDeg, 'blast', owner);
+damagePlayer(selfDmg * aiScale, blastDeg, 'blast', owner);
 }
 }
 const sk = CORE.explosionShotKick(playerDistToBlast, CORE.EXPLOSION_KICK_MAX_DIST, CORE.EXPLOSION_SHOT_KICK_MAX);

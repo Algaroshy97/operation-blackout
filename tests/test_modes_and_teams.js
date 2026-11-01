@@ -456,6 +456,18 @@ function loadGrenadeLifecycle(c) {
   vm.runInContext(range('function explodeGrenade(pos', '// ---- Pickups:'), c);
 }
 
+test('enemy grenade explosion scales actual player damage without weakening player throws', () => {
+  function blast(level, isPlayer) {
+    const c = createCombatContext(); loadGrenadeLifecycle(c);
+    c.diff = () => CORE.difficulty(level); c.player.pos.set(0, 1.7, 0);
+    let received = 0; c.damagePlayer = amount => { received += amount; };
+    c.explodeGrenade(new Vector3(), 1, isPlayer ? c.player : { team:'enemy', kind:5 });
+    return received;
+  }
+  assert.ok(blast('very-easy', false) < blast('veteran', false));
+  assert.equal(blast('very-easy', true), blast('veteran', true));
+});
+
 test('generator blast damage requires hostile owner, range and line of sight', () => {
   const c = createCombatContext();
   loadGrenadeLifecycle(c);
@@ -6506,6 +6518,21 @@ test('difficulty changes actual hostile gun game hit probability and damage', ()
   assert.ok(fireOn('very-easy', 0) > fireOn('veteran', 0), 'an actual easy hit does less damage');
 });
 
+test('breacher pellet accuracy scales through real impact resolution', () => {
+  function hit(level) {
+    const pending = [];
+    const c = createFullMatchContext({ setTimeout: fn => pending.push(fn), spawnTracer: noop });
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => 0.6;
+    c.started = true; c.paused = false; c.player.pos.set(40, 1.7, 40);
+    const attacker = c.spawnEnemy(6, 0, 0, {team:'enemy', spawnProtection:false});
+    const target = c.spawnEnemy(0, 0, 5, {team:'friendly', spawnProtection:false});
+    target.health = 1000; c.breacherShoot(attacker, 5, target);
+    pending.forEach(fn => fn()); return target.health;
+  }
+  assert.equal(hit('very-easy'), 1000);
+  assert.ok(hit('veteran') < 1000);
+});
+
 test('deploy difficulty selection persists when switching among all modes', () => {
   const c = createFullMatchContext(); modeSettings(c);
   c.buildDifficultyRow();
@@ -6582,18 +6609,21 @@ test('cover approach does not strand a rifleman against an intervening wall', ()
 
 test('wide-wall cover reaches an exposed firing lane before retreating', () => {
   const c = createFullMatchContext({ spawnTracer: noop, setTimeout: noop });
-  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
-  const bot = c.spawnEnemy(1, 0, -1.3, { team: 'enemy', spawnProtection: false });
-  const point = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 8, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const point = c.navGrid.coverPoints.find(p => p.colliderIndex === c.colliders.length - 1 && Math.abs(p.x + 1.6) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(point, 'must use a generated cover point on the wide wall');
+  const bot = c.spawnEnemy(1, point.x, point.z, { team: 'enemy', spawnProtection: false });
   bot.coverPoint = point; bot.state = 'in_cover'; bot.stateT = 0;
   c.Math.random = () => 0.5;
-  let resolved = false;
+  let resolved = false, enteredPeek = false;
   for (let i = 0; i < 100; i++) {
     c.gameT = i * 0.1; c.updateEnemies(0.1);
     if (bot.coverPoint !== point) break;
+    if (bot.state === 'peek') enteredPeek = true;
+    else if (enteredPeek) break;
     if (c.hasLOS(bot, c.player)) { resolved = true; break; }
   }
-  assert.ok(resolved, 'must reach an exposed peek before retreating');
+  assert.ok(resolved, `must reach an exposed peek before retreating: ${JSON.stringify({state:bot.state, pos:bot.pos, point:bot._peekPoint, cover:bot.coverPoint, travel:bot._peekTravelT})}`);
 });
 
 test('rifleman retreats to cover after ending a peek', () => {

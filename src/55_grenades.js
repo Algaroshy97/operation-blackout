@@ -747,6 +747,7 @@ function refreshGrenadeTargets() {
 
 function explodeGrenade(pos, scale, owner) {
   const dmgScale = scale === undefined ? 1 : scale;
+  const aiScale = owner && owner !== player && !owner.isPlayer ? diff().dmg : 1;
   playSound3D(CORE.explosionSound(dmgScale), pos.x, pos.y, pos.z, CORE.SPATIAL_EXPLOSION_MAX_DIST);
   refreshGrenadeTargets();
   // flash sphere vfx — pooled. This used to allocate a fresh SphereGeometry AND
@@ -786,7 +787,7 @@ function explodeGrenade(pos, scale, owner) {
     _blastTarget.set(en.pos.x, 1.1, en.pos.z);
 
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
-      const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale);
+      const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale) * aiScale;
       damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
     }
   }
@@ -799,7 +800,7 @@ function explodeGrenade(pos, scale, owner) {
       _blastTarget.set(objTarget.pos.x, objTarget.pos.y, objTarget.pos.z);
       if (grenadeHasLineOfSight(_blastFrom, _blastTarget, null)) {
         const d = CORE.blastTargetDistance(dx, dy, dz);
-        damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale), blastOwner);
+        damageObjectiveTarget(objTarget, CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale) * aiScale, blastOwner);
       }
     }
   }
@@ -810,7 +811,7 @@ function explodeGrenade(pos, scale, owner) {
     const selfDmg = CORE.grenadeSelfDamage(pd, CFG.grenade.radius, CORE.GRENADE_SELF_DAMAGE_MAX);
     if (selfDmg > 0) {
       const blastDeg = CORE.worldBearing(player.pos.x, player.pos.z, pos.x, pos.z);
-      damagePlayer(selfDmg, blastDeg, 'blast', owner);
+      damagePlayer(selfDmg * aiScale, blastDeg, 'blast', owner);
     }
   }
   // camera shake kick with distance attenuation
