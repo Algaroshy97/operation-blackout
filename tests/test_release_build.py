@@ -30,6 +30,38 @@ CORE_TESTS = ROOT / "tests" / "test_core.js"
 SIZE_BUDGET = 2 * 1024 * 1024
 
 
+class CssCompactionTests(unittest.TestCase):
+    def test_compaction_keeps_strings_and_selector_whitespace(self) -> None:
+        from scripts.build import compact_css
+        css = '  .a :hover, .b { content: "a ; { b"; color: rgb(1, 2, 3); }\n  .c { margin: 0; }\n'
+        self.assertEqual(compact_css(css), '.a :hover,.b{content:"a ; { b";color:rgb(1,2,3)}.c{margin:0}')
+
+    def test_js_literal_comments_are_removed_without_changing_strings(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nlet count = 0; // comment\nconst live = player.pos; // comment\nlet next = count + 1; // comment\nplayer.pos = next; // comment\nconst text = "; // keep";\n'
+        self.assertEqual(strip_line_comments(source), '// banner\nlet count = 0;\nconst live = player.pos;\nlet next = count + 1;\nplayer.pos = next;\nconst text = "; // keep";')
+
+    def test_js_comment_compaction_keeps_multiline_templates(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nfoo(); // remove\nconst html = `\nfoo(); // keep\n`;\n'
+        self.assertEqual(strip_line_comments(source), '// banner\nfoo();\nconst html = `\nfoo(); // keep\n`;')
+
+    def test_js_comparison_compaction_excludes_strings_and_templates(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nif (a === b) go();\nconst text = "a === b";\nconst t = `a === b`;\n'
+        self.assertEqual(strip_line_comments(source), '// banner\nif (a===b) go();\nconst text = "a === b";\nconst t = `a === b`;')
+
+    def test_js_logical_compaction_preserves_quoted_and_template_text(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nif (a && b || c) go();\nconst text = "a && b";\nconst t = `a || b`;'
+        self.assertEqual(strip_line_comments(source), '// banner\nif (a&&b||c) go();\nconst text = "a && b";\nconst t = `a || b`;')
+
+    def test_html_indentation_preserves_inter_element_newlines(self) -> None:
+        from scripts.build import strip_css_comments
+        self.assertEqual(strip_css_comments('<style> .a { color: red; } </style>\n  <div>text</div>\n'),
+                         '<style>.a{color:red}</style>\n<div>text</div>\n')
+
+
 def build_release(output: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(BUILD), str(ROOT), "--output", str(output)],

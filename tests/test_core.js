@@ -10,6 +10,20 @@ const path = require('node:path');
 
 const CORE = require(path.join(__dirname, '..', 'src', '01_core.js'));
 
+test('difficulty has four ordered combat levels and saved legacy values remain valid', () => {
+  const levels = Object.values(CORE.DIFFICULTIES);
+  assert.deepEqual(levels.map(d => d.label), ['VERY EASY', 'EASY', 'MEDIUM', 'HARD']);
+  for (let i = 1; i < levels.length; i++) {
+    assert.ok(levels[i].dmg > levels[i - 1].dmg);
+    assert.ok(levels[i].accuracy > levels[i - 1].accuracy);
+    assert.ok(levels[i].reaction < levels[i - 1].reaction);
+  }
+  for (const key of ['recruit', 'regular', 'veteran']) {
+    assert.equal(CORE.sanitizeSettings({difficulty: key}).difficulty, key);
+  }
+  assert.equal(CORE.sanitizeSettings({difficulty: 'invalid'}).difficulty, 'regular');
+});
+
 test('gyro look converts wrapped sensor angles into finite scaled camera deltas', () => {
   const out = {};
   CORE.gyroLookDelta(1, 2, 0.5, out);
@@ -712,7 +726,7 @@ test('difficulty presets are ordered and never zero out a multiplier', () => {
   for (const d of [r, n, v]) {
     for (const k of ['hp', 'dmg', 'count', 'regen']) assert.ok(d[k] > 0, `${k} must stay positive`);
   }
-  assert.strictEqual(CORE.difficulty('nonsense').label, 'REGULAR', 'unknown key falls back');
+  assert.strictEqual(CORE.difficulty('nonsense').label, 'MEDIUM', 'unknown key falls back');
 });
 
 // ---------------------------------------------------------------- GAP-05
@@ -10711,6 +10725,110 @@ test('milestone 4: Wave 15 Extraction rules, scheduling, surge timer, LZ detecti
   const step2 = CORE.extractionCinematicStep(2.5, 0.6, 3.0);
   assert.strictEqual(step2.nextTimer, 3.1);
   assert.strictEqual(step2.complete, true);
+});
+
+test('generated 1.6m low cover protects a crouched bot on level ground', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1.6,z:0.5}}];
+  const nav = CORE.buildNavGrid(wall, {halfExtent:25, cell:1, agentRadius:0.5, stepH:0.6, walkerHeight:1.8});
+  const point = CORE.generateCoverPoints(wall, nav, {standoff:0.8}).find(p => Math.abs(p.x) < 0.1 && p.z < -1);
+  assert.ok(point); assert.equal(point.type, 'low');
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 1.7, 8, wall), true);
+});
+
+test('scaled bot cover rejects walls below its larger head', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:2.1,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 2.4, 8, wall, 1.25), false);
+});
+
+test('standing cover is rejected when the standing head remains visible', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1.7,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'high'};
+  assert.equal(CORE.segmentBlocked(0, 2, 8, 0, 1.9, -1.3, wall, 0), false);
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 2, 8, wall), false);
+});
+
+test('low cover is rejected when the crouched head remains visible', () => {
+  const wall = [{min:{x:-2,y:0,z:-0.5}, max:{x:2,y:1,z:0.5}}];
+  const point = {x:0,y:0,z:-1.3,nx:0,nz:-1,type:'low'};
+  assert.equal(CORE.segmentBlocked(0, 1.7, 8, 0, 1.5, -1.3, wall, 0), false);
+  assert.equal(CORE.evalCoverOcclusion(point, 0, 1.7, 8, wall), false);
+});
+
+test('milestone 5: cover point generation, occlusion evaluation, and scoring rules', () => {
+  // 1. Generation on synthetic colliders
+  const colliders = [
+    // High cover: 4m wide, 3m high wall centered at (0, 1.5, 0), thickness 1m (z from -0.5 to 0.5)
+    { min: { x: -2, y: 0, z: -0.5 }, max: { x: 2, y: 3, z: 0.5 }, mat: 'concrete' },
+    // Low cover: 3m wide, 1m high barrier centered at (10, 0.5, 0), thickness 1m
+    { min: { x: 8.5, y: 0, z: -0.5 }, max: { x: 11.5, y: 1.0, z: 0.5 }, mat: 'sandbag' }
+  ];
+  const nav = CORE.buildNavGrid(colliders, { halfExtent: 25, cell: 1, agentRadius: 0.5, stepH: 0.6, walkerHeight: 1.8 });
+  const points = CORE.generateCoverPoints(colliders, nav, { standoff: 0.8 });
+  assert.ok(Array.isArray(points), 'generateCoverPoints must return an array');
+  assert.ok(points.length >= 4, 'colliders must yield multiple perimeter cover points');
+
+  // Verify properties on generated points
+  for (const pt of points) {
+    assert.strictEqual(typeof pt.x, 'number');
+    assert.strictEqual(typeof pt.y, 'number');
+    assert.strictEqual(typeof pt.z, 'number');
+    assert.strictEqual(typeof pt.nx, 'number');
+    assert.strictEqual(typeof pt.nz, 'number');
+    assert.ok(pt.type === 'low' || pt.type === 'high', 'type must be low or high');
+    assert.ok(pt.height > 0.6, 'cover height must exceed step height');
+    // Walkability
+    const cellIdx = CORE.worldToCell(nav, pt.x, pt.z);
+    assert.ok(CORE.isWalkable(nav, cellIdx), `cover point at (${pt.x}, ${pt.z}) must be walkable in navGrid`);
+  }
+
+  // Check types
+  const lowPoints = points.filter(p => p.type === 'low');
+  const highPoints = points.filter(p => p.type === 'high');
+  assert.ok(lowPoints.length > 0, 'must detect low cover from 1.0m barrier');
+  assert.ok(highPoints.length > 0, 'must detect high cover from 3.0m wall');
+
+  // 2. Occlusion evaluation
+  // Threat at (0, 1.7, 8) looking toward wall at z=0.
+  // A cover point on the south side at (0, 0, -1.2) is behind the 3m wall.
+  const southPt = points.find(p => Math.abs(p.x) < 1.0 && p.z < -0.5);
+  assert.ok(southPt, 'should have a cover point behind wall');
+  const occluded = CORE.evalCoverOcclusion(southPt, 0, 1.7, 8, colliders);
+  assert.strictEqual(occluded, true, 'point behind 3m wall must be occluded from threat at z=8');
+
+  // Point in open field (15, 0, 8) must not be occluded
+  const openPt = { x: 15, y: 0, z: 8, nx: 0, nz: 1, type: 'high', height: 2 };
+  const openOccluded = CORE.evalCoverOcclusion(openPt, 0, 1.7, 8, colliders);
+  assert.strictEqual(openOccluded, false, 'open point must not be occluded');
+
+  // 3. Scoring
+  // Actor at (0, 0, -3), threat at (0, 1.7, 8).
+  // South point (shielded by wall) must score much higher than a north point (at z=1.2, exposed to threat).
+  const northPt = points.find(p => Math.abs(p.x) < 1.0 && p.z > 0.5);
+  const scoreProtected = CORE.scoreCoverPoint(southPt, 0, -3, 0, 8, colliders);
+  const scoreExposed = CORE.scoreCoverPoint(northPt, 0, -3, 0, 8, colliders);
+  assert.ok(scoreProtected > scoreExposed + 50, `protected cover score (${scoreProtected}) must exceed exposed score (${scoreExposed}) by at least 50`);
+
+  // 4. pickBestCoverPoint
+  const best = CORE.pickBestCoverPoint(points, 0, -3, 0, 8, colliders);
+  assert.ok(best, 'pickBestCoverPoint must return a candidate');
+  assert.strictEqual(best, southPt, 'best cover point must be the shielded south point');
+
+  // 5. Peeking positions
+  const peekLeft = CORE.coverPeekPosition(southPt, 0, 8, -1);
+  const peekRight = CORE.coverPeekPosition(southPt, 0, 8, 1);
+  assert.ok(peekLeft.x !== southPt.x || peekLeft.z !== southPt.z, 'peek left must offset position');
+  assert.ok(peekRight.x !== southPt.x || peekRight.z !== southPt.z, 'peek right must offset position');
+  assert.notStrictEqual(peekLeft.x, peekRight.x, 'left and right peek must offset in opposite directions');
+
+  // 6. Production arenas attach coverPoints to navGrid
+  const urbanNav = CORE.buildNavGrid(CORE.MAP_DEFS.urban.colliders, { halfExtent: 46, cell: 1, stepH: 0.6, walkerHeight: 1.8, agentRadius: 0.5 });
+  assert.ok(Array.isArray(urbanNav.coverPoints), 'urban navGrid must include coverPoints array');
+  assert.ok(urbanNav.coverPoints.length >= 20, `urban arena must have at least 20 cover points, got ${urbanNav.coverPoints.length}`);
+
+  const snowyNav = CORE.buildNavGrid(CORE.MAP_DEFS.snowy.colliders, { halfExtent: 50, cell: 1, stepH: 0.6, walkerHeight: 1.8, agentRadius: 0.5 });
+  assert.ok(Array.isArray(snowyNav.coverPoints), 'snowy navGrid must include coverPoints array');
+  assert.ok(snowyNav.coverPoints.length >= 20, `snowy compound must have at least 20 cover points, got ${snowyNav.coverPoints.length}`);
 });
 
 

@@ -95,6 +95,11 @@ function makeEnemyMesh(kind, team) {
   return { group: g, body: body, torso: torso, head: head, armL: armL, armR: armR, legL: legL, legR: legR, hitBody: hitBody, hitHead: hitHead };
 }
 
+function enemyDifficulty(en) {
+  return en && en.team && typeof player !== 'undefined' && player && en.team === player.team
+    ? CORE.difficulty('regular') : diff();
+}
+
 function spawnEnemy(kind, x, z, opts) {
   const spawnOpts = opts || {};
   let parts = null;
@@ -118,7 +123,7 @@ function spawnEnemy(kind, x, z, opts) {
     ? waveSpecial.hpMul : 1;
   const isElite = !!spawnOpts.elite;
   const victoryWave = (typeof CFG !== 'undefined' && CFG && CFG.wave && CFG.wave.victoryWave) ? CFG.wave.victoryWave : 15;
-  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, diff().hp, specialHp, isElite);
+  const hp = CORE.enemyMaxHealth(kind, CFG.ai.maxHealth, curWave, victoryWave, enemyDifficulty({team: spawnTeam}).hp, specialHp, isElite);
   const dx = player.pos.x - x, dz = player.pos.z - z;
   const initYaw = (dx !== 0 || dz !== 0) ? Math.atan2(dx, dz) : 0;
   const en = {
@@ -437,7 +442,25 @@ function moveEnemy(en, dt, dist) {
   const toPlayer = _toPlayerDirOut;
   const speed = CORE.enemyMoveSpeed(en.kind, en.state, d, cfg.rangedRange, en.speedMul, cfg);
   let mvx = toPlayer.x, mvz = toPlayer.z;
-  if (en.state === 'chase') {
+  if (en.state === 'take_cover' && en.coverPoint) {
+    const cdx = en.coverPoint.x - en.pos.x;
+    const cdz = en.coverPoint.z - en.pos.z;
+    const cd = Math.hypot(cdx, cdz) || 0.001;
+    mvx = cdx / cd; mvz = cdz / cd;
+    if (!en._coverNavTarget) en._coverNavTarget = { pos: en.coverPoint };
+    en._coverNavTarget.pos = en.coverPoint;
+    const field = navGrid ? flowFieldForTarget(en._coverNavTarget) : null;
+    const routed = field ? CORE.flowDirAt(field, en.pos.x, en.pos.z, _flowDir) : null;
+    if (routed && cd > 2) { mvx = routed.x; mvz = routed.z; }
+  } else if (en.state === 'in_cover') {
+    mvx = 0; mvz = 0;
+  } else if (en.state === 'peek' && en.coverPoint) {
+    const peekPos = en._peekPoint || en.coverPoint;
+    const pdx = peekPos.x - en.pos.x;
+    const pdz = peekPos.z - en.pos.z;
+    const pd = Math.hypot(pdx, pdz);
+    if (pd > 0.05) { mvx = pdx / pd; mvz = pdz / pd; } else { mvx = 0; mvz = 0; }
+  } else if (en.state === 'chase') {
     // Straight-line seek wedges on every wall corner in this arena; route instead.
     // Close in, steer directly so the final approach does not snap to cell centres.
     // Retain the shared player field; route other actors toward their own target.
@@ -500,22 +523,22 @@ const _losFrom = new THREE.Vector3();
 const _losTo = new THREE.Vector3();
 // round-robin: each enemy checks LOS at most every 3 frames
 let losFrame = 0;
-function hasLOS(en, target) {
+function hasLOS(en, target, force) {
   const tgt = target || en.target || player;
   // throttle: max 1/3 of enemies per frame do the raycast
   if (en._losSkip === undefined) en._losSkip = 0;
-  if (losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
+  if (!force && losFrame % 3 !== en._losSkip) { if (en._losCache === undefined) return false; return en._losCache; }
   // Riflemen ask twice on their own frame — once in the state machine, once in the
   // ranged-attack block. The old throttle only cached on SKIPPED frames, so the
   // second call redid a full-scene raycast. Cache per tick, not just per skip.
-  if (en._losTick === losFrame) return en._losCache;
+  if (!force && en._losTick === losFrame) return en._losCache;
   en._losTick = losFrame;
   _losFrom.set(en.pos.x, CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y), en.pos.z);
   _losTo.copy(tgt.pos);
   const tgtEyeY = (tgt === player || (tgt && tgt.isPlayer)) ? tgt.pos.y : (tgt.pos.y + (typeof E_DIM !== 'undefined' ? E_DIM.pelvisH : 0.95) + 0.55);
   _losTo.y = tgtEyeY;
-  _losTo.x = CORE.enemyLosTargetCoord(tgt.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
-  _losTo.z = CORE.enemyLosTargetCoord(tgt.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.x = force ? tgt.pos.x : CORE.enemyLosTargetCoord(tgt.pos.x, Math.random(), CORE.ENEMY_LOS_JITTER);
+  _losTo.z = force ? tgt.pos.z : CORE.enemyLosTargetCoord(tgt.pos.z, Math.random(), CORE.ENEMY_LOS_JITTER);
   // Analytic slab test against the collider AABBs rather than a mesh raycast.
   // Once static geometry was merged into a few large batches, the mesh version
   // cost 1.37 ms per frame because three walks every triangle of every candidate;
@@ -655,14 +678,12 @@ function objectiveSteerTarget(en, target) {
   if (target && !target.dead && distToTarget(en, target) <= OBJECTIVE_ENGAGE_RANGE) return null;
   const order = mode.objectiveFor(en);
   if (!order) return null;
-  return {
-    pos: { x: order.point[0], y: 0, z: order.point[1] },
-    isPlayer: false,
-    objective: true,
-    objectiveRole: order.role,
-    objectiveName: order.name,
-    dead: false
-  };
+  const dest = en._objectiveNavTarget || (en._objectiveNavTarget = {
+    pos: { x: 0, y: 0, z: 0 }, isPlayer: false, objective: true, dead: false
+  });
+  dest.pos.x = order.point[0]; dest.pos.z = order.point[1];
+  dest.objectiveRole = order.role; dest.objectiveName = order.name;
+  return dest;
 }
 
 // Resolve only in Gun Game; archetype combat remains unchanged in every other mode.
@@ -670,6 +691,12 @@ function gunGameBotWeapon(en) {
   const mode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!mode || mode.id !== 'gun-game') return null;
   return en.ggWeapon < 0 ? { type: 'MELEE', range: CFG.ai.attackRange } : CFG.weapons[en.ggWeapon];
+}
+
+function clearEnemyCover(en) {
+  en.coverPoint = null; en.crouch = 0; en.coverT = 0;
+  en._peekPoint = null; en._peekTravelT = 0; en._coverProgress = null;
+  en._coverNavTarget = null; en._nextCoverCheck = 0;
 }
 
 function updateEnemies(dt) {
@@ -693,6 +720,9 @@ function updateEnemies(dt) {
     }
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);
+    if (target && target !== en.target) {
+      en._reactionUntil = gameT + Math.max(0, (enemyDifficulty(en).reaction || 1) - 1) * 0.6;
+    }
     en.target = target;
     const targetGone = !target || target.dead;
     en.stateT += dt;
@@ -702,6 +732,8 @@ function updateEnemies(dt) {
     // or animation code ever treats a flag as a target.
     const order = objectiveSteerTarget(en, target);
     if (order) {
+      clearEnemyCover(en);
+      if (en.state !== 'chase') { en.state = 'chase'; en.stateT = 0; }
       en.objectiveTarget = order;
       en.target = order;
       moveEnemy(en, dt, distToTarget(en, order));
@@ -713,6 +745,7 @@ function updateEnemies(dt) {
     }
     // state machine
     if (targetGone) {
+      clearEnemyCover(en);
       if (en.state !== 'idle') { en.state = 'idle'; en.stateT = 0; en.swinging = undefined; }
       animateEnemy(en, dt, dist);
       continue;
@@ -720,11 +753,99 @@ function updateEnemies(dt) {
     const ggWeapon = gunGameBotWeapon(en);
     const attackKind = ggWeapon ? (ggWeapon.type === 'MELEE' ? 0 : 1) : en.kind;
     const attackRange = ggWeapon ? ggWeapon.range : CFG.ai.rangedRange;
+    if (en.state === 'peek' && en._peekPoint && CORE.horizDist(en.pos.x, en.pos.z, en._peekPoint.x, en._peekPoint.z) > 0.4) {
+      en._peekTravelT = (en._peekTravelT || 0) + dt;
+      if (en._peekTravelT < 8) en.stateT = 0;
+      else { en.coverPoint = null; en.state = 'chase'; en._nextCoverCheck = gameT + 5; }
+    }
     const nxt = CORE.enemyAiNextState(attackKind, en.state, en.stateT, dist, hasLOS(en, target), attackRange, CORE.enemyPreferredRange(attackKind), _enemyStateOut);
+    if (en.state === 'peek' && nxt.state === 'in_cover' && en.coverPoint) nxt.state = 'take_cover';
     en.state = nxt.state;
     if (nxt.strafeT > 0) en.strafeT = nxt.strafeT;
     if (nxt.resetStateT) en.stateT = 0;
+    if (en.state !== 'peek') { en._peekPoint = null; en._peekTravelT = 0; }
+
+    // A Gun Game promotion can turn a ranged bot into a knife combatant.
+    if (ggWeapon && attackKind === 0 && en.coverPoint) {
+      en.coverPoint = null;
+      en.crouch = 0;
+      en.coverT = 0;
+      if (en.state === 'take_cover' || en.state === 'in_cover' || en.state === 'peek') {
+        en.state = 'chase';
+        en.stateT = 0;
+      }
+    }
+    // Tactical cover evaluation for ranged combatants
+    if ((attackKind === 1 || (en.isBot && !ggWeapon)) && typeof navGrid !== 'undefined' && navGrid && navGrid.coverPoints && navGrid.coverPoints.length > 0) {
+      if (!en.coverPoint && (en.state === 'chase' || en.state === 'strafe')) {
+        if (!en._nextCoverCheck || gameT >= en._nextCoverCheck) {
+          en._nextCoverCheck = gameT + 1.2;
+          const bestPt = CORE.pickBestCoverPoint(navGrid.coverPoints, en.pos.x, en.pos.z, target.pos.x, target.pos.z, colliders, { maxDist: 18, actorScale: CORE.enemyScale(en.kind) });
+          if (bestPt) {
+            en.coverPoint = bestPt;
+            en.state = 'take_cover';
+            en.stateT = 0;
+          }
+        }
+      } else if (en.coverPoint) {
+        const dCover = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+        const coverHere = { x: en.pos.x, y: en.pos.y, z: en.pos.z, type: en.coverPoint.type };
+        const targetY = target === player || target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
+        if (en.state === 'take_cover') {
+          if (dCover <= 0.8 && CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
+            en.state = 'in_cover';
+            en.stateT = 0;
+            en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
+          }
+        } else if (en.state === 'in_cover') {
+          en.crouch = en.coverPoint.type === 'low' ? 1 : 0;
+          if (dist < 4.0 || !CORE.evalCoverOcclusion(coverHere, target.pos.x, targetY, target.pos.z, colliders, CORE.enemyScale(en.kind))) {
+            en.coverPoint = null;
+            en.crouch = 0;
+            en.state = 'chase';
+            en.stateT = 0;
+          }
+        } else if (en.state === 'peek') {
+          en.crouch = 0;
+          if (!en._peekPoint) {
+            const pt = en.coverPoint;
+            const eyeY = CORE.enemyEyeHeight(en.pos.y, en.kind, E_DIM.pelvisH, CORE.ENEMY_EYE_OFFSET_Y);
+            const targetY = target === player || target.isPlayer ? target.pos.y : target.pos.y + E_DIM.pelvisH + 0.55;
+            for (const side of [en.strafeDir || 1, -(en.strafeDir || 1)]) {
+              for (let offset = 0.75; offset <= 6; offset += 0.5) {
+                const x = pt.x - pt.nz * side * offset, z = pt.z + pt.nx * side * offset;
+                let occupied = false;
+                for (const collider of colliders) {
+                  if (CORE.isColliderRelevantXZ(collider.min.y, collider.max.y, en.pos.y, eyeY, CORE.STEP_HEIGHT) &&
+                      CORE.resolveAabbXZ(x, z, CORE.enemyColliderRadius(en.kind), collider, _enResolveOut)) { occupied = true; break; }
+                }
+                if (!occupied && !CORE.segmentBlocked(x, eyeY, z, target.pos.x, targetY, target.pos.z, colliders, 0.25)) {
+                  en._peekPoint = { x, z }; break;
+                }
+              }
+              if (en._peekPoint) break;
+            }
+            if (!en._peekPoint) {
+              en.coverPoint = null; en.state = 'chase'; en.stateT = 0; en._nextCoverCheck = gameT + 5;
+            }
+          }
+          if (dist < 4.0) {
+            en.coverPoint = null;
+            en.state = 'chase';
+            en.stateT = 0;
+          }
+        } else en._peekPoint = null;
+      }
+    }
     moveEnemy(en, dt, dist);
+    if (en.state === 'take_cover' && en.coverPoint) {
+      if (!en._coverProgress) en._coverProgress = {};
+      const coverDist = CORE.horizDist(en.pos.x, en.pos.z, en.coverPoint.x, en.coverPoint.z);
+      if (CORE.updateProgress(en._coverProgress, coverDist, dt, { giveUpAfter: 10 }) === 'reposition') {
+        en.coverPoint = null; en.crouch = 0; en.state = 'chase'; en.stateT = 0;
+        en._nextCoverCheck = gameT + 5; en._coverProgress = null;
+      }
+    } else en._coverProgress = null;
     // Stuck detection: no navmesh is perfect, and an enemy shoved into a corner by
     // the separation pass can still pin itself. Repath first; if it is still pinned
     // well past that, relocate it to a valid ring point rather than leaving a
@@ -790,7 +911,7 @@ function updateEnemies(dt) {
     // melee attack (runners + tanks): staggered windup, damage cap, real cooldown
     const canMelee = CORE.canEnemyMelee(attackKind);
     const reach = CORE.enemyMeleeReach(attackKind, CFG.ai.attackRange);
-    if (canMelee && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
+    if (canMelee && gameT >= (en._reactionUntil || 0) && CORE.withinReach(dist, vertGapToTarget(en, target), reach)
         && en.swinging === undefined && gameT > (en.attackReadyT || 0)) {
       // stagger windups so a pack doesn't land one synced nuke
       en.swinging = CORE.enemyMeleeWindup(Math.random());
@@ -805,17 +926,17 @@ function updateEnemies(dt) {
           if (target === player || (target && target.isPlayer)) {
             // global melee damage cap: max 2 melee hits landing within any 0.8s window
             if (CORE.canRegisterHit(meleeHits, gameT, CORE.MELEE_CAP_WINDOW, CORE.MELEE_CAP_MAX_HITS)) {
-              const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+              const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
               damagePlayer(meleeDmg, dirToDeg(en), 'melee', en);
               playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
               meleeHits.push(gameT);
             }
           } else if (target && target.isObjectiveTarget) {
-            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
             damageObjectiveTarget(target, meleeDmg, en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           } else if (typeof damageEnemy === 'function') {
-            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, diff().dmg, en.elite);
+            const meleeDmg = CORE.enemyMeleeDamage(CFG.ai.meleeDamage, en.kind, waveNum, enemyDifficulty(en).dmg, en.elite);
             damageEnemy(target, meleeDmg, target.pos, false, false, 'MELEE', en);
             playSound3D(CORE.enemyMeleeHitSound(en.kind === 2, en.elite), en.pos.x, en.pos.y, en.pos.z);
           }
@@ -827,25 +948,25 @@ function updateEnemies(dt) {
       if (CORE.isEnemyMeleeReset(en.swinging, CORE.ENEMY_MELEE_COOLDOWN_SENTINEL, CORE.ENEMY_MELEE_RESET_MARGIN)) en.swinging = undefined;
     }
     // breacher: a shotgun blast whenever the target is inside its range
-    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
-      if (hasLOS(en, target)) {
-        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3);
+    if (!ggWeapon && en.kind === 6 && en.state !== 'spawn' && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot && CORE.canBreacherFire(dist, true, target.dead)) {
+      if (hasLOS(en, target, true)) {
+        en.nextShot = gameT + CORE.BREACHER_ROF * (0.85 + Math.random() * 0.3) * (enemyDifficulty(en).reaction || 1);
         breacherShoot(en, dist, target);
       } else en.nextShot = gameT + 0.4;
     }
     // ranged attack (rifleman)
-    if (attackKind === 1 && en.state === 'strafe' && dist < attackRange && gameT > en.nextShot) {
-      if (hasLOS(en, target)) {
+    if (attackKind === 1 && (en.state === 'strafe' || en.state === 'peek') && dist < attackRange && gameT >= (en._reactionUntil || 0) && gameT > en.nextShot) {
+      if (hasLOS(en, target, true)) {
         if (ggWeapon) {
-          en.nextShot = gameT + 60 / ggWeapon.rpm;
-        } else if (waveBehaviours.burstFire) {
+          en.nextShot = gameT + 60 / ggWeapon.rpm * (enemyDifficulty(en).reaction || 1);
+        } else if (waveBehaviours.burstFire || en.state === 'peek') {
           // Bursts of 3 with a longer recovery: same average output, far more
           // pressure to break line of sight instead of trading in the open.
           if (en.burst === undefined || en.burst <= 0) en.burst = 3;
           en.burst--;
-          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random());
+          en.nextShot = gameT + CORE.enemyBurstInterval(en.burst, CFG.ai.rangedROF, Math.random()) * (enemyDifficulty(en).reaction || 1);
         } else {
-          en.nextShot = CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random());
+          en.nextShot = gameT + (CORE.enemyRangedNextShot(gameT, CFG.ai.rangedROF, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
         }
         enemyShoot(en, dist, target);
       } else {
@@ -855,15 +976,15 @@ function updateEnemies(dt) {
     }
     // Grenadiers (wave 6+) throw as their primary attack, with or without LOS —
     // that is the point of the unit: it denies a position rather than duelling.
-    if (!ggWeapon && en.kind === 5 && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
-      en.nextNade = CORE.enemyGrenadeCooldown(true, gameT, Math.random());
+    if (!ggWeapon && en.kind === 5 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(5, dist, target.dead) && gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(5))) {
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(true, gameT, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
       throwEnemyGrenade(en, target);
     }
     // Riflemen pick it up too once the wave-12 behaviour unlocks, but only to
     // flush a target who is actually behind cover.
-    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
+    if (!ggWeapon && waveBehaviours.enemyNades && en.kind === 1 && gameT >= (en._reactionUntil || 0) && CORE.canEnemyThrowGrenade(1, dist, target.dead) &&
         gameT > (en.nextNade || CORE.enemyInitialGrenadeDelay(1))) {
-      en.nextNade = CORE.enemyGrenadeCooldown(false, gameT, Math.random());
+      en.nextNade = gameT + (CORE.enemyGrenadeCooldown(false, gameT, Math.random()) - gameT) * (enemyDifficulty(en).reaction || 1);
       // only when the target IS in cover
       if (!hasLOS(en, target)) throwEnemyGrenade(en, target);
     }
@@ -991,7 +1112,7 @@ function enemyShoot(en, dist, target) {
     !!player.crouching,
     !player.onGround
   ) : 1;
-  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul);
+  const acc = CORE.enemyEffectiveAccuracy(distAcc, evaMul) * (enemyDifficulty(en).accuracy || 1);
   const isHit = Math.random() < acc;
   const to = _eshotTo.copy(tgt.pos);
   const chestOffsetY = isTargetPlayer ? CORE.ENEMY_SHOT_CHEST_Y_OFFSET : 0.95;
@@ -1008,14 +1129,15 @@ function enemyShoot(en, dist, target) {
     to.y += _bulletMissOffset.y;
     to.z += _bulletMissOffset.z;
   }
+  if (CORE.segmentBlocked(from.x, from.y, from.z, to.x, to.y, to.z, colliders, 0)) return;
   spawnTracer(from, to, CORE.tracerColor(true), shotType);
   const travelDelay = CORE.enemyBulletTravelDelay(dist, CORE.ENEMY_BULLET_DELAY_FACTOR, CORE.ENEMY_BULLET_MAX_DELAY_MS);
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const hitDeg = isTargetPlayer ? dirToDeg(en) : 0;
   if (isHit) {
-    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1)
-      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind);
+    const dmg = earnedWeapon ? earnedWeapon.dmg * (earnedWeapon.pellets || 1) * enemyDifficulty(en).dmg
+      : CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, enemyDifficulty(en).dmg, en.elite, en.kind);
     setTimeout(function () {
       if (runId !== firedInRun) return;
       if (tgt.dead || !started || paused) return;
@@ -1071,11 +1193,13 @@ function breacherShoot(en, dist, target) {
   for (let i = 0; i < 3; i++) {
     const to = _eshotTo.copy(tgt.pos);
     to.x += (Math.random() - 0.5) * 1.2; to.y += (Math.random() - 0.7) * 0.8; to.z += (Math.random() - 0.5) * 1.2;
-    spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+    if (!CORE.segmentBlocked(from.x, from.y, from.z, to.x, to.y, to.z, colliders, 0)) {
+      spawnTracer(from, to, CORE.tracerColor(true), 'SMG');
+    }
   }
-  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random();
+  for (let i = 0; i < _breacherRolls.length; i++) _breacherRolls[i] = Math.random() / (enemyDifficulty(en).accuracy || 1);
   const hits = CORE.breacherPelletHits(dist, _breacherRolls);
-  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, diff().dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
+  const perPellet = CORE.enemyRangedDamage(CFG.ai.rangedDamage, waveNum, enemyDifficulty(en).dmg, en.elite, en.kind) * CORE.BREACHER_PELLET_SHARE;
   const firedInRun = runId;
   const ox = from.x, oy = from.y, oz = from.z;
   const isTargetPlayer = (tgt === player || (tgt && tgt.isPlayer));
@@ -1119,5 +1243,8 @@ function animateEnemy(en, dt, dist) {
   p.armL.rotation.x = pose.armLRotX;
   p.armR.rotation.x = pose.armRRotX;
   p.body.rotation.x = pose.bodyRotX;
-  p.body.position.y = pose.bodyPosY;
+  const crouchDrop = (en.crouch || 0) * 0.4;
+  p.body.position.y = pose.bodyPosY - crouchDrop;
+  if (p.hitBody) p.hitBody.position.y = 1.24 - crouchDrop;
+  if (p.hitHead) p.hitHead.position.y = E_DIM.pelvisH + E_DIM.bodyH + 0.16 - crouchDrop;
 }

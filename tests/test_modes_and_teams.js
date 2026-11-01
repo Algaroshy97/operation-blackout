@@ -456,6 +456,32 @@ function loadGrenadeLifecycle(c) {
   vm.runInContext(range('function explodeGrenade(pos', '// ---- Pickups:'), c);
 }
 
+test('friendly grenade damage does not scale with difficulty', () => {
+  function blast(level) {
+    const c = createCombatContext(); loadGrenadeLifecycle(c);
+    c.player.team = 'friendly'; c.player.pos.set(40, 1.7, 40);
+    c.diff = () => CORE.difficulty(level);
+    let dealt = 0; c.damageEnemy = (en, amount) => { dealt += amount; };
+    c.enemies.push({ team:'enemy', dead:false, pos:new Vector3(1, 0, 0) });
+    c.explodeGrenade(new Vector3(), 1, {team:'friendly', kind:5});
+    return dealt;
+  }
+  assert.ok(blast('regular') > 0);
+  assert.equal(blast('very-easy'), blast('regular'));
+});
+
+test('enemy grenade explosion scales actual player damage without weakening player throws', () => {
+  function blast(level, isPlayer) {
+    const c = createCombatContext(); loadGrenadeLifecycle(c);
+    c.diff = () => CORE.difficulty(level); c.player.pos.set(0, 1.7, 0);
+    let received = 0; c.damagePlayer = amount => { received += amount; };
+    c.explodeGrenade(new Vector3(), 1, isPlayer ? c.player : { team:'enemy', kind:5 });
+    return received;
+  }
+  assert.ok(blast('very-easy', false) < blast('veteran', false));
+  assert.equal(blast('very-easy', true), blast('veteran', true));
+});
+
 test('generator blast damage requires hostile owner, range and line of sight', () => {
   const c = createCombatContext();
   loadGrenadeLifecycle(c);
@@ -4315,7 +4341,7 @@ test('milestone2 [deploy UI]: every mode is selectable with its own options and 
   assert.strictEqual(c.$id('tdm-settings-row').style.display, 'flex', 'FFA must expose its deploy options');
   assert.ok(c.$id('ffa-score-30'), 'FFA must offer a kill limit choice');
   assert.ok(c.$id('ffa-actors-8'), 'FFA must offer an actor budget choice');
-  assert.strictEqual(c.$id('diff-row').style.display, 'none', 'match modes must not offer an unrelated difficulty row');
+  assert.strictEqual(c.$id('diff-row').style.display, 'flex', 'match modes must offer difficulty');
 
   assert.ok(c.MODES['domination'], 'domination mode must be registered in the modes registry');
 
@@ -4328,6 +4354,10 @@ test('milestone2 [deploy UI]: every mode is selectable with its own options and 
   c.setActiveMode('gun-game');
   c.buildTdmSettingsRow();
   assert.ok(c.$id('gg-actors-8'), 'Gun Game must offer an actor budget choice');
+  c._settings.gameMode = 'gun-game';
+  c.buildGunSelect(0);
+  assert.equal(c.$id('diff-row').style.display, 'flex');
+  assert.equal(c.$id('tdm-settings-row').style.display, 'flex', 'Gun Game deploy must retain actor options');
 
   c.setActiveMode('survival');
   c.buildTdmSettingsRow();
@@ -5538,6 +5568,19 @@ function useProductionWaveLifecycle(c) {
   return c;
 }
 
+test('very easy early survival limits live enemies through production wave updates', () => {
+  const c = useProductionWaveLifecycle(createFullMatchContext());
+  c.CFG.wave.maxActive = 14;
+  c.diff = () => CORE.difficulty('very-easy');
+  c.runDifficulty = 'very-easy';
+  c.Math.random = () => 0.99;
+  c.startWave(3);
+  c.waveQueue = 20;
+  for (let i = 0; i < 20; i++) c.updateWaves(3);
+  assert.ok(c.enemies.length > 0, 'the real wave must spawn enemies');
+  assert.ok(c.enemies.length <= 4, `early crowd must stay at or below 4, got ${c.enemies.length}`);
+});
+
 test('production wave clear does not revive unfinished objectives on resume', () => {
   for (const map of ['urban', 'snowy']) {
     for (const type of ['retrieve', 'demolition', 'hold']) {
@@ -6333,6 +6376,407 @@ test('PR13 R2 queued airstrike cannot detonate during cinematic or after victory
   c.updateWaves(3.1);
   for (const fn of pending) fn();
   assert.equal(blasts, 0, 'queued combat must not continue during or after extraction');
+});
+
+test('milestone 5: Cover AI lifecycle - nav-build cover points, survival rifleman cover/peek behavior, bot cover utilization and charge archetype immunity', () => {
+  const c = createFullMatchContext();
+  c.rebuildNavGrid();
+  // 1. Production arena builds coverPoints on navGrid
+  assert.ok(c.navGrid, 'context must have navGrid');
+  assert.ok(Array.isArray(c.navGrid.coverPoints), 'navGrid must attach coverPoints');
+  assert.ok(c.navGrid.coverPoints.length >= 10, `arena must have generated cover points, got ${c.navGrid.coverPoints ? c.navGrid.coverPoints.length : 0}`);
+
+  // 2. Survival Rifleman takes cover behind obstacle when engaging player
+  c.player.pos.set(0, 1.7, 12);
+  c.player.dead = false;
+  c.enemies.length = 0;
+  // Ensure a clear cover box between rifleman and player
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete');
+  c.rebuildNavGrid();
+  assert.ok(c.navGrid.coverPoints.length > 0);
+
+  const makeBot = (kind, team, x, z) => ({
+    kind,
+    team: team || 'enemy',
+    health: 100,
+    maxHealth: 100,
+    dead: false,
+    speedMul: 1,
+    pos: new Vector3(x, 0, z),
+    vel: new Vector3(),
+    yaw: 0,
+    state: 'chase',
+    stateT: 0,
+    parts: c.dummyParts()
+  });
+
+  // Spawn rifleman at (0, 0, -6)
+  const rf = makeBot(1, 'enemy', 0, -6);
+  rf.target = c.player;
+  c.enemies.push(rf);
+
+  // Run enemy update ticks
+  c.gameT = 1.0;
+  c.updateEnemies(0.1);
+  assert.ok(rf.coverPoint && rf.state === 'take_cover', 'rifleman must acquire cover');
+
+  // If we place rifleman right at the cover point behind the wall (0, 0, -1.2)
+  const southCover = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 1.0 && p.z < -0.5 && p.z > -2.0);
+  assert.ok(southCover, 'must find cover point on protected south face of wall');
+  rf.pos.set(southCover.x, 0, southCover.z);
+  rf.coverPoint = southCover;
+  rf.state = 'in_cover';
+  rf.coverT = 0.5;
+
+  // Next update should advance cover timer or peek
+  c.updateEnemies(0.1);
+  assert.ok(rf.state === 'in_cover' || rf.state === 'peek', 'rifleman at cover point must remain in cover or peek');
+
+  // 3. Charging archetypes (Runner, Breacher) never take cover
+  const runner = makeBot(0, 'enemy', 0, -6);
+  runner.target = c.player;
+  const breacher = makeBot(6, 'enemy', 2, -6);
+  breacher.target = c.player;
+  c.enemies.push(runner, breacher);
+
+  c.updateEnemies(0.1);
+  assert.strictEqual(runner.state, 'chase', 'runner must charge in chase state, never take cover');
+  assert.strictEqual(breacher.state, 'chase', 'breacher must charge in chase state, never take cover');
+  assert.strictEqual(runner.coverPoint || null, null, 'runner must not have a coverPoint assigned');
+  assert.strictEqual(breacher.coverPoint || null, null, 'breacher must not have a coverPoint assigned');
+
+  // 4. Team bot cover utilization in TDM
+  const botFriendly = makeBot(1, 'friendly', 0, -6);
+  const botEnemy = makeBot(1, 'enemy', 0, 12);
+  botFriendly.target = botEnemy;
+  botEnemy.target = botFriendly;
+  c.enemies.splice(0, c.enemies.length, botFriendly, botEnemy);
+
+  c.updateEnemies(0.1);
+  assert.equal(botFriendly.target, botEnemy, 'friendly must target the actual opposing bot');
+
+  // 5. Survival checkpoint save and resume preserves run with cover-aware enemies
+  const runState = c.captureRunState();
+  assert.ok(runState, 'captureRunState must succeed');
+  const cp = CORE.makeCheckpoint(runState);
+  assert.ok(cp, 'makeCheckpoint must succeed');
+  const validated = CORE.validateCheckpoint(cp, 1, 100);
+  assert.ok(validated, 'validateCheckpoint must succeed');
+});
+
+test('respawning a bot clears cover state from holding and peeking', () => {
+  for (const state of ['in_cover', 'peek']) {
+    const c = createFullMatchContext();
+    const bot = { kind: 1, team: 'enemy', maxHealth: 100, health: 0, dead: true,
+      pos: new Vector3(0, 0, 0), vel: new Vector3(), parts: c.dummyParts(),
+      state, coverPoint: { x: 1, y: 0, z: 1, type: 'low' }, crouch: 1,
+      coverT: 3, _nextCoverCheck: 999, _peekPoint: {x: 3, z: 4},
+      _coverProgress: {best: 1}, _coverNavTarget: {pos: {x: 1, z: 1}} };
+    c.defaultOnRespawn(bot, [5, 15]);
+    assert.equal(bot.coverPoint, null, `${state}: old cover must not survive respawn`);
+    assert.equal(bot.crouch, 0);
+    assert.equal(bot.coverT, 0);
+    assert.equal(bot._nextCoverCheck, 0);
+    assert.equal(bot._peekPoint, null);
+    assert.equal(bot._coverProgress, null);
+    assert.equal(bot._coverNavTarget, null);
+    assert.ok(c.enemies.includes(bot), 'respawn must reinsert the actor into the real roster');
+  }
+});
+
+test('gun game knife bot abandons prior cover and pursues its opponent', () => {
+  const c = createFullMatchContext();
+  addProductionWeapons(c); modeSettings(c); c.setActiveMode('gun-game');
+  const mode = c.MODES['gun-game']; mode.setup(); clearSpawnProtection(c);
+  const [bot, target] = ffaBots(c);
+  for (const b of ffaBots(c)) if (b !== bot && b !== target) b.dead = true;
+  c.player.pos.set(45, 1.7, 45);
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  bot.pos.set(0, 0, -6); target.pos.set(0, 0, 12);
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 1 && p.z < -0.5 && p.z > -2);
+  assert.ok(bot.coverPoint);
+  bot.state = 'in_cover'; bot.crouch = 1; bot.stateT = 0;
+  mode.setTier(bot, 19); c.gameT = 10; c.updateEnemies(0.016);
+  assert.equal(bot.coverPoint, null, 'knife combatants must abandon old cover');
+  assert.equal(bot.crouch, 0);
+  assert.equal(bot.state, 'chase');
+});
+
+test('gun game death and respawn force refresh touch weapon state without ammo changes', () => {
+  const c = createFullMatchContext(); addProductionWeapons(c); modeSettings(c);
+  c.setActiveMode('gun-game'); c.MODES['gun-game'].setup();
+  const forceValues = [];
+  c.updateHudAmmo = force => forceValues.push([c.player.dead, force]);
+  c.killPlayer();
+  assert.ok(forceValues.some(([dead, force]) => dead && force === true), 'death must invalidate the cached touch state');
+  c.defaultOnRespawn(c.player, [0, 0]);
+  assert.ok(forceValues.some(([dead, force]) => !dead && force === true), 'respawn must unlock unchanged-ammo controls');
+});
+
+test('difficulty changes actual hostile gun game hit probability and damage', () => {
+  function fireOn(level, roll) {
+    const pending = [];
+    const c = createFullMatchContext({ setTimeout: fn => pending.push(fn), spawnTracer: noop });
+    addProductionWeapons(c); modeSettings(c); c.setActiveMode('gun-game');
+    c.MODES['gun-game'].setup(); clearSpawnProtection(c);
+    const [bot, target] = ffaBots(c);
+    bot.pos.set(0, 0, 0); target.pos.set(0, 0, 8);
+    target.health = 1000; c.started = true; c.paused = false;
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => roll;
+    c.enemyShoot(bot, 8, target);
+    pending.forEach(fn => fn());
+    return target.health;
+  }
+  assert.equal(fireOn('very-easy', 0.35), 1000, 'same aim roll misses on very easy');
+  assert.ok(fireOn('veteran', 0.35) < 1000, 'same aim roll hits on hard');
+  assert.ok(fireOn('very-easy', 0) > fireOn('veteran', 0), 'an actual easy hit does less damage');
+});
+
+test('friendly bot fire retains medium accuracy and damage on very easy', () => {
+  function hit(level) {
+    const pending = [];
+    const c = createFullMatchContext({setTimeout: fn => pending.push(fn), spawnTracer: noop});
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => 0;
+    c.started = true; c.paused = false; c.player.pos.set(40, 1.7, 40);
+    const attacker = c.spawnEnemy(1, 0, 0, {team:'friendly', spawnProtection:false});
+    const target = c.spawnEnemy(0, 0, 8, {team:'enemy', spawnProtection:false});
+    target.health = 1000; c.enemyShoot(attacker, 8, target); pending.forEach(fn => fn());
+    return target.health;
+  }
+  assert.equal(hit('very-easy'), hit('regular'));
+});
+
+test('hostile tracer does not pass through low cover below an open eye ray', () => {
+  const traces = [];
+  const c = createFullMatchContext({spawnTracer: (...args) => traces.push(args), setTimeout: noop});
+  c.addBox(0, 0.775, 10, 2, 1.55, 1, 'concrete');
+  c.player.pos.set(0, 1.7, 12); c.Math.random = () => 0;
+  const bot = c.spawnEnemy(1, 0, 0, {team:'enemy'});
+  assert.equal(c.hasLOS(bot, c.player, true), true, 'eye ray is open above the wall');
+  c.enemyShoot(bot, 12, c.player);
+  assert.equal(traces.length, 0, 'the lower tracer must not pass through the wall');
+});
+
+test('forced firing LOS does not jitter around wall edges', () => {
+  const c = createFullMatchContext();
+  c.addBox(0, 1.5, 10, 1, 3, 1, 'concrete');
+  c.player.pos.set(0.49, 1.7, 12);
+  const bot = c.spawnEnemy(1, 0.49, 0, {team:'enemy'});
+  c.Math.random = () => 1;
+  assert.equal(c.hasLOS(bot, c.player, true), false);
+});
+
+test('breacher pellet accuracy scales through real impact resolution', () => {
+  function hit(level) {
+    const pending = [];
+    const c = createFullMatchContext({ setTimeout: fn => pending.push(fn), spawnTracer: noop });
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => 0.6;
+    c.started = true; c.paused = false; c.player.pos.set(40, 1.7, 40);
+    const attacker = c.spawnEnemy(6, 0, 0, {team:'enemy', spawnProtection:false});
+    const target = c.spawnEnemy(0, 0, 5, {team:'friendly', spawnProtection:false});
+    target.health = 1000; c.breacherShoot(attacker, 5, target);
+    pending.forEach(fn => fn()); return target.health;
+  }
+  assert.equal(hit('very-easy'), 1000);
+  assert.ok(hit('veteran') < 1000);
+});
+
+test('deploy difficulty selection persists when switching among all modes', () => {
+  const c = createFullMatchContext(); modeSettings(c);
+  c.buildDifficultyRow();
+  const row = c.$id('diff-row');
+  assert.equal(row.children.length, 4);
+  row.children[0].click();
+  assert.equal(c.runDifficulty, 'very-easy');
+  assert.equal(c._settings.difficulty, 'very-easy');
+  for (const mode of ['survival', 'tdm', 'ffa', 'domination', 'gun-game']) {
+    c.setActiveMode(mode); c.buildTdmSettingsRow();
+    assert.equal(row.style.display, 'flex', `${mode} must expose difficulty`);
+    assert.equal(c.runDifficulty, 'very-easy');
+  }
+});
+
+test('settings difficulty and reset synchronize the next deploy choice', () => {
+  const c = createFullMatchContext();
+  c.document.body.classList.toggle = noop;
+  vm.runInContext(source('02_settings.js'), c);
+  vm.runInContext('applyQuality = () => {};', c);
+  c.started = false;
+  c.setSetting('difficulty', 'very-easy');
+  c.buildDifficultyRow();
+  assert.equal(c.runDifficulty, 'very-easy');
+  c.setSetting('difficulty', 'veteran');
+  assert.equal(c.runDifficulty, 'veteran');
+  c.resetSettings();
+  assert.equal(c.runDifficulty, 'regular');
+});
+
+test('a resumed difficulty does not override the saved next-deploy preference', () => {
+  const c = createFullMatchContext(); modeSettings(c, { difficulty: 'very-easy' });
+  c.runDifficulty = 'veteran';
+  c.started = false;
+  c.buildGunSelect(0);
+  assert.equal(c.runDifficulty, 'very-easy');
+  assert.ok(c.$id('diff-row').children[0].className.includes('on'));
+});
+
+test('simplified rig crouches its visible body and hitboxes together and restores them', () => {
+  const c = createFullMatchContext();
+  const bot = c.spawnEnemy(1, 0, 0, {team:'enemy'});
+  bot.parts = c.makeEnemyMesh(1, 'enemy');
+  bot.crouch = 0; c.animateEnemy(bot, 0.016, 10);
+  const standing = [bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y];
+  bot.crouch = 1; c.animateEnemy(bot, 0.016, 10);
+  const crouched = [bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y];
+  for (let i = 0; i < standing.length; i++) assert.ok(crouched[i] < standing[i] - 0.35);
+  bot.crouch = 0; c.animateEnemy(bot, 0.016, 10);
+  assert.deepEqual([bot.parts.body.position.y, bot.parts.hitBody.position.y, bot.parts.hitHead.position.y], standing);
+});
+
+test('difficulty changes real gun game bot shot cadence', () => {
+  function nextShot(level) {
+    const c = createFullMatchContext({ setTimeout: noop, spawnTracer: noop, flashLight: noop });
+    addProductionWeapons(c);
+    c.CFG.weapons = vm.runInNewContext(source('10_config_world.js').match(/weapons:\s*(\[[\s\S]*?\n  \]),/)[1]);
+    modeSettings(c); c.setActiveMode('gun-game'); c.MODES['gun-game'].setup(); clearSpawnProtection(c);
+    const [bot, target] = ffaBots(c);
+    for (const b of ffaBots(c)) if (b !== bot && b !== target) b.dead = true;
+    c.player.pos.set(45, 1.7, 45); target.pos.set(0, 0, 10); target.nextShot = Infinity;
+    bot.pos.set(0, 0, 0); bot.target = target; bot.state = 'strafe'; bot._losCache = true; bot.nextShot = 0;
+    c.diff = () => CORE.difficulty(level); c.Math.random = () => 0;
+    c.started = true; c.paused = false; c.gameT = 10; c.updateEnemies(0.016);
+    return bot.nextShot;
+  }
+  assert.ok(nextShot('very-easy') > nextShot('veteran'));
+});
+
+test('very easy bots pause before firing on a newly acquired target', () => {
+  const traces = [];
+  const c = createFullMatchContext({ setTimeout: noop, spawnTracer: (...args) => traces.push(args), flashLight: noop });
+  addProductionWeapons(c);
+  c.CFG.weapons = vm.runInNewContext(source('10_config_world.js').match(/weapons:\s*(\[[\s\S]*?\n  \]),/)[1]);
+  modeSettings(c); c.setActiveMode('gun-game'); c.MODES['gun-game'].setup(); clearSpawnProtection(c);
+  const [bot, target] = ffaBots(c);
+  for (const b of ffaBots(c)) if (b !== bot && b !== target) b.dead = true;
+  c.player.pos.set(45, 1.7, 45); target.pos.set(0, 0, 10); target.nextShot = Infinity;
+  bot.pos.set(0, 0, 0); bot.target = null; bot.state = 'strafe'; bot._losCache = true; bot.nextShot = 0;
+  c.diff = () => CORE.difficulty('very-easy'); c.Math.random = () => 0;
+  c.started = true; c.paused = false; c.gameT = 10; c.updateEnemies(0.016);
+  assert.equal(traces.length, 0, 'newly acquired target must get a reaction window');
+  c.gameT = 11; c.updateEnemies(0.016);
+  assert.ok(traces.length > 0, 'the bot still engages after the reaction window');
+});
+
+test('a peeking rifleman behind a wide wall does not fire without line of sight', () => {
+  const traces = [];
+  const c = createFullMatchContext({ spawnTracer: (...args) => traces.push(args), setTimeout: noop });
+  c.player.pos.set(0, 1.7, 12); c.player.dead = false;
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const bot = c.spawnEnemy(1, 0, -1.3, { team: 'enemy', spawnProtection: false });
+  bot.state = 'peek'; bot.stateT = 0; bot.nextShot = 0;
+  bot._losCache = true; bot._losSkip = 0;
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint);
+  c.Math.random = () => 0.5; c.gameT = 10; c.updateEnemies(0.016);
+  assert.equal(traces.length, 0, 'occluded peek must never fire through the wall');
+});
+
+test('domination flag order navigates around an intervening wall', () => {
+  const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
+  modeSettings(c); c.setActiveMode('domination'); c.MODES.domination.setup();
+  const bot = c.enemies.find(a => a.team === 'enemy');
+  for (const actor of c.enemies) if (actor !== bot) actor.dead = true;
+  for (const flag of c.MODES.domination.flags) { flag.x = 0; flag.z = 10; flag.owner = null; }
+  c.player.pos.set(45, 1.7, 45); bot.pos.set(0, 0, -10); bot.kind = 1;
+  c.addBox(0, 1.5, -2, 8, 3, 1, 'concrete'); c.rebuildNavGrid();
+  c.updateEnemies(0.1);
+  const firstOrder = bot.objectiveTarget;
+  c.updateEnemies(0.1);
+  assert.equal(bot.objectiveTarget, firstOrder, 'unchanged flag retains its flow-cache key');
+  for (let i = 0; i < 300; i++) { c.gameT = i * 0.1; c.updateEnemies(0.1); }
+  assert.ok(bot.pos.z > 0, `bot must route around the wall: ${JSON.stringify(bot.pos)}`);
+});
+
+test('cover arrival does not hold at an exposed position beside a narrow wall', () => {
+  const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
+  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 1, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const point = {x:0, y:0, z:-1.3, nx:0, nz:-1, type:'high'};
+  const bot = c.spawnEnemy(1, 0.79, -1.3, {team:'enemy', spawnProtection:false});
+  bot.coverPoint = point; bot.state = 'take_cover'; c.updateEnemies(0.016);
+  assert.notEqual(bot.state, 'in_cover', 'must not hold while exposed at the edge');
+});
+
+test('cover approach does not strand a rifleman against an intervening wall', () => {
+  const c = createFullMatchContext({ spawnTracer: noop, setTimeout: noop }); c.player.pos.set(0, 1.7, 15);
+  c.addBox(0, 1.5, -5, 8, 3, 1, 'concrete');
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const bot = c.spawnEnemy(1, 0, -10, { team: 'enemy', spawnProtection: false });
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint); bot.state = 'take_cover'; bot.stateT = 0;
+  c.Math.random = () => 0.5;
+  for (let i = 0; i < 300; i++) { c.gameT = i * 0.1; c.updateEnemies(0.1); }
+  assert.ok(bot.state !== 'take_cover' || bot.pos.z > -4, 'cover navigation must route or abandon a stalled assignment');
+});
+
+test('wide-wall cover reaches an exposed firing lane before retreating', () => {
+  const c = createFullMatchContext({ spawnTracer: noop, setTimeout: noop });
+  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 8, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const point = c.navGrid.coverPoints.find(p => p.colliderIndex === c.colliders.length - 1 && Math.abs(p.x + 1.6) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(point, 'must use a generated cover point on the wide wall');
+  const bot = c.spawnEnemy(1, point.x, point.z, { team: 'enemy', spawnProtection: false });
+  bot.coverPoint = point; bot.state = 'in_cover'; bot.stateT = 0;
+  c.Math.random = () => 0.5;
+  let resolved = false, enteredPeek = false;
+  for (let i = 0; i < 100; i++) {
+    c.gameT = i * 0.1; c.updateEnemies(0.1);
+    if (bot.coverPoint !== point) break;
+    if (bot.state === 'peek') enteredPeek = true;
+    else if (enteredPeek) break;
+    if (c.hasLOS(bot, c.player)) { resolved = true; break; }
+  }
+  assert.ok(resolved, `must reach an exposed peek before retreating: ${JSON.stringify({state:bot.state, pos:bot.pos, point:bot._peekPoint, cover:bot.coverPoint, travel:bot._peekTravelT})}`);
+});
+
+test('rifleman retreats to cover after ending a peek', () => {
+  const c = createFullMatchContext({spawnTracer: noop, setTimeout: noop});
+  c.player.pos.set(0, 1.7, 12); c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const bot = c.spawnEnemy(1, 3, -1.3, {team:'enemy', spawnProtection:false});
+  const point = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  bot.coverPoint = point; bot.state = 'peek'; bot.stateT = 1.3; c.gameT = 10;
+  const before = CORE.horizDist(bot.pos.x, bot.pos.z, point.x, point.z);
+  c.updateEnemies(0.5);
+  assert.ok(CORE.horizDist(bot.pos.x, bot.pos.z, point.x, point.z) < before, 'must retreat rather than stand exposed');
+});
+
+test('losing a target clears cover before combat resumes', () => {
+  const c = createFullMatchContext(); c.player.pos.set(0, 1.7, 12);
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  const bot = c.spawnEnemy(1, 0, -6, {team:'enemy', spawnProtection:false});
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint); bot.state = 'in_cover'; bot.crouch = 1;
+  c.player.dead = true; c.updateEnemies(0.1);
+  assert.equal(bot.coverPoint, null); assert.equal(bot.crouch, 0);
+  c.player.dead = false; c.gameT = 10; c.updateEnemies(0.1);
+  assert.ok(bot.coverPoint, 'reacquiring a target permits fresh cover selection');
+});
+
+test('domination flag order clears cover and permits reacquisition', () => {
+  const c = createFullMatchContext(); modeSettings(c); c.setActiveMode('domination');
+  c.MODES.domination.setup();
+  const bot = c.enemies.find(a => a.team === 'enemy');
+  for (const actor of c.enemies) if (actor !== bot) actor.dead = true;
+  c.addBox(0, 1.5, 0, 4, 3, 1, 'concrete'); c.rebuildNavGrid();
+  bot.pos.set(0, 0, -6); bot.kind = 1; c.player.pos.set(45, 1.7, 45);
+  bot.coverPoint = c.navGrid.coverPoints.find(p => Math.abs(p.x) < 0.1 && p.z < -1 && p.z > -2);
+  assert.ok(bot.coverPoint); bot.state = 'in_cover'; bot.crouch = 1;
+  const beforeOrder = { x: bot.pos.x, z: bot.pos.z };
+  c.updateEnemies(0.1);
+  assert.ok(bot.objectiveTarget, 'actual mode must issue a flag order');
+  assert.ok(CORE.horizDist(beforeOrder.x, beforeOrder.z, bot.pos.x, bot.pos.z) > 0, 'flag order moves on the transition frame');
+  assert.equal(bot.coverPoint, null); assert.equal(bot.crouch, 0);
+  bot.pos.set(0, 0, -6); c.player.pos.set(0, 1.7, 12); c.gameT = 10;
+  c.updateEnemies(0.1);
+  assert.ok(bot.coverPoint, 'combat after flag order permits new cover selection');
 });
 
 

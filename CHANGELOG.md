@@ -4,6 +4,44 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Stage 1 — combat difficulty, touch lifecycle and cover repairs
+
+- Add four saved deploy difficulties for every mode, with gentler early Survival
+  crowds and difficulty-scaled bot aim, reaction and Gun Game damage.
+- Restore touch fire after match respawn and allow the knife action when no firearm
+  is equipped. Add a Chromium touch-event lifecycle probe.
+- Route cover approaches, abandon stalled assignments, test peek sightlines and
+  clear cover state on respawn, knife promotion, lost targets and flag orders.
+- Keep simplified rigs and their hitboxes aligned while crouched, and synchronize
+  saved difficulty across settings, checkpoint resume and new deployment.
+- Reject cover when the actual standing or crouched head remains exposed, including
+  scaled rigs and the actor's arrival position; route flag orders around walls
+  while reusing the navigation field for unchanged destinations.
+- Refresh line of sight at firing time so stale cached visibility cannot fire
+  a tracer through an obstacle after an actor or target moves, including edges.
+- Keep friendly team bots at Medium combat ability, including grenade damage,
+  and check the actual tracer path against cover.
+- Compact the offline build while retaining its size budget and add build tests.
+
+## v181 — Milestone 5 (partial increment): Nav-build cover points generation, occlusion evaluation, tactical cover seeking, peeking, and burst-fire AI
+
+- **Cover point generation & evaluation framework (`src/01_core.js`).**
+  - Added pure cover point generation at nav-build time via `CORE.generateCoverPoints(colliders, navGrid, opts)`: samples obstacle perimeter bounds, steps outside inflated obstacle cells along normal directions, validates walkability in `navGrid`, rejects collider intersections, and classifies cover by height into `low` (< 1.35m, crouch cover) and `high` (>= 1.35m, standing cover).
+  - Attached generated cover points to `navGrid.coverPoints` in `CORE.buildNavGrid` automatically for both Urban and Snowy Compound arenas.
+  - Implemented analytic line-of-sight occlusion evaluation `CORE.evalCoverOcclusion(coverPoint, threatX, threatY, threatZ, colliders)` using `segmentBlocked` against candidate obstacle geometry.
+  - Implemented candidate scoring `CORE.scoreCoverPoint(coverPt, actorX, actorZ, threatX, threatZ, colliders, opts)` evaluating threat occlusion (+60 protected vs -100 exposed), actor distance falloff, threat safe standoff, cover height bonus, and facing angle.
+  - Added candidate picker `CORE.pickBestCoverPoint(coverPoints, actorX, actorZ, threatX, threatZ, colliders, opts)` and tangent peek position calculator `CORE.coverPeekPosition(coverPt, threatX, threatZ, peekSide, out)`.
+- **Tactical combat AI & state transitions (`src/01_core.js`, `src/40_enemies.js`).**
+  - Added cover states (`take_cover`, `in_cover`, `peek`) in `CORE.enemyAiNextState` and state-based movement speeds in `CORE.enemyMoveSpeed`.
+  - Integrated tactical cover seeking into `updateEnemies` in `src/40_enemies.js` for ranged combatants (Riflemen and match bots): actors under threat evaluate `navGrid.coverPoints`, steer to cover, duck/crouch behind low cover, peek along tangent angles, and fire bursts before ducking back.
+  - Relentless charging archetypes (Runners, Breachers, Tanks) never seek cover, preserving wave pacing.
+  - Preserved Survival wave progression, endless continuation, extraction finale, touch controls, and checkpoint save/resume.
+- **Verification & release build.**
+  - 648/648 Node tests passing across all suites (`tests/*.js`): 434 in `test_core.js`, 129 in `test_modes_and_teams.js`, and 85 in other suites.
+  - 15/15 release build integrity tests passing (`python3 -m unittest tests.test_release_build`).
+  - 5/5 probe matrix contract tests passing (`python3 -m unittest tests.test_probe_matrix`).
+  - Single-file release artifact rebuilt via `python3 scripts/build.py .` (`dist/Operation Blackout.html`): 2,096,447 bytes (705 bytes below the 2,097,152 byte limit).
+
 ## PR13 extraction review repairs
 
 - Select surge enemies from the production roster, including grenadiers and breachers; exercise every roster kind through the production spawn queue and enemy creation in surge and normal waves.

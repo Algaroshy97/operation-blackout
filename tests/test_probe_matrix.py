@@ -25,6 +25,13 @@ class MapModeAcceptanceContract(unittest.TestCase):
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_map_modes']
         self.assertEqual(len(calls), 1, 'full acceptance must execute the map/mode matrix')
 
+    def test_full_probe_invokes_touch_lifecycle(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage1_touch']
+        self.assertEqual(len(calls), 1, 'full acceptance must execute the production touch lifecycle')
+
     def test_ci_runs_contract_guards(self):
         self.assertIn('tests.test_probe_matrix', (ROOT / '.github/workflows/ci.yml').read_text())
 

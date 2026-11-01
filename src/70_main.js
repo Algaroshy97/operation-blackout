@@ -67,7 +67,7 @@ function killPlayer(killer) {
   const pm = $id('pause-menu');
   if (pm) pm.style.display = 'none';
   updateHudHealth();
-  if (typeof updateHudAmmo === 'function') updateHudAmmo();
+  if (typeof updateHudAmmo === 'function') updateHudAmmo(true);
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
   if (typeof applyTouchInput === 'function') applyTouchInput();
   if (!activeMode || activeMode.id === 'survival') {
@@ -560,7 +560,7 @@ function buildModePickerRow() {
       buildDifficultyRow();
       buildTdmSettingsRow();
       const isMatch = (m.id !== 'survival');
-      $id('diff-row').style.display = isMatch ? 'none' : 'flex';
+      $id('diff-row').style.display = 'flex';
       const tr = $id('tdm-settings-row');
       if (tr) tr.style.display = isMatch ? 'flex' : 'none';
       playSound('click');
@@ -582,10 +582,9 @@ function buildTdmSettingsRow() {
   }
   row.style.display = 'flex';
   row.innerHTML = '';
-  // The difficulty row only means something for the Survival run; keep the menu
-  // consistent no matter who triggered this rebuild.
+  // Difficulty applies to match modes as well as Survival.
   const diffRow = $id('diff-row');
-  if (diffRow) diffRow.style.display = 'none';
+  if (diffRow) diffRow.style.display = 'flex';
   if (modeId !== 'tdm') {
     // One labelled group of choices per match mode, built from the same schema keys
     // the mode reads at setup time, so the menu and the match can never disagree.
@@ -721,14 +720,15 @@ function buildTdmSettingsRow() {
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
   if (pickingSlot === 0) {
+    if (typeof getSetting === 'function') runDifficulty = getSetting('difficulty');
     pendingSecondary = -1;
     buildMapPickerRow();
     buildModePickerRow();
     buildDifficultyRow();
     buildTdmSettingsRow();
-    const isTdm = (typeof activeModeId !== 'undefined' && activeModeId === 'tdm');
-    $id('diff-row').style.display = isTdm ? 'none' : 'flex';
-    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isTdm ? 'flex' : 'none';
+    const isMatch = (typeof activeModeId !== 'undefined' && activeModeId !== 'survival');
+    $id('diff-row').style.display = 'flex';
+    if ($id('tdm-settings-row')) $id('tdm-settings-row').style.display = isMatch ? 'flex' : 'none';
     if ($id('mode-row')) $id('mode-row').style.display = 'flex';
     if ($id('map-row')) $id('map-row').style.display = 'flex';
   } else {
@@ -777,6 +777,7 @@ function buildDifficultyRow() {
     enableMenuKeyboard(b);
     b.addEventListener('click', function () {
       runDifficulty = key;
+      if (typeof setSetting === 'function') setSetting('difficulty', key);
       buildDifficultyRow();
       playSound('click');
     });

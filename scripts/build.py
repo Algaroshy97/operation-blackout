@@ -24,10 +24,47 @@ def read_lf(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace(CRLF, LF)
 
 
+def compact_css(css: str) -> str:
+    """Remove optional CSS whitespace without changing quoted content or selectors."""
+    out = []
+    quote = None
+    escaped = False
+    pending = False
+    for char in css:
+        if quote:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ('"', "'"):
+            if pending and out and out[-1] not in '{;}:,':
+                out.append(' ')
+            pending = False
+            quote = char
+            out.append(char)
+        elif char.isspace():
+            pending = True
+        else:
+            if pending and out and out[-1] not in '{;}:,' and char not in '{};,':
+                out.append(' ')
+            pending = False
+            if char == '}' and out and out[-1] == ';':
+                out.pop()
+            out.append(char)
+    return ''.join(out)
+
+
 def strip_css_comments(html: str) -> str:
     """Drop CSS block comments from HTML head for the shipped release."""
     cleaned = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
-    return LF.join(ln.rstrip() for ln in cleaned.split(LF))
+    cleaned = re.sub(r'(?<=<style>)(.*?)(?=</style>)',
+                     lambda match: compact_css(match.group(1)), cleaned, flags=re.S)
+    return LF.join(line.strip() if line.lstrip().startswith('<') else line.rstrip()
+                   for line in cleaned.split(LF))
 
 
 def strip_line_comments(js: str) -> str:
@@ -43,7 +80,20 @@ def strip_line_comments(js: str) -> str:
     that parses the bundle would catch one that did.
     """
     lines = js.split(LF)
-    kept = lines[:1] + [ln.strip() for ln in lines[1:] if ln.strip() and not ln.lstrip().startswith("//")]
+    kept = lines[:1]
+    in_template = False
+    for line in lines[1:]:
+        line = line.strip()
+        if not line or (not in_template and line.startswith('//')):
+            continue
+        if not in_template:
+            line = re.sub(r'''^([^/'"`]*;)\s+//.*$''', r'\1', line)
+            if not any(char in line for char in "'\"`/"):
+                line = line.replace(' === ', '===').replace(' !== ', '!==')
+                line = line.replace(' && ', '&&').replace(' || ', '||')
+        if line.count('`') % 2:
+            in_template = not in_template
+        kept.append(line)
     return LF.join(kept)
 
 

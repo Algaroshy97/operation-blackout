@@ -65,6 +65,9 @@ function resetSettings() {
 // ---- Side-effects -----------------------------------------------------------
 function applySetting(key) {
   switch (key) {
+    case 'difficulty':
+      if (typeof started !== 'undefined' && !started && typeof runDifficulty !== 'undefined') runDifficulty = SETTINGS.difficulty;
+      break;
     case 'musicVolume':
       break;   // read live by updateMusic each frame
     case 'masterVolume':
