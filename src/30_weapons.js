@@ -558,7 +558,7 @@ function finishShot(s, w, hit) {
     if (s.heat > 0.8) playSound('sizzle');
   }
   player.recoilP += _kickOut.pitchKick;
-  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  const isSuppressed = !!(w && w.attachments && w.attachments.indexOf('suppressor') >= 0);
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);
   playSound(CORE.weaponClassFireSound(w ? w.cls : '', w ? w.type : '', isSuppressed));
@@ -669,6 +669,7 @@ function buildViewmodel() {
   gunGroup = new THREE.Group();
   const P = { bolt: null, mag: null, handL: null, handR: null };
   vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
+  if (typeof applyCareerCosmetics === 'function' && typeof getKitColour === 'function' && typeof getCamo === 'function') applyCareerCosmetics(gunGroup, gi);
   gunParts = P;
   muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });

@@ -4,6 +4,33 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Stage 2 — in progress
+
+- Make all existing base weapons available at rank one for deployment and Gunsmith.
+- Offer one starting perk (Speed Reload, Steady Aim, Scavenger or none), occupying
+  a normal perk slot; persist the choice and preserve checkpoint run perks.
+- Starting-perk browser regression: RED on missing deploy control; GREEN after
+  implementation for persisted selection, match respawn and Survival checkpoint.
+- Expose the sidearm in Gunsmith and exclude rifle stocks, underbarrels and the
+  4x scope from its visible and applied builds. Browser checks failed before each
+  change and passed afterward; remaining compatibility work is not complete.
+- Compact unquoted JavaScript assignment whitespace in the offline build; a
+  regression checks quoted text remains unchanged.
+- Add per-candidate effective-stat comparisons, including the effects removed when
+  replacing an attachment. Restrict unsupported shotgun options and preserve
+  weapon-specific aim/movement baselines when no attachments are equipped.
+- Route equipped suppressors through the real suppressed shot sound and muzzle
+  effects. The focused production shot regression failed before that repair.
+- Add challenge-earned Woodland and Urban procedural weapon finishes and Olive
+  and Sand sleeve colours, saved per weapon or operator respectively. Generated
+  weapon textures and materials are disposed on viewmodel rebuild.
+- Add focused browser probes for saved builds, offered attachment/weapon
+  combinations, challenge unlocks, deployed appearance, and legacy/corrupt saves;
+  integrate them into the full probe, which has not yet been rerun for these edits.
+- Local TDD evidence: `python3 scripts/probe_stage2_weapons.py` first failed on
+  rank-one Gunsmith locks; after the change and build it passed, including a
+  fresh-career Gun Game ladder check. This is partial Stage 2 coverage only.
+
 ## Stage 1 — combat difficulty, touch lifecycle and cover repairs
 
 - Add four saved deploy difficulties for every mode, with gentler early Survival

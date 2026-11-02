@@ -6526,6 +6526,30 @@ def main() -> int:
         probe_stage1_touch(args.build)
     checks.append(('stage1-touch-lifecycle', True))
 
+    from probe_stage2_weapons import main as probe_stage2_weapons
+    with redirect_stdout(sys.stderr):
+        probe_stage2_weapons(args.build)
+    checks.append(('stage2-rank-one-weapons', True))
+
+    from probe_stage2_perk import main as probe_stage2_perk
+    with redirect_stdout(sys.stderr):
+        probe_stage2_perk(args.build)
+    checks.append(('stage2-starting-perk', True))
+
+    from probe_stage2_gunsmith import main as probe_stage2_gunsmith
+    with redirect_stdout(sys.stderr):
+        probe_stage2_gunsmith(args.build)
+    checks.append(('stage2-sidearm-gunsmith', True))
+
+    from probe_stage2_cosmetics import main as probe_stage2_cosmetics
+    from probe_stage2_migration import main as probe_stage2_migration
+    from probe_stage2_attachment_matrix import main as probe_stage2_attachment_matrix
+    with redirect_stdout(sys.stderr):
+        probe_stage2_cosmetics(args.build)
+        probe_stage2_migration(args.build)
+        probe_stage2_attachment_matrix(args.build)
+    checks.extend([('stage2-cosmetics', True), ('stage2-migration', True), ('stage2-attachments', True)])
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

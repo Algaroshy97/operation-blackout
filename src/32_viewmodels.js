@@ -581,12 +581,30 @@ function buildGunModel(g, P, type, att) {
   if (!knifeGroup) buildKnife();
   return tune;
 }
+function applyCareerCosmetics(g, index) {
+  VMAT.sleeve.color.setHex(({ olive: 0x73815a, sand: 0xc6a979 })[getKitColour()] || 0xc8c8c0);
+  const camo = getCamo(index);
+  g.userData.camo = camo;
+  if (camo === 'default') return;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = camo === 'urban' ? '#777f88' : '#65704b'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = camo === 'urban' ? '#343c48' : '#283b2c';
+  for (let i = 0; i < 12; i++) ctx.fillRect((i * 29) % 64, (i * 19) % 64, 18, 8);
+  ctx.fillStyle = camo === 'urban' ? '#c1c7cb' : '#aa9c73';
+  for (let i = 0; i < 9; i++) ctx.fillRect((i * 23) % 64, (i * 31) % 64, 12, 6);
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = vmMat({ color: 0xffffff, map: texture, roughness: 0.7, metalness: 0.2 });
+  material.userData.perModel = true; material.userData.careerCamo = true;
+  g.traverse(function (o) { if (o.material === VMAT.polymer || o.material === VMAT.fde || o.material === VMAT.metal) o.material = material; });
+  g.userData.camoMaterial = material;
+}
 function disposeGunModel(g) {
-  // Materials are module-level and shared by every model, except the few a builder
-  // makes for itself (flagged perModel, e.g. the LMG heat shroud).
+  const camoMaterial = g.userData.camoMaterial;
+  if (camoMaterial) { camoMaterial.map.dispose(); camoMaterial.dispose(); }
   g.traverse(function (o) {
     if (o.geometry) o.geometry.dispose();
-    if (o.material && o.material.userData && o.material.userData.perModel) o.material.dispose();
+    if (o.material && o.material !== camoMaterial && o.material.userData && o.material.userData.perModel) o.material.dispose();
   });
 }
 

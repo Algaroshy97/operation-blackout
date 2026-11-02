@@ -409,6 +409,7 @@ const CORE = (function () {
     showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
     difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
+    startingPerk: { type: 'enum', def: 'none', values: ['none', 'reload', 'steady', 'scav'], label: 'Starting perk', help: 'Choose one perk for a new run; it occupies a perk slot.' },
     gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
@@ -1016,9 +1017,8 @@ const CORE = (function () {
     return Math.round(xp);
   }
 
-  // Weapons unlock by rank. Index matches CFG.weapons; the first two are always
-  // available so a new player still has a choice on their first deploy.
-  const WEAPON_UNLOCK_RANK = [1, 1, 3, 6, 2, 4, 1];
+  // Base weapons are available to every career from the first deployment.
+  const WEAPON_UNLOCK_RANK = [1, 1, 1, 1, 1, 1, 1];
   function weaponUnlockRank(index) {
     const r = WEAPON_UNLOCK_RANK[index];
     return r === undefined ? 1 : r;
@@ -4314,18 +4314,18 @@ const CORE = (function () {
     // optic
     { key: 'reddot', slot: 'optic', rank: 2, name: 'RED DOT',
       blurb: 'Faster aim, tighter sights', mods: { adsSpeed: 1.18, adsSpread: 0.85, spread: 1.06 } },
-    { key: 'scope4x', slot: 'optic', rank: 7, name: '4x SCOPE',
+    { key: 'scope4x', slot: 'optic', rank: 7, name: 'PRECISION OPTIC',
       blurb: 'Precision at range, slow to raise', mods: { adsSpread: 0.55, range: 1.15, adsSpeed: 0.72, sway: 1.2 } },
     // barrel
     { key: 'longbarrel', slot: 'barrel', rank: 3, name: 'LONG BARREL',
       blurb: 'More range and punch, heavier', mods: { range: 1.25, penetration: 1.3, adsSpeed: 0.85, recoilV: 1.08 } },
     { key: 'suppressor', slot: 'barrel', rank: 9, name: 'SUPPRESSOR',
-      blurb: 'Quiet and steady, shorter reach', mods: { recoilV: 0.85, recoilH: 0.8, range: 0.82, dmg: 0.94 } },
+      blurb: 'Steadier recoil, shorter reach', mods: { recoilV: 0.85, recoilH: 0.8, range: 0.82, dmg: 0.94 } },
     // underbarrel
     { key: 'foregrip', slot: 'under', rank: 4, name: 'FOREGRIP',
       blurb: 'Controls climb, slower to swing', mods: { recoilV: 0.78, recoilH: 0.7, adsSpeed: 0.92 } },
     { key: 'laser', slot: 'under', rank: 8, name: 'LASER',
-      blurb: 'Tight from the hip, visible', mods: { spread: 0.7, adsSpread: 1.08 } },
+      blurb: 'Tighter hip fire, wider aimed spread', mods: { spread: 0.7, adsSpread: 1.08 } },
     // magazine
     { key: 'extmag', slot: 'mag', rank: 5, name: 'EXTENDED MAG',
       blurb: 'More rounds, slower reload', mods: { mag: 1.4, reserveMax: 1.2, reload: 1.22 } },
@@ -4375,6 +4375,8 @@ const CORE = (function () {
     const out = {};
     for (const k in base) out[k] = base[k];
     for (const k in ATTACH_DEFAULTS) if (out[k] === undefined) out[k] = ATTACH_DEFAULTS[k];
+    if (base.adsSpeed === undefined) out.adsSpeed = weaponAdsSpeed(base.type);
+    if (base.moveMul === undefined) out.moveMul = weaponAdsMoveMultiplier(base.type);
     const keys = [];
     for (let i = 0; i < ATTACH_SLOTS.length; i++) {
       const key = loadout && loadout[ATTACH_SLOTS[i]];

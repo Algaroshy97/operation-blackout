@@ -23,7 +23,7 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
 - Repair retained PR14 cover-AI review findings, including stalled navigation,
   occluded peeks, melee cover misuse and stale state on respawn, with real lifecycle
   regression coverage. CI-green rejected code is not accepted baseline.
-- Status: pending; earlier stopped worker changes are retained but not approved.
+- Status: shipped in merge be626b45a7157859d69f97a3f6601449dd42b910.
 
 ### Stage 2 — Understandable Gunsmith and progression
 - All base weapons available from the start; rank must not gate base weapons.
@@ -34,7 +34,11 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
 - Career challenges unlock procedural weapon camos and operator kit colours.
 - Allow one balanced starting perk choice; rank opens cosmetics and optional
   extras, never compulsory access to a basic weapon. Preserve existing save data.
-- Status: pending.
+- Status: local implementation in progress; not yet independently reviewed,
+  accepted, merged or published. Focused browser checks cover rank-one weapons,
+  perk selection and checkpoint/respawn, the offered attachment matrix, legacy
+  stores, and challenge-earned first-person camos and sleeve colours. Full browser
+  acceptance and physical-device playtesting remain outstanding.
 
 ### Stage 3 — Audible music, atmosphere and visibility
 - Phone report: music is missing from initial gameplay while other sounds work.

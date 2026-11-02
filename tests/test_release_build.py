@@ -39,7 +39,7 @@ class CssCompactionTests(unittest.TestCase):
     def test_js_literal_comments_are_removed_without_changing_strings(self) -> None:
         from scripts.build import strip_line_comments
         source = '// banner\nlet count = 0; // comment\nconst live = player.pos; // comment\nlet next = count + 1; // comment\nplayer.pos = next; // comment\nconst text = "; // keep";\n'
-        self.assertEqual(strip_line_comments(source), '// banner\nlet count = 0;\nconst live = player.pos;\nlet next = count + 1;\nplayer.pos = next;\nconst text = "; // keep";')
+        self.assertEqual(strip_line_comments(source), '// banner\nlet count=0;\nconst live=player.pos;\nlet next=count + 1;\nplayer.pos=next;\nconst text = "; // keep";')
 
     def test_js_comment_compaction_keeps_multiline_templates(self) -> None:
         from scripts.build import strip_line_comments
@@ -55,6 +55,11 @@ class CssCompactionTests(unittest.TestCase):
         from scripts.build import strip_line_comments
         source = '// banner\nif (a && b || c) go();\nconst text = "a && b";\nconst t = `a || b`;'
         self.assertEqual(strip_line_comments(source), '// banner\nif (a&&b||c) go();\nconst text = "a && b";\nconst t = `a || b`;')
+
+    def test_js_assignment_compaction_preserves_literals(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nlet value = other;\nconst text = "a = b";\n'
+        self.assertEqual(strip_line_comments(source), '// banner\nlet value=other;\nconst text = "a = b";')
 
     def test_html_indentation_preserves_inter_element_newlines(self) -> None:
         from scripts.build import strip_css_comments
