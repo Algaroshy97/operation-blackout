@@ -6568,6 +6568,11 @@ def main() -> int:
         probe_stage2_compound_spread(args.build)
     checks.extend([('stage2-horizontal-recoil', True), ('stage2-pellet-comparison', True), ('stage2-compound-spread', True)])
 
+    from probe_stage2_wave_challenge import main as probe_stage2_wave_challenge
+    with redirect_stdout(sys.stderr):
+        probe_stage2_wave_challenge(args.build)
+    checks.append(('stage2-wave-challenge', True))
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

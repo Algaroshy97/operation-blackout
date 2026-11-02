@@ -34,6 +34,9 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
 - Career challenges unlock procedural weapon camos and operator kit colours.
 - Allow one balanced starting perk choice; rank opens cosmetics and optional
   extras, never compulsory access to a basic weapon. Preserve existing save data.
+- Existing shotgun builds keep historically valid but now-incompatible saved
+  attachments as clearly labelled remove-only legacy choices. Sand unlocks on
+  reaching wave 15, whether the run ends in defeat or victory.
 - Status: local implementation in progress; not yet independently reviewed,
   accepted, merged or published. Focused browser checks cover rank-one weapons,
   perk selection and checkpoint/respawn, the offered attachment matrix, legacy

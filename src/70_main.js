@@ -377,7 +377,7 @@ function buildGunsmith() {
   const slots = $id('gs-slots');
   slots.innerHTML = '';
   const cosmetics = document.createElement('div');
-  cosmetics.innerHTML = '<label>WEAPON CAMO <select id="camo-choice"><option value="default">Default</option><option value="woodland">Woodland — Body Count (100 kills)</option><option value="urban">Urban — Dug In (wave 10)</option></select></label> <label>OPERATOR SLEEVES <select id="kit-choice"><option value="default">Default</option><option value="olive">Olive — Marksman (100 headshots)</option><option value="sand">Sand — Area Secured (wave 15)</option></select></label>';
+  cosmetics.innerHTML = '<label>WEAPON CAMO <select id="camo-choice"><option value="default">Default</option><option value="woodland">Woodland — Body Count (100 kills)</option><option value="urban">Urban — Dug In (wave 10)</option></select></label> <label>OPERATOR SLEEVES <select id="kit-choice"><option value="default">Default</option><option value="olive">Olive — Marksman (100 headshots)</option><option value="sand">Sand — Deep Run (Reach wave 15)</option></select></label>';
   slots.appendChild(cosmetics);
   const camoChoice = cosmetics.querySelector('#camo-choice'), kitChoice = cosmetics.querySelector('#kit-choice');
   camoChoice.options[1].disabled = !cosmeticUnlocked('woodland');
@@ -398,7 +398,7 @@ function buildGunsmith() {
     // once every attachment is a trade.
     box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
     CORE.attachmentsForSlot(slot).forEach(function (a) {
-      if (compatibleAttachment(gunsmithWeapon, a)) box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+      if (compatibleAttachment(gunsmithWeapon, a) || loadout[slot] === a.key) box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
     });
     slots.appendChild(box);
   });
@@ -444,10 +444,12 @@ function gunsmithOption(slot, a, current, rank) {
     return btn;
   }
   const unlocked = CORE.attachmentUnlocked(a.key, rank);
-  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+  const legacy = !compatibleAttachment(gunsmithWeapon, a);
+  btn.innerHTML = a.name + (legacy ? ' · LEGACY (REMOVE-ONLY)' : '') + (unlocked ? '' : ' · RANK ' + a.rank) +
+    (legacy ? '<i>Saved stats retained; may lack a dedicated model. Once removed, cannot be re-equipped.</i>' : '') +
     '<i>' + a.blurb + '</i><i>' + comparison + '</i>';
-  btn.disabled = !unlocked;
-  if (unlocked) {
+  btn.disabled = !unlocked || legacy;
+  if (unlocked && !legacy) {
     btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
   }
   return btn;

@@ -222,7 +222,12 @@ function getLoadout(weaponIndex) {
   // rank cannot be carried by a wiped career, and a removed attachment cannot
   // resurrect.
   const loadout = CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
-  for (const slot in loadout) if (!compatibleAttachment(weaponIndex, CORE.attachmentByKey(loadout[slot]))) delete loadout[slot];
+  for (const slot in loadout) {
+    // The original Gunsmith permitted all shotgun slots. Keep only already-saved
+    // valid legacy choices; the current picker does not allow adding them anew.
+    const w = CFG.weapons[weaponIndex];
+    if (!compatibleAttachment(weaponIndex, CORE.attachmentByKey(loadout[slot])) && !(w && w.cls === 'SG')) delete loadout[slot];
+  }
   return loadout;
 }
 function compatibleAttachment(index, a) {

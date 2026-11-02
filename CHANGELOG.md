@@ -6,6 +6,11 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Preserve valid previously saved shotgun attachment choices as remove-only
+  legacy builds; their gameplay stats remain active even where no dedicated
+  attachment model exists. New incompatible choices remain unavailable.
+- Describe the wave-15 challenge and Sand unlock as reaching wave 15, matching
+  the existing career counter on both defeat and victory without changing saves.
 - Apply the calculated horizontal recoil once per real shot, so attachment recoil
   changes affect the player's camera. Correct Gunsmith shotgun comparisons to show
   the complete stationary first-shot pellet cone; also combine aimed spread and sway

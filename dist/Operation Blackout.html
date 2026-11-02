@@ -5120,7 +5120,7 @@ const CHALLENGES=[
 { key: 'kills1000',  stat: 'totalKills',   target: 1000, name: 'ATTRITION',    blurb: '1000 hostiles eliminated' },
 { key: 'heads100',   stat: 'totalHeadshots', target: 100, name: 'MARKSMAN',    blurb: '100 headshots' },
 { key: 'wave10',     stat: 'bestWave',     target: 10,   name: 'DUG IN',       blurb: 'Reach wave 10' },
-{ key: 'wave15',     stat: 'bestWave',     target: 15,   name: 'AREA SECURED', blurb: 'Clear all 15 waves' },
+{ key: 'wave15',     stat: 'bestWave',     target: 15,   name: 'DEEP RUN',     blurb: 'Reach wave 15' },
 { key: 'acc50',      stat: 'bestAccuracy', target: 50,   name: 'DISCIPLINED',  blurb: '50% accuracy in a run' },
 { key: 'runs25',     stat: 'runs',         target: 25,   name: 'VETERAN',      blurb: '25 deployments' },
 { key: 'streaks10',  stat: 'totalStreaks', target: 10,   name: 'AIR SUPPORT',  blurb: '10 scorestreaks earned' }
@@ -11499,7 +11499,10 @@ return out;
 })();
 function getLoadout(weaponIndex) {
 const loadout=CORE.sanitizeLoadout(LOADOUTS[weaponIndex]||{}, playerRank());
-for (const slot in loadout) if (!compatibleAttachment(weaponIndex, CORE.attachmentByKey(loadout[slot]))) delete loadout[slot];
+for (const slot in loadout) {
+const w=CFG.weapons[weaponIndex];
+if (!compatibleAttachment(weaponIndex, CORE.attachmentByKey(loadout[slot])) && !(w && w.cls === 'SG')) delete loadout[slot];
+}
 return loadout;
 }
 function compatibleAttachment(index, a) {
@@ -23508,7 +23511,7 @@ gunsmithWeapon=0;
 const slots = $id('gs-slots');
 slots.innerHTML = '';
 const cosmetics = document.createElement('div');
-cosmetics.innerHTML = '<label>WEAPON CAMO <select id="camo-choice"><option value="default">Default</option><option value="woodland">Woodland — Body Count (100 kills)</option><option value="urban">Urban — Dug In (wave 10)</option></select></label> <label>OPERATOR SLEEVES <select id="kit-choice"><option value="default">Default</option><option value="olive">Olive — Marksman (100 headshots)</option><option value="sand">Sand — Area Secured (wave 15)</option></select></label>';
+cosmetics.innerHTML = '<label>WEAPON CAMO <select id="camo-choice"><option value="default">Default</option><option value="woodland">Woodland — Body Count (100 kills)</option><option value="urban">Urban — Dug In (wave 10)</option></select></label> <label>OPERATOR SLEEVES <select id="kit-choice"><option value="default">Default</option><option value="olive">Olive — Marksman (100 headshots)</option><option value="sand">Sand — Deep Run (Reach wave 15)</option></select></label>';
 slots.appendChild(cosmetics);
 const camoChoice = cosmetics.querySelector('#camo-choice'), kitChoice = cosmetics.querySelector('#kit-choice');
 camoChoice.options[1].disabled = !cosmeticUnlocked('woodland');
@@ -23527,7 +23530,7 @@ title.textContent=CORE.ATTACH_SLOT_NAME[slot];
 box.appendChild(title);
 box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
 CORE.attachmentsForSlot(slot).forEach(function (a) {
-if (compatibleAttachment(gunsmithWeapon, a)) box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+if (compatibleAttachment(gunsmithWeapon, a)||loadout[slot]===a.key) box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
 });
 slots.appendChild(box);
 });
@@ -23572,10 +23575,12 @@ btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, 
 return btn;
 }
 const unlocked=CORE.attachmentUnlocked(a.key, rank);
-btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
+const legacy=!compatibleAttachment(gunsmithWeapon, a);
+btn.innerHTML = a.name + (legacy ? ' · LEGACY (REMOVE-ONLY)' : '') + (unlocked ? '' : ' · RANK ' + a.rank) +
+(legacy ? '<i>Saved stats retained; may lack a dedicated model. Once removed, cannot be re-equipped.</i>' : '') +
 '<i>' + a.blurb + '</i><i>' + comparison + '</i>';
-btn.disabled=!unlocked;
-if (unlocked) {
+btn.disabled=!unlocked||legacy;
+if (unlocked&&!legacy) {
 btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
 }
 return btn;
