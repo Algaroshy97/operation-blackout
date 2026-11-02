@@ -414,8 +414,12 @@ function gunsmithOption(slot, a, current, rank) {
   const base = CFG.weapons[gunsmithWeapon];
   const before = CORE.applyAttachments(base, beforeLoadout), after = CORE.applyAttachments(base, afterLoadout);
   const fields = Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
+  const lowerIsBetter = { spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
   const comparison = fields.filter(function (field) { return typeof before[field] === 'number' && typeof after[field] === 'number'; }).map(function (field) {
-    return field + ' ' + Number(before[field].toFixed(4)) + ' → ' + Number(after[field].toFixed(4));
+    const b = before[field], n = after[field];
+    const pct = b ? Math.round(Math.abs((n - b) / b) * 1000) / 10 : 0;
+    const direction = n === b ? '' : ((n < b) === !!lowerIsBetter[field] ? '+' : '-');
+    return (field === 'sway' ? 'sway/aimed spread' : field) + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4)) + (direction ? ' (' + direction + pct + '%)' : '');
   }).join(' · ');
   if (!a) {
     btn.innerHTML = 'NONE<i>No attachment</i><i>' + comparison + '</i>';
@@ -423,14 +427,8 @@ function gunsmithOption(slot, a, current, rank) {
     return btn;
   }
   const unlocked = CORE.attachmentUnlocked(a.key, rank);
-  const d = CORE.attachmentDelta(a);
-
-  // Show the trade, not just the name: an attachment nobody can read the cost of is
-  // a coin flip.
-  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
-  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
   btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
-    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i><i>' + comparison + '</i>';
+    '<i>' + a.blurb + '</i><i>' + comparison + '</i>';
   btn.disabled = !unlocked;
   if (unlocked) {
     btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });

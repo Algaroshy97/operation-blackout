@@ -242,13 +242,12 @@ function updateMunitions(dt) {
         CORE.isTargetInMunitionsRadius(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z, radSq)) {
       const s = curS();
       const w = curW();
-      const ammoNeed = s ? (s.reserve < (s.up ? s.up.reserveMax : w.reserveMax)) : false;
+      const ammoNeed = s ? (s.reserve < w.reserveMax) : false;
       const nadeNeed = grenades.count < CFG.grenade.count;
       const tacNeed = !!(equippedTactical && tacticalCount < TACTICAL_MAX);
       if (CORE.canMunitionsResupply(ammoNeed, nadeNeed, tacNeed)) {
         if (ammoNeed) {
-          const maxR = s.up ? s.up.reserveMax : w.reserveMax;
-          s.reserve = CORE.munitionsAmmoRestore(s.reserve, maxR, w.mag, CORE.MUNITIONS_MAG_RATIO);
+          s.reserve = CORE.munitionsAmmoRestore(s.reserve, w.reserveMax, w.mag, CORE.MUNITIONS_MAG_RATIO);
         }
         if (nadeNeed) grenades.count++;
         else if (tacNeed) tacticalCount++;

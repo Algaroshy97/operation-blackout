@@ -14203,7 +14203,7 @@ const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'num
 const stanceSpread=CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
 const heatMul=w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
 const spreadNow=CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
+hSpeedForSpread, !player.onGround, stanceSpread) * heatMul * (ads ? (w.sway||1) : 1);
 bloom=CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
 camera.getWorldPosition(_from);
 const pellets=w.pellets > 1 ? w.pellets : 1;
@@ -20815,7 +20815,7 @@ const w=CFG.weapons[st.weapon];
 const held=weaponsOwned.indexOf(st.weapon);
 const s=held >= 0 ? wState[held] : null;
 const reserve=s ? s.reserve : 0;
-const reserveMax=s&&s.up ? s.up.reserveMax : w.reserveMax;
+const reserveMax=s&&s.eff ? s.eff.reserveMax : (s&&s.up ? s.up.reserveMax : w.reserveMax);
 const offer=CORE.wallBuyOffer(weaponsOwned, st.weapon, w.cls||w.type, reserve, reserveMax, _wallOfferOut);
 if (offer.action === 'full') {
 res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
@@ -20915,7 +20915,7 @@ if (st.kind === 'wall') {
 const held=weaponsOwned.indexOf(st.weapon);
 if (held >= 0) {
 const s=wState[held];
-s.reserve=s.up ? s.up.reserveMax : CFG.weapons[st.weapon].reserveMax;
+s.reserve=s.eff ? s.eff.reserveMax : (s.up ? s.up.reserveMax : CFG.weapons[st.weapon].reserveMax);
 showCenterMsg('+ AMMO');
 } else {
 const w=CFG.weapons[st.weapon];
@@ -21386,13 +21386,12 @@ if (_munitionsTimerOut.readyToResupply &&
 CORE.isTargetInMunitionsRadius(player.pos.x, player.pos.z, b.m.position.x, b.m.position.z, radSq)) {
 const s=curS();
 const w=curW();
-const ammoNeed=s ? (s.reserve < (s.up ? s.up.reserveMax : w.reserveMax)) : false;
+const ammoNeed=s ? (s.reserve < w.reserveMax) : false;
 const nadeNeed=grenades.count < CFG.grenade.count;
 const tacNeed=!!(equippedTactical&&tacticalCount < TACTICAL_MAX);
 if (CORE.canMunitionsResupply(ammoNeed, nadeNeed, tacNeed)) {
 if (ammoNeed) {
-const maxR=s.up ? s.up.reserveMax : w.reserveMax;
-s.reserve=CORE.munitionsAmmoRestore(s.reserve, maxR, w.mag, CORE.MUNITIONS_MAG_RATIO);
+s.reserve=CORE.munitionsAmmoRestore(s.reserve, w.reserveMax, w.mag, CORE.MUNITIONS_MAG_RATIO);
 }
 if (nadeNeed) grenades.count++;
 else if (tacNeed) tacticalCount++;
@@ -22703,7 +22702,8 @@ return usable.length ? usable : pts;
 function resupply() {
 for (let i=0; i < wState.length; i++) {
 if (!wState[i]) continue;
-wState[i].reserve=CORE.waveResupplyAmmo(wState[i].reserve, CFG.weapons[weaponsOwned[i]].reserveMax, CFG.weapons[weaponsOwned[i]].mag, CORE.RESUPPLY_MAG_RATIO);
+const weapon=wState[i].eff||CFG.weapons[weaponsOwned[i]];
+wState[i].reserve=CORE.waveResupplyAmmo(wState[i].reserve, weapon.reserveMax, weapon.mag, CORE.RESUPPLY_MAG_RATIO);
 }
 player.armor=CFG.player.armor;
 grenades.count=Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);
@@ -23541,8 +23541,12 @@ const old=CORE.attachmentByKey(beforeLoadout[slot]);
 const base=CFG.weapons[gunsmithWeapon];
 const before=CORE.applyAttachments(base, beforeLoadout), after=CORE.applyAttachments(base, afterLoadout);
 const fields=Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
+const lowerIsBetter={ spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
 const comparison = fields.filter(function (field) { return typeof before[field] === 'number' && typeof after[field] === 'number'; }).map(function (field) {
-return field + ' ' + Number(before[field].toFixed(4)) + ' → ' + Number(after[field].toFixed(4));
+const b=before[field], n=after[field];
+const pct = b ? Math.round(Math.abs((n - b) / b) * 1000) / 10 : 0;
+const direction = n === b ? '' : ((n < b) === !!lowerIsBetter[field] ? '+' : '-');
+return (field === 'sway' ? 'sway/aimed spread' : field) + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4)) + (direction ? ' (' + direction + pct + '%)' : '');
 }).join(' · ');
 if (!a) {
 btn.innerHTML = 'NONE<i>No attachment</i><i>' + comparison + '</i>';
@@ -23550,11 +23554,8 @@ btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, 
 return btn;
 }
 const unlocked=CORE.attachmentUnlocked(a.key, rank);
-const d=CORE.attachmentDelta(a);
-const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
-const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
 btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
-'<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i><i>' + comparison + '</i>';
+'<i>' + a.blurb + '</i><i>' + comparison + '</i>';
 btn.disabled=!unlocked;
 if (unlocked) {
 btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });

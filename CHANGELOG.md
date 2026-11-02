@@ -6,6 +6,12 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Make attachment sway affect aimed bullet spread without changing the default
+  weapon spread; display the actual effective before/after percentages, including
+  rounded magazine capacities and replacement effects.
+- Use effective attached/upgraded ammo limits for wave resupply, wall ammo and
+  munitions boxes. Focused browser regressions failed before these repairs and pass
+  after, including upgrade, checkpoint resume, reset and match respawn paths.
 - Make all existing base weapons available at rank one for deployment and Gunsmith.
 - Offer one starting perk (Speed Reload, Steady Aim, Scavenger or none), occupying
   a normal perk slot; persist the choice and preserve checkpoint run perks.

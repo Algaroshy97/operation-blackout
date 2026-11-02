@@ -16,6 +16,7 @@ def main(build=BUILD):
         page.wait_for_function("typeof assetsReady !== 'undefined' && assetsReady", timeout=120000)
         page.click('#btn-gunsmith')
         assert page.locator('#camo-choice').count() == 1, 'career camo selector missing'
+        assert 'OPERATOR SLEEVES' in page.locator('#gs-slots').inner_text()
         assert page.locator('#camo-choice option').count() >= 3 and page.locator('#kit-choice option').count() >= 3, 'multiple challenge cosmetics missing'
         assert page.evaluate("document.querySelector('#camo-choice option[value=woodland]').disabled"), page.evaluate('getStats()')
         assert page.evaluate("document.querySelector('#kit-choice option[value=olive]').disabled")
@@ -34,6 +35,7 @@ def main(build=BUILD):
         page.locator('#gun-cards .gun-card').first.click()
         page.locator('#gun-cards .gun-card').first.click()
         assert page.evaluate("gunGroup && gunGroup.userData.camo === 'woodland' && VMAT.sleeve.color.getHex() === 0x73815a")
+        assert page.evaluate("() => { let visible = false; gunGroup.traverse(o => { if (o.isMesh && o.visible && o.material === VMAT.sleeve) visible = true; }); return visible && gunGroup.parent === gunCamera; }")
         assert page.evaluate("() => { let found = false; gunGroup.traverse(o => { if (o.material && o.material.userData.careerCamo) found = !!o.material.map; }); return found; }")
         assert page.evaluate('''() => {
           const material = gunGroup.userData.camoMaterial, texture = material.map;

@@ -435,7 +435,7 @@ function fireShot(preserveSchedule) {
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
   const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
+    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul * (ads ? (w.sway || 1) : 1);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // A shotgun traces every pellet through the same path as a rifle round, inside

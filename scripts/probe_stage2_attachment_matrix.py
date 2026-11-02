@@ -29,6 +29,13 @@ def main(build=BUILD):
               const options = Array.from(document.querySelectorAll('.gs-opt'));
               const button = options.find(b => b.textContent.startsWith(a.name));
               if (!button || button.disabled || !button.textContent.includes('→')) { failures.push([i,a.key,'UI']); continue; }
+              const before = CORE.applyAttachments(CFG.weapons[i], {});
+              const after = CORE.applyAttachments(CFG.weapons[i], {[a.slot]: a.key});
+              for (const field in a.mods) {
+                const label = field === 'sway' ? 'sway/aimed spread' : field;
+                const pair = label + ' ' + Number(before[field].toFixed(4)) + ' → ' + Number(after[field].toFixed(4));
+                if (!button.textContent.includes(pair)) failures.push([i,a.key,'comparison',pair]);
+              }
               button.click(); refreshWeaponStats(0);
               const w = curW(), base = CORE.applyAttachments(CFG.weapons[i], {});
               if (getLoadout(i)[a.slot] !== a.key) failures.push([i,a.key,'save']);

@@ -6550,6 +6550,15 @@ def main() -> int:
         probe_stage2_attachment_matrix(args.build)
     checks.extend([('stage2-cosmetics', True), ('stage2-migration', True), ('stage2-attachments', True)])
 
+    from probe_stage2_review import main as probe_stage2_review
+    from probe_stage2_review_mag import main as probe_stage2_review_mag
+    from probe_stage2_resupply import main as probe_stage2_resupply
+    with redirect_stdout(sys.stderr):
+        probe_stage2_review(args.build)
+        probe_stage2_review_mag(args.build)
+        probe_stage2_resupply(args.build)
+    checks.extend([('stage2-sway-shot', True), ('stage2-mag-comparison', True), ('stage2-resupply', True)])
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without
