@@ -14299,6 +14299,7 @@ s.lastShotClock=fireClockT;
 if (s.heat > 0.8) playSound('sizzle');
 }
 player.recoilP += _kickOut.pitchKick;
+player.recoilY += _kickOut.yawKick;
 const isSuppressed = !!(w && w.attachments && w.attachments.indexOf('suppressor') >= 0);
 const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
 shotKick=CORE.applyShotKick(shotKick, kickImp);
@@ -23540,13 +23541,30 @@ if (a) afterLoadout[slot]=a.key; else delete afterLoadout[slot];
 const old=CORE.attachmentByKey(beforeLoadout[slot]);
 const base=CFG.weapons[gunsmithWeapon];
 const before=CORE.applyAttachments(base, beforeLoadout), after=CORE.applyAttachments(base, afterLoadout);
-const fields=Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
+let fields=Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
 const lowerIsBetter={ spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
+if (base.pellets > 1 && fields.some(function (f) { return f === 'spread' || f === 'adsSpread' || f === 'sway'; })) {
+fields = fields.filter(function (f) { return f !== 'spread' && f !== 'adsSpread' && f !== 'sway'; });
+[before, after].forEach(function (w) {
+w.pelletConeHip=CORE.pelletConeSpread(w.pelletSpread, w.spread, false);
+w.pelletConeAds=CORE.pelletConeSpread(w.pelletSpread, w.adsSpread * w.sway, true);
+});
+fields.push('pelletConeHip', 'pelletConeAds');
+lowerIsBetter.pelletConeHip=lowerIsBetter.pelletConeAds=1;
+} else if (base.pellets <= 1||!base.pellets) {
+if (fields.some(function (f) { return f === 'adsSpread' || f === 'sway'; })) {
+fields = fields.filter(function (f) { return f !== 'adsSpread' && f !== 'sway'; });
+before.aimedSpread=before.adsSpread * before.sway;
+after.aimedSpread=after.adsSpread * after.sway;
+fields.push('aimedSpread'); lowerIsBetter.aimedSpread = 1;
+}
+}
 const comparison = fields.filter(function (field) { return typeof before[field] === 'number' && typeof after[field] === 'number'; }).map(function (field) {
 const b=before[field], n=after[field];
 const pct = b ? Math.round(Math.abs((n - b) / b) * 1000) / 10 : 0;
 const direction = n === b ? '' : ((n < b) === !!lowerIsBetter[field] ? '+' : '-');
-return (field === 'sway' ? 'sway/aimed spread' : field) + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4)) + (direction ? ' (' + direction + pct + '%)' : '');
+const label = field === 'aimedSpread' ? 'aimed spread (stationary first shot)' : field === 'pelletConeHip' ? 'pellet cone HIP (stationary first shot)' : field === 'pelletConeAds' ? 'pellet cone ADS (stationary first shot)' : field;
+return label + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4)) + (direction ? ' (' + direction + pct + '%)' : '');
 }).join(' · ');
 if (!a) {
 btn.innerHTML = 'NONE<i>No attachment</i><i>' + comparison + '</i>';

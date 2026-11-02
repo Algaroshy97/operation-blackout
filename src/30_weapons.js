@@ -558,6 +558,7 @@ function finishShot(s, w, hit) {
     if (s.heat > 0.8) playSound('sizzle');
   }
   player.recoilP += _kickOut.pitchKick;
+  player.recoilY += _kickOut.yawKick;
   const isSuppressed = !!(w && w.attachments && w.attachments.indexOf('suppressor') >= 0);
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);

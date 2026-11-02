@@ -6,6 +6,10 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Apply the calculated horizontal recoil once per real shot, so attachment recoil
+  changes affect the player's camera. Correct Gunsmith shotgun comparisons to show
+  the complete stationary first-shot pellet cone; also combine aimed spread and sway
+  for non-pellet weapons rather than presenting misleading component percentages.
 - Make attachment sway affect aimed bullet spread without changing the default
   weapon spread; display the actual effective before/after percentages, including
   rounded magazine capacities and replacement effects.

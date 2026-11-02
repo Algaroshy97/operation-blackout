@@ -6559,6 +6559,15 @@ def main() -> int:
         probe_stage2_resupply(args.build)
     checks.extend([('stage2-sway-shot', True), ('stage2-mag-comparison', True), ('stage2-resupply', True)])
 
+    from probe_stage2_recoil_review import main as probe_stage2_recoil_review
+    from probe_stage2_pellet_review import main as probe_stage2_pellet_review
+    from probe_stage2_compound_spread import main as probe_stage2_compound_spread
+    with redirect_stdout(sys.stderr):
+        probe_stage2_recoil_review(args.build)
+        probe_stage2_pellet_review(args.build)
+        probe_stage2_compound_spread(args.build)
+    checks.extend([('stage2-horizontal-recoil', True), ('stage2-pellet-comparison', True), ('stage2-compound-spread', True)])
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

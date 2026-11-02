@@ -32,9 +32,18 @@ def main(build=BUILD):
               const before = CORE.applyAttachments(CFG.weapons[i], {});
               const after = CORE.applyAttachments(CFG.weapons[i], {[a.slot]: a.key});
               for (const field in a.mods) {
-                const label = field === 'sway' ? 'sway/aimed spread' : field;
-                const pair = label + ' ' + Number(before[field].toFixed(4)) + ' → ' + Number(after[field].toFixed(4));
+                if (field === 'sway' || field === 'adsSpread' || (field === 'spread' && before.pellets > 1)) continue;
+                const pair = field + ' ' + Number(before[field].toFixed(4)) + ' → ' + Number(after[field].toFixed(4));
                 if (!button.textContent.includes(pair)) failures.push([i,a.key,'comparison',pair]);
+              }
+              if (a.mods.adsSpread || a.mods.sway || (a.mods.spread && before.pellets > 1)) {
+                const isPellet = before.pellets > 1;
+                const a0 = before.adsSpread * before.sway, a1 = after.adsSpread * after.sway;
+                const b = isPellet ? CORE.pelletConeSpread(before.pelletSpread, a0, true) : a0;
+                const n = isPellet ? CORE.pelletConeSpread(after.pelletSpread, a1, true) : a1;
+                const label = isPellet ? 'pellet cone ADS (stationary first shot)' : 'aimed spread (stationary first shot)';
+                const pair = label + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4));
+                if (!button.textContent.includes(pair)) failures.push([i,a.key,'aimed comparison',pair]);
               }
               button.click(); refreshWeaponStats(0);
               const w = curW(), base = CORE.applyAttachments(CFG.weapons[i], {});
