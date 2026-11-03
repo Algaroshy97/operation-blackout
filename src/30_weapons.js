@@ -435,7 +435,7 @@ function fireShot(preserveSchedule) {
   const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
   const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
   const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom,
-    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul;
+    hSpeedForSpread, !player.onGround, stanceSpread) * heatMul * (ads ? (w.sway || 1) : 1);
   bloom = CORE.bloomAfterShot(bloom, bp.perShot, bp.cap);
   camera.getWorldPosition(_from);
   // A shotgun traces every pellet through the same path as a rifle round, inside
@@ -558,7 +558,8 @@ function finishShot(s, w, hit) {
     if (s.heat > 0.8) playSound('sizzle');
   }
   player.recoilP += _kickOut.pitchKick;
-  const isSuppressed = !!(s && s.att && s.att.barrel === 'suppressor');
+  player.recoilY += _kickOut.yawKick;
+  const isSuppressed = !!(w && w.attachments && w.attachments.indexOf('suppressor') >= 0);
   const kickImp = CORE.weaponShotKickImpulse(w ? w.type : '', isSuppressed);
   shotKick = CORE.applyShotKick(shotKick, kickImp);
   playSound(CORE.weaponClassFireSound(w ? w.cls : '', w ? w.type : '', isSuppressed));
@@ -669,6 +670,7 @@ function buildViewmodel() {
   gunGroup = new THREE.Group();
   const P = { bolt: null, mag: null, handL: null, handR: null };
   vmTune = buildGunModel(gunGroup, P, CFG.weapons[gi].cls || CFG.weapons[gi].type, getLoadout(gi));
+  if (typeof applyCareerCosmetics === 'function' && typeof getKitColour === 'function' && typeof getCamo === 'function') applyCareerCosmetics(gunGroup, gi);
   gunParts = P;
   muzzleFlash = vmFlash(gunGroup, vmTune.muzzleZ, vmTune.muzzleY);
   gunGroup.traverse(function (o) { o.userData.gun = true; });
@@ -725,7 +727,9 @@ function updateViewmodel(dt) {
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
     const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
     const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
-    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread);
+    const ads = adsDown();
+    const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
+    const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread) * heatMul * (ads ? (w.sway || 1) : 1);
     const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
     if (chOp !== _lastChOp) {

@@ -241,7 +241,7 @@ function stationOffer(st, out) {
     const held = weaponsOwned.indexOf(st.weapon);
     const s = held >= 0 ? wState[held] : null;
     const reserve = s ? s.reserve : 0;
-    const reserveMax = s && s.up ? s.up.reserveMax : w.reserveMax;
+    const reserveMax = s && s.eff ? s.eff.reserveMax : (s && s.up ? s.up.reserveMax : w.reserveMax);
     const offer = CORE.wallBuyOffer(weaponsOwned, st.weapon, w.cls || w.type, reserve, reserveMax, _wallOfferOut);
     if (offer.action === 'full') {
       res.label = w.name.toUpperCase() + ' — FULL'; res.price = 0; res.ok = false; res.action = 'full';
@@ -343,7 +343,7 @@ function purchase(st) {
     const held = weaponsOwned.indexOf(st.weapon);
     if (held >= 0) {
       const s = wState[held];
-      s.reserve = s.up ? s.up.reserveMax : CFG.weapons[st.weapon].reserveMax;
+      s.reserve = s.eff ? s.eff.reserveMax : (s.up ? s.up.reserveMax : CFG.weapons[st.weapon].reserveMax);
       showCenterMsg('+ AMMO');
     } else {
       // Replace the weapon in the CURRENT slot. Replacing the other one would

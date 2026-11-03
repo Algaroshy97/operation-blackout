@@ -6526,6 +6526,58 @@ def main() -> int:
         probe_stage1_touch(args.build)
     checks.append(('stage1-touch-lifecycle', True))
 
+    from probe_stage2_weapons import main as probe_stage2_weapons
+    with redirect_stdout(sys.stderr):
+        probe_stage2_weapons(args.build)
+    checks.append(('stage2-rank-one-weapons', True))
+
+    from probe_stage2_perk import main as probe_stage2_perk
+    with redirect_stdout(sys.stderr):
+        probe_stage2_perk(args.build)
+    checks.append(('stage2-starting-perk', True))
+
+    from probe_stage2_gunsmith import main as probe_stage2_gunsmith
+    with redirect_stdout(sys.stderr):
+        probe_stage2_gunsmith(args.build)
+    checks.append(('stage2-sidearm-gunsmith', True))
+
+    from probe_stage2_cosmetics import main as probe_stage2_cosmetics
+    from probe_stage2_migration import main as probe_stage2_migration
+    from probe_stage2_attachment_matrix import main as probe_stage2_attachment_matrix
+    with redirect_stdout(sys.stderr):
+        probe_stage2_cosmetics(args.build)
+        probe_stage2_migration(args.build)
+        probe_stage2_attachment_matrix(args.build)
+    checks.extend([('stage2-cosmetics', True), ('stage2-migration', True), ('stage2-attachments', True)])
+
+    from probe_stage2_review import main as probe_stage2_review
+    from probe_stage2_review_mag import main as probe_stage2_review_mag
+    from probe_stage2_resupply import main as probe_stage2_resupply
+    with redirect_stdout(sys.stderr):
+        probe_stage2_review(args.build)
+        probe_stage2_review_mag(args.build)
+        probe_stage2_resupply(args.build)
+    checks.extend([('stage2-sway-shot', True), ('stage2-mag-comparison', True), ('stage2-resupply', True)])
+
+    from probe_stage2_recoil_review import main as probe_stage2_recoil_review
+    from probe_stage2_pellet_review import main as probe_stage2_pellet_review
+    from probe_stage2_compound_spread import main as probe_stage2_compound_spread
+    with redirect_stdout(sys.stderr):
+        probe_stage2_recoil_review(args.build)
+        probe_stage2_pellet_review(args.build)
+        probe_stage2_compound_spread(args.build)
+    checks.extend([('stage2-horizontal-recoil', True), ('stage2-pellet-comparison', True), ('stage2-compound-spread', True)])
+
+    from probe_stage2_wave_challenge import main as probe_stage2_wave_challenge
+    with redirect_stdout(sys.stderr):
+        probe_stage2_wave_challenge(args.build)
+    checks.append(('stage2-wave-challenge', True))
+
+    from probe_stage2_legacy_build import main as probe_stage2_legacy_build
+    with redirect_stdout(sys.stderr):
+        probe_stage2_legacy_build(args.build)
+    checks.append(('stage2-legacy-build', True))
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

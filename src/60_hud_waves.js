@@ -429,7 +429,7 @@ function activatePowerUp(def) {
   if (def.key === 'maxammo') {
     for (let i = 0; i < wState.length; i++) {
       if (!wState[i] || weaponsOwned[i] < 0) continue;
-      const cw = CFG.weapons[weaponsOwned[i]];
+      const cw = wState[i].eff || CFG.weapons[weaponsOwned[i]];
       wState[i].ammo = cw.mag;
       wState[i].reserve = cw.reserveMax;
     }
@@ -1400,7 +1400,8 @@ function openSpawnPoints() {
 function resupply() {
   for (let i = 0; i < wState.length; i++) {
     if (!wState[i]) continue;
-    wState[i].reserve = CORE.waveResupplyAmmo(wState[i].reserve, CFG.weapons[weaponsOwned[i]].reserveMax, CFG.weapons[weaponsOwned[i]].mag, CORE.RESUPPLY_MAG_RATIO);
+    const weapon = wState[i].eff || CFG.weapons[weaponsOwned[i]];
+    wState[i].reserve = CORE.waveResupplyAmmo(wState[i].reserve, weapon.reserveMax, weapon.mag, CORE.RESUPPLY_MAG_RATIO);
   }
   player.armor = CFG.player.armor;
   grenades.count = Math.min(CFG.grenade.count, grenades.count + CFG.grenade.countPerWaves);

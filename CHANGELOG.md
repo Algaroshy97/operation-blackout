@@ -4,6 +4,56 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Stage 2 — in progress
+
+- Allow the complete browser acceptance suite enough CI time to finish; retain
+  a bounded job timeout rather than skipping probes.
+- Show weapon sway separately from combined aimed spread in Gunsmith comparisons.
+- Feed the HUD the same aimed sway and heat-adjusted spread used by firing.
+- Max Ammo refills each deployed weapon to its effective attached and upgraded
+  magazine and reserve limits, covered by actual power-up lifecycle checks.
+- Require the pre-Stage-2 shotgun migration probe in full browser acceptance;
+  fetch repository history in CI so its real legacy artifact is available.
+- Preserve valid previously saved shotgun attachment choices as remove-only
+  legacy builds; their gameplay stats remain active even where no dedicated
+  attachment model exists. New incompatible choices remain unavailable.
+- Describe the wave-15 challenge and Sand unlock as reaching wave 15, matching
+  the existing career counter on both defeat and victory without changing saves.
+- Apply the calculated horizontal recoil once per real shot, so attachment recoil
+  changes affect the player's camera. Correct Gunsmith shotgun comparisons to show
+  the complete stationary first-shot pellet cone; also combine aimed spread and sway
+  for non-pellet weapons rather than presenting misleading component percentages.
+- Make attachment sway affect aimed bullet spread without changing the default
+  weapon spread; display the actual effective before/after percentages, including
+  rounded magazine capacities and replacement effects.
+- Use effective attached/upgraded ammo limits for wave resupply, wall ammo and
+  munitions boxes. Focused browser regressions failed before these repairs and pass
+  after, including upgrade, checkpoint resume, reset and match respawn paths.
+- Make all existing base weapons available at rank one for deployment and Gunsmith.
+- Offer one starting perk (Speed Reload, Steady Aim, Scavenger or none), occupying
+  a normal perk slot; persist the choice and preserve checkpoint run perks.
+- Starting-perk browser regression: RED on missing deploy control; GREEN after
+  implementation for persisted selection, match respawn and Survival checkpoint.
+- Expose the sidearm in Gunsmith and exclude rifle stocks, underbarrels and the
+  4x scope from its visible and applied builds. Browser checks failed before each
+  change and passed afterward; remaining compatibility work is not complete.
+- Compact unquoted JavaScript assignment whitespace in the offline build; a
+  regression checks quoted text remains unchanged.
+- Add per-candidate effective-stat comparisons, including the effects removed when
+  replacing an attachment. Restrict unsupported shotgun options and preserve
+  weapon-specific aim/movement baselines when no attachments are equipped.
+- Route equipped suppressors through the real suppressed shot sound and muzzle
+  effects. The focused production shot regression failed before that repair.
+- Add challenge-earned Woodland and Urban procedural weapon finishes and Olive
+  and Sand sleeve colours, saved per weapon or operator respectively. Generated
+  weapon textures and materials are disposed on viewmodel rebuild.
+- Add focused browser probes for saved builds, offered attachment/weapon
+  combinations, challenge unlocks, deployed appearance, and legacy/corrupt saves;
+  integrate them into the full probe, which has not yet been rerun for these edits.
+- Local TDD evidence: `python3 scripts/probe_stage2_weapons.py` first failed on
+  rank-one Gunsmith locks; after the change and build it passed, including a
+  fresh-career Gun Game ladder check. This is partial Stage 2 coverage only.
+
 ## Stage 1 — combat difficulty, touch lifecycle and cover repairs
 
 - Add four saved deploy difficulties for every mode, with gentler early Survival

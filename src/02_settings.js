@@ -186,6 +186,29 @@ function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
 // checkpoint on purpose: a loadout is a career choice, not run state, and a resumed
 // run should use whatever the player has configured since.
 const STORE_KEY_LOADOUTS = 'ob_loadouts_v1';
+const STORE_KEY_COSMETICS = 'ob_cosmetics_v1';
+let COSMETICS = storageGet(STORE_KEY_COSMETICS) || {};
+if (!COSMETICS || typeof COSMETICS !== 'object' || Array.isArray(COSMETICS)) COSMETICS = {};
+function cosmeticUnlocked(key) {
+  const challenge = ({ woodland: 'kills100', urban: 'wave10', olive: 'heads100', sand: 'wave15' })[key];
+  if (!challenge) return key === 'default';
+  const def = CORE.CHALLENGES.find(function (c) { return c.key === challenge; });
+  return CORE.challengeProgress(STATS, def).done;
+}
+function getCamo(index) {
+  const key = COSMETICS.camos && COSMETICS.camos[index];
+  return (key === 'woodland' || key === 'urban') && cosmeticUnlocked(key) ? key : 'default';
+}
+function getKitColour() { const key = COSMETICS.kit; return (key === 'olive' || key === 'sand') && cosmeticUnlocked(key) ? key : 'default'; }
+function setCamo(index, key) {
+  if (!Number.isInteger(index) || index < 0 || index >= CFG.weapons.length || !['default', 'woodland', 'urban'].includes(key) || !cosmeticUnlocked(key)) return;
+  if (!COSMETICS.camos || typeof COSMETICS.camos !== 'object' || Array.isArray(COSMETICS.camos)) COSMETICS.camos = {};
+  COSMETICS.camos[index] = key; storageSet(STORE_KEY_COSMETICS, COSMETICS);
+}
+function setKitColour(key) {
+  if (!['default', 'olive', 'sand'].includes(key) || !cosmeticUnlocked(key)) return;
+  COSMETICS.kit = key; storageSet(STORE_KEY_COSMETICS, COSMETICS);
+}
 let LOADOUTS = (function () {
   const raw = storageGet(STORE_KEY_LOADOUTS);
   const out = {};
@@ -198,13 +221,25 @@ function getLoadout(weaponIndex) {
   // Sanitised against the CURRENT rank on every read, so a loadout saved at a higher
   // rank cannot be carried by a wiped career, and a removed attachment cannot
   // resurrect.
-  return CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
+  const loadout = CORE.sanitizeLoadout(LOADOUTS[weaponIndex] || {}, playerRank());
+  for (const slot in loadout) {
+    // The original Gunsmith permitted all shotgun slots. Keep only already-saved
+    // valid legacy choices; the current picker does not allow adding them anew.
+    const w = CFG.weapons[weaponIndex];
+    if (!compatibleAttachment(weaponIndex, CORE.attachmentByKey(loadout[slot])) && !(w && w.cls === 'SG')) delete loadout[slot];
+  }
+  return loadout;
+}
+function compatibleAttachment(index, a) {
+  const w = CFG.weapons[index];
+  return !!w && !!a && !(w.sidearm && (a.slot === 'stock' || a.slot === 'under' || a.key === 'scope4x')) &&
+    !(w.cls === 'SG' && (a.slot === 'mag' || a.slot === 'under' || a.key === 'scope4x' || a.key === 'suppressor'));
 }
 function setAttachment(weaponIndex, slot, key) {
   const cur = LOADOUTS[weaponIndex] || {};
   const next = {};
   for (const k in cur) next[k] = cur[k];
-  if (key) next[slot] = key; else delete next[slot];
+  if (key && compatibleAttachment(weaponIndex, CORE.attachmentByKey(key))) next[slot] = key; else delete next[slot];
   LOADOUTS[weaponIndex] = CORE.sanitizeLoadout(next, playerRank());
   storageSet(STORE_KEY_LOADOUTS, LOADOUTS);
   return LOADOUTS[weaponIndex];

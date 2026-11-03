@@ -242,6 +242,7 @@ function resetGame() {
   player.recoilP = 0; player.recoilY = 0;
   player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
   if (typeof resetStations === 'function') resetStations();
+  if (typeof getSetting === 'function' && ['reload', 'steady', 'scav'].includes(getSetting('startingPerk'))) perks.push(getSetting('startingPerk'));
   if (typeof clearDowned === 'function') clearDowned();
   if (typeof resetEquipment === 'function') resetEquipment();
   if (typeof resetStreaks === 'function') resetStreaks();
@@ -362,7 +363,6 @@ function buildGunsmith() {
   const wrap = $id('gs-weapons');
   wrap.innerHTML = '';
   CFG.weapons.forEach(function (w, i) {
-    if (w.sidearm) return;
     const b = document.createElement('button');
     const unlocked = CORE.weaponUnlocked(i, rank);
     b.textContent = w.name.toUpperCase() + (unlocked ? '' : ' · RANK ' + CORE.weaponUnlockRank(i));
@@ -376,6 +376,17 @@ function buildGunsmith() {
   }
   const slots = $id('gs-slots');
   slots.innerHTML = '';
+  const cosmetics = document.createElement('div');
+  cosmetics.innerHTML = '<label>WEAPON CAMO <select id="camo-choice"><option value="default">Default</option><option value="woodland">Woodland — Body Count (100 kills)</option><option value="urban">Urban — Dug In (wave 10)</option></select></label> <label>OPERATOR SLEEVES <select id="kit-choice"><option value="default">Default</option><option value="olive">Olive — Marksman (100 headshots)</option><option value="sand">Sand — Deep Run (Reach wave 15)</option></select></label>';
+  slots.appendChild(cosmetics);
+  const camoChoice = cosmetics.querySelector('#camo-choice'), kitChoice = cosmetics.querySelector('#kit-choice');
+  camoChoice.options[1].disabled = !cosmeticUnlocked('woodland');
+  kitChoice.options[1].disabled = !cosmeticUnlocked('olive');
+  camoChoice.options[2].disabled = !cosmeticUnlocked('urban');
+  kitChoice.options[2].disabled = !cosmeticUnlocked('sand');
+  camoChoice.value = getCamo(gunsmithWeapon); kitChoice.value = getKitColour();
+  camoChoice.addEventListener('change', function () { setCamo(gunsmithWeapon, this.value); });
+  kitChoice.addEventListener('change', function () { setKitColour(this.value); });
   const loadout = getLoadout(gunsmithWeapon);
   CORE.ATTACH_SLOTS.forEach(function (slot) {
     const box = document.createElement('div');
@@ -387,7 +398,7 @@ function buildGunsmith() {
     // once every attachment is a trade.
     box.appendChild(gunsmithOption(slot, null, loadout[slot], rank));
     CORE.attachmentsForSlot(slot).forEach(function (a) {
-      box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
+      if (compatibleAttachment(gunsmithWeapon, a) || loadout[slot] === a.key) box.appendChild(gunsmithOption(slot, a, loadout[slot], rank));
     });
     slots.appendChild(box);
   });
@@ -396,21 +407,49 @@ function buildGunsmith() {
 function gunsmithOption(slot, a, current, rank) {
   const btn = document.createElement('button');
   btn.className = 'gs-opt' + ((a ? a.key : null) === (current || null) ? ' on' : '');
+  const beforeLoadout = getLoadout(gunsmithWeapon);
+  const afterLoadout = Object.assign({}, beforeLoadout);
+  if (a) afterLoadout[slot] = a.key; else delete afterLoadout[slot];
+  const old = CORE.attachmentByKey(beforeLoadout[slot]);
+  const base = CFG.weapons[gunsmithWeapon];
+  const before = CORE.applyAttachments(base, beforeLoadout), after = CORE.applyAttachments(base, afterLoadout);
+  let fields = Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
+  const lowerIsBetter = { spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
+  if (base.pellets > 1 && fields.some(function (f) { return f === 'spread' || f === 'adsSpread' || f === 'sway'; })) {
+    fields = fields.filter(function (f) { return f !== 'spread' && f !== 'adsSpread'; });
+    [before, after].forEach(function (w) {
+      w.pelletConeHip = CORE.pelletConeSpread(w.pelletSpread, w.spread, false);
+      w.pelletConeAds = CORE.pelletConeSpread(w.pelletSpread, w.adsSpread * w.sway, true);
+    });
+    fields.push('pelletConeHip', 'pelletConeAds');
+    lowerIsBetter.pelletConeHip = lowerIsBetter.pelletConeAds = 1;
+  } else if (base.pellets <= 1 || !base.pellets) {
+    if (fields.some(function (f) { return f === 'adsSpread' || f === 'sway'; })) {
+      fields = fields.filter(function (f) { return f !== 'adsSpread'; });
+      before.aimedSpread = before.adsSpread * before.sway;
+      after.aimedSpread = after.adsSpread * after.sway;
+      fields.push('aimedSpread'); lowerIsBetter.aimedSpread = 1;
+    }
+  }
+  const comparison = fields.filter(function (field) { return typeof before[field] === 'number' && typeof after[field] === 'number'; }).map(function (field) {
+    const b = before[field], n = after[field];
+    const pct = b ? Math.round(Math.abs((n - b) / b) * 1000) / 10 : 0;
+    const direction = n === b ? '' : ((n < b) === !!lowerIsBetter[field] ? '+' : '-');
+    const label = field === 'aimedSpread' ? 'aimed spread (stationary first shot)' : field === 'pelletConeHip' ? 'pellet cone HIP (stationary first shot)' : field === 'pelletConeAds' ? 'pellet cone ADS (stationary first shot)' : field;
+    return label + ' ' + Number(b.toFixed(4)) + ' → ' + Number(n.toFixed(4)) + (direction ? ' (' + direction + pct + '%)' : '');
+  }).join(' · ');
   if (!a) {
-    btn.innerHTML = 'NONE<i>No attachment</i>';
+    btn.innerHTML = 'NONE<i>No attachment</i><i>' + comparison + '</i>';
     btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, null); buildGunsmith(); });
     return btn;
   }
   const unlocked = CORE.attachmentUnlocked(a.key, rank);
-  const d = CORE.attachmentDelta(a);
-  // Show the trade, not just the name: an attachment nobody can read the cost of is
-  // a coin flip.
-  const pros = d.up.map(function (x) { return '<span class="up">+' + x.pct + '% ' + x.field + '</span>'; });
-  const cons = d.down.map(function (x) { return '<span class="down">-' + x.pct + '% ' + x.field + '</span>'; });
-  btn.innerHTML = a.name + (unlocked ? '' : ' · RANK ' + a.rank) +
-    '<i>' + a.blurb + '</i><i>' + pros.concat(cons).join(' &nbsp;') + '</i>';
-  btn.disabled = !unlocked;
-  if (unlocked) {
+  const legacy = !compatibleAttachment(gunsmithWeapon, a);
+  btn.innerHTML = a.name + (legacy ? ' · LEGACY (REMOVE-ONLY)' : '') + (unlocked ? '' : ' · RANK ' + a.rank) +
+    (legacy ? '<i>Saved stats retained; may lack a dedicated model. Once removed, cannot be re-equipped.</i>' : '') +
+    '<i>' + a.blurb + '</i><i>' + comparison + '</i>';
+  btn.disabled = !unlocked || legacy;
+  if (unlocked && !legacy) {
     btn.addEventListener('click', function () { setAttachment(gunsmithWeapon, slot, a.key); buildGunsmith(); });
   }
   return btn;
@@ -719,6 +758,8 @@ function buildTdmSettingsRow() {
 
 function buildGunSelect(slot) {
   pickingSlot = slot || 0;
+  $id('starting-perk-row').style.display = pickingSlot === 0 ? '' : 'none';
+  $id('starting-perk').value = getSetting('startingPerk');
   if (pickingSlot === 0) {
     if (typeof getSetting === 'function') runDifficulty = getSetting('difficulty');
     pendingSecondary = -1;
@@ -1017,6 +1058,7 @@ $id('btn-gunsmith').addEventListener('click', function () { openGunsmith(); audi
 $id('btn-fullscreen-menu').addEventListener('click', toggleFullscreen);
 $id('btn-fullscreen-pause').addEventListener('click', toggleFullscreen);
 $id('btn-gunsmith-back').addEventListener('click', closeGunsmith);
+$id('starting-perk').addEventListener('change', function () { setSetting('startingPerk', this.value); });
 $id('btn-settings-pause').addEventListener('click', function () {
   $id('pause-menu').style.display = 'none';
   openSettings('pause');

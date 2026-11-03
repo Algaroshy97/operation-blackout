@@ -2375,11 +2375,10 @@ test('accuracy is clamped, so a bogus 900% does not mint XP', () => {
 });
 
 // ---- Weapon unlocks ----
-test('two weapons are available at rank 1 and the rest are earned', () => {
-  const atOne = [0, 1, 2, 3].filter((i) => CORE.weaponUnlocked(i, 1));
-  assert.strictEqual(atOne.length, 2, 'a new player still needs a choice on deploy');
-  const atMax = [0, 1, 2, 3].filter((i) => CORE.weaponUnlocked(i, CORE.MAX_RANK));
-  assert.strictEqual(atMax.length, 4, 'everything unlocks eventually');
+test('all base weapons are available at rank 1', () => {
+  for (let i = 0; i < CORE.WEAPON_UNLOCK_RANK.length; i++) {
+    assert.strictEqual(CORE.weaponUnlocked(i, 1), true, 'weapon ' + i);
+  }
 });
 
 test('a weapon unlock never un-unlocks as rank climbs', () => {
