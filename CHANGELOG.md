@@ -6,6 +6,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Feed the HUD the same aimed sway and heat-adjusted spread used by firing.
 - Max Ammo refills each deployed weapon to its effective attached and upgraded
   magazine and reserve limits, covered by actual power-up lifecycle checks.
 - Require the pre-Stage-2 shotgun migration probe in full browser acceptance;

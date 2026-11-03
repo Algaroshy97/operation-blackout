@@ -727,7 +727,9 @@ function updateViewmodel(dt) {
     const isRedMotion = typeof getSetting === 'function' ? !!getSetting('reducedMotion') : false;
     const isTacSprint = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
     const stanceSpread = CORE.stanceSpreadMultiplier(!!player.crouching, !!player.sliding, !!player.sprinting, isTacSprint);
-    const spreadNow = CORE.effectiveSpread(adsDown() ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread);
+    const ads = adsDown();
+    const heatMul = w.heatPerShot ? CORE.lmgHeatSpreadMul(s.heat) : 1;
+    const spreadNow = CORE.effectiveSpread(ads ? w.adsSpread : w.spread, bloom, hSpeedForSpread, !player.onGround, stanceSpread) * heatMul * (ads ? (w.sway || 1) : 1);
     const chOp = Math.round(CORE.crosshairOpacity(adsAmount, isScopedW, player.dead) * 100) / 100;
     const chGap = CORE.crosshairGapOffset(spreadNow, adsAmount, isRedMotion);
     if (chOp !== _lastChOp) {
