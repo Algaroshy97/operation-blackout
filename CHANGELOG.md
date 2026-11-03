@@ -6,6 +6,13 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 3 — in progress
 
+- Keep the night light dim during Survival BLACKOUT and restore it on the next wave.
+- Duck the music bus briefly for footsteps and critical audio cues, recovering
+  afterward. Capture the browser's master-to-destination path with mute and
+  disconnected-music controls; these software measurements are not listening tests.
+- Reuse the cached graphics plan for weather particles. Add an idle-frame matched
+  baseline guard and a rendered night-target geometry/pixel-difference check; neither
+  establishes physical-device performance or subjective visibility.
 - Stop the score on pause and restore it on resume and victory-to-endless, subject
   to saved mute and volume settings. A browser lifecycle probe is part of the full
   gate. Restart the score phrase when a silent audio setting becomes audible, and

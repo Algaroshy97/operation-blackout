@@ -6523,11 +6523,14 @@ def main() -> int:
     from contextlib import redirect_stdout
     from probe_stage3_music import main as probe_stage3_music
     from probe_stage3_weather import main as probe_stage3_weather
+    from measure_stage3_budget import main as probe_stage3_budget
     with redirect_stdout(sys.stderr):
         probe_stage3_music(args.build)
         probe_stage3_weather(args.build)
+        probe_stage3_budget(args.build)
     checks.append(('stage3-music-lifecycle', True))
     checks.append(('stage3-weather-lifecycle', True))
+    checks.append(('stage3-matched-idle-budget', True))
 
     from probe_stage1_touch import main as probe_stage1_touch
     with redirect_stdout(sys.stderr):

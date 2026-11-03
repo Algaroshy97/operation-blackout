@@ -194,7 +194,7 @@ function updateWeatherParticles(dt) {
   if (dt <= 0) return;
   const weather = typeof activeWeather === 'undefined' ? 'clear' : activeWeather;
   if (weather !== 'rain' && weather !== 'blizzard') return;
-  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  const plan = typeof graphicsNow === 'function' ? graphicsNow() : CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
   const cfg = CORE.snowfallVfxParams(plan);
   if (!cfg.enabled || cfg.rate <= 0 || !camera) return;
   _snowAcc += dt * cfg.rate * (getSetting('reducedMotion') ? 0.35 : 1);
@@ -305,7 +305,7 @@ function updateFlashLights(dt) {
   if (nightLight && activeWeather === 'night') {
     nightLight.userData.life = Math.max(0, nightLight.userData.life - dt);
     if (!nightLight.userData.life) {
-      nightLight.color.setHex(0xdde8ff); nightLight.intensity = 2 * LIGHT_COMPAT;
+      nightLight.color.setHex(0xdde8ff); nightLight.intensity = 2 * LIGHT_COMPAT * ((typeof _lightBackup !== 'undefined' && _lightBackup) ? 0.1 : 1);
       camera.getWorldDirection(_nightDirection);
       nightLight.position.copy(camera.position).addScaledVector(_nightDirection, 2);
     }

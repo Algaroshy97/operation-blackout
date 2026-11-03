@@ -48,6 +48,13 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         }""")
         assert weather_counts['clear'] == 0, weather_counts
         assert weather_counts['snow'] > 0 and weather_counts['rain'] > 0, weather_counts
+        graphics_calls = page.evaluate("""() => {
+          graphicsNow(); const original = CORE.graphicsSettings; let calls = 0;
+          CORE.graphicsSettings = (...args) => { calls++; return original(...args); };
+          try { for (let i=0; i<10; i++) updateWeatherParticles(0.016); return calls; }
+          finally { CORE.graphicsSettings = original; }
+        }""")
+        assert graphics_calls == 0, ('weather must reuse the cached graphics plan', graphics_calls)
         lights = page.evaluate("""() => {
           activeWeather = 'night'; setSetting('quality', 'low'); setSetting('effects', 'reduced'); applyMatchWeather();
           updateFlashLights(0.016);
@@ -63,6 +70,49 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         }""")
         assert lights['before'] > 0 and lights['flashed'], lights
         assert lights['restrained'], 'reduced motion must restrain muzzle flashes'
+        visibility = page.evaluate("""() => {
+          activeWeather = 'night'; applyMatchWeather();
+          const oldPos = camera.position.clone(), oldQuat = camera.quaternion.clone();
+          camera.position.set(0, 1.7, 0);
+          const enemy = spawnEnemy(1, 0, -4); camera.lookAt(0, 1.2, -4);
+          camera.updateMatrixWorld(true); scene.updateMatrixWorld(true); updateFlashLights(0.016);
+          const target = enemy.hitBody.getWorldPosition(new THREE.Vector3());
+          const projected = target.clone().project(camera);
+          const ray = new THREE.Raycaster(camera.position, target.clone().sub(camera.position).normalize());
+          const hits = ray.intersectObject(enemy.hitBody, false).length;
+          const blocked = CORE.segmentBlocked(camera.position.x, camera.position.y, camera.position.z, target.x, target.y, target.z, colliders, 0.1);
+          const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+          function pixels() { renderer.render(scene, camera); const data = new Uint8Array(w*h*4); gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,data); return data; }
+          const visible = pixels(); enemy.parts.group.visible = false; const hidden = pixels();
+          let changed = 0; for (let i=0; i<visible.length; i+=4) if (Math.abs(visible[i]-hidden[i])+Math.abs(visible[i+1]-hidden[i+1])+Math.abs(visible[i+2]-hidden[i+2]) >= 12) changed++;
+          const lightDistance = nightLight.position.distanceTo(target);
+          scene.remove(enemy.parts.group); disposeEnemyGeometry(enemy); enemies.splice(enemies.indexOf(enemy),1);
+          camera.position.copy(oldPos); camera.quaternion.copy(oldQuat);
+          activeWeather = 'blizzard'; applyMatchWeather();
+          return {projected: [projected.x, projected.y, projected.z], hits, blocked, changed, lightDistance, lightRange: nightLight.distance};
+        }""")
+        print('night target geometry and rendered difference:', visibility)
+        # Engineering tripwire, not a human contrast/readability assessment.
+        assert visibility['hits'] > 0 and not visibility['blocked'], visibility
+        assert all(abs(n) <= 1 for n in visibility['projected']) and visibility['lightDistance'] < visibility['lightRange'], visibility
+        assert visibility['changed'] >= 12, visibility
+        blackout = page.evaluate("""() => {
+          activeWeather = 'night'; applyMatchWeather(); updateFlashLights(0.016);
+          const normal = nightLight.intensity;
+          const show = showCenterMsg;
+          showCenterMsg = function (text) { if (text === 'BLACKOUT') window.blackoutAnnounced = true; return show(text); };
+          startWave(10); const initial = nightLight.intensity;
+          updateFlashLights(0.016); const updated = nightLight.intensity;
+          return {normal, initial, updated, special: waveSpecial && waveSpecial.key};
+        }""")
+        print('blackout transition:', blackout)
+        assert blackout['special'] == 'blackout' and blackout['initial'] < blackout['normal'] * 0.11, blackout
+        assert blackout['updated'] < blackout['normal'] * 0.11, blackout
+        page.wait_for_function('() => window.blackoutAnnounced === true', timeout=30000)
+        restored = page.evaluate("""() => { startWave(11); updateFlashLights(0.016); return nightLight.intensity; }""")
+        assert abs(restored - blackout['normal']) < 0.001, (blackout, restored)
+        page.wait_for_timeout(1000)
+        page.evaluate("activeWeather = 'blizzard'; applyMatchWeather()")
         metrics = page.evaluate("""async () => {
           const times = []; let last = performance.now();
           for (let i = 0; i < 24; i++) {
