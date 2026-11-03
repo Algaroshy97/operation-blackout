@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     # The probe drives a real browser. Without a cap, one hung Chromium burns the
     # default six-hour job limit on a run that will never finish.
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:

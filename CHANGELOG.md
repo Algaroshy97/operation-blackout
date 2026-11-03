@@ -6,6 +6,8 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Allow the complete browser acceptance suite enough CI time to finish; retain
+  a bounded job timeout rather than skipping probes.
 - Show weapon sway separately from combined aimed spread in Gunsmith comparisons.
 - Feed the HUD the same aimed sway and heat-adjusted spread used by firing.
 - Max Ammo refills each deployed weapon to its effective attached and upgraded

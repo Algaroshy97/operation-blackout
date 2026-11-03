@@ -44,6 +44,7 @@ class MapModeAcceptanceContract(unittest.TestCase):
         self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
                              for n in ast.walk(main)), 'probe failures must propagate')
         self.assertIn('fetch-depth: 0', (ROOT / '.github/workflows/ci.yml').read_text())
+        self.assertIn('timeout-minutes: 90', (ROOT / '.github/workflows/ci.yml').read_text())
 
     def test_spawn_wait_allows_slow_software_rendering_without_faking_spawn(self):
         text = (ROOT / 'scripts/probe_live.py').read_text()
