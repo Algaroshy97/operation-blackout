@@ -429,7 +429,7 @@ function activatePowerUp(def) {
   if (def.key === 'maxammo') {
     for (let i = 0; i < wState.length; i++) {
       if (!wState[i] || weaponsOwned[i] < 0) continue;
-      const cw = CFG.weapons[weaponsOwned[i]];
+      const cw = wState[i].eff || CFG.weapons[weaponsOwned[i]];
       wState[i].ammo = cw.mag;
       wState[i].reserve = cw.reserveMax;
     }

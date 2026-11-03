@@ -42,6 +42,16 @@ def main(build=BUILD):
           return {upgraded, start, reserve:curS().reserve, maximum:curW().reserveMax};
         }''')
         assert box['upgraded'] and box['reserve'] > box['start'] and box['reserve'] <= box['maximum'], box
+        for mag in ('extmag', 'fastmag'):
+            result = page.evaluate('''mag => {
+              setAttachment(0, 'mag', mag); refreshWeaponStats(0);
+              curS().ammo = 0; curS().reserve = 0;
+              activatePowerUp({key:'maxammo', dur:0, label:'MAX AMMO'});
+              return {ammo:curS().ammo, reserve:curS().reserve, mag:curW().mag,
+                      maximum:curW().reserveMax, upgraded:!!curS().up};
+            }''', mag)
+            assert result['upgraded'] and result['ammo'] == result['mag'] and result['reserve'] == result['maximum'], (mag, result)
+        page.evaluate("setAttachment(0, 'mag', 'extmag'); refreshWeaponStats(0)")
         page.evaluate('saveCheckpoint(captureRunState()); saveStats()')
         page.reload(wait_until='load', timeout=120000)
         page.wait_for_function("typeof assetsReady !== 'undefined' && assetsReady", timeout=120000)

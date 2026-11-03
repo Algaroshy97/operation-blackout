@@ -6,6 +6,8 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Max Ammo refills each deployed weapon to its effective attached and upgraded
+  magazine and reserve limits, covered by actual power-up lifecycle checks.
 - Require the pre-Stage-2 shotgun migration probe in full browser acceptance;
   fetch repository history in CI so its real legacy artifact is available.
 - Preserve valid previously saved shotgun attachment choices as remove-only
