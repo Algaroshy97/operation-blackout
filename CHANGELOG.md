@@ -6,6 +6,8 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 2 — in progress
 
+- Require the pre-Stage-2 shotgun migration probe in full browser acceptance;
+  fetch repository history in CI so its real legacy artifact is available.
 - Preserve valid previously saved shotgun attachment choices as remove-only
   legacy builds; their gameplay stats remain active even where no dedicated
   attachment model exists. New incompatible choices remain unavailable.

@@ -6573,6 +6573,11 @@ def main() -> int:
         probe_stage2_wave_challenge(args.build)
     checks.append(('stage2-wave-challenge', True))
 
+    from probe_stage2_legacy_build import main as probe_stage2_legacy_build
+    with redirect_stdout(sys.stderr):
+        probe_stage2_legacy_build(args.build)
+    checks.append(('stage2-legacy-build', True))
+
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
     # Human-readable summary FIRST, on stderr, so a CI log shows what broke without

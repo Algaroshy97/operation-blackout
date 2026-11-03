@@ -35,6 +35,16 @@ class MapModeAcceptanceContract(unittest.TestCase):
     def test_ci_runs_contract_guards(self):
         self.assertIn('tests.test_probe_matrix', (ROOT / '.github/workflows/ci.yml').read_text())
 
+    def test_legacy_migration_probe_is_a_required_gate_with_base_history(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage2_legacy_build']
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
+                             for n in ast.walk(main)), 'probe failures must propagate')
+        self.assertIn('fetch-depth: 0', (ROOT / '.github/workflows/ci.yml').read_text())
+
     def test_spawn_wait_allows_slow_software_rendering_without_faking_spawn(self):
         text = (ROOT / 'scripts/probe_live.py').read_text()
         self.assertIn('wait_until(page, "() => typeof enemies !== \'undefined\' && enemies.length > 0", 120)', text)
