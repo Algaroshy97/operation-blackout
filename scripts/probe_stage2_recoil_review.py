@@ -45,19 +45,22 @@ def main(build=BUILD):
               player.crouching = false; player.sliding = false; player.tacT = 0;
               hSpeedForSpread = 0; bloom = 0; adsAmount = 0; gunSwitchT = 1;
               let shotSpread = 0;
+              swayPhase = 0; updateSway(1);
+              const sway = Math.hypot(swayX, swayY);
               traceRound = (w, spread) => { shotSpread = spread; return {enemy:null, hit:null}; };
               fireShot(); bloom = 0;
               let hudSpread = 0;
               CORE.crosshairGapOffset = (...args) => { hudSpread = args[0]; return oldGap(...args); };
               updateViewmodel(0);
               results.push({gap:hudSpread, expected:shotSpread,
-                sway:curW().sway});
+                sway:curW().sway, actualSway:sway});
             }
           } finally { traceRound = original; CORE.crosshairGapOffset = oldGap; keys.Mouse2 = false; }
           return results;
         }''')
         assert all(abs(x['gap'] - x['expected']) < 1e-9 for x in gaps), gaps
         assert gaps[0]['sway'] != 1 and gaps[1]['sway'] != 1, gaps
+        assert abs(gaps[0]['actualSway'] / gaps[1]['actualSway'] - 2) < 1e-9, gaps
         assert not errors, errors
         browser.close()
 

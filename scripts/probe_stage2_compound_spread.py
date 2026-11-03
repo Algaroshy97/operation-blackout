@@ -15,6 +15,9 @@ def main(build=BUILD):
         page.click('#btn-gunsmith')
         text = page.get_by_role('button', name='PRECISION OPTIC', exact=False).inner_text()
         assert 'aimed spread (stationary first shot) 0.004 → 0.0026' in text, text
+        assert 'sway 1 → 1.2 (-20%)' in text, text
+        heavy = page.get_by_role('button', name='HEAVY STOCK', exact=False).inner_text()
+        assert 'sway 1 → 0.6 (+40%)' in heavy, heavy
         browser.close()
 
 

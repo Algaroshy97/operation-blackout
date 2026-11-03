@@ -416,7 +416,7 @@ function gunsmithOption(slot, a, current, rank) {
   let fields = Object.keys(Object.assign({}, old ? old.mods : {}, a ? a.mods : {}));
   const lowerIsBetter = { spread: 1, adsSpread: 1, recoilV: 1, recoilH: 1, reload: 1, sway: 1 };
   if (base.pellets > 1 && fields.some(function (f) { return f === 'spread' || f === 'adsSpread' || f === 'sway'; })) {
-    fields = fields.filter(function (f) { return f !== 'spread' && f !== 'adsSpread' && f !== 'sway'; });
+    fields = fields.filter(function (f) { return f !== 'spread' && f !== 'adsSpread'; });
     [before, after].forEach(function (w) {
       w.pelletConeHip = CORE.pelletConeSpread(w.pelletSpread, w.spread, false);
       w.pelletConeAds = CORE.pelletConeSpread(w.pelletSpread, w.adsSpread * w.sway, true);
@@ -425,7 +425,7 @@ function gunsmithOption(slot, a, current, rank) {
     lowerIsBetter.pelletConeHip = lowerIsBetter.pelletConeAds = 1;
   } else if (base.pellets <= 1 || !base.pellets) {
     if (fields.some(function (f) { return f === 'adsSpread' || f === 'sway'; })) {
-      fields = fields.filter(function (f) { return f !== 'adsSpread' && f !== 'sway'; });
+      fields = fields.filter(function (f) { return f !== 'adsSpread'; });
       before.aimedSpread = before.adsSpread * before.sway;
       after.aimedSpread = after.adsSpread * after.sway;
       fields.push('aimedSpread'); lowerIsBetter.aimedSpread = 1;
