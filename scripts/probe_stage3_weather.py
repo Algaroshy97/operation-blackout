@@ -154,6 +154,12 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
           return {weather: activeWeather, actual: sun.intensity, expected: 1.35 * LIGHT_COMPAT * 0.72};
         }""")
         assert reset_sun['weather'] == 'dusk' and abs(reset_sun['actual'] - reset_sun['expected']) < 0.001, reset_sun
+        page.evaluate("setSetting('weather', 'night'); killPlayer()")
+        assert page.evaluate('activeWeather') == 'dusk', 'death must not change current weather'
+        page.wait_for_selector('#death-screen', state='visible', timeout=30000)
+        page.click('#btn-restart')
+        page.click('#gun-select .gun-card:not(.locked)'); page.click('#gun-select .gun-card:not(.locked)')
+        assert page.evaluate("activeWeather === 'night' && started && !gameEnded"), 'survival redeploy must choose the next weather'
         assert not errors, errors
         browser.close()
     print('stage3 weather deployment lifecycle: passed')

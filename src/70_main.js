@@ -1206,6 +1206,8 @@ function restartMatch() {
   gameEnded = false;
   started = true;
   resetGame();
+  activeWeather = chooseMatchWeather(activeMapId, getSetting('weather'));
+  applyMatchWeather();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (activeMode && activeMode.id !== 'survival') {
     if (typeof updateMatchHud === 'function') updateMatchHud(activeMode);

@@ -7,7 +7,22 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = '477876ccee300d17476d7b69921d19d3d95b3fcf'
+BASELINE_POINTER_LOCK = 'A user gesture is required to request Pointer Lock.'
 
+
+def capture_errors(page):
+    page_errors, console_errors = [], []
+    page.on('pageerror', lambda error: page_errors.append(str(error)))
+    page.on('console', lambda message: console_errors.append(message.text) if message.type == 'error' else None)
+    return page_errors, console_errors
+
+
+def assert_browser_errors(case, page_errors, console_errors):
+    # Baseline startGame requests fullscreen then pointer lock on mobile, consuming
+    # the real click's transient activation. Only this exact legacy exception is
+    # allowed, at most once; never ignore console errors or candidate exceptions.
+    allowed = ([], [BASELINE_POINTER_LOCK]) if case in ('base-urban', 'base-snowy') else ([],)
+    assert page_errors in allowed and not console_errors, (case, page_errors, console_errors)
 
 
 def check_budget(base, actual):
@@ -35,8 +50,8 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         browser = p.chromium.launch(headless=True)
         for name, content, map_id, weather in cases:
             context = browser.new_context(viewport={'width': 844, 'height': 390}, is_mobile=True, has_touch=True, device_scale_factor=1)
-            page = context.new_page(); errors = []
-            page.on('pageerror', lambda e: errors.append(str(e)))
+            page = context.new_page()
+            page_errors, console_errors = capture_errors(page)
             page.route('https://blackout.test/**', lambda route: route.fulfill(status=200, content_type='text/html', body=content))
             page.goto('https://blackout.test/', wait_until='domcontentloaded')
             page.wait_for_function('() => assetsReady', timeout=60000)
@@ -55,12 +70,12 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 renderer:ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), enemies:enemies.length,
                 quality:getSetting('quality'), effects:getSetting('effects'), map:activeMapId, pixelRatio:renderer.getPixelRatio()};
             }""")
-            metrics['pageErrors'] = errors
-            if weather:
-                assert not errors, errors
+            metrics['pageErrors'] = page_errors
+            metrics['consoleErrors'] = console_errors
             output[name] = metrics
             print(name, json.dumps(metrics), flush=True)
             context.close()
+            assert_browser_errors(name, page_errors, console_errors)
         browser.close()
     check_budget(output['base-urban'], output['night-urban'])
     check_budget(output['base-snowy'], output['blizzard-snowy'])

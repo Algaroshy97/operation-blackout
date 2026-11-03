@@ -6,6 +6,12 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 3 — in progress
 
+- Resolve the next weather setting once on match-end restart while preserving the
+  current match's weather through settings changes, respawn and checkpoint resume.
+  Required browser checks cover manual and random match restarts and Survival
+  redeployment. The matched budget probe now rejects page and console errors in
+  both builds, except one exact legacy baseline pointer-lock gesture error; it
+  does not inject a fake gesture or suppress console errors.
 - Keep the night light dim during Survival BLACKOUT and restore it on the next wave.
 - Duck the music bus briefly for footsteps and critical audio cues, recovering
   afterward. Capture the browser's master-to-destination path with mute and
