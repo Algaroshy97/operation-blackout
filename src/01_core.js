@@ -4993,13 +4993,13 @@ const CORE = (function () {
   }
 
   // ---- Combat Enemies Evaluation ----
-  function evaluateCombatEnemies(enemies, px, pz, out) {
+  function evaluateCombatEnemies(enemies, px, pz, out, actor) {
     let aliveCount = 0;
     let nearestSq = Infinity;
     if (enemies && enemies.length) {
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
-        if (!e || e.dead || !e.pos) continue;
+        if (!e || e.dead || !e.pos || (actor && !isHostile(actor, e))) continue;
         aliveCount++;
         const dx = e.pos.x - px, dz = e.pos.z - pz;
         const dSq = dx * dx + dz * dz;

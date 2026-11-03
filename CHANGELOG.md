@@ -6,6 +6,9 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Stage 3 — in progress
 
+- Drive adaptive music from active match combat as well as Survival waves, counting
+  hostile actors rather than teammates. The required production-frame browser
+  regression exercises TDM, FFA, Survival, pressure changes, pause and death.
 - Resolve the next weather setting once on match-end restart while preserving the
   current match's weather through settings changes, respawn and checkpoint resume.
   Required browser checks cover manual and random match restarts and Survival

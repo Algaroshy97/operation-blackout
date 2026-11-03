@@ -1447,8 +1447,8 @@ function frame(now) {
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
-    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut);
-    _musicState.inCombat = waveActive && !player.dead;
+    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut, player);
+    _musicState.inCombat = !player.dead && !isSettled && (waveActive || !!(activeMode && activeMode.id !== 'survival'));
     _musicState.aliveEnemies = _combatEvalOut.aliveCount;
     _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
     _musicState.health = player.health;
