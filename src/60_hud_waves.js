@@ -587,6 +587,7 @@ function captureRunState() {
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,
     mapId: (typeof activeMapId !== 'undefined') ? activeMapId : ((typeof getActiveMap === 'function') ? getActiveMap().id : 'urban'),
+    weather: typeof activeWeather !== 'undefined' ? activeWeather : 'clear',
     spawnProtectionT: 0,
     objectivesCompleted: objectivesCompleted,
     objectiveState: captureObjectiveState(),

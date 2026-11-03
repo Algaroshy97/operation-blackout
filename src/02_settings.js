@@ -50,9 +50,16 @@ function getSetting(key) { return SETTINGS[key]; }
 function setSetting(key, value) {
   const v = CORE.clampSetting(key, value);
   if (v === undefined) return;
+  const audioWasSilent = SETTINGS.muted || SETTINGS.masterVolume <= 0 || SETTINGS.musicVolume <= 0;
   SETTINGS[key] = v;
   _graphicsPlan = null;
   applySetting(key);
+  if ((key === 'muted' || key === 'masterVolume' || key === 'musicVolume') && audioWasSilent &&
+      !SETTINGS.muted && SETTINGS.masterVolume > 0 && SETTINGS.musicVolume > 0 &&
+      typeof started !== 'undefined' && started && !paused && !gameEnded && !player.dead &&
+      typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.ctx) {
+    MUSIC.step = 0; MUSIC.nextT = MUSIC.ctx.currentTime + 0.08;
+  }
   saveSettings();
 }
 function resetSettings() {
@@ -80,6 +87,7 @@ function applySetting(key) {
     case 'shadowQuality':
     case 'postProcessing':
       applyQuality(key);
+
       break;
     case 'effects':
       if (typeof applyEffectsBudget === 'function') applyEffectsBudget();
@@ -129,6 +137,9 @@ function applySetting(key) {
       break;
     // sensitivity, touch sensitivity, fire-look, invertY and fov are read live by the player/camera code
   }
+  if ((key === 'musicVolume' || key === 'masterVolume' || key === 'muted') &&
+      typeof started !== 'undefined' && started && !paused && !gameEnded && !player.dead &&
+      typeof ensureMusicPlaying === 'function') ensureMusicPlaying();
 }
 function applyAllSettings() {
   // These three controls share quality-derived defaults. Apply their combined

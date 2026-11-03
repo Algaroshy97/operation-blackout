@@ -17,6 +17,48 @@ def probe_observation():
 
 
 class MusicProbeTests(unittest.TestCase):
+    def test_adaptive_audio_acceptance_expression_on_release(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        observation = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                           and any(isinstance(t, ast.Name) and t.id == 'adaptive_audio_check' for t in n.targets))
+        expression = ast.literal_eval(observation.value.args[0])
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto((ROOT / 'dist/Operation Blackout.html').as_uri(), wait_until='domcontentloaded')
+            page.wait_for_function('() => assetsReady === true', timeout=60000)
+            gains = page.evaluate('() => [CORE.musicBusGain(1, 0), CORE.musicBusGain(1, 1)]')
+            self.assertEqual(gains, [0.5, 0.72])
+
+            self.assertTrue(page.evaluate(expression), 'actual full-probe adaptive audio expression must pass')
+            page.evaluate('() => { window.savedGain = CORE.musicBusGain; CORE.musicBusGain = () => 0; }')
+            self.assertFalse(page.evaluate(expression), 'expression must reject broken gain')
+            page.evaluate('() => { CORE.musicBusGain = window.savedGain; window.savedStation = CORE.stationPurchaseSound; CORE.stationPurchaseSound = () => "bad"; }')
+            self.assertFalse(page.evaluate(expression), 'expression must reject broken station cues')
+            page.evaluate('() => { CORE.stationPurchaseSound = window.savedStation; }')
+            self.assertTrue(page.evaluate(expression), 'restoring production rules must restore acceptance')
+            browser.close()
+
+    def test_pause_resume_and_endless_restore_music(self):
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto((ROOT / 'dist/Operation Blackout.html').as_uri(), wait_until='domcontentloaded')
+            page.wait_for_function('() => assetsReady === true', timeout=60000)
+            page.click('#btn-start')
+            page.click('#gun-select .gun-card:not(.locked)')
+            page.click('#gun-select .gun-card:not(.locked)')
+            page.wait_for_function('() => started && MUSIC.step > 0')
+            page.evaluate('pauseGame()')
+            self.assertFalse(page.evaluate('MUSIC.running'), 'pause must silence scheduled music')
+            page.click('#btn-resume')
+            self.assertTrue(page.evaluate('MUSIC.running'), 'resume must restore music')
+            page.evaluate('victory()')
+            self.assertFalse(page.evaluate('MUSIC.running'))
+            page.click('#btn-endless')
+            self.assertTrue(page.evaluate('MUSIC.running'), 'endless must restore music after victory')
+            browser.close()
+
     def test_gate_observes_deployment_before_destructive_combat_probes(self):
         _, music_line, combat_line = probe_observation()
         self.assertLess(music_line, combat_line,

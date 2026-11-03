@@ -192,12 +192,12 @@ function updateParticles(dt) {
 let _snowAcc = 0;
 function updateWeatherParticles(dt) {
   if (dt <= 0) return;
-  const mId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
-  if (typeof CORE === 'undefined' || !CORE.isSnowfallEnabled(mId)) return;
-  const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
+  const weather = typeof activeWeather === 'undefined' ? 'clear' : activeWeather;
+  if (weather !== 'rain' && weather !== 'blizzard') return;
+  const plan = typeof graphicsNow === 'function' ? graphicsNow() : CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
   const cfg = CORE.snowfallVfxParams(plan);
   if (!cfg.enabled || cfg.rate <= 0 || !camera) return;
-  _snowAcc += dt * cfg.rate;
+  _snowAcc += dt * cfg.rate * (getSetting('reducedMotion') ? 0.35 : 1);
   while (_snowAcc >= 1) {
     _snowAcc -= 1;
     const r = pfxRnd(2, cfg.radius);
@@ -206,11 +206,11 @@ function updateWeatherParticles(dt) {
     const py = camera.position.y + pfxRnd(2, cfg.height);
     const pz = camera.position.z + Math.sin(a) * r;
     const vx = cfg.windX + pfxRnd(-0.25, 0.25);
-    const vy = -pfxRnd(cfg.fallMin, cfg.fallMax);
+    const vy = weather === 'rain' ? -pfxRnd(10, 16) : -pfxRnd(cfg.fallMin, cfg.fallMax);
     const vz = cfg.windZ + pfxRnd(-0.25, 0.25);
     const life = pfxRnd(cfg.lifeMin, cfg.lifeMax);
     const sz = pfxRnd(cfg.sizeMin, cfg.sizeMax);
-    pfxEmit(PFX_SMOKE, px, py, pz, vx, vy, vz, life, sz, sz * 1.2, 0xffffff, 0xd4e4f4, cfg.alpha, 0.1, 0, 0);
+    pfxEmit(PFX_SMOKE, px, py, pz, vx, vy, vz, weather === 'rain' ? Math.min(life, 0.8) : life, sz, sz * 1.2, 0xffffff, 0xd4e4f4, cfg.alpha, 0.1, 0, 0);
   }
 }
 let _breathTimer = 0;
@@ -254,6 +254,19 @@ function clearParticles() {
 // created once and parked at intensity 0. Phones skip them: every extra light is
 // paid per fragment on every lit surface.
 const FLASH_LIGHTS = [];
+let nightLight = null;
+const _nightDirection = new THREE.Vector3();
+function setNightLight(enabled) {
+  if (enabled && !nightLight) {
+    nightLight = new THREE.PointLight(0xdde8ff, 0, 14, 2);
+    nightLight.userData.life = 0;
+  }
+  if (nightLight) {
+    nightLight.intensity = enabled ? 2 * LIGHT_COMPAT : 0; nightLight.userData.life = 0;
+    if (enabled && nightLight.parent !== scene) scene.add(nightLight);
+    else if (!enabled && nightLight.parent === scene) scene.remove(nightLight);
+  }
+}
 function applyEffectsBudget() {
   const plan = CORE.graphicsSettings(typeof SETTINGS === 'undefined' ? {} : SETTINGS, IS_TOUCH);
   setParticleBudget(plan.particles);
@@ -272,7 +285,14 @@ function applyEffectsBudget() {
 }
 applyEffectsBudget();
 function flashLight(pos, color, intensity, distance, life) {
-  if (!FLASH_LIGHTS.length) return;
+  if (typeof getSetting === 'function' && getSetting('reducedMotion')) intensity *= 0.75;
+  if (!FLASH_LIGHTS.length) {
+    if (nightLight && activeWeather === 'night') {
+      nightLight.position.copy(pos); nightLight.color.setHex(color);
+      nightLight.userData.life = life; nightLight.intensity = intensity * LIGHT_COMPAT * 2;
+    }
+    return;
+  }
   let best = FLASH_LIGHTS[0];
   for (let i = 1; i < FLASH_LIGHTS.length; i++) if (FLASH_LIGHTS[i].userData.life < best.userData.life) best = FLASH_LIGHTS[i];
   best.position.copy(pos);
@@ -282,6 +302,14 @@ function flashLight(pos, color, intensity, distance, life) {
   best.intensity = intensity * LIGHT_COMPAT;
 }
 function updateFlashLights(dt) {
+  if (nightLight && activeWeather === 'night') {
+    nightLight.userData.life = Math.max(0, nightLight.userData.life - dt);
+    if (!nightLight.userData.life) {
+      nightLight.color.setHex(0xdde8ff); nightLight.intensity = 2 * LIGHT_COMPAT * ((typeof _lightBackup !== 'undefined' && _lightBackup) ? 0.1 : 1);
+      camera.getWorldDirection(_nightDirection);
+      nightLight.position.copy(camera.position).addScaledVector(_nightDirection, 2);
+    }
+  }
   for (let i = 0; i < FLASH_LIGHTS.length; i++) {
     const l = FLASH_LIGHTS[i], u = l.userData;
     if (u.life <= 0) {
@@ -298,6 +326,7 @@ function pfxRnd(a, b) { return a + Math.random() * (b - a); }
 function fxMuzzle(p, d, bigOrType, isSuppressed) {
   const type = typeof bigOrType === 'string' ? bigOrType : (bigOrType ? 'SR' : 'AR');
   const cfg = CORE.muzzleVfxParams(type, !!isSuppressed);
+  if (typeof activeWeather !== 'undefined' && activeWeather === 'night' && !isSuppressed) flashLight(p, 0xffbd78, 1.5, 10, 0.06);
   for (let i = 0; i < cfg.smokeCount; i++) {
     const s = pfxRnd(0.4, 1.2);
     pfxEmit(PFX_SMOKE, p.x, p.y, p.z, d.x * s + pfxRnd(-0.2, 0.2), d.y * s + pfxRnd(0.1, 0.4), d.z * s + pfxRnd(-0.2, 0.2),

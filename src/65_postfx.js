@@ -105,7 +105,7 @@ function makeRT(w, h, type, samples, depth) {
   });
 }
 function applyPostFog() {
-  scene.fog.color.setHex(FOG_BASE);
+  scene.fog.color.setHex(typeof weatherFogColor === 'undefined' ? FOG_BASE : weatherFogColor);
   if (POST.enabled) scene.fog.color.convertSRGBToLinear();
 }
 function initPostfx() {

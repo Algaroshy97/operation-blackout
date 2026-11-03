@@ -411,6 +411,7 @@ const CORE = (function () {
     difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
     startingPerk: { type: 'enum', def: 'none', values: ['none', 'reload', 'steady', 'scav'], label: 'Starting perk', help: 'Choose one perk for a new run; it occupies a perk slot.' },
     gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
+    weather: { type: 'enum', def: 'clear', values: ['clear', 'dusk', 'night', 'rain', 'blizzard', 'random'], label: 'Weather and time (next match)' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
     ffaActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'FFA actors' },
@@ -1394,6 +1395,7 @@ const CORE = (function () {
     return {
       v: SAVE_VERSION,
       mapId: sanitizeMapId(state.mapId || DEFAULT_MAP_ID),
+      weather: ['clear', 'dusk', 'night', 'rain', 'blizzard'].includes(state.weather) ? state.weather : 'clear',
       wave: state.wave, score: state.score, kills: state.kills, headshots: state.headshots,
       shotsFired: state.shotsFired, shotsHit: state.shotsHit,
       health: state.health, armor: state.armor, grenades: state.grenades,
@@ -1484,6 +1486,7 @@ const CORE = (function () {
       .filter(k => validDistricts.includes(k));
     return {
       v: SAVE_VERSION, wave, mapId,
+      weather: ['clear', 'dusk', 'night'].includes(raw.weather) || (raw.weather === 'rain' && mapId === 'urban') || (raw.weather === 'blizzard' && mapId === 'snowy') ? raw.weather : 'clear',
       score: Math.round(num(raw.score, 0, 1e9, 0)),
       kills: Math.round(num(raw.kills, 0, 1e6, 0)),
       headshots: Math.round(num(raw.headshots, 0, 1e6, 0)),
@@ -4990,13 +4993,13 @@ const CORE = (function () {
   }
 
   // ---- Combat Enemies Evaluation ----
-  function evaluateCombatEnemies(enemies, px, pz, out) {
+  function evaluateCombatEnemies(enemies, px, pz, out, actor) {
     let aliveCount = 0;
     let nearestSq = Infinity;
     if (enemies && enemies.length) {
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
-        if (!e || e.dead || !e.pos) continue;
+        if (!e || e.dead || !e.pos || (actor && !isHostile(actor, e))) continue;
         aliveCount++;
         const dx = e.pos.x - px, dz = e.pos.z - pz;
         const dSq = dx * dx + dz * dz;
@@ -5568,8 +5571,8 @@ const CORE = (function () {
   // ---- Adaptive music parameter dynamics ----
   const MUSIC_RISE_RATE = 1.6;
   const MUSIC_FALL_RATE = 0.5;
-  const MUSIC_BASE_BUS_GAIN = 0.22;
-  const MUSIC_INTENSITY_BUS_SCALE = 0.5;
+  const MUSIC_BASE_BUS_GAIN = 0.5;
+  const MUSIC_INTENSITY_BUS_SCALE = 0.22;
 
   function stepMusicIntensity(currentIntensity, targetIntensity, dt, riseRate, fallRate) {
     const cur = (_isNum(currentIntensity)) ? currentIntensity : 0;

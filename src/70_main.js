@@ -28,15 +28,17 @@ function pauseGame() {
     throwGrenade(spd);
   }
   paused = true;
+  stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'flex';
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function resumeGame() {
   paused = false;
+  if (started && !gameEnded && !player.dead) ensureMusicPlaying();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   $id('pause-menu').style.display = 'none';
-  canvas.requestPointerLock();
+  if (!IS_TOUCH) canvas.requestPointerLock();
 }
 function killPlayer(killer) {
   if (player.dead) return;
@@ -566,6 +568,22 @@ function buildMapPickerRow() {
     });
     row.appendChild(b);
   });
+  const label = document.createElement('label');
+  label.textContent = 'WEATHER / TIME ';
+  const select = document.createElement('select');
+  select.id = 'weather-select';
+  [['clear', 'Clear / day'], ['dusk', 'Dusk'], ['night', 'Night'],
+   ['rain', 'Urban rain'], ['blizzard', 'Snowy blizzard'], ['random', 'Random']].forEach(function (entry) {
+    const option = document.createElement('option');
+    option.value = entry[0]; option.textContent = entry[1];
+    option.disabled = (entry[0] === 'rain' && curMap !== 'urban') || (entry[0] === 'blizzard' && curMap !== 'snowy');
+    select.appendChild(option);
+  });
+  const chosen = getSetting('weather');
+  if ((chosen === 'rain' && curMap !== 'urban') || (chosen === 'blizzard' && curMap !== 'snowy')) setSetting('weather', 'clear');
+  select.value = getSetting('weather');
+  select.addEventListener('change', function () { setSetting('weather', select.value); });
+  label.appendChild(select); row.appendChild(label);
 }
 
 function buildModePickerRow() {
@@ -871,10 +889,12 @@ function startGame() {
   if (typeof SETTINGS !== 'undefined' && SETTINGS.gameMap && typeof setActiveMap === 'function') {
     setActiveMap(SETTINGS.gameMap);
   }
+  activeWeather = chooseMatchWeather(activeMapId, getSetting('weather'));
   started = true;
   // belt & suspenders
   paused = false;
   resetGame();
+  applyMatchWeather();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (!activeMode || activeMode.id === 'survival') {
     // "GET READY" + COMBAT IN n countdown until wave 1
@@ -886,7 +906,7 @@ function startGame() {
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
   startMusic();
-  canvas.requestPointerLock();
+  if (!IS_TOUCH) canvas.requestPointerLock();
 }
 
 // Resume a saved run. Only ever written between waves, so the restored state is
@@ -899,9 +919,11 @@ function resumeRun() {
   if (typeof setSetting === 'function') setSetting('gameMode', 'survival');
   const mapToRestore = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(cp.mapId) : (cp.mapId || 'urban');
   if (typeof setActiveMap === 'function') setActiveMap(mapToRestore, true);
+  activeWeather = compatibleWeather(mapToRestore, cp.weather);
   if (typeof setSetting === 'function') setSetting('gameMap', mapToRestore);
   started = true; paused = false;
   resetGame();
+  applyMatchWeather();
   runDifficulty = cp.difficulty;
   endlessMode = cp.endless;
   settlementSnapshot = cp.settlementSnapshot || null;
@@ -968,7 +990,7 @@ function resumeRun() {
   }
   showWaveBanner(0);
   startMusic();
-  canvas.requestPointerLock();
+  if (!IS_TOUCH) canvas.requestPointerLock();
 }
 
 function refreshResumeButton() {
@@ -1076,7 +1098,8 @@ $id('btn-endless').addEventListener('click', function () {
   betweenWaveT = CFG.wave.startDelay;
   paused = false;
   showWaveBanner(0);
-  canvas.requestPointerLock();
+  ensureMusicPlaying();
+  if (!IS_TOUCH) canvas.requestPointerLock();
 });
 $id('btn-settings-reset').addEventListener('click', function () { resetSettings(); buildSettingsUI(); });
 $id('btn-resume').addEventListener('click', resumeGame);
@@ -1090,6 +1113,7 @@ $id('btn-quit').addEventListener('click', function () {
   refreshMenuStats();
   refreshResumeButton();
   resetGame();
+  if (typeof activeWeather !== 'undefined') { activeWeather = 'clear'; applyMatchWeather(); }
 });
 $id('btn-restart').addEventListener('click', function () {
   $id('death-screen').style.display = 'none';
@@ -1115,6 +1139,7 @@ $id('btn-death-quit').addEventListener('click', function () {
   refreshMenuStats();
   refreshResumeButton();
   resetGame(); started = false;
+  if (typeof activeWeather !== 'undefined') { activeWeather = 'clear'; applyMatchWeather(); }
 });
 $id('btn-v-restart').addEventListener('click', function () {
   $id('victory-screen').style.display = 'none';
@@ -1130,6 +1155,7 @@ $id('btn-v-quit').addEventListener('click', function () {
   $id('start-screen').style.display = 'flex';
   refreshMenuStats();
   resetGame(); started = false;
+  if (typeof activeWeather !== 'undefined') { activeWeather = 'clear'; applyMatchWeather(); }
 });
 
 function showMatchEndScreen(mode) {
@@ -1180,6 +1206,8 @@ function restartMatch() {
   gameEnded = false;
   started = true;
   resetGame();
+  activeWeather = chooseMatchWeather(activeMapId, getSetting('weather'));
+  applyMatchWeather();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   if (activeMode && activeMode.id !== 'survival') {
     if (typeof updateMatchHud === 'function') updateMatchHud(activeMode);
@@ -1188,7 +1216,7 @@ function restartMatch() {
   if (!audioDisabled && typeof startMusic === 'function') {
     startMusic();
   }
-  if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
+  if (!IS_TOUCH && typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function') {
     try { canvas.requestPointerLock(); } catch (e) {}
   }
 }
@@ -1210,6 +1238,7 @@ function quitMatchToMenu() {
   if (document.pointerLockElement) document.exitPointerLock();
   setActiveMode('survival');
   resetGame();
+  if (typeof activeWeather !== 'undefined') { activeWeather = 'clear'; applyMatchWeather(); }
   $id('start-screen').style.display = 'flex';
   refreshResumeButton();
   refreshMenuStats();
@@ -1418,8 +1447,8 @@ function frame(now) {
     updateFootsteps(dt);
     updateSunShadow(player.pos.x, player.pos.z);
     // Adaptive score: follows the fight rather than looping regardless of it.
-    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut);
-    _musicState.inCombat = waveActive && !player.dead;
+    CORE.evaluateCombatEnemies(enemies, player.pos.x, player.pos.z, _combatEvalOut, player);
+    _musicState.inCombat = !player.dead && !isSettled && (waveActive || !!(activeMode && activeMode.id !== 'survival'));
     _musicState.aliveEnemies = _combatEvalOut.aliveCount;
     _musicState.nearestEnemy = _combatEvalOut.nearestEnemy;
     _musicState.health = player.health;

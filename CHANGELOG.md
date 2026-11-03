@@ -4,7 +4,34 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
-## Stage 2 — in progress
+## Stage 3 — in progress
+
+- Drive adaptive music from active match combat as well as Survival waves, counting
+  hostile actors rather than teammates. The required production-frame browser
+  regression exercises TDM, FFA, Survival, pressure changes, pause and death.
+- Resolve the next weather setting once on match-end restart while preserving the
+  current match's weather through settings changes, respawn and checkpoint resume.
+  Required browser checks cover manual and random match restarts and Survival
+  redeployment. The matched budget probe now rejects page and console errors in
+  both builds, except one exact legacy baseline pointer-lock gesture error; it
+  does not inject a fake gesture or suppress console errors.
+- Keep the night light dim during Survival BLACKOUT and restore it on the next wave.
+- Duck the music bus briefly for footsteps and critical audio cues, recovering
+  afterward. Capture the browser's master-to-destination path with mute and
+  disconnected-music controls; these software measurements are not listening tests.
+- Reuse the cached graphics plan for weather particles. Add an idle-frame matched
+  baseline guard and a rendered night-target geometry/pixel-difference check; neither
+  establishes physical-device performance or subjective visibility.
+- Stop the score on pause and restore it on resume and victory-to-endless, subject
+  to saved mute and volume settings. A browser lifecycle probe is part of the full
+  gate. Restart the score phrase when a silent audio setting becomes audible, and
+  raise the calm score level while retaining the previous maximum combat gain.
+- Add compatible fixed-per-match manual/random time and weather selection, saved
+  Survival weather, sky and fog palettes, budgeted precipitation and night lighting.
+  Mobile-emulated WebAudio and weather probes are required by the default browser
+  gate; physical listening, visibility and performance remain unverified.
+
+## Stage 2 — merged and published
 
 - Allow the complete browser acceptance suite enough CI time to finish; retain
   a bounded job timeout rather than skipping probes.

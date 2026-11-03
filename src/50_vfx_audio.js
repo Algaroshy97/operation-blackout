@@ -807,6 +807,11 @@ function playSound(name, dest, skipThrottle) {
   const ctx = audioCtx();
   if (!ctx) return;
   if (!skipThrottle && soundThrottled(name)) return;
+  if (/^(e?step(?:_|$)|low_ammo$|bullet_whiz$|player_down$|heartbeat$)/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
+    const g = MUSIC.duck.gain, now = ctx.currentTime;
+    g.cancelScheduledValues(now); g.setTargetAtTime(0.04, now, 0.003);
+    g.setTargetAtTime(1, now + 0.12, 0.14);
+  }
   const out = dest || audioMaster() || ctx.destination;
   const buf = _sndBuffers[name];
   if (buf) {
@@ -901,7 +906,7 @@ let wasGround = true;
 // setTargetAtTime, never written per frame, so intensity changes cannot click.
 // A layer whose level is ~0 schedules nothing, which keeps calm stretches cheap.
 const MUSIC = {
-  built: false, ctx: null, bus: null, comp: null, verb: null, layers: null,
+  built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
   intensity: 0, running: false, step: 0, nextT: 0
 };
 const MUSIC_LOOKAHEAD = 0.2;
@@ -931,7 +936,8 @@ function buildMusicGraph() {
   MUSIC.comp = ctx.createDynamicsCompressor();
   MUSIC.comp.threshold.value = -18; MUSIC.comp.ratio.value = 3;
   MUSIC.comp.attack.value = 0.01; MUSIC.comp.release.value = 0.25;
-  MUSIC.bus.connect(MUSIC.comp); MUSIC.comp.connect(master);
+  MUSIC.duck = ctx.createGain();
+  MUSIC.bus.connect(MUSIC.duck); MUSIC.duck.connect(MUSIC.comp); MUSIC.comp.connect(master);
 
   MUSIC.verb = ctx.createConvolver();
   MUSIC.verb.buffer = musicImpulse(ctx);

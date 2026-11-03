@@ -5286,8 +5286,8 @@ test('stepSlideVignette, slideVignetteStyle, objectiveHud, isScopeOverlayActive,
 test('adaptive score: intensity smoothing, bus gain, chart, layers and patterns; station and downed audio cues', () => {
   assert.strictEqual(CORE.MUSIC_RISE_RATE, 1.6);
   assert.strictEqual(CORE.MUSIC_FALL_RATE, 0.5);
-  assert.strictEqual(CORE.MUSIC_BASE_BUS_GAIN, 0.22);
-  assert.strictEqual(CORE.MUSIC_INTENSITY_BUS_SCALE, 0.5);
+  assert.strictEqual(CORE.MUSIC_BASE_BUS_GAIN, 0.5);
+  assert.strictEqual(CORE.MUSIC_INTENSITY_BUS_SCALE, 0.22);
 
   // stepMusicIntensity: rises fast, falls slowly, clamps, survives junk
   assert.ok(Math.abs(CORE.stepMusicIntensity(0, 1, 0.05) - 0.08) < 1e-4);
@@ -5299,7 +5299,7 @@ test('adaptive score: intensity smoothing, bus gain, chart, layers and patterns;
   assert.strictEqual(CORE.stepMusicIntensity('invalid', 'bad', NaN), 0);
 
   // musicBusGain
-  assert.ok(Math.abs(CORE.musicBusGain(1.0, 0) - 0.22) < 1e-4);
+  assert.ok(Math.abs(CORE.musicBusGain(1.0, 0) - 0.5) < 1e-4);
   assert.ok(Math.abs(CORE.musicBusGain(1.0, 1.0) - 0.72) < 1e-4);
   assert.strictEqual(CORE.musicBusGain(0, 1.0), 0);
   assert.strictEqual(CORE.musicBusGain(NaN, 1.0), 0);

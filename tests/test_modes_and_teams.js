@@ -2117,6 +2117,10 @@ function createFullMatchContext(overrides = {}) {
       }
     },
     getActiveMap: function () { return (c && c.MAPS) ? (c.MAPS[c.activeMapId] || c.MAPS.urban) : null; },
+    activeWeather: 'clear',
+    compatibleWeather: (map, weather) => weather || 'clear',
+    chooseMatchWeather: (map, weather) => weather || 'clear',
+    applyMatchWeather: noop,
     setActiveMap: function (id, force) {
       const safe = (typeof CORE !== 'undefined' && CORE.sanitizeMapId) ? CORE.sanitizeMapId(id) : 'urban';
       if (c) {
@@ -2151,6 +2155,7 @@ function createFullMatchContext(overrides = {}) {
     godMode: false,
     startMusic: noop,
     stopMusic: noop,
+    ensureMusicPlaying: noop,
     runDifficulty: 'regular',
     endlessMode: false,
     runPhase: 'active',
