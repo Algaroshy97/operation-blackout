@@ -8,6 +8,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MapModeAcceptanceContract(unittest.TestCase):
+    def test_full_probe_invokes_stage3_weather_lifecycle(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_weather']
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n) for n in ast.walk(main)))
+
+    def test_full_probe_invokes_stage3_music_lifecycle(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_music']
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
+                             for n in ast.walk(main)))
+
     def test_matrix_has_every_map_mode_pair_once(self):
         spec = importlib.util.spec_from_file_location('probe_map_modes', ROOT / 'scripts/probe_map_modes.py')
         assert spec is not None and spec.loader is not None

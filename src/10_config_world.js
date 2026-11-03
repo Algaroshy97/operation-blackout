@@ -661,6 +661,37 @@ const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy',
 
 let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefined' && CORE.sanitizeMapId(getSetting('gameMap'))) || 'urban';
 let activeMap = MAPS[activeMapId] || MAPS.urban;
+let activeWeather = 'clear';
+let weatherFogColor = CFG.world.fogColor;
+
+function compatibleWeather(mapId, weather) {
+  const options = ['clear', 'dusk', 'night', mapId === 'snowy' ? 'blizzard' : 'rain'];
+  return options.includes(weather) ? weather : 'clear';
+}
+function chooseMatchWeather(mapId, choice) {
+  const options = ['clear', 'dusk', 'night', mapId === 'snowy' ? 'blizzard' : 'rain'];
+  return choice === 'random' ? options[Math.floor(Math.random() * options.length)] : compatibleWeather(mapId, choice);
+}
+
+function applyMatchWeather() {
+  applyMapSkyPreset(activeMapId);
+  if (typeof setNightLight === 'function') setNightLight(activeWeather === 'night');
+  const shades = {
+    dusk: [0x403653, 0x875c68, 0xc08468, 0x3d3949, 0x6c5762, 0.72],
+    night: [0x101d38, 0x293a55, 0x52627a, 0x252f40, 0x303b50, 0.36],
+    rain: [0x3c4d5b, 0x63717b, 0x859095, 0x454d55, 0x66717a, 0.7],
+    blizzard: [0x7e92a0, 0xaabcc6, 0xd0dae0, 0x899ba9, 0xa5b8c4, 0.78]
+  };
+  const s = shades[activeWeather];
+  if (s) weatherFogColor = s[4];
+  sun.intensity = 1.35 * LIGHT_COMPAT * (s ? s[5] : 1);
+  scene.fog.far = activeWeather === 'blizzard' ? 80 : activeWeather === 'rain' ? 110 : 150;
+  if (!s) return;
+  ['top', 'mid', 'horizon', 'low'].forEach(function (k, i) { SKY_UNIFORMS[k].value.setHex(s[i]).convertSRGBToLinear(); });
+  scene.background.setHex(s[4]);
+  scene.fog.color.setHex(s[4]);
+  if (typeof POST !== 'undefined' && POST.enabled) scene.fog.color.convertSRGBToLinear();
+}
 
 function getActiveMap() { return activeMap; }
 
@@ -672,6 +703,7 @@ function applyMapSkyPreset(mapId) {
     fogColor: 0x1a1f2b, skyColor: 0x8aa4c8,
     sunColor: 0xffd9b0, sunPos: [45, 55, -30], sunDir: [150, 170, -100]
   };
+  weatherFogColor = sky.fogColor || CFG.world.fogColor;
   if (typeof SKY_UNIFORMS !== 'undefined' && SKY_UNIFORMS) {
     if (SKY_UNIFORMS.top && SKY_UNIFORMS.top.value) SKY_UNIFORMS.top.value.setHex(sky.top).convertSRGBToLinear();
     if (SKY_UNIFORMS.mid && SKY_UNIFORMS.mid.value) SKY_UNIFORMS.mid.value.setHex(sky.mid).convertSRGBToLinear();

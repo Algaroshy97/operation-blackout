@@ -4,7 +4,18 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
-## Stage 2 — in progress
+## Stage 3 — in progress
+
+- Stop the score on pause and restore it on resume and victory-to-endless, subject
+  to saved mute and volume settings. A browser lifecycle probe is part of the full
+  gate. Restart the score phrase when a silent audio setting becomes audible, and
+  raise the calm score level while retaining the previous maximum combat gain.
+- Add compatible fixed-per-match manual/random time and weather selection, saved
+  Survival weather, sky and fog palettes, budgeted precipitation and night lighting.
+  Mobile-emulated WebAudio and weather probes are required by the default browser
+  gate; physical listening, visibility and performance remain unverified.
+
+## Stage 2 — merged and published
 
 - Allow the complete browser acceptance suite enough CI time to finish; retain
   a bounded job timeout rather than skipping probes.

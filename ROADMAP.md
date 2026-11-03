@@ -37,11 +37,10 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
 - Existing shotgun builds keep historically valid but now-incompatible saved
   attachments as clearly labelled remove-only legacy choices. Sand unlocks on
   reaching wave 15, whether the run ends in defeat or victory.
-- Status: local implementation in progress; not yet independently reviewed,
-  accepted, merged or published. Focused browser checks cover rank-one weapons,
-  perk selection and checkpoint/respawn, the offered attachment matrix, legacy
-  stores, and challenge-earned first-person camos and sleeve colours. Full browser
-  acceptance and physical-device playtesting remain outstanding.
+- Status: merged as PR 15 (4a5b4a8355a392cb9ae4919dc8fd9f73170c6e88),
+  independently reviewed, exact-head CI passed, canonical acceptance passed and
+  published. Acceptance recorded 680 Node tests, 22 release tests and 351 browser
+  checks with zero console errors. Physical Android/LOQ testing remains outstanding.
 
 ### Stage 3 — Audible music, atmosphere and visibility
 - Phone report: music is missing from initial gameplay while other sounds work.
@@ -56,7 +55,12 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   clear/day, dusk, night, Urban rain and Snowy blizzard. Keep maps compatible.
 - Night muzzle/flashlight lighting, readable gameplay, mobile/Low-quality frame
   budget, reduced-motion support and restrained effects are acceptance criteria.
-- Status: pending.
+- Status: local implementation in progress, not accepted or published. Weather/time
+  selection, checkpoint restoration, weather effects and night lighting are in the
+  worktree; focused browser probes cover their lifecycle. Music startup, muted saves,
+  pause, death and respawn have focused WebAudio/browser coverage. Physical listening,
+  mobile/LOQ visibility and performance, broader gameplay coverage, full gates and
+  independent review remain outstanding.
 
 ### Stage 4 — Per-mode statistics and completion audit
 - Per-mode K/D, accuracy, favourite weapon and wins with clear presentation,
