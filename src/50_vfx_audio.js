@@ -810,10 +810,11 @@ function playSound(name, dest, skipThrottle) {
   if (/^(e?step(?:_|$)|low_ammo$|bullet_whiz$|player_down$|heartbeat$)/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
     const g = MUSIC.duck.gain, now = ctx.currentTime;
     const footstep = /^e?step(?:_|$)/.test(name);
-    if (!footstep) MUSIC.warningDuckUntil = now + 0.12;
+    if (!footstep) MUSIC.warningDuckUntil = Math.max(MUSIC.warningDuckUntil || 0, now + Math.max(0.12, recipeDuration(SOUND_RECIPES[name])));
     if (!footstep || now >= (MUSIC.warningDuckUntil || 0)) {
-      g.cancelScheduledValues(now); g.setTargetAtTime(footstep ? 0.45 : 0.04, now, 0.003);
-      g.setTargetAtTime(1, now + 0.12, 0.14);
+      g.cancelScheduledValues(now); g.setTargetAtTime(0.04, now, 0.003);
+      if (footstep) g.setTargetAtTime(0.45, now + 0.045, 0.003);
+      g.setTargetAtTime(1, footstep ? now + 0.12 : MUSIC.warningDuckUntil, 0.14);
     }
   }
   const out = dest || audioMaster() || ctx.destination;

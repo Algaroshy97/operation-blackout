@@ -2,12 +2,45 @@
 import ast
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class MapModeAcceptanceContract(unittest.TestCase):
+    def test_full_probe_requires_movement_score_evidence(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_music_evidence']
+        self.assertEqual(len(calls), 1, 'movement score evidence must be a release gate')
+        self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
+                             for n in ast.walk(main)), 'failures must propagate')
+
+    def test_movement_evidence_requires_matched_priority_probe(self):
+        tree = ast.parse((ROOT / 'scripts/probe_movement_music_evidence.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_masking_matched']
+        self.assertEqual(len(calls), 1, 'matched cue-priority evidence must gate movement acceptance')
+        self.assertFalse(any(isinstance(n, ast.Try) and any(isinstance(h.type, ast.Name) and h.type.id in ('ValueError', 'Exception') for h in n.handlers) and calls[0] in ast.walk(n) for n in ast.walk(main)))
+
+    def test_movement_gate_propagates_failure_under_optimized_python(self):
+        script = '''
+import ast, pathlib
+from types import SimpleNamespace
+tree = ast.parse(pathlib.Path('scripts/probe_live.py').read_text())
+main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+call = next(n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_music_evidence')
+def fail(build): raise RuntimeError('negative control reached')
+exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], type_ignores=[])), '<actual gate call>', 'exec'), {'probe_movement_music_evidence': fail, 'args': SimpleNamespace(build='fixture')})
+'''
+        result = subprocess.run([sys.executable, '-O', '-c', script], cwd=ROOT,
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('negative control reached', result.stderr)
+
     def test_full_probe_invokes_stage3_frame_combat_music(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')

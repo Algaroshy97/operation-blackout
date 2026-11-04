@@ -6526,7 +6526,9 @@ def main() -> int:
     from probe_stage3_weather import main as probe_stage3_weather
     from probe_stage3_restart import main as probe_stage3_restart
     from measure_stage3_budget import main as probe_stage3_budget
+    from probe_movement_music_evidence import main as probe_movement_music_evidence
     with redirect_stdout(sys.stderr):
+        probe_movement_music_evidence(args.build)
         probe_stage3_music(args.build)
         probe_stage3_combat_music(args.build)
         probe_stage3_weather(args.build)
