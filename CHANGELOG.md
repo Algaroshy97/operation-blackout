@@ -4,6 +4,13 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Movement music — candidate
+
+- Reduce footstep-triggered music attenuation while retaining deep ducking for
+  warnings; an overlapping footstep cannot cancel a warning's initial duck.
+- Correct the stale Stage 3 status in the roadmap. Physical Android listening is
+  not verified by the audio-graph probes.
+
 ## Stage 3 — in progress
 
 - Drive adaptive music from active match combat as well as Survival waves, counting

@@ -55,12 +55,10 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   clear/day, dusk, night, Urban rain and Snowy blizzard. Keep maps compatible.
 - Night muzzle/flashlight lighting, readable gameplay, mobile/Low-quality frame
   budget, reduced-motion support and restrained effects are acceptance criteria.
-- Status: local implementation in progress, not accepted or published. Weather/time
-  selection, checkpoint restoration, weather effects and night lighting are in the
-  worktree; focused browser probes cover their lifecycle. Music startup, muted saves,
-  pause, death and respawn have focused WebAudio/browser coverage. Physical listening,
-  mobile/LOQ visibility and performance, broader gameplay coverage, full gates and
-  independent review remain outstanding.
+- Status: shipped as PR 16, merge 70cca4000ca9bf453f79afe9c7cc8be4009dba02;
+  canonical acceptance passed and published (356 browser checks, zero main-report
+  console errors). Physical Android/LOQ listening, visibility and performance remain
+  unverified.
 
 ### Stage 4 — Per-mode statistics and completion audit
 - Per-mode K/D, accuracy, favourite weapon and wins with clear presentation,
