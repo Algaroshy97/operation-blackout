@@ -19,11 +19,11 @@ class MapModeAcceptanceContract(unittest.TestCase):
         self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
                              for n in ast.walk(main)), 'failures must propagate')
 
-    def test_movement_evidence_requires_matched_priority_probe(self):
+    def test_movement_evidence_requires_fullband_steady_score_probe(self):
         tree = ast.parse((ROOT / 'scripts/probe_movement_music_evidence.py').read_text())
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
-        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_masking_matched']
-        self.assertEqual(len(calls), 1, 'matched cue-priority evidence must gate movement acceptance')
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'probe_steady_fullband']
+        self.assertEqual(len(calls), 1, 'full-band matched score and headroom must gate movement acceptance')
         self.assertFalse(any(isinstance(n, ast.Try) and any(isinstance(h.type, ast.Name) and h.type.id in ('ValueError', 'Exception') for h in n.handlers) and calls[0] in ast.walk(n) for n in ast.walk(main)))
 
     def test_movement_gate_propagates_failure_under_optimized_python(self):

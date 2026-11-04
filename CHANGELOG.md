@@ -6,8 +6,11 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Movement music — candidate
 
-- Reduce footstep-triggered music attenuation while retaining deep ducking for
-  warnings; an overlapping footstep cannot cancel a warning's initial duck.
+- Keep the original score steady under footsteps; only important warnings trigger
+  music ducking, including overlapping warnings. This replaces the earlier
+  footstep-duck priority strategy, not the score or saved volume settings.
+- Buffer half a second of scheduled score to tolerate slower rendering frames;
+  long stalls still resynchronise rather than replaying an unbounded backlog.
 - Correct the stale Stage 3 status in the roadmap. Physical Android listening is
   not verified by the audio-graph probes.
 

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from probe_movement_masking_matched import compare
+from probe_movement_masking_matched import compare, compare_baseline_waveform
 
 
 def blocks(cue=0.01, current=0.01, baseline=0.01, mix=0.02):
@@ -13,6 +13,13 @@ def blocks(cue=0.01, current=0.01, baseline=0.01, mix=0.02):
 
 
 class MatchedMaskingTest(unittest.TestCase):
+    def test_baseline_waveform_rejects_equal_energy_but_inverted_signal(self):
+        sample = blocks()
+        for block in sample:
+            block['difference'] = 4 * block['baseline']
+        with self.assertRaisesRegex(ValueError, 'waveform'):
+            compare_baseline_waveform(sample)
+
     def test_identical_paths_have_zero_loss(self):
         self.assertAlmostEqual(compare(blocks())['loss_db'], 0)
 

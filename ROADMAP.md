@@ -59,6 +59,11 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   canonical acceptance passed and published (356 browser checks, zero main-report
   console errors). Physical Android/LOQ listening, visibility and performance remain
   unverified.
+- Subsequent user decision: quiet, steady original D-minor score under player and
+  enemy footsteps; footsteps must not duck it. Important warnings alone duck the
+  score smoothly. This supersedes the earlier footstep-duck priority requirement.
+  After reviewed publication, stop and await the user's Android Chrome listening
+  result on the public link before starting Stage 4.
 
 ### Stage 4 — Per-mode statistics and completion audit
 - Per-mode K/D, accuracy, favourite weapon and wins with clear presentation,
@@ -67,7 +72,7 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   regressions and release evidence; do not infer completion from stale board cards.
 - Daily challenge is explicitly DEFERRED by the user; do not implement a seeded
   challenge, daily modifiers or counted daily attempt as part of this plan.
-- Status: pending.
+- Status: pending; wait for the user's Android listening after the music release.
 
 Historical scope below is subordinate to these decisions, especially base-weapon
 rank gates, daily challenges and the old milestone numbering/delivery granularity.

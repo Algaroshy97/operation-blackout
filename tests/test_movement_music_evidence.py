@@ -4,18 +4,18 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from movement_music_evidence import validate_continuity, analyze_scheduler
+from movement_music_evidence import validate_continuity, analyze_scheduler, validate_scheduler
 
 
 def blocks(output=0.02):
-    return [{'t': i * 0.1, 'reference': 0.05, 'output': output} for i in range(100)]
+    return [{'t': i * 0.1, 'expected': 0.05, 'reference': 0.05, 'output': output} for i in range(100)]
 
 
 class ContinuityEvidenceTest(unittest.TestCase):
     def test_valid_capture_and_natural_quiet_blocks(self):
         samples = blocks()
         for item in samples[20:25]:
-            item.update(reference=0.0, output=0.0)
+            item.update(expected=0.0, reference=0.0, output=0.0)
         validate_continuity(samples)
 
     def test_rejects_partial_outage_not_just_zero_peak(self):
@@ -23,6 +23,13 @@ class ContinuityEvidenceTest(unittest.TestCase):
         for item in samples[30:70]:
             item['output'] = 0
         with self.assertRaisesRegex(ValueError, 'gap'):
+            validate_continuity(samples)
+
+    def test_rejects_long_partial_upstream_outage(self):
+        samples = blocks()
+        for item in samples[30:70]:
+            item.update(reference=0.0, output=0.0)
+        with self.assertRaises(ValueError):
             validate_continuity(samples)
 
     def test_rejects_mute_disconnect_and_missing_evidence(self):
@@ -44,6 +51,18 @@ class ContinuityEvidenceTest(unittest.TestCase):
         self.assertEqual(metrics['overdue_steps'], 1)
         self.assertEqual(metrics['schedule_gaps'], 1)
         self.assertAlmostEqual(metrics['max_frame_gap'], 0.4)
+
+    def test_scheduler_rejects_stalls_despite_step_progress(self):
+        frames = [{'t': t} for t in (0, 0.1, 0.9)]
+        scheduled = [{'n': 1, 't': 0.1, 'now': 0.05}, {'n': 2, 't': 0.2, 'now': 0.24}, {'n': 3, 't': 1.0, 'now': 0.9}]
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
+
+    def test_scheduler_rejects_skipped_score_gap_even_if_frames_are_fast(self):
+        frames = [{'t': t} for t in (0, 0.1, 0.2, 0.3)]
+        scheduled = [{'n': 1, 't': 0.1, 'now': 0.05}, {'n': 2, 't': 0.3, 'now': 0.25}]
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
 
     def test_rejects_missing_capture_intervals(self):
         samples = blocks()

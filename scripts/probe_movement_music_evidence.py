@@ -1,7 +1,7 @@
 """Collect real touch, score-path and production scheduler evidence in Chromium."""
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-from movement_music_evidence import validate_continuity, analyze_scheduler
+from movement_music_evidence import validate_continuity, validate_scheduler
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,18 +25,19 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
             page.wait_for_function('started && MUSIC.running', timeout=60000)
             page.evaluate('''async () => {
               window.trace = {audio: [], frames: [], scheduled: [], cues: []};
-              const c = MUSIC.ctx, merge = c.createChannelMerger(2);
+              const c = MUSIC.ctx, merge = c.createChannelMerger(3);
               const code = `class ScoreCapture extends AudioWorkletProcessor {
-                constructor() { super(); this.n=0; this.s=[0,0]; this.start=0; }
+                constructor() { super(); this.n=0; this.s=[0,0,0]; this.start=0; }
                 process(inputs) {
                   const a=inputs[0];
-                  if (!a || a.length < 2) return true;
+                  if (!a || a.length < 3) return true;
                   for (let i=0;i<a[0].length;i++) {
                     if (!this.n) this.start=(currentFrame+i)/sampleRate;
                     this.s[0]+=a[0][i]*a[0][i]; this.s[1]+=a[1][i]*a[1][i];
+                    this.s[2]+=a[2][i]*a[2][i];
                     if (++this.n === 1024) {
-                      this.port.postMessage({t:this.start,reference:Math.sqrt(this.s[0]/this.n),output:Math.sqrt(this.s[1]/this.n)});
-                      this.n=0; this.s=[0,0];
+                      this.port.postMessage({t:this.start,reference:Math.sqrt(this.s[0]/this.n),output:Math.sqrt(this.s[1]/this.n),expected:Math.sqrt(this.s[2]/this.n)});
+                      this.n=0; this.s=[0,0,0];
                     }
                   }
                   return true;
@@ -47,6 +48,9 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
               const ref = c.createGain(), out = c.createGain();
               MUSIC.bus.connect(ref); ref.connect(merge, 0, 0);
               MUSIC.comp.connect(out); out.connect(merge, 0, 1);
+              const independent = c.createGain();
+              for (const layer of Object.values(MUSIC.layers)) layer.connect(independent);
+              independent.connect(merge,0,2);
               const tap = new AudioWorkletNode(c,'score-capture'), sink = c.createGain();
               sink.gain.value = 0; merge.connect(tap); tap.connect(sink); sink.connect(c.destination);
               tap.port.onmessage = e => trace.audio.push(e.data);
@@ -56,9 +60,14 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 return oldSchedule(ctx,n,t,gains);
               };
               const oldUpdate = updateMusic;
+              window.haltScheduler = false;
+              window.interruptScore = false;
               updateMusic = function(dt,state) {
+                if (window.haltScheduler) return;
                 trace.frames.push({t:c.currentTime, dt, next:MUSIC.nextT, running:MUSIC.running});
-                return oldUpdate(dt,state);
+                const result=oldUpdate(dt,state);
+                if(window.interruptScore)MUSIC.bus.gain.setValueAtTime(0,c.currentTime);
+                return result;
               };
               const oldPlay = playSound;
               playSound = function(name,...args) { trace.cues.push({t:c.currentTime,name}); return oldPlay(name,...args); };
@@ -88,7 +97,7 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 print(phase, 'continuity', validate_continuity(result['audio'], min_ratio=0.2), flush=True)
                 if len(result['frames']) < 10 or len(result['scheduled']) < 4:
                     raise ValueError(f'{phase}: inadequate scheduler evidence')
-                print(phase, 'scheduler', analyze_scheduler(result['frames'], result['scheduled'], page.evaluate('CORE.musicStepSeconds()')), flush=True)
+                print(phase, 'scheduler', validate_scheduler(result['frames'], result['scheduled'], page.evaluate('CORE.musicStepSeconds()')), flush=True)
                 if 'moving' in phase:
                     if abs(result['end']['z'] - result['start']['z']) < 1:
                         raise ValueError(f'{phase}: no real touch movement')
@@ -96,6 +105,37 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                         raise ValueError(f'{phase}: no player steps')
                 elif phase.startswith('stopped') and result['movement']['z'] != 0:
                     raise ValueError(f'{phase}: touch did not stop')
+            # Inject a bounded production scheduler outage; the same timing
+            # validator must reject it even though MUSIC.step later advances.
+            page.evaluate('''() => { trace.frames=[]; trace.scheduled=[]; }''')
+            page.wait_for_timeout(800)
+            page.evaluate('''() => { haltScheduler=true; }''')
+            page.wait_for_timeout(1200)
+            page.evaluate('''() => { haltScheduler=false; }''')
+            page.wait_for_timeout(1000)
+            timing = page.evaluate('''() => ({frames:trace.frames,scheduled:trace.scheduled,step:CORE.musicStepSeconds()})''')
+            try:
+                validate_scheduler(timing['frames'], timing['scheduled'], timing['step'])
+            except ValueError as exc:
+                print('scheduler outage control rejected:', str(exc), flush=True)
+            else:
+                raise ValueError('scheduler outage control unexpectedly passed')
+            # Mute the production score upstream of both existing capture paths,
+            # while independently tapping scheduled layer voices before the bus.
+            page.evaluate('''() => { trace.audio=[]; trace.frames=[]; trace.scheduled=[]; window.interruptScore=true; window.controlStart=MUSIC.ctx.currentTime; }''')
+            page.wait_for_timeout(1800)
+            page.evaluate('''() => { window.interruptScore=false; window.controlEnd=MUSIC.ctx.currentTime; }''')
+            page.wait_for_timeout(400)
+            interrupted = page.evaluate('''() => ({audio:trace.audio.filter(b => b.t >= controlStart && b.t < controlEnd), frames:trace.frames, scheduled:trace.scheduled, step:CORE.musicStepSeconds()})''')
+            print('upstream interruption scheduler', validate_scheduler(interrupted['frames'], interrupted['scheduled'], interrupted['step']), flush=True)
+            try:
+                validate_continuity(interrupted['audio'], min_ratio=0.2)
+            except ValueError as exc:
+                if 'upstream score interruption' not in str(exc):
+                    raise ValueError(f'upstream control rejected for wrong reason: {exc}') from exc
+                print('scheduled-score upstream interruption control rejected:', str(exc), flush=True)
+            else:
+                raise ValueError('upstream score interruption unexpectedly passed')
             # Negative controls must be rejected by the same analyzer. Flush
             # asynchronous worklet messages and exclude pre-control blocks.
             page.evaluate("() => { setSetting('musicVolume', 0); window.controlStart=MUSIC.ctx.currentTime+0.6; trace.audio=[]; }")
@@ -122,9 +162,11 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 raise ValueError(f'browser errors: {errors}')
         finally:
             browser.close()
-    from probe_movement_masking_matched import main as probe_movement_masking_matched
+    # The legacy priority-vs-footstep-duck comparison is retained as a
+    # diagnostic, but its contract was superseded by steady full-band music.
+    from probe_steady_fullband import main as probe_steady_fullband
     from probe_movement_music_duck import main as probe_movement_music_duck
-    probe_movement_masking_matched(build)
+    probe_steady_fullband(build)
     probe_movement_music_duck(build)
 
 

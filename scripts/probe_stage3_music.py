@@ -111,9 +111,8 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         print('destination-path combat/cue blocks:', mix)
         assert mix['intensity'] > 0.5, mix
         assert all(mix[k]['blocks'] > 0 and mix[k]['rmsMax'] > 0 for k in ('music', 'stepMix', 'enemyStep', 'warningMix', 'stepAlone', 'warningAlone')), mix
-        # Footsteps retain moderate priority without repeatedly nearly silencing music;
-        # urgent warnings still trigger deep attenuation.
-        assert 0.3 < mix['stepMix']['duck'] < 0.6 and 0.3 < mix['enemyStep']['duck'] < 0.6 and mix['warningMix']['duck'] < 0.2, mix
+        # User superseded the old footstep-duck requirement; warnings still duck.
+        assert mix['stepMix']['duck'] > 0.99 and mix['enemyStep']['duck'] > 0.99 and mix['warningMix']['duck'] < 0.2, mix
         assert all(mix[k]['cueBlocks'] and mix[k]['cueRms'] > 0 for k in ('stepMix', 'enemyStep', 'warningMix')), mix
         assert mix['stepMix']['recovered'] > 0.9 and mix['warningMix']['recovered'] > 0.9 and mix['click']['duck'] > 0.9, mix
         page.evaluate('pauseGame()')

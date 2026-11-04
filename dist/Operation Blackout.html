@@ -19598,15 +19598,11 @@ function playSound(name, dest, skipThrottle) {
 const ctx=audioCtx();
 if (!ctx) return;
 if (!skipThrottle&&soundThrottled(name)) return;
-if (/^(e?step(?:_|$)|low_ammo$|bullet_whiz$|player_down$|heartbeat$)/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
+if (/^(low_ammo|bullet_whiz|player_down|heartbeat)$/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
 const g=MUSIC.duck.gain, now=ctx.currentTime;
-const footstep = /^e?step(?:_|$)/.test(name);
-if (!footstep) MUSIC.warningDuckUntil=Math.max(MUSIC.warningDuckUntil||0, now + Math.max(0.12, recipeDuration(SOUND_RECIPES[name])));
-if (!footstep||now >= (MUSIC.warningDuckUntil||0)) {
+MUSIC.warningDuckUntil=Math.max(MUSIC.warningDuckUntil||0, now + Math.max(0.12, recipeDuration(SOUND_RECIPES[name])));
 g.cancelScheduledValues(now); g.setTargetAtTime(0.04, now, 0.003);
-if (footstep) g.setTargetAtTime(0.45, now + 0.045, 0.003);
-g.setTargetAtTime(1, footstep ? now + 0.12 : MUSIC.warningDuckUntil, 0.14);
-}
+g.setTargetAtTime(1, MUSIC.warningDuckUntil, 0.14);
 }
 const out=dest||audioMaster()||ctx.destination;
 const buf=_sndBuffers[name];
@@ -19683,7 +19679,7 @@ const MUSIC={
 built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
 intensity: 0, running: false, step: 0, nextT: 0
 };
-const MUSIC_LOOKAHEAD=0.2;
+const MUSIC_LOOKAHEAD=0.5;
 function musicImpulse(ctx) {
 const len=Math.floor(ctx.sampleRate * 2.0);
 const buf=ctx.createBuffer(2, len, ctx.sampleRate);
