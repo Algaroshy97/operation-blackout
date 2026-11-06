@@ -166,8 +166,12 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
     # diagnostic, but its contract was superseded by steady full-band music.
     from probe_steady_fullband import main as probe_steady_fullband
     from probe_movement_music_duck import main as probe_movement_music_duck
+    from probe_footstep_separation import main as probe_footstep_separation
+    from probe_music_transition import main as probe_music_transition
     probe_steady_fullband(build)
     probe_movement_music_duck(build)
+    probe_footstep_separation(build)
+    probe_music_transition(build)
 
 
 if __name__ == '__main__':

@@ -11,6 +11,10 @@ not proof of deployment status, device support or measured frame-rate improvemen
   footstep-duck priority strategy, not the score or saved volume settings.
 - Buffer half a second of scheduled score to tolerate slower rendering frames;
   long stalls still resynchronise rather than replaying an unbounded backlog.
+- Add matched, band-limited player/spatial-enemy footstep regression evidence
+  against the retained candidate reference, and rendered combat-transition
+  scheduler checks with nonzero-masking and excessive-queue controls. These
+  are regression proxies, not proof of human or Android audibility.
 - Correct the stale Stage 3 status in the roadmap. Physical Android listening is
   not verified by the audio-graph probes.
 
