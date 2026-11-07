@@ -15,6 +15,19 @@ def validate_response(data, transition, bound):
     return delay
 
 
+def rendered_direction(candidate, reference, transition, direction, end=1.4, fixed=False):
+    """First 200 ms bass power window departing from a phase-matched control."""
+    first = round((transition + .6) / .2)
+    last = round((transition + end) / .2)
+    for i in range(first, last):
+        value, baseline = ((candidate['fixedBins'][i], reference['fixedBins'][i]) if fixed
+                           else (candidate['bins'][i][2], reference['bins'][i][2]))
+        tolerance = 32 * 2**-23 * max(value, baseline, 1e-12)
+        if direction * (value - baseline) > tolerance:
+            return round(i * .2 - transition, 3), value, baseline
+    raise ValueError(f'no directional rendered bass response by {end}s at {transition}')
+
+
 def main(build=ROOT / 'dist/Operation Blackout.html'):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -26,8 +39,8 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
             result = page.evaluate('''async () => {
               contextLost=true;
               const saved={AC,masterGain,noiseBuf,music:{...MUSIC},random:Math.random,
-                schedule:scheduleMusicStep,arp:musArp,bass:musBass,drum:musDrum};
-              async function run(stale) {
+                schedule:scheduleMusicStep,arp:musArp,bass:musBass,drum:musDrum,noise:musNoise};
+              async function run(mode, fixed=false) {
                 let seed=123456; Math.random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
                 const rate=48000,c=new OfflineAudioContext(4,rate*9,rate), calls=[],voices=[];
                 AC=c;masterGain=null;noiseBuf=null;
@@ -41,6 +54,13 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 musArp=function(ctx,t,n,out){voices.push({kind:'arp',t,n,now:ctx.currentTime}); return saved.arp(ctx,t,n,out);};
                 musBass=function(ctx,t,n,out){voices.push({kind:'bass',t,n,now:ctx.currentTime}); return saved.bass(ctx,t,n,out);};
                 musDrum=function(ctx,t,k,v,out){voices.push({kind:k,t,v,now:ctx.currentTime}); return saved.drum(ctx,t,k,v,out);};
+                // A voice's random choices depend on its time, not which other
+                // state-dependent voices happened to consume random numbers.
+                musNoise=function(ctx,t,dur,type,hz,q,peak,out){
+                  const old=Math.random;let x=(Math.round(t*rate)^Math.round(hz)^123456)>>>0;
+                  Math.random=()=>{x^=x<<13;x^=x>>>17;x^=x<<5;return (x>>>0)/4294967296;};
+                  try{return saved.noise(ctx,t,dur,type,hz,q,peak,out);}finally{Math.random=old;}
+                };
                 scheduleMusicStep=function(ctx,n,t,gains){
                   calls.push({n,t,now:ctx.currentTime,intensity:MUSIC.intensity});
                   return saved.schedule(ctx,n,t,gains);
@@ -48,26 +68,71 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 const calm={inCombat:false,aliveEnemies:0,nearestEnemy:100,health:100};
                 const combat={inCombat:true,aliveEnemies:6,nearestEnemy:2,health:35};
                 updateMusic(.04,calm);
+                // Identical real bass notes are added in paired renders. Their
+                // difference isolates the actual production layer's gain response
+                // without replacing or changing the scheduler's own voices.
+                if(fixed)for(let t=.1;t<8.8;t+=.2)saved.bass(c,t,50,MUSIC.layers.bass);
                 const frames=new Set(); for(let t=.04;t<8.96;t+=.04) frames.add(Math.round(t*rate/128)*128);
                 const forced=[2.96,5.96].map(t=>Math.round(t*rate/128)*128);forced.forEach(f=>frames.add(f));
                 const ordered=[...frames].sort((a,b)=>a-b),pauses=ordered.map(f=>c.suspend(f/rate)); const rendering=c.startRendering();
-                for(let j=0;j<ordered.length;j++){await pauses[j];updateMusic(.04,c.currentTime>=3&&c.currentTime<6?combat:calm);
+                for(let j=0;j<ordered.length;j++){await pauses[j];updateMusic(.04,mode==='combat'||(mode!=='calm'&&c.currentTime>=3&&(mode==='hold'||c.currentTime<6))?combat:calm);
                   // Queue genuine future production voices before the transition.
                   // This simulates an excessive 1.8s lookahead without changing
                   // the normal production scheduler or replacing its decisions.
-                  if(stale && forced.includes(ordered[j])) {
+                  if(mode==='stale' && forced.includes(ordered[j])) {
                     const gains=CORE.musicLayerGains(MUSIC.intensity), st=CORE.musicStepSeconds();
                     while(MUSIC.nextT<c.currentTime+1.8){scheduleMusicStep(c,MUSIC.step,MUSIC.nextT,gains);MUSIC.nextT+=st;MUSIC.step++;}
                   }
                   await c.resume();}
                 const audio=await rendering;
                 const samples=[3.5,6.5].map(t=>Array.from({length:4},(_,ch)=>Array.from(audio.getChannelData(ch).slice(t*rate,(t+1)*rate))));
-                return {calls,voices,samples,step:CORE.musicStepSeconds(),lookahead:MUSIC_LOOKAHEAD};
+                const bins=[]; for(let t=0;t<8.8;t+=.2){const v=[];for(let ch=0;ch<4;ch++){const a=audio.getChannelData(ch);let e=0;for(let i=Math.round(t*rate);i<Math.round((t+.2)*rate);i++)e+=a[i]*a[i];v.push(e/(.2*rate));}bins.push(v);}
+                return {calls,voices,samples,bins,bassSamples:audio.getChannelData(2).slice(),step:CORE.musicStepSeconds(),lookahead:MUSIC_LOOKAHEAD};
               }
-              try {return {normal:await run(false),stale:await run(true)};}
-              finally {AC=saved.AC;masterGain=saved.masterGain;noiseBuf=saved.noiseBuf;Object.assign(MUSIC,saved.music);Math.random=saved.random;scheduleMusicStep=saved.schedule;musArp=saved.arp;musBass=saved.bass;musDrum=saved.drum;}
+              try {
+                const result={normal:await run('normal'),stale:await run('stale'),calm:await run('calm'),combat:await run('combat'),hold:await run('hold')};
+                for(const mode of ['normal','stale','calm','hold']){
+                  const fixed=await run(mode,true),a=result[mode].bassSamples,b=fixed.bassSamples, bins=[];
+                  for(let t=0;t<8.8;t+=.2){let e=0;for(let i=Math.round(t*48000);i<Math.round((t+.2)*48000);i++)e+=(b[i]-a[i])**2;bins.push(e/(.2*48000));}
+                  result[mode].fixedBins=bins;
+                }
+                for(const item of Object.values(result))delete item.bassSamples;
+                return result;
+              }
+              finally {AC=saved.AC;masterGain=saved.masterGain;noiseBuf=saved.noiseBuf;Object.assign(MUSIC,saved.music);Math.random=saved.random;scheduleMusicStep=saved.schedule;musArp=saved.arp;musBass=saved.bass;musDrum=saved.drum;musNoise=saved.noise;}
             }''')
             normal, stale = result['normal'], result['stale']
+            # Preserve exact production voice identities for diagnosing stale
+            # output; layer automation can obscure a queued event's identity.
+            for transition in (3, 6):
+                for mode in ('normal', 'stale', 'calm', 'hold'):
+                    events = [v for v in result[mode]['voices']
+                              if transition <= v['t'] < transition + 1.5]
+                    print('voice-events', transition, mode, events, flush=True)
+            for i in range(12, 40):
+                print('energy-bin', round(i * .2, 2), *(f'{mode}:bass={result[mode]["bins"][i][2]:.9g},drums={result[mode]["bins"][i][1]:.9g}' for mode in ('normal','stale','calm','combat')), flush=True)
+                print('fixed-note-bin', round(i * .2, 2), *(f'{mode}={result[mode]["fixedBins"][i]:.9g}' for mode in ('normal','stale','calm','hold')), flush=True)
+            for transition, reference, direction in ((3, 'calm', 1), (6, 'hold', -1)):
+                for i in range(round(transition / .2)):
+                    a, b = normal['bins'][i][2], result[reference]['bins'][i][2]
+                    if abs(a - b) > 32 * 2**-23 * max(a, b, 1e-12):
+                        raise ValueError(f'phase/control mismatch before {transition} at {i*.2}s')
+                measured = rendered_direction(normal, result[reference], transition, direction)
+                print('rendered-direction', transition, 'delay/power/reference', measured, flush=True)
+                fixed = rendered_direction(normal, result[reference], transition, direction, end=2, fixed=True)
+                print('fixed-note-gain-direction', transition, 'delay/power/reference', fixed, flush=True)
+                try:
+                    rendered_direction(result[reference], result[reference], transition, direction)
+                except ValueError:
+                    print('no-transition control rejected:', transition, flush=True)
+                else:
+                    raise ValueError(f'no-transition control accepted at {transition}')
+                try:
+                    rendered_direction(stale, result[reference], transition, direction)
+                except ValueError as exc:
+                    print('rendered overqueue control rejected:', exc, flush=True)
+                else:
+                    raise ValueError(f'rendered overqueue control accepted at {transition}')
             # Fixed to the approved 0.5s maximum, not the possibly regressed
             # runtime constant; one score step plus one update allows phase.
             bound = .5 + normal['step'] + .04

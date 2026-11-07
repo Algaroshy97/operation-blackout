@@ -14,7 +14,9 @@ not proof of deployment status, device support or measured frame-rate improvemen
 - Add matched, band-limited player/spatial-enemy footstep regression evidence
   against the retained candidate reference, and rendered combat-transition
   scheduler checks with nonzero-masking and excessive-queue controls. These
-  are regression proxies, not proof of human or Android audibility.
+  are regression proxies, not proof of human or Android audibility. Additional
+  sampled full-master note-attribution checks cover both combat transitions;
+  fixtures were selected from exploration and are not perceptual acceptance.
 - Correct the stale Stage 3 status in the roadmap. Physical Android listening is
   not verified by the audio-graph probes.
 

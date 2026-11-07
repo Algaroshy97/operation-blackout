@@ -16,6 +16,43 @@ def load(name):
 
 
 class MusicEvidenceGuards(unittest.TestCase):
+    def test_note_target_uses_repeat_floor_and_rejects_overqueue(self):
+        check = load('probe_music_note_target').compare
+        normal, rejected, margin = check(1, 0, 0, 1e-10, 1)
+        self.assertTrue(normal)
+        self.assertTrue(rejected)
+        self.assertGreater(margin, 16e-10)
+        self.assertFalse(check(1, 0, 1, 1e-10, 1)[1])
+        self.assertFalse(check(1e-10, 0, 0, 1e-10, 1)[0])
+
+    def test_full_master_direction_guard_rejects_static_reversed_and_nonfinite(self):
+        check = load('probe_music_full_master').is_directional
+        self.assertTrue(check(2, 1, 1))
+        self.assertTrue(check(1, 2, -1))
+        self.assertFalse(check(1, 1, 1))
+        self.assertFalse(check(1, 2, 1))
+        with self.assertRaises(ValueError):
+            check(float('nan'), 1, 1)
+
+    def test_linear_preservation_rejects_nonzero_loss_and_missing_signals(self):
+        check = load('probe_footstep_separation').validate_linear
+        valid = {'linearCue': 1, 'linearScore': 2, 'linearError': 1e-14, 'peak': .5}
+        check(valid)
+        for changes in ({'linearError': .81}, {'linearCue': 0}, {'linearScore': 0}, {'peak': 1}, {'linearError': float('nan')}):
+            with self.assertRaises(ValueError):
+                check({**valid, **changes})
+
+    def test_rendered_direction_rejects_static_reversed_and_missing_response(self):
+        check = load('probe_music_transition').rendered_direction
+        reference = {'bins': [[0, 0, 1] for _ in range(45)]}
+        candidate = {'bins': [row[:] for row in reference['bins']]}
+        candidate['bins'][19][2] = 2
+        self.assertEqual(check(candidate, reference, 3, 1)[0], .8)
+        with self.assertRaises(ValueError):
+            check(reference, reference, 3, 1)
+        with self.assertRaises(ValueError):
+            check(candidate, reference, 3, -1)
+
     def test_separation_rejects_nonzero_attenuation_and_muted_score(self):
         check = load('probe_footstep_separation').validate_row
         ref = {'ratios': [1, 2, 3], 'scores': [1, 1, 1]}

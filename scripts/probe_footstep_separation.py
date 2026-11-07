@@ -7,12 +7,25 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def validate_linear(row):
+    """Bound roundoff in float32 addition, not a hearing/masking threshold."""
+    cue, score, error = (row[k] for k in ('linearCue', 'linearScore', 'linearError'))
+    if not all(math.isfinite(x) for x in (cue, score, error)) or cue <= 0 or score <= 0 or error < 0:
+        raise ValueError('missing linear signal')
+    if row['peak'] >= 1:
+        raise ValueError('mix clipping')
+    # Eight float32 epsilons allow independent gain and sum rounding.
+    limit = (8 * 2**-23)**2 * (cue + score)
+    if error > limit:
+        raise ValueError(f'cue not preserved: residual {error:g} exceeds {limit:g}')
+    return error / limit
+
+
 def validate_row(row, reference):
     """Relative regression guard, not an absolute audibility threshold.
 
-    A 6 dB loss of cue-to-score energy in any measured band is material;
-    the approved, unchanged captured graph is the reference, not a claim that
-    its quietest cue is audible to a person. Separate score/headroom checks
+    This historical 6 dB regression sentinel uses a previously rejected
+    reference and is not a criterion for audibility. Separate score/headroom checks
     avoid passing by muting the music or clipping the mix.
     """
     if row['peak'] >= 1:
@@ -37,7 +50,7 @@ def capture(page, scale):
       const rate=48000,names=['step','step_crouch','step_tac','step_snow','step_snow_crouch','step_snow_tac','step_ice','step_ice_crouch','step_ice_tac','estep','estep_heavy','estep_snow','estep_snow_heavy','estep_ice','estep_ice_heavy'];
       const events=names.map((name,i)=>({time:1+i*.55,name,spatial:name.startsWith('estep'),distance:i%2?4:2}));
       const denseStart=10; for(let i=0;i<30;i++)events.push({time:denseStart+i*.08,name:names[(i*7)%names.length],spatial:names[(i*7)%names.length].startsWith('estep'),distance:i%2?4:2,dense:true});
-      const length=13, c=new OfflineAudioContext(8,rate*length,rate);
+      const length=13, c=new OfflineAudioContext(12,rate*length,rate);
       try {
         Object.defineProperty(performance,'now',{configurable:true,value:()=>c.currentTime*1000});
         AC=c;masterGain=null;noiseBuf=null;
@@ -53,13 +66,16 @@ def capture(page, scale):
         startMusic();
         // Separate cue bus is inserted only at audioMaster's return; 3D gain/filter/pan,
         // attenuation, and production throttle remain intact. Score remains untouched.
-        const real=audioMaster(), cue=c.createGain(); cue.gain.value=scale; cue.connect(real);
+        const real=audioMaster(), cue=c.createGain(), mixedCue=c.createGain(); mixedCue.gain.value=scale; cue.connect(mixedCue); mixedCue.connect(real);
         const admissions=[];soundThrottled=function(name){const blocked=saved.throttle(name);admissions.push({name,blocked});return blocked;};
         real.disconnect(c.destination);
-        const merger=c.createChannelMerger(8);merger.connect(c.destination);
+        const merger=c.createChannelMerger(12);merger.connect(c.destination);
         const score=c.createGain();score.gain.value=AUDIO.master;MUSIC.comp.connect(score);
         function mono(src,ch){const g=c.createGain();g.channelCount=1;g.channelCountMode='explicit';src.connect(g);g.connect(merger,0,ch);}
         const split=c.createChannelSplitter(2);real.connect(split);split.connect(merger,0,6);split.connect(merger,1,7);
+        const cueTap=c.createGain();cueTap.channelCount=2;cueTap.channelCountMode='explicit';cueTap.gain.value=AUDIO.master;cue.connect(cueTap);
+        const cueSplit=c.createChannelSplitter(2);cueTap.connect(cueSplit);cueSplit.connect(merger,0,8);cueSplit.connect(merger,1,9);
+        const scoreSplit=c.createChannelSplitter(2);score.connect(scoreSplit);scoreSplit.connect(merger,0,10);scoreSplit.connect(merger,1,11);
         [250,1000,4000].forEach((hz,i)=>{for(const [src,ch] of [[real,2*i],[score,2*i+1]]) {const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=hz;f.Q.value=1;src.connect(f);mono(f,ch);}});
         const p=player.pos.clone(), yaw=player.yaw;
         player.pos.set(0,1.6,0);player.yaw=0;
@@ -81,7 +97,10 @@ def capture(page, scale):
         player.pos.copy(p);player.yaw=yaw;
         function metric(start,end) {const a=Math.floor(start*rate),b=Math.floor(end*rate),ratios=[],energies=[],scores=[];
           for(let k=0;k<3;k++){const m=audio.getChannelData(k*2),s=audio.getChannelData(k*2+1);let cueE=0,scoreE=0;for(let i=a;i<b;i++){cueE+=(m[i]-s[i])**2;scoreE+=s[i]**2;}energies.push(cueE/(b-a));scores.push(scoreE/(b-a));ratios.push(cueE/scoreE);}
-          let peak=0;for(let k=6;k<8;k++){const d=audio.getChannelData(k);for(let i=a;i<b;i++)peak=Math.max(peak,Math.abs(d[i]));}return {ratios,energies,scores,peak};}
+          let peak=0, error=0, cueEnergy=0, scoreEnergy=0;
+          // Save stereo score separately below; channels 0..5 are band-limited.
+          for(let k=0;k<2;k++){const m=audio.getChannelData(6+k),q=audio.getChannelData(8+k),s=audio.getChannelData(10+k);for(let i=a;i<b;i++){peak=Math.max(peak,Math.abs(m[i]));error+=(m[i]-s[i]-q[i])**2;cueEnergy+=q[i]**2;scoreEnergy+=s[i]**2;}}
+          return {ratios,energies,scores,peak,linearError:error,linearCue:cueEnergy,linearScore:scoreEnergy};}
         return {individual:events.filter(e=>!e.dense).map(e=>({...e,...metric(e.time,e.time+.12)})),dense:metric(denseStart,denseStart+2.5),admissions};
       } finally {audioMaster=saved.master;soundThrottled=saved.throttle;Object.defineProperty(performance,'now',{configurable:true,value:saved.now});Math.random=saved.random;AC=saved.AC;masterGain=saved.masterGain;noiseBuf=saved.noiseBuf;Object.assign(MUSIC,saved.music);}
     }''', scale)
@@ -92,7 +111,7 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         try:
             results = []
-            for scale in (1, .1):
+            for scale in (1, .5, .1, 0):
                 page = browser.new_page()
                 try:
                     page.route('https://blackout.test/', lambda r: r.fulfill(status=200, content_type='text/html', body=Path(build).read_bytes()))
@@ -101,10 +120,12 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                     results.append(capture(page, scale))
                 finally:
                     page.close()
-            normal, suppressed = results
+            normal, halved, suppressed, disconnected = results
             reference = json.loads((ROOT / 'tests/steady_footstep_reference.json').read_text())
             rows = normal['individual'] + [normal['dense']]
             controls = suppressed['individual'] + [suppressed['dense']]
+            half_controls = halved['individual'] + [halved['dense']]
+            zero_controls = disconnected['individual'] + [disconnected['dense']]
             refs = reference['individual'] + [reference['dense']]
             if len(rows) != 16 or len(refs) != 16 or len(normal['admissions']) != 45:
                 raise ValueError('missing variant, dense event or throttle invocation')
@@ -114,6 +135,15 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 if idx < 15 and any(row[k] != ref[k] for k in ('name', 'spatial', 'distance')):
                     raise ValueError('variant or spatial fixture differs from reference')
                 validate_row(row, ref)
+                residual = validate_linear(row)
+                for label, altered in (('half', half_controls[idx]), ('tenth', control), ('disconnected', zero_controls[idx])):
+                    try:
+                        validate_linear(altered)
+                    except ValueError as exc:
+                        if 'cue not preserved' not in str(exc):
+                            raise
+                    else:
+                        raise ValueError(f'linear {label} control {idx} passed')
                 if not all(e > 0 for e in control['energies']):
                     raise ValueError('negative control cue must remain nonzero')
                 try:
@@ -124,8 +154,9 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                 else:
                     raise ValueError(f'suppressed nonzero control {idx} passed')
                 print('footstep', row.get('name', 'dense'), 'ratios', row['ratios'],
-                      'nonzero suppressed ratios', control['ratios'], 'peak', row['peak'], flush=True)
-            print('production throttle admissions:', len(normal['admissions']), 'nonzero suppressed controls rejected:', len(controls), flush=True)
+                      'nonzero suppressed ratios', control['ratios'], 'peak', row['peak'],
+                      'linear residual/roundoff limit', residual, flush=True)
+            print('production throttle admissions:', len(normal['admissions']), 'nonzero suppressed controls rejected:', len(controls), 'linear half/tenth/disconnected controls rejected:', 3 * len(controls), flush=True)
         finally:
             browser.close()
 
