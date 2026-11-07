@@ -4,6 +4,23 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Movement music — candidate
+
+- Keep the original score steady under footsteps; only important warnings trigger
+  music ducking, including overlapping warnings. This replaces the earlier
+  footstep-duck priority strategy, not the score or saved volume settings.
+- Buffer half a second of scheduled score to tolerate slower rendering frames;
+  long stalls still resynchronise rather than replaying an unbounded backlog.
+- Add matched, band-limited player/spatial-enemy footstep regression evidence
+  against the retained candidate reference, and rendered combat-transition
+  scheduler checks with nonzero-masking and excessive-queue controls. These
+  are regression proxies, not proof of human or Android audibility. Additional
+  sampled full-master note-attribution checks cover both combat transitions;
+  fixtures were selected from exploration and are not perceptual acceptance.
+  Include the full-master diagnostic needed by the evidence-validator tests.
+- Correct the stale Stage 3 status in the roadmap. Physical Android listening is
+  not verified by the audio-graph probes.
+
 ## Stage 3 — in progress
 
 - Drive adaptive music from active match combat as well as Survival waves, counting

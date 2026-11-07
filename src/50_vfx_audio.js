@@ -807,10 +807,11 @@ function playSound(name, dest, skipThrottle) {
   const ctx = audioCtx();
   if (!ctx) return;
   if (!skipThrottle && soundThrottled(name)) return;
-  if (/^(e?step(?:_|$)|low_ammo$|bullet_whiz$|player_down$|heartbeat$)/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
+  if (/^(low_ammo|bullet_whiz|player_down|heartbeat)$/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
     const g = MUSIC.duck.gain, now = ctx.currentTime;
+    MUSIC.warningDuckUntil = Math.max(MUSIC.warningDuckUntil || 0, now + Math.max(0.12, recipeDuration(SOUND_RECIPES[name])));
     g.cancelScheduledValues(now); g.setTargetAtTime(0.04, now, 0.003);
-    g.setTargetAtTime(1, now + 0.12, 0.14);
+    g.setTargetAtTime(1, MUSIC.warningDuckUntil, 0.14);
   }
   const out = dest || audioMaster() || ctx.destination;
   const buf = _sndBuffers[name];
@@ -900,8 +901,8 @@ let wasGround = true;
 // Everything here is synthesised, like the rest of the audio — no asset bytes.
 //
 // A look-ahead sequencer: each frame schedules the sixteenth steps that fall in
-// the next ~0.2 s on the audio clock, so timing is sample-accurate whatever the
-// frame rate. What to play comes from CORE (chart, layer levels, patterns); this
+// the next ~0.5 s on the audio clock, buffering ordinary slow frames without
+// accumulating an unbounded backlog. What to play comes from CORE (chart, layer levels, patterns); this
 // file only voices it. Layers sit on their own gain nodes and are faded with
 // setTargetAtTime, never written per frame, so intensity changes cannot click.
 // A layer whose level is ~0 schedules nothing, which keeps calm stretches cheap.
@@ -909,7 +910,7 @@ const MUSIC = {
   built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
   intensity: 0, running: false, step: 0, nextT: 0
 };
-const MUSIC_LOOKAHEAD = 0.2;
+const MUSIC_LOOKAHEAD = 0.5;
 
 // Two seconds of decaying stereo noise: a cheap hall that glues the layers.
 function musicImpulse(ctx) {
