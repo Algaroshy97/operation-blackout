@@ -17,6 +17,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
   are regression proxies, not proof of human or Android audibility. Additional
   sampled full-master note-attribution checks cover both combat transitions;
   fixtures were selected from exploration and are not perceptual acceptance.
+  Include the full-master diagnostic needed by the evidence-validator tests.
 - Correct the stale Stage 3 status in the roadmap. Physical Android listening is
   not verified by the audio-graph probes.
 
