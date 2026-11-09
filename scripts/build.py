@@ -67,7 +67,7 @@ def strip_css_comments(html: str) -> str:
                    for line in cleaned.split(LF))
 
 
-def strip_line_comments(js: str) -> str:
+def strip_line_comments(js: str, compact_extra: bool = False) -> str:
     """Drop full-line `//` comments from a source module for the shipped file.
 
     The release has a hard 2 MiB budget and the modules are heavily commented,
@@ -92,6 +92,10 @@ def strip_line_comments(js: str) -> str:
                 line = line.replace(' === ', '===').replace(' !== ', '!==')
                 line = line.replace(' && ', '&&').replace(' || ', '||')
                 line = line.replace(' = ', '=')
+                if compact_extra:
+                    # Only delimiters, never operator characters: `a + +b`,
+                    # optional chaining and HTML-comment token boundaries matter.
+                    line = re.sub(r'\s*([{}(),;])\s*', r'\1', line)
         if line.count('`') % 2:
             in_template = not in_template
         kept.append(line)
@@ -130,7 +134,7 @@ def main() -> None:
         parts.extend(["<script>\n", read_lf(library), "\n</script>\n"])
     parts.extend([
         "<script>\n",
-        "\n".join(strip_line_comments(read_lf(module)) for module in modules),
+        "\n".join(strip_line_comments(read_lf(module), compact_extra=True) for module in modules),
         "\n</script>\n</body>\n</html>\n",
     ])
     output.parent.mkdir(parents=True, exist_ok=True)

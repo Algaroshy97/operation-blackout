@@ -583,6 +583,7 @@ function captureRunState() {
     difficulty: runDifficulty, endless: endlessMode, weapons: weapons,
     runPhase: typeof runPhase !== 'undefined' ? runPhase : (endlessMode ? 'endless' : 'active'),
     settlementSnapshot: typeof settlementSnapshot !== 'undefined' ? settlementSnapshot : null,
+    modeCombat: typeof captureModeStats === 'function' ? captureModeStats() : null,
     streakKills: streakKills,
     runStreaksEarned: runStreaksEarned,
     openDistricts: openDistricts,

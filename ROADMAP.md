@@ -72,7 +72,21 @@ to the end. Do not claim physical Android/LOQ acceptance from headless checks.
   regressions and release evidence; do not infer completion from stale board cards.
 - Daily challenge is explicitly DEFERRED by the user; do not implement a seeded
   challenge, daily modifiers or counted daily attempt as part of this plan.
-- Status: pending; wait for the user's Android listening after the music release.
+- Decisions: separate main-menu statistics page AND per-match summary; favourite
+  weapon means most credited kills. An early exit retains combat counters but adds
+  no win/loss. Accuracy is hostile hits per fired round (one hit maximum per shotgun
+  trigger), not an average of match percentages. Zero deaths display kills as K/D;
+  zero shots display 0%; favourite ties sort alphabetically.
+- Repair candidate: incremental durable combat observations, one win award per run,
+  checkpoint/reload summary restoration and damage-source weapon attribution;
+  production lifecycle regressions cover all five modes. Earlier-stage audit found
+  friendly-hit accuracy inflation, repaired here; other physical-device gaps remain
+  evidence gaps rather than invented functional defects. User's post-PR17 sound
+  approval satisfies the waiting prerequisite only to the extent of that statement.
+- Status: repaired isolated candidate; local software gates passed: 699 Node tests,
+  23 release-build tests, statistics UI/durability acceptance and all 356 full live
+  checks. Artifact: 2,079,147 bytes (2 MiB cap). Independent review and physical-device
+  evidence remain separate requirements. Not shipped, merged, or published.
 
 Historical scope below is subordinate to these decisions, especially base-weapon
 rank gates, daily challenges and the old milestone numbering/delivery granularity.

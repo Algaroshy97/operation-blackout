@@ -449,6 +449,8 @@ function fireShot(preserveSchedule) {
     lastHit = r.hit;
   }
   if (anyHit) shotsHit++;
+  // A shotgun fires one trigger pull: a hit is one or more pellets landing, never pellet count.
+  if (typeof noteModeShot === 'function') noteModeShot(w.name || w.id || w.type || 'Unknown', anyHit);
   const hit = lastHit;
   // shell casing eject
   spawnCasing(camera.position, camera.quaternion, w ? w.type : '');
@@ -513,7 +515,7 @@ function traceRound(w, spreadNow, magnetize) {
     const en = hit.object.userData.enemyRef;
     const hsMul = CORE.weaponHeadshotMultiplier(w ? w.type : '', CFG.ai.headshotMul);
     const dmg = CORE.playerBulletDamage(w.dmg, isHead, hsMul, hit.distance, w.range, penMul, w ? w.type : '');
-    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR', player);
+    damageEnemy(en, dmg, hit.point, isHead, penMul < 1, w ? w.type : 'AR', player, w.name || w.id || w.type);
     if (worldHits.length && CORE.shouldSpawnPenetrationCoverVfx(penMul, worldHits[0].distance, hit.distance)) {
       spawnImpact(worldHits[0].point, worldHits[0].face ? worldHits[0].face.normal : null, worldHits[0].object, null, w ? w.type : 'AR');
       if (worldHits[0].face && worldHits[0].face.normal) spawnDecal(worldHits[0].point, worldHits[0].face.normal, worldHits[0].object, w ? w.type : 'AR');
@@ -524,7 +526,9 @@ function traceRound(w, spreadNow, magnetize) {
     if (hit.face && hit.face.normal) spawnDecal(hit.point, hit.face.normal, hit.object, w.type);
   }
   spawnTracer(_from, hit ? hit.point : _tracerMissEnd.copy(_from).addScaledVector(_shootDir, w.range), null, w ? w.type : 'AR');
-  _roundOut.hit = hit; _roundOut.enemy = isEnemy;
+  _roundOut.hit = hit;
+  // Friendly geometry still occludes the ray, but is never an accuracy hit.
+  _roundOut.enemy = isEnemy && !!hit.object.userData.enemyRef && !CORE.isFriendlyFire(player, hit.object.userData.enemyRef);
   return _roundOut;
 }
 

@@ -253,7 +253,7 @@ function actorDamageMul(actor) {
   return (typeof m === 'number' && isFinite(m) && m > 0) ? m : 1;
 }
 
-function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker) {
+function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker, weaponName) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
@@ -268,6 +268,7 @@ function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker)
   // Remember how the blow landed so credited-kill rules (the Gun Game ladder) can
   // tell a weapon kill from an unowned blast, sentry or environment kill.
   en.lastDamageType = (typeof weaponType === 'string' && weaponType) ? weaponType : undefined;
+  en.lastDamageWeapon = weaponName || weaponType || 'Unknown';
   const allowFriendlyFire = (typeof CFG !== 'undefined' && CFG && CFG.friendlyFire === true) || (sourceActor && sourceActor.friendlyFire === true) || (en && en.friendlyFire === true);
   if (sourceActor) {
     const isAlly = (typeof CORE !== 'undefined' && typeof CORE.isFriendlyFire === 'function')
@@ -356,6 +357,7 @@ function killEnemy(en, isHead, killer, damageType) {
     // multi-kill streak bonus (2+ kills within 4 s)
     registerKillT();
     kills++;
+    if (typeof noteModeKill === 'function' && (typeof getActiveMode !== 'function' || !getActiveMode() || getActiveMode().id === 'survival')) noteModeKill(en.lastDamageWeapon || damageType || 'Unknown');
     if (isHead) headshots++;
     // Power-ups roll before the ordinary ammo/med table: a MAX AMMO that also
     // dropped a magazine would waste the drop.

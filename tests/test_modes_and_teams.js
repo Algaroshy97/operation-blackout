@@ -1367,7 +1367,28 @@ test('attack-triggered spawn protection cancellation for players and bots', () =
   wepContext.fireShot(false);
   assert.strictEqual(wepContext.player.spawnProtectionT, 0, 'fireShot must cancel player spawn protection');
 
+  // Stage4: use actual fireShot + traceRound, with a deterministic ray hit.
+  {
+  const target = { team: 'friendly', pos: new Vector3(0, 1.7, -5), dead: false, parts: { group: {} } };
+  wepContext.enemies.push(target);
+  wepContext.damageEnemy = noop;
+  wepContext.noteModeShot = (weapon, hit) => { wepContext.lastModeHit = hit; };
+  wepContext._testHit = { distance: 5, point: target.pos, object: { userData: { enemyRef: target } } };
+  vm.runInContext('raycaster.intersectObjects = function (targets) { return targets.length ? [_testHit] : []; };', wepContext);
+  wepContext.fireShot(false);
+  assert.equal(wepContext.lastModeHit, false, 'friendly occlusion is not a hostile accuracy hit');
+  target.team = 'enemy';
+  wepContext.fireShot(false);
+  assert.equal(wepContext.lastModeHit, true, 'hostile rifle hit counts');
+  const beforePellets = wepContext.shotsHit;
+  const rifle = wepContext.curW();
+  wepContext.curW = () => Object.assign({}, rifle, { type: 'SG', pellets: 8, pelletSpread: 0.1 });
+  wepContext.fireShot(false);
+  assert.equal(wepContext.shotsHit, beforePellets + 1, 'eight hostile pellets count as one accuracy hit');
+  }
+
   // Player doMelee clears player spawn protection
+  wepContext.enemies.length = 0;
   wepContext.player.spawnProtectionT = 2.0;
   wepContext.doMelee();
   assert.strictEqual(wepContext.player.spawnProtectionT, 0, 'doMelee must cancel player spawn protection');
@@ -1909,6 +1930,190 @@ function getProductionTex() {
   return _cachedProductionTex;
 }
 
+// Exercise the real ledger inside the production flow harness, not a model of it.
+function stage4Context() {
+  const c = createFullMatchContext();
+  c.saveStats = () => { c._durableStats = JSON.parse(JSON.stringify(c.STATS)); };
+  const events = {};
+  c.window.addEventListener = (name, fn) => { events[name] = fn; };
+  c._dispatchPagehide = () => events.pagehide();
+  const settings = source('02_settings.js');
+  vm.runInContext(settings.slice(settings.indexOf('// ---- Per-mode combat ledger'), settings.indexOf('// ---- Gunsmith loadouts')), c);
+  return c;
+}
+
+test('Stage4 pagehide flush followed by continued combat and victory is durable exactly once', () => {
+  const c = stage4Context();
+  c.beginModeStats('survival');
+  c.noteModeKill('M4'); c.noteModeShot('M4', true);
+  c._dispatchPagehide();
+  c.noteModeKill('M870'); c.noteModeShot('M870', false);
+  c.flushModeStats(true); c.flushModeStats(true);
+  assert.equal(c.STATS.modeStats.survival.kills, 2);
+  assert.equal(c.STATS.modeStats.survival.wins, 1);
+  assert.equal(c._durableStats.modeStats.survival.shotsFired, 2);
+});
+
+test('Stage4 observed combat survives abrupt reload before any unload or checkpoint', () => {
+  const c = stage4Context();
+  c.beginModeStats('ffa');
+  c.noteModeKill('M4'); c.noteModeShot('M4', true); c.noteModeDeath();
+  const reloaded = stage4Context();
+  reloaded.STATS = CORE.sanitizeStats(c._durableStats);
+  assert.equal(reloaded.STATS.modeStats.ffa.kills, 1);
+  assert.equal(reloaded.STATS.modeStats.ffa.deaths, 1);
+  assert.equal(reloaded.STATS.modeStats.ffa.shotsHit, 1);
+  assert.equal(reloaded.STATS.modeStats.ffa.wins, 0);
+});
+
+test('Stage4 Survival victory endless death does not duplicate mode kills through career settlement', () => {
+  const c = stage4Context();
+  c.beginModeStats('survival');
+  c.noteModeKill('M4'); c.kills = 1;
+  c.victory(); c.victory();
+  assert.equal(c.STATS.modeStats.survival.kills, 1);
+  assert.equal(c.STATS.modeStats.survival.wins, 1);
+  c.document.getElementById('btn-endless').click();
+  c.noteModeKill('M870'); c.kills = 2;
+  c.killPlayer(); c.killPlayer();
+  assert.equal(c.STATS.modeStats.survival.kills, 2);
+  assert.equal(c.STATS.modeStats.survival.deaths, 1);
+  assert.equal(c.STATS.modeStats.survival.wins, 1);
+  assert.equal(c.STATS.totalKills, 2);
+  assert.equal(c.STATS.runs, 1);
+});
+
+test('Stage4 delayed damage credits its source weapon rather than the equipped weapon', () => {
+  const c = stage4Context();
+  c.beginModeStats('survival');
+  c.curW = () => ({ name: 'Equipped M4', type: 'AR' });
+  const en = { team: 'enemy', pos: new Vector3(5, 0, 5), health: 10, maxHealth: 10, dead: false, parts: c.dummyParts() };
+  c.damageEnemy(en, 30, en.pos, false, false, 'RPG', c.player);
+  assert.equal(c.STATS.modeStats.survival.weaponKills.RPG, 1);
+  assert.equal(c.STATS.modeStats.survival.weaponKills['Equipped M4'], undefined);
+});
+
+test('Stage4 checkpoint reload restores summary without replaying persisted combat or a victory win', () => {
+  const c = stage4Context();
+  c.beginModeStats('survival'); c.noteModeKill('M4');
+  c.kills = 1; c.waveNum = 15;
+  c.victory();
+  const cp = c.loadCheckpoint();
+  assert.equal(cp.modeCombat.kills, 1);
+  assert.equal(cp.modeCombat.winAwarded, true);
+  c.document.getElementById('btn-endless').click();
+  c.resumeRun();
+  c.noteModeKill('M870'); c.flushModeStats(true);
+  assert.equal(c.STATS.modeStats.survival.kills, 2);
+  assert.equal(c.STATS.modeStats.survival.wins, 1);
+  assert.match(c.runModeStatsHtml(), /M4|M870/);
+});
+
+test('Stage4 result rendered during final-round damage refreshes when fireShot records the round', () => {
+  const c = stage4Context(); c.setActiveMode('tdm'); c.resetGame(); c.started = true;
+  c.getActiveMode().friendlyScore = c.getActiveMode().targetScore - 1;
+  const victim = { team: 'enemy', pos: new Vector3(5, 0, 5), health: 1, dead: false, parts: c.dummyParts() };
+  const weapon = { name:'M4', type:'AR', rpm:600, spread:0, adsSpread:0, pellets:1 };
+  const state = { ammo:30, nextShot:0 };
+  Object.assign(c, { curW: () => weapon, curS: () => state, adsDown: () => false,
+    fireClockT:0, bloom:0, hSpeedForSpread:0, _from:new Vector3(), spawnCasing:noop, finishShot:noop });
+  c.camera = {position:new Vector3(), quaternion:{}, getWorldPosition: v => v.set(0, 0, 0)};
+  // Stub only the ray result. Real fireShot -> real damageEnemy -> TDM onKill ->
+  // real result rendering occurs before fireShot's final hit observation.
+  c.traceRound = () => { c.damageEnemy(victim, 30, victim.pos, false, false, 'AR', c.player, 'M4'); return {enemy:true,hit:null}; };
+  const weapons = source('30_weapons.js');
+  vm.runInContext(weapons.slice(weapons.indexOf('function fireShot('), weapons.indexOf('// One round (or one pellet)')), c);
+  c.fireShot(false);
+  const html = c.document.getElementById('match-end-stats').innerHTML;
+  assert.match(html, /Accuracy: <b>100%<\/b> \(1\/1\)/);
+  assert.equal(c.STATS.modeStats.tdm.wins, 1);
+});
+
+test('Stage4 stored favorite weapon is escaped in career and match summaries', () => {
+  const c = stage4Context(); c.beginModeStats('survival');
+  c.noteModeKill('<img src=x onerror=alert(1)>');
+  assert.doesNotMatch(c.modeStatsHtml(), /<img/);
+  assert.match(c.modeStatsHtml(), /&lt;img/);
+  assert.doesNotMatch(c.runModeStatsHtml(), /<img/);
+});
+
+test('Stage4 real result transitions show full match statistics and menu has a separate statistics view', () => {
+  const c = stage4Context(); c.beginModeStats('survival'); c.noteModeKill('M4');
+  c.victory();
+  assert.match(c.document.getElementById('vs-stats').innerHTML, /MATCH STATISTICS/);
+  assert.match(c.document.getElementById('vs-stats').innerHTML, /Favorite weapon/);
+  c.document.getElementById('btn-v-quit').click();
+  c.document.getElementById('btn-stats').click();
+  assert.equal(c.document.getElementById('stats-screen').style.display, 'flex');
+  assert.match(c.document.getElementById('stats-records').innerHTML, /SURVIVAL/);
+  c.document.getElementById('btn-stats-back').click();
+  assert.equal(c.document.getElementById('stats-screen').style.display, 'none');
+  c.beginModeStats('ffa'); c.noteModeKill('M870');
+  c.showMatchEndScreen({ id: 'ffa', outcome: () => ({title:'VICTORY',leftScore:1,rightScore:0}) });
+  assert.match(c.document.getElementById('match-end-stats').innerHTML, /Favorite weapon.*M870/);
+});
+
+for (const id of ['tdm', 'ffa', 'domination', 'gun-game']) {
+  test('Stage4 production combat quit restart and win lifecycle: ' + id, () => {
+    const c = stage4Context(); c.setActiveMode(id); c.resetGame(); c.started = true;
+    const mode = c.getActiveMode();
+    const victim = () => ({ team: 'enemy', id: 'victim', pos: new Vector3(5, 0, 5), health: 10, maxHealth: 10, dead: false, parts: c.dummyParts() });
+    c.damageEnemy(victim(), 30, new Vector3(5, 0, 5), false, false, 'AR', c.player, 'Source M4');
+    assert.equal(c.STATS.modeStats[id].kills, 1);
+    assert.equal(c.STATS.modeStats[id].weaponKills['Source M4'], 1);
+    c._dispatchPagehide();
+    c.damageEnemy(victim(), 30, new Vector3(5, 0, 5), false, false, 'AR', c.player, 'Source M4');
+    c.killPlayer(); c.killPlayer();
+    assert.equal(c.STATS.modeStats[id].deaths, 1);
+    c.quitMatchToMenu();
+    assert.equal(c.STATS.modeStats[id].kills, 2);
+    assert.equal(c.STATS.modeStats[id].wins, 0);
+    c.setActiveMode(id); c.restartMatch();
+    c.damageEnemy(victim(), 30, new Vector3(5, 0, 5), false, false, 'AR', c.player, 'Source M4');
+    // Force the mode's genuine win condition; its production update/endMatch
+    // path owns the result and the end screen's once-only award.
+    if (id === 'tdm' || id === 'domination') mode.friendlyScore = mode.targetScore;
+    else if (id === 'ffa') c.player.kills = mode.targetScore;
+    else c.player.gunGameTier = c.CORE.GUN_GAME_LADDER.length;
+    mode.update(0); mode.endMatch(); c.showMatchEndScreen(mode);
+    assert.equal(c.STATS.modeStats[id].kills, 3);
+    assert.equal(c.STATS.modeStats[id].wins, 1);
+    c.damageEnemy(victim(), 30, new Vector3(5, 0, 5), false, false, 'AR', c.player, 'late');
+    assert.equal(c.STATS.modeStats[id].kills, 3);
+    c.setActiveMode('survival'); c.resetGame();
+    assert.equal(c.STATS.modeStats.survival.kills, 0);
+    assert.equal(c._durableStats.modeStats[id].kills, 3);
+  });
+}
+
+test('Stage4 delayed thermite burn keeps player ownership and source and excludes bot kills', () => {
+  for (const playerOwned of [true, false]) {
+    const c = stage4Context(); c.beginModeStats('survival');
+    const mesh = {position:new Vector3(), scale:{setScalar:noop}, material:{}};
+    Object.assign(c, { burnPatches:[], smokeClouds:[], playerFlashT:0, _lastFlashOpacity:0,
+      _burnHitPoint:new Vector3(), getBurnPatchMesh:()=>mesh, scene:{add:noop}, updateScorches:noop });
+    const text = source('55_grenades.js');
+    vm.runInContext(text.slice(text.indexOf('function addBurnPatch('), text.indexOf('function addSmokeCloud(')), c);
+    vm.runInContext(text.slice(text.indexOf('function updateEquipmentEffects('), text.indexOf('function clearEquipmentEffects(')), c);
+    const en = {team:'enemy', pos:new Vector3(2,0,2), health:1, dead:false, parts:c.dummyParts()};
+    c.enemies.push(en);
+    c.addBurnPatch(2, 2, {name:'Thermite', burnTime:6, burnRadius:3, burnDps:100}, playerOwned ? c.player : {team:'friendly'});
+    c.updateEquipmentEffects(0.1);
+    assert.equal(c.STATS.modeStats.survival.kills, playerOwned ? 1 : 0);
+    if (playerOwned) assert.equal(c.STATS.modeStats.survival.weaponKills.Thermite, 1);
+  }
+});
+
+test('Stage4 actual delayed grenade blast credits grenade not the gun equipped at detonation', () => {
+  const c = stage4Context(); loadGrenadeLifecycle(c); c.beginModeStats('survival');
+  const en = { team:'enemy', pos:new Vector3(2,0,2), health:1, maxHealth:1, dead:false, parts:c.dummyParts() };
+  c.enemies.push(en); c.player.pos.set(40,0,40);
+  c.wep = () => ({ name:'Switched rifle', type:'AR' });
+  c.explodeGrenade(new Vector3(2,0,2), 1, c.player);
+  assert.equal(c.STATS.modeStats.survival.weaponKills.Grenade, 1);
+  assert.equal(c.STATS.modeStats.survival.weaponKills['Switched rifle'], undefined);
+});
+
 function createFullMatchContext(overrides = {}) {
   const docElements = new Map();
   const doc = {
@@ -1921,6 +2126,7 @@ function createFullMatchContext(overrides = {}) {
           textContent: '',
           innerHTML: '',
           dataset: {},
+          focus: noop,
           classList: { add: noop, remove: noop, contains: () => false },
           querySelector: () => null,
           querySelectorAll: () => [],

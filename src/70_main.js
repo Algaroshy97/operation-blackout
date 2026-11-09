@@ -43,6 +43,7 @@ function resumeGame() {
 function killPlayer(killer) {
   if (player.dead) return;
   player.dead = true;
+  if (typeof noteModeDeath === 'function') noteModeDeath();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const sourceActor = killer || player.downedBy || player.lastAttacker || null;
   if (activeMode && typeof activeMode.onDeath === 'function') activeMode.onDeath(player, sourceActor);
@@ -73,6 +74,7 @@ function killPlayer(killer) {
   if (typeof updateHudStreaks === 'function') updateHudStreaks();
   if (typeof applyTouchInput === 'function') applyTouchInput();
   if (!activeMode || activeMode.id === 'survival') {
+    if (typeof flushModeStats === 'function') flushModeStats(false);
     const accuracy = shotsFired > 0 ? Math.round(shotsHit / shotsFired * 100) : 0;
     const hsRate = kills > 0 ? Math.round(headshots / kills * 100) : 0;
     // a lost run is not resumable
@@ -91,6 +93,7 @@ function killPlayer(killer) {
       '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
       '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
       '<br><br><span style="font-size:13px;opacity:.8">' + (typeof statsSummaryHtml === 'function' ? statsSummaryHtml() : '') + '</span>';
+    if (typeof runModeStatsHtml === 'function') $id('ds-stats').innerHTML += '<br><br>' + runModeStatsHtml();
     setTimeout(function () { if (player.dead) { const ds = $id('death-screen'); if (ds) ds.style.display = 'flex'; } }, 900);
   } else {
     const ds = $id('death-screen');
@@ -113,18 +116,21 @@ function victory() {
     mapId: (typeof activeMapId !== 'undefined' ? activeMapId : (typeof activeMap !== 'undefined' && activeMap ? activeMap.id : 'urban')),
     victory: true });
   markSettlement();
+  if (typeof flushModeStats === 'function') flushModeStats(true);
   saveCheckpoint(captureRunState());
   $id('vs-stats').innerHTML =
     'Final score: <b>' + score + '</b>' + (beat.score ? ' <span class="xp">NEW BEST</span>' : '') +
     '<br>Kills: <b>' + kills + '</b> (' + headshots + ' headshots · ' + hsRate + '% HS)' +
     '<br>Accuracy: <b>' + accuracy + '%</b> (' + shotsHit + '/' + shotsFired + ')' +
     '<br><br><span style="font-size:13px;opacity:.8">' + statsSummaryHtml() + '</span>';
+  if (typeof runModeStatsHtml === 'function') $id('vs-stats').innerHTML += '<br><br>' + runModeStatsHtml();
   $id('victory-screen').style.display = 'flex';
 }
 
 function resetGame() {
   settlementSnapshot = null;
   runPhase = 'active';
+  if (typeof beginModeStats === 'function') beginModeStats(typeof activeModeId !== 'undefined' ? activeModeId : 'survival');
   objectivesCompleted = 0;
   if (typeof clearExtractionVisuals === 'function') clearExtractionVisuals();
   if (typeof player !== 'undefined' && player) player.invulnerable = false;
@@ -927,6 +933,7 @@ function resumeRun() {
   runDifficulty = cp.difficulty;
   endlessMode = cp.endless;
   settlementSnapshot = cp.settlementSnapshot || null;
+  if (typeof restoreModeStats === 'function') restoreModeStats(cp.modeCombat);
   runPhase = cp.runPhase || (cp.endless ? 'endless' : 'active');
   const resumeState = CORE.resumeCheckpointState(runPhase);
   weaponsOwned[0] = cp.weapons[0].gi;
@@ -985,6 +992,7 @@ function resumeRun() {
     // victory() again; let the player explicitly choose endless continuation.
     gameEnded = resumeState.gameEnded;
     stopMusic();
+    if (typeof runModeStatsHtml === 'function') $id('vs-stats').innerHTML = runModeStatsHtml();
     $id('victory-screen').style.display = 'flex';
     return;
   }
@@ -1016,6 +1024,17 @@ function enableMenuKeyboard(el) {
   });
 }
 document.querySelectorAll(".menu-btn").forEach(enableMenuKeyboard);
+$id('btn-stats').addEventListener('click', function () {
+  $id('stats-records').innerHTML = modeStatsHtml();
+  $id('start-screen').style.display = 'none';
+  $id('stats-screen').style.display = 'flex';
+  $id('btn-stats-back').focus();
+});
+$id('btn-stats-back').addEventListener('click', function () {
+  $id('stats-screen').style.display = 'none';
+  $id('start-screen').style.display = 'flex';
+  $id('btn-stats').focus();
+});
 // UI click feedback for every menu button and weapon card. Delegated, so it also
 // catches the dynamically built gun cards (and their inner stat divs) plus
 // keyboard Enter/Space activation, which dispatches a real el.click().
@@ -1171,6 +1190,7 @@ function showMatchEndScreen(mode) {
   const eScore = (mode && typeof mode.enemyScore === 'number') ? mode.enemyScore : 0;
   const title = view ? view.title : (fScore > eScore ? 'VICTORY' : (fScore === eScore ? 'DRAW' : 'DEFEAT'));
   const won = title === 'VICTORY';
+  if (typeof flushModeStats === 'function') flushModeStats(won);
   const draw = title === 'DRAW';
   playSound(won ? 'victory' : 'death');
   const titleEl = $id('match-end-title');
@@ -1193,6 +1213,7 @@ function showMatchEndScreen(mode) {
     const kd = pd > 0 ? (pk / pd).toFixed(2) : pk;
     const detail = (view && view.note) ? view.note : ('Target score: <b>' + (mode.targetScore || 75) + '</b>');
     statsEl.innerHTML = 'Your K/D: <b>' + pk + ' / ' + pd + '</b> (' + kd + ' ratio)<br>' + detail;
+    if (typeof runModeStatsHtml === 'function') statsEl.innerHTML += '<br><br>' + runModeStatsHtml();
   }
   es.style.display = 'flex';
 }
@@ -1222,6 +1243,7 @@ function restartMatch() {
 }
 
 function quitMatchToMenu() {
+  if (typeof flushModeStats === 'function') flushModeStats(false);
   const es = $id('match-end-screen');
   if (es) es.style.display = 'none';
   const mh = $id('match-hud');

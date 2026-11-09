@@ -4,6 +4,14 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Stage 4 — repaired candidate (unreviewed; not published)
+
+- Add a separate keyboard-accessible main-menu statistics page and full result summaries for Survival and all four match modes: kills/deaths, K/D, raw trigger-pull accuracy, favourite weapon by credited kills and wins.
+- Persist combat observations incrementally, retaining events after pagehide/continued play and abrupt reload; checkpoints restore summaries without replaying counters or victory wins. Survival victory → endless → death keeps legacy career rewards separate from the mode ledger.
+- Fix friendly-hit accuracy inflation; shotgun triggers count at most one hostile hit. Delayed damage, grenade kills and thermite ticks retain their source/owner instead of the weapon equipped at death; escape stored weapon names in HTML. Refresh final-shot accuracy when damage opens the result screen before the shot aggregate finishes.
+- Add production lifecycle regressions and a real-browser statistics/resume probe. Restrict extra JavaScript compaction to delimiters, preserving operator token boundaries.
+- Preserve existing career XP/challenges/cosmetics/map records during migration; defer daily challenge. Prior-stage source/evidence audit retains explicit physical Android/LOQ gaps; this candidate is not merged, published, or device-accepted.
+
 ## Movement music — candidate
 
 - Keep the original score steady under footsteps; only important warnings trigger
