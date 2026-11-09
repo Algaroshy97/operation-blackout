@@ -61,6 +61,14 @@ class CssCompactionTests(unittest.TestCase):
         source = '// banner\nlet value = other;\nconst text = "a = b";\n'
         self.assertEqual(strip_line_comments(source), '// banner\nlet value=other;\nconst text = "a = b";')
 
+    def test_extra_compaction_preserves_operator_token_boundaries(self) -> None:
+        from scripts.build import strip_line_comments
+        source = '// banner\nlet a = 2, b = 3;\nlet result = [a + +b, a - -b, a < -b, a > -b];\nconsole.log(JSON.stringify(result));\n'
+        expected = subprocess.run(['node', '-e', source], text=True, capture_output=True, check=True).stdout
+        compact = strip_line_comments(source, compact_extra=True)
+        actual = subprocess.run(['node', '-e', compact], text=True, capture_output=True, check=True).stdout
+        self.assertEqual(actual, expected)
+
     def test_html_indentation_preserves_inter_element_newlines(self) -> None:
         from scripts.build import strip_css_comments
         self.assertEqual(strip_css_comments('<style> .a { color: red; } </style>\n  <div>text</div>\n'),

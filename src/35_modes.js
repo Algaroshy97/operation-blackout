@@ -471,6 +471,7 @@ MODES.tdm = {
 
     if (isHostileKill) {
       killer.kills = (killer.kills || 0) + 1;
+      if (isPlayerKiller && typeof noteModeKill === 'function') noteModeKill((victim && victim.lastDamageWeapon) || 'Unknown');
       if (killerTeam === 'friendly') {
         this.friendlyScore++;
       } else if (killerTeam === 'enemy') {
@@ -773,7 +774,7 @@ function matchCreditKill(mode, victim, isHead, killer, damageType, victimsLabel,
   const killerTeam = killer ? actorTeamOf(killer) : null;
   const isSelfKill = !!(killer && victim && (killer === victim || (killer.id && victim.id && killer.id === victim.id) || (isPlayerKiller && isPlayerVictim)));
   const isHostileKill = !!(killer && !isSelfKill && killerTeam && killerTeam !== victimTeam);
-  if (isHostileKill) killer.kills = (killer.kills || 0) + 1;
+  if (isHostileKill) { killer.kills = (killer.kills || 0) + 1; if (isPlayerKiller && typeof noteModeKill === 'function') noteModeKill((victim && victim.lastDamageWeapon) || damageType || 'Unknown'); }
   if (typeof pushKillfeed === 'function') {
     const killerName = isPlayerKiller ? 'YOU' : ((killer && killer.name) ? killer.name : (killerLabel || 'RIVAL'));
     const victimName = isPlayerVictim ? 'YOU' : ((victim && victim.name) ? victim.name : (victimsLabel || 'RIVAL'));

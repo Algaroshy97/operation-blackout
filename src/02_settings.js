@@ -192,6 +192,80 @@ function recordRun(run) {
 function getStats() { return STATS; }
 function playerRank() { return CORE.rankForXp(CORE.sanitizeStats(STATS).xp); }
 
+// ---- Per-mode combat ledger ---------------------------------------------------
+// Kept separately from career rewards: checkpoint/reload/early exit may flush real
+// combat, but they must never manufacture a win, loss, XP, or deployment.
+let modeRunStats = null;
+function beginModeStats(modeId) {
+  flushModeStats(false);
+  modeRunStats = { modeId: modeId || 'survival', kills: 0, deaths: 0, shotsFired: 0, shotsHit: 0, weaponKills: {}, settled: false };
+}
+function noteModeShot(weapon, hit) {
+  if (!modeRunStats) beginModeStats(typeof activeModeId !== 'undefined' ? activeModeId : 'survival');
+  modeRunStats.shotsFired++;
+  if (hit) modeRunStats.shotsHit++;
+  flushModeStats(false);
+  // A winning hit can open the result screen inside traceRound, before fireShot
+  // finishes aggregating pellets. Refresh only its summary, not result side effects.
+  if (typeof gameEnded !== 'undefined' && gameEnded && typeof document !== 'undefined') {
+    ['vs-stats', 'ds-stats', 'match-end-stats'].forEach(function (id) {
+      const el = document.getElementById(id);
+      const marker = el ? el.innerHTML.indexOf('MATCH STATISTICS') : -1;
+      if (marker >= 0) el.innerHTML = el.innerHTML.slice(0, marker) + runModeStatsHtml();
+    });
+  }
+}
+function noteModeKill(weapon) {
+  if (!modeRunStats) beginModeStats(typeof activeModeId !== 'undefined' ? activeModeId : 'survival');
+  modeRunStats.kills++;
+  const key = String(weapon || 'Unknown').slice(0, 80);
+  modeRunStats.weaponKills[key] = (modeRunStats.weaponKills[key] || 0) + 1;
+  flushModeStats(false);
+}
+function noteModeDeath() { if (!modeRunStats) beginModeStats(typeof activeModeId !== 'undefined' ? activeModeId : 'survival'); modeRunStats.deaths++; flushModeStats(false); }
+function flushModeStats(win) {
+  if (!modeRunStats) return;
+  const previous = modeRunStats.applied || {};
+  const delta = { modeId: modeRunStats.modeId, weaponKills: {}, win: win === true && !modeRunStats.winAwarded };
+  ['kills', 'deaths', 'shotsFired', 'shotsHit'].forEach(function (key) { delta[key] = Math.max(0, modeRunStats[key] - (previous[key] || 0)); });
+  Object.keys(modeRunStats.weaponKills).forEach(function (key) { delta.weaponKills[key] = Math.max(0, modeRunStats.weaponKills[key] - ((previous.weaponKills || {})[key] || 0)); });
+  if (delta.kills || delta.deaths || delta.shotsFired || delta.shotsHit || delta.win) {
+    STATS = CORE.mergeModeStats(STATS, delta);
+    saveStats();
+    modeRunStats.applied = JSON.parse(JSON.stringify(modeRunStats));
+    delete modeRunStats.applied.applied;
+    if (delta.win) modeRunStats.winAwarded = true;
+  }
+}
+function captureModeStats() {
+  if (!modeRunStats) return null;
+  const snapshot = Object.assign({}, modeRunStats);
+  delete snapshot.applied;
+  return JSON.parse(JSON.stringify(snapshot));
+}
+function restoreModeStats(snapshot) {
+  beginModeStats('survival');
+  if (!snapshot) return;
+  const clean = CORE.mergeModeStats({}, Object.assign({}, snapshot, { modeId: 'survival', win: false })).modeStats.survival;
+  Object.assign(modeRunStats, clean, { winAwarded: snapshot.winAwarded === true });
+  modeRunStats.applied = JSON.parse(JSON.stringify(modeRunStats));
+}
+function escapeStatsText(value) {
+  return String(value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; });
+}
+function runModeStatsHtml() {
+  const s = modeRunStats || {};
+  const kd = s.deaths ? ((s.kills || 0) / s.deaths).toFixed(2) : (s.kills || 0);
+  return 'MATCH STATISTICS<br>Kills: <b>' + (s.kills || 0) + '</b> · Deaths: <b>' + (s.deaths || 0) + '</b> · K/D: <b>' + kd + '</b><br>' +
+    'Accuracy: <b>' + CORE.modeAccuracy(s) + '%</b> (' + (s.shotsHit || 0) + '/' + (s.shotsFired || 0) + ') · Favorite weapon: <b>' + escapeStatsText(CORE.modeFavoriteWeapon(s)) + '</b> · Wins: <b>' + (s.winAwarded ? 1 : 0) + '</b>';
+}
+function modeStatsHtml() {
+  const modes = CORE.sanitizeStats(STATS).modeStats; let out = '<div class="mode-stats"><b>MODE RECORDS</b>';
+  ['survival', 'tdm', 'ffa', 'domination', 'gun-game'].forEach(function (id) { const m = modes[id], kd = m.deaths ? (m.kills / m.deaths).toFixed(2) : m.kills; out += '<br><span style="opacity:.7">' + id.toUpperCase() + '</span> · Kills / Deaths <b>' + m.kills + '/' + m.deaths + '</b> · K/D <b>' + kd + '</b> · Accuracy <b>' + CORE.modeAccuracy(m) + '%</b> (' + m.shotsHit + '/' + m.shotsFired + ') · Favorite weapon <b>' + escapeStatsText(CORE.modeFavoriteWeapon(m)) + '</b> · Wins <b>' + m.wins + '</b>'; });
+  return out + '</div>';
+}
+try { window.addEventListener('pagehide', function () { flushModeStats(false); }); } catch (e) {}
+
 // ---- Gunsmith loadouts --------------------------------------------------------
 // One attachment loadout per weapon index, persisted like settings. Kept out of the
 // checkpoint on purpose: a loadout is a career choice, not run state, and a resumed
@@ -275,7 +349,7 @@ function statsSummaryHtml() {
   return 'Best score <b>' + STATS.bestScore + '</b> &nbsp;·&nbsp; Best wave <b>' + STATS.bestWave +
     '</b> &nbsp;·&nbsp; Best accuracy <b>' + Math.round(STATS.bestAccuracy) + '%</b><br>' +
     '<span style="opacity:.65">' + STATS.runs + ' deployment' + (STATS.runs === 1 ? '' : 's') +
-    ' · ' + STATS.totalKills + ' total kills</span>';
+    ' · ' + STATS.totalKills + ' total kills</span><br>' + modeStatsHtml();
 }
 
 // Rank bar for the main menu. Rank is derived from XP rather than stored, so there

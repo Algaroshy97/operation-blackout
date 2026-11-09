@@ -880,12 +880,47 @@ const CORE = (function () {
   function defaultStats() {
     return { bestScore: 0, bestWave: 0, bestAccuracy: 0, runs: 0, totalKills: 0,
              xp: 0, totalHeadshots: 0, totalStreaks: 0,
-             mapStats: { urban: { bestScore: 0, bestWave: 0 }, snowy: { bestScore: 0, bestWave: 0 } } };
+             mapStats: { urban: { bestScore: 0, bestWave: 0 }, snowy: { bestScore: 0, bestWave: 0 } },
+             modeStats: defaultModeStats() };
+  }
+  function defaultModeStats() {
+    const out = {};
+    ['survival', 'tdm', 'ffa', 'domination', 'gun-game'].forEach(function (id) {
+      out[id] = { kills: 0, deaths: 0, shotsFired: 0, shotsHit: 0, wins: 0, weaponKills: {} };
+    });
+    return out;
+  }
+  function sanitizeModeStat(raw) {
+    const out = { kills: 0, deaths: 0, shotsFired: 0, shotsHit: 0, wins: 0, weaponKills: {} };
+    if (!raw || typeof raw !== 'object') return out;
+    ['kills', 'deaths', 'shotsFired', 'shotsHit', 'wins'].forEach(function (k) {
+      const n = typeof raw[k] === 'number' ? raw[k] : parseFloat(raw[k]);
+      if (isFinite(n) && n >= 0) out[k] = Math.floor(n);
+    });
+    out.shotsHit = Math.min(out.shotsHit, out.shotsFired);
+    if (raw.weaponKills && typeof raw.weaponKills === 'object' && !Array.isArray(raw.weaponKills)) {
+      for (const weapon in raw.weaponKills) {
+        const n = typeof raw.weaponKills[weapon] === 'number' ? raw.weaponKills[weapon] : parseFloat(raw.weaponKills[weapon]);
+        if (isFinite(n) && n > 0 && weapon.length <= 80) out.weaponKills[weapon] = Math.floor(n);
+      }
+    }
+    return out;
+  }
+  function modeAccuracy(s) { return s && s.shotsFired ? Math.round(s.shotsHit / s.shotsFired * 100) : 0; }
+  function modeFavoriteWeapon(s) {
+    const weapons = s && s.weaponKills || {}; let best = '', count = 0;
+    Object.keys(weapons).sort().forEach(function (name) { if (weapons[name] > count) { best = name; count = weapons[name]; } });
+    return best || '—';
   }
   function sanitizeStats(stored) {
     const out = defaultStats();
     if (!stored || typeof stored !== 'object') return out;
     for (const k in out) {
+      if (k === 'modeStats') {
+        const modes = stored.modeStats;
+        if (modes && typeof modes === 'object') Object.keys(out.modeStats).forEach(function (id) { out.modeStats[id] = sanitizeModeStat(modes[id]); });
+        continue;
+      }
       if (k === 'mapStats') {
         const ms = stored.mapStats;
         if (ms && typeof ms === 'object') {
@@ -961,6 +996,12 @@ const CORE = (function () {
     next.totalKills = next.totalKills + (run.kills || 0);
     next.totalHeadshots = next.totalHeadshots + (run.headshots || 0);
     next.totalStreaks = next.totalStreaks + (run.streaks || 0);
+    // Legacy career settlements have no modeId. The live combat ledger owns
+    // those counters; only explicitly mode-tagged callers merge them here.
+    if (run.modeId) {
+      const combat = mergeModeStats(next, run);
+      next.modeStats = combat.modeStats;
+    }
     // Rank is derived from XP rather than stored, so a corrupted rank cannot exist.
     const rankBefore = rankForXp(next.xp);
     const gained = runXp(run);
@@ -968,6 +1009,19 @@ const CORE = (function () {
     const rankAfter = rankForXp(next.xp);
     beat.rank = rankAfter > rankBefore;
     return { stats: next, beat, xpGained: gained, rank: rankAfter, rankBefore };
+  }
+
+  function mergeModeStats(stats, run) {
+    const next = sanitizeStats(stats);
+    const modeId = ['survival', 'tdm', 'ffa', 'domination', 'gun-game'].includes(run && run.modeId) ? run.modeId : 'survival';
+    const mode = next.modeStats[modeId] = sanitizeModeStat(next.modeStats[modeId]);
+    ['kills', 'deaths', 'shotsFired', 'shotsHit'].forEach(function (k) { mode[k] += Math.max(0, Math.floor((run && run[k]) || 0)); });
+    mode.shotsHit = Math.min(mode.shotsHit, mode.shotsFired);
+    if (run && run.win === true) mode.wins++;
+    if (run && run.weaponKills && typeof run.weaponKills === 'object') Object.keys(run.weaponKills).forEach(function (weapon) {
+      const n = Math.max(0, Math.floor(run.weaponKills[weapon] || 0)); if (n) mode.weaponKills[weapon] = (mode.weaponKills[weapon] || 0) + n;
+    });
+    return next;
   }
 
   // ---- Meta progression: XP, rank and unlocks -----------------------------------
@@ -1404,6 +1458,7 @@ const CORE = (function () {
       plates: state.plates || 0,
       difficulty: state.difficulty, endless: !!state.endless,
       runPhase: state.runPhase || (state.endless ? 'endless' : 'active'),
+      modeCombat: state.modeCombat || null,
       settlementSnapshot: state.settlementSnapshot ? {
         kills: state.settlementSnapshot.kills,
         headshots: state.settlementSnapshot.headshots,
@@ -1504,6 +1559,7 @@ const CORE = (function () {
       endless: !!raw.endless,
       runPhase: phase,
       settlementSnapshot: snap,
+      modeCombat: _isObj(raw.modeCombat) ? Object.assign(sanitizeModeStat(raw.modeCombat), { winAwarded: raw.modeCombat.winAwarded === true }) : null,
       streakKills: Math.round(num(raw.streakKills, 0, 1e6, 0)),
       runStreaksEarned: Math.round(num(raw.runStreaksEarned, 0, 1e6, 0)),
       weapons,
@@ -8197,7 +8253,7 @@ const CORE = (function () {
     SETTINGS_SCHEMA, defaultSettings, clampSetting, sanitizeSettings,
     qualityRenderSettings, graphicsSettings, createFrameTimeTelemetry, createRuntimeTelemetry,
     stepGrenadeMotion, lookSensitivity, combatIntensity, BASE_SENSITIVITY, defaultStats,
-    sanitizeStats, resumeCheckpointState, settlementAccounting, mergeRunIntoStats,
+    sanitizeStats, resumeCheckpointState, settlementAccounting, mergeRunIntoStats, mergeModeStats, modeAccuracy, modeFavoriteWeapon,
     DIFFICULTIES, difficulty, BEHAVIOUR_UNLOCKS, behavioursAtWave, newBehavioursAtWave,
     pickEnemyKind, enemyStopDistance, enemyMoveSpeed, flankBias, flankWindow, flankBiasNow,
     FLANK_WINDOW, enemyPreferredRange, ENEMY_KIND_UNLOCK, enemyKindsAtWave, newEnemyKindsAtWave,

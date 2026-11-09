@@ -534,7 +534,7 @@ function detonate(g, i, def) {
     // Thermite trades burst damage for area denial: a smaller bang, then ground
     // that stays lethal for six seconds.
     explodeGrenade(p, 0.45, g.owner);
-    addBurnPatch(p.x, p.z, def);
+    addBurnPatch(p.x, p.z, def, g.owner);
   } else {
     explodeGrenade(p, undefined, g.owner);
   }
@@ -603,14 +603,15 @@ let playerFlashT = 0;
 let _flashOverlayEl = null;
 let _lastFlashOpacity = -1;
 
-function addBurnPatch(x, z, def) {
+function addBurnPatch(x, z, def, owner) {
   const ring = getBurnPatchMesh();
   ring.position.set(x, 0.04, z);
   ring.scale.setScalar(def.burnRadius / 3.2);
   ring.material.opacity = 0.5;
   scene.add(ring);
   burnPatches.push({ x: x, z: z, t: def.burnTime, life: def.burnTime,
-                     r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0 });
+                     r: def.burnRadius, dps: def.burnDps, m: ring, tick: 0,
+                     owner: owner || player, weaponName: def.name || 'Thermite' });
 }
 
 function addSmokeCloud(x, y, z, def) {
@@ -657,7 +658,7 @@ function updateEquipmentEffects(dt) {
         if (CORE.isPointInBurnRadius(en.pos.x, en.pos.z, b.x, b.z, b.r)) {
           _burnHitPoint.set(en.pos.x, en.pos.y + 1, en.pos.z);
           const dmg = CORE.burnTickDamage(b.dps, CORE.BURN_TICK_INTERVAL);
-          damageEnemy(en, dmg, _burnHitPoint, false);
+          damageEnemy(en, dmg, _burnHitPoint, false, false, 'THERMITE', b.owner, b.weaponName);
         }
       }
     }
@@ -788,7 +789,7 @@ function explodeGrenade(pos, scale, owner) {
 
     if (grenadeHasLineOfSight(_blastFrom, _blastTarget, en)) {
       const dmg = CORE.grenadeBlastDamage(d, CFG.grenade.radius, CFG.grenade.dmg, dmgScale) * aiScale;
-      damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner);
+      damageEnemy(en, dmg, _blastTarget, false, false, undefined, owner, 'Grenade');
     }
   }
   // The generator is not part of the actor roster, but is a valid hostile target.
