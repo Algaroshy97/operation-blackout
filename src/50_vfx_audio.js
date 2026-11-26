@@ -1009,13 +1009,12 @@ const MUSIC = {
   built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
   intensity: 0, running: false, step: 0, nextT: 0
 };
-// How far ahead of the audio clock the score is scheduled. It must clear the worst
-// case frame period, not the average one: a slow phone (or a frame spent resolving a
-// hit, drawing a full-screen damage flash, or compiling shaders) takes well over half
-// a second, and a lookahead shorter than that made the stall recovery below rewind
-// nextT on nearly every frame — silently dropping whole beats, heard as the music
-// stuttering exactly when the player is getting shot.
-const MUSIC_LOOKAHEAD = 1.5;
+// How far ahead of the audio clock the score is scheduled. Kept short (the approved
+// ceiling is 0.5 s) so transitions are heard when they happen instead of up to a
+// second and a half late. Slow frames do not need a long lookahead: the loop below
+// never rewinds nextT, it keeps stepping forward and schedules overdue steps
+// immediately, so a heavy frame costs timing precision, not whole beats.
+const MUSIC_LOOKAHEAD = 0.4;
 // A gap this large is a real pause or a hidden tab, not a slow frame, so the score
 // rejoins on the next step instead of firing seconds of backlog at once.
 const MUSIC_REJOIN_GAP = 3.0;
