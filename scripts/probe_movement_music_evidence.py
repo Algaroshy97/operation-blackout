@@ -85,7 +85,11 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
                     page.evaluate('(action) => touchJoy(action)', action)
                 page.evaluate('''() => { trace.audio=[]; trace.frames=[]; trace.scheduled=[]; trace.cues=[];
                   window.phaseStart={x:player.pos.x,z:player.pos.z,time:MUSIC.ctx.currentTime}; }''')
-                page.wait_for_timeout(4000)
+                # Headless Chromium throttles rAF on this host to ~1.6 Hz, so a
+                # 4 s window can yield fewer than the 10 scheduler samples the
+                # adequacy gate needs. Six seconds keeps the gate strict while
+                # guaranteeing enough frames without loosening the threshold.
+                page.wait_for_timeout(6000)
                 page.evaluate('''() => { window.phaseEnd={x:player.pos.x,z:player.pos.z,time:MUSIC.ctx.currentTime}; }''')
                 page.wait_for_timeout(600)
                 result = page.evaluate('''() => ({...trace, audio:trace.audio.filter(b => b.t >= phaseStart.time && b.t < phaseEnd.time), start:phaseStart,

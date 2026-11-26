@@ -6993,3 +6993,79 @@ test('domination flag order clears cover and permits reacquisition', () => {
 
 
 
+
+// --- Music score continuity under slow frames -----------------------------
+// Loads the production music scheduler (MUSIC_LOOKAHEAD + updateMusic) so the
+// step cadence is exercised against real code. A device that renders slower than
+// the scheduling lookahead must still receive an unbroken score: if updateMusic
+// rewinds nextT, whole beats are silently dropped and the soundtrack stutters
+// exactly when the frame rate dips (the reported "audio lags when hit" symptom).
+function createMusicSchedulerContext() {
+  const audioSrc = source('50_vfx_audio.js');
+  const start = audioSrc.indexOf('const MUSIC_LOOKAHEAD');
+  assert.ok(start > -1, '50_vfx_audio.js must declare MUSIC_LOOKAHEAD');
+  const layers = {};
+  for (const k of ['pad', 'horn', 'bass', 'arp', 'drums']) {
+    layers[k] = { gain: { setTargetAtTime: noop } };
+  }
+  const now = () => vm.runInContext('MUSIC.ctx.currentTime', c);
+  const c = vm.createContext({
+    Math,
+    noop,
+    MUSIC: {
+      built: true, running: true, ctx: { currentTime: 0 }, step: 0, nextT: 0.08, intensity: 0,
+      bus: { gain: { setTargetAtTime: noop } }, layers
+    },
+    getSetting: k => (k === 'muted' ? false : k === 'musicVolume' ? 0.5 : 1),
+    CORE: {
+      combatIntensity: () => 0.5,
+      stepMusicIntensity: v => v,
+      musicLayerGains: () => ({ pad: 1, horn: 1, bass: 1, arp: 1, drums: 1 }),
+      musicBusGain: () => 0.5,
+      musicStepSeconds: () => CORE.musicStepSeconds()
+    },
+    __scheduled: []
+  });
+  vm.runInContext(audioSrc.slice(start), c);
+  // The slice declares the real scheduleMusicStep; replace it with a recorder so the
+  // test observes the score timeline without audio hardware.
+  vm.runInContext('scheduleMusicStep = function (ctx, step, t) { __scheduled.push({ step: step, t: t }); };', c);
+  c.frame = dt => {
+    vm.runInContext('MUSIC.ctx.currentTime += ' + dt + ';', c);
+    vm.runInContext('updateMusic(' + dt + ', {})', c);
+  };
+  c.scheduled = () => vm.runInContext('__scheduled', c);
+  c.now = now;
+  return c;
+}
+
+test('regression [P1]: music score stays unbroken when frames are slower than the scheduling lookahead', () => {
+  const c = createMusicSchedulerContext();
+  const step = CORE.musicStepSeconds();
+  // 620 ms frames: heavier than MUSIC_LOOKAHEAD used to be, typical of a phone that
+  // is compiling shaders, resolving a hit, or drawing a full-screen damage flash.
+  for (let i = 0; i < 8; i++) c.frame(0.62);
+
+  const events = c.scheduled();
+  assert.ok(events.length > 20, 'slow frames must still schedule the whole score, got ' + events.length + ' steps');
+  for (let i = 1; i < events.length; i++) {
+    assert.ok(events[i].t > events[i - 1].t, 'score timeline must move forward at index ' + i);
+    assert.strictEqual(events[i].step, events[i - 1].step + 1, 'no musical step may be skipped at index ' + i);
+    const gap = events[i].t - events[i - 1].t;
+    assert.ok(gap <= step * 1.5 + 1e-9,
+      'score interval ' + gap.toFixed(4) + 's at index ' + i + ' exceeds 1.5 steps (' + (step * 1.5).toFixed(4) + 's)');
+  }
+  assert.ok(c.scheduled()[0].t >= 0.08, 'the first step must keep its scheduled start time');
+});
+
+test('regression [P2]: a true stall longer than the lookahead rejoins without scheduling in the past', () => {
+  const c = createMusicSchedulerContext();
+  for (let i = 0; i < 4; i++) c.frame(0.62);
+  // Simulates a tab resume / 1.5 s hitch: the audio clock ran on while no frame ran.
+  c.frame(1.5);
+  const resumeAt = c.now();
+  const events = c.scheduled();
+  const last = events[events.length - 1];
+  assert.ok(last.t >= resumeAt - 0.06, 'recovered steps must schedule at or after the clock, got ' + last.t + ' vs ' + resumeAt);
+  assert.ok(events.length > 0, 'music must resume after a stall');
+});

@@ -1009,7 +1009,16 @@ const MUSIC = {
   built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
   intensity: 0, running: false, step: 0, nextT: 0
 };
-const MUSIC_LOOKAHEAD = 0.5;
+// How far ahead of the audio clock the score is scheduled. It must clear the worst
+// case frame period, not the average one: a slow phone (or a frame spent resolving a
+// hit, drawing a full-screen damage flash, or compiling shaders) takes well over half
+// a second, and a lookahead shorter than that made the stall recovery below rewind
+// nextT on nearly every frame — silently dropping whole beats, heard as the music
+// stuttering exactly when the player is getting shot.
+const MUSIC_LOOKAHEAD = 1.5;
+// A gap this large is a real pause or a hidden tab, not a slow frame, so the score
+// rejoins on the next step instead of firing seconds of backlog at once.
+const MUSIC_REJOIN_GAP = 3.0;
 // Last time a warning cue re-scheduled the duck ramp; CORE.musicDuckPlan rate limits
 // against it so sustained cues (whizzes, heartbeat) do not pump the soundtrack.
 let MUSIC_LAST_DUCK_AT = -99;
@@ -1233,8 +1242,10 @@ function updateMusic(dt, state) {
   for (const k in MUSIC.layers) MUSIC.layers[k].gain.setTargetAtTime(gains[k], now, 0.35);
 
   // After a pause or a hidden tab the clock has run on without us: rejoin on the
-  // next step instead of firing the whole backlog at once.
-  if (MUSIC.nextT < now - 0.05) MUSIC.nextT = now + 0.05;
+  // next step instead of firing the whole backlog at once. Only a gap far larger
+  // than a slow frame counts as a stall — at 0.05 s every heavy frame (the kinds
+  // that arrive while the player is being shot) rewound the score and dropped beats.
+  if (MUSIC.nextT < now - MUSIC_REJOIN_GAP) MUSIC.nextT = now + 0.05;
   // muted: keep time, schedule nothing
   if (vol <= 0) {
     const st = CORE.musicStepSeconds();
