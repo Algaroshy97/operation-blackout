@@ -8,3 +8,7 @@
 *.png  binary
 *.min.js -text
 dist/*.html -text
+
+# The PWA embeds the same vendor shader literals as the standalone build.
+# Preserve their original whitespace; keep whitespace checks on source files.
+dist/pwa/index.html -text whitespace=-blank-at-eol,-space-before-tab

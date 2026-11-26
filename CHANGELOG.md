@@ -10,6 +10,7 @@ not proof of deployment status, device support or measured frame-rate improvemen
 - Improve simultaneous touch handling and clear held controls across gameplay interruptions. Add off, ADS-only and always-on gyro modes, separate hip/ADS sensitivity, and a HUD editor with per-control position, size and opacity.
 - Organize settings into keyboard-accessible tabs and add an FPS cap, FPS display toggle and opt-in adaptive resolution.
 - Build an installable web app alongside the unchanged single-file distribution format. The hosted app can reopen offline after precaching, and updates retain saves on the same origin and browser profile.
+- Keep footsteps from lowering the soundtrack, make incoming-fire warnings dip it gently, and check that overlapping warnings do not interrupt the deeper death cue's recovery. This browser check does not replace Android listening tests.
 
 ## Stage 4 — repaired candidate (unreviewed; not published)
 
