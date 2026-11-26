@@ -96,8 +96,9 @@ def strip_line_comments(js: str, compact_extra: bool = False) -> str:
                 line = line.replace(' && ', '&&').replace(' || ', '||')
                 line = line.replace(' = ', '=')
                 if compact_extra:
-                    # Only delimiters, never operator characters: `a + +b`,
-                    # optional chaining and HTML-comment token boundaries matter.
+                    # Compact arithmetic only between operand tokens. Keep
+                    # spaces between operators, e.g. `a + +b` and `a++ + b`.
+                    line = re.sub(r'(?<=[\w)\]]) ([+*]) (?=[\w(])', r'\1', line)
                     line = re.sub(r'/\*[^*]*\*+(?:[^/*][^*]*\*+)*/', '', line)
                     line = re.sub(r'\s*([{}(),;\[\]:])\s*', r'\1', line)
                     line = re.sub(r'\s*\?(?!\.)\s*', '?', line)

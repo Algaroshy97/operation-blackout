@@ -28,11 +28,6 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "scripts" / "build.py"
 CORE_TESTS = ROOT / "tests" / "test_core.js"
 SIZE_BUDGET = 2 * 1024 * 1024
-# The single-file build is downloaded once and parsed on a phone, so it is capped.
-# The mobile feature set (settings tabs, gyro aiming, HUD editor, durable stats) pushed
-# the artifact past the old 2 MB line; the cap is now explicit and tighter than any
-# "just raise it" reflex: growth beyond this needs a measured parse/load win.
-MOBILE_SIZE_BUDGET = 2_150_000
 
 
 class CssCompactionTests(unittest.TestCase):
@@ -130,8 +125,7 @@ class BuildIntegrityTests(unittest.TestCase):
 
     def test_artifact_stays_under_size_budget(self) -> None:
         size = self.output.stat().st_size
-        self.assertLess(size, MOBILE_SIZE_BUDGET,
-                        f"{size} bytes exceeds the {MOBILE_SIZE_BUDGET} byte budget")
+        self.assertLess(size, SIZE_BUDGET, f"{size} bytes exceeds the {SIZE_BUDGET} byte budget")
 
     @unittest.skipIf(shutil.which("node") is None, "node not available")
     def test_bundled_script_parses(self) -> None:
