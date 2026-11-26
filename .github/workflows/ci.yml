@@ -24,8 +24,8 @@ jobs:
           node-version: '20'
 
       # Gameplay rules (headless, no browser needed).
-      - name: Core behaviour tests
-        run: node --test tests/test_core.js
+      - name: JavaScript regression tests
+        run: node --test tests/*.js
 
       # Build integrity + bundle parse. Also drives the node suite.
       - name: Release build tests
@@ -47,8 +47,18 @@ jobs:
       - name: Live gameplay probe
         run: python scripts/probe_live.py
 
+      - name: Mobile controls, cold shot, and offline PWA
+        run: python -m unittest tests.test_mobile_browser_features tests.test_first_shot_probe tests.test_pwa_build -v
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: operation-blackout
           path: dist/Operation Blackout.html
+
+      - name: Upload hosted PWA bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: operation-blackout-pwa
+          path: dist/pwa/
+          if-no-files-found: error

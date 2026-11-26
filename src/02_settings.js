@@ -115,6 +115,16 @@ function applySetting(key) {
       if (fire) fire.textContent = SETTINGS.fireMode === 'ads + fire' ? 'ADS+FIRE' : 'FIRE';
       break;
     }
+    case 'fpsCap':
+      if (typeof qualityAdjustT !== 'undefined') qualityAdjustT = 0;
+      if (typeof upscaleStreak !== 'undefined') upscaleStreak = 0;
+      break;
+    case 'adaptiveResolution':
+      if (!SETTINGS.adaptiveResolution && typeof renderer !== 'undefined' && renderer && typeof window !== 'undefined') {
+        const plan = CORE.qualityRenderSettings(SETTINGS.quality, window.devicePixelRatio, IS_TOUCH);
+        renderer.setPixelRatio(plan.pixelRatio);
+      }
+      break;
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;
@@ -142,16 +152,17 @@ function applySetting(key) {
       typeof ensureMusicPlaying === 'function') ensureMusicPlaying();
 }
 function applyAllSettings() {
-  // These three controls share quality-derived defaults. Apply their combined
-  // state once: resetting must not allocate and dispose post targets three times.
+  // These controls share quality-derived defaults. Apply their combined state
+  // once: resetting must not allocate targets or set pixel ratio multiple times.
   for (const key in CORE.SETTINGS_SCHEMA) {
-    if (key !== 'quality' && key !== 'shadowQuality' && key !== 'postProcessing') applySetting(key);
+    if (key !== 'quality' && key !== 'shadowQuality' && key !== 'postProcessing' && key !== 'adaptiveResolution') applySetting(key);
   }
   applyQuality();
 }
 
-// 'auto' restores a stable baseline, then frame() adapts its pixel ratio from there.
+// 'auto' restores a stable baseline, then frame() adapts its pixel ratio only when opted in.
 function qualityIsAuto() { return SETTINGS.quality === 'auto'; }
+function adaptiveResolutionEnabled() { return !!SETTINGS.adaptiveResolution; }
 function graphicsShadowType(name) {
   // r184 removed PCFSoftShadowMap; use supported PCF rather than a warning
   // followed by the renderer silently rewriting the player's filter every frame.
@@ -172,7 +183,10 @@ function applyQuality(changedKey) {
     if (typeof applyWorldGraphics === 'function') applyWorldGraphics(graphics);
     if (typeof updateEnemyShadowBudget === 'function') updateEnemyShadowBudget(1);
   }
-  if (changedKey !== 'shadowQuality') initPostfx();
+  if (changedKey !== 'shadowQuality') {
+    initPostfx();
+    if (typeof assetsReady !== 'undefined' && assetsReady && typeof warmupFirstShotVfx === 'function') warmupFirstShotVfx();
+  }
 }
 
 // ---- Career stats -----------------------------------------------------------

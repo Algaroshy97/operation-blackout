@@ -4,6 +4,13 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Mobile controls and offline PWA — candidate
+
+- Prepare common firing effects and audio before the first shot. Headless cold-launch probes check for shader compilation and linking at the first shot; Xiaomi Mi 10T frame pacing is not yet measured.
+- Improve simultaneous touch handling and clear held controls across gameplay interruptions. Add off, ADS-only and always-on gyro modes, separate hip/ADS sensitivity, and a HUD editor with per-control position, size and opacity.
+- Organize settings into keyboard-accessible tabs and add an FPS cap, FPS display toggle and opt-in adaptive resolution.
+- Build an installable web app alongside the unchanged single-file distribution format. The hosted app can reopen offline after precaching, and updates retain saves on the same origin and browser profile.
+
 ## Stage 4 — repaired candidate (unreviewed; not published)
 
 - Add a separate keyboard-accessible main-menu statistics page and full result summaries for Survival and all four match modes: kills/deaths, K/D, raw trigger-pull accuracy, favourite weapon by credited kills and wins.

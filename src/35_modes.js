@@ -235,6 +235,7 @@ function defaultOnRespawn(actor, pt) {
     }
     if (typeof updateHudHealth === 'function') updateHudHealth();
     if (typeof updateHudAmmo === 'function') updateHudAmmo(true);
+    if (typeof clearInputState === 'function') clearInputState();
     if (typeof pointerLocked !== 'undefined' && !pointerLocked && typeof started !== 'undefined' && started && typeof paused !== 'undefined' && !paused) {
       if (typeof canvas !== 'undefined' && canvas && typeof canvas.requestPointerLock === 'function' && typeof isTouchDevice !== 'undefined' && !isTouchDevice) {
         try { canvas.requestPointerLock(); } catch (e) {}

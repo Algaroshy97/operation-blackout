@@ -26,7 +26,9 @@ Auto preserves conservative touch defaults and existing desktop visuals; explici
 
 Controls (desktop): WASD move · mouse aim/fire · right-mouse ADS · Shift sprint / steady sniper scope · C slide while sprinting · Space jump / slide-jump · R reload · G grenade · 1/2/3/4 or wheel switch weapon · P/Esc pause.
 
-SETTINGS on the main menu or the pause screen covers mouse sensitivity, invert-Y, field of view, master volume, mute, graphics quality, reduced camera motion, high-contrast enemy markers and the FPS counter. Everything is saved in the browser, along with your best score, best wave and best accuracy.
+Open **Settings** from the main or pause menu. **Graphics** includes the FPS display, frame cap and opt-in adaptive resolution. On touch devices, **Touch & Gyro** lets you move, resize, fade or reset individual HUD controls. Set **Gyroscope aiming** to Off, ADS Only (aiming down sights) or Always On, with separate hip-fire and ADS sensitivity. If the browser requires motion permission, grant it from that tab. Settings and game saves are stored in the browser.
+
+**Android Chrome:** On the HTTPS-hosted edition, open Chrome’s menu and choose **Install app** (or **Add to Home screen**). Load the game online once so it can cache its files before going offline. Use the same browser profile and site address to keep existing hosted saves; the downloaded HTML is a separate edition and does not share that storage.
 
 Pick a difficulty and both weapons at deploy. The SV-98 marksman rifle always rides along in slot 3 (key 3, the wheel, or SWAP on touch), with a mil-dot scope, rangefinder, breath sway you steady with Shift, a working bolt and wall penetration. An M1911 pistol is always in slot 4 (key 4): pull the trigger on a gun that is completely out of ammo and it comes up in half the usual time. Beyond the four rifles, the roster has an **M870 pump shotgun** (eight pellets that hit hard close and fall off fast, shells loaded one at a time, and firing cancels the reload; rank 2, or a west-flank wall buy) and an **M249 SAW** (a 100-round box whose barrel heats with sustained fire, widening the spread and kick and making the shroud glow; slow to aim; rank 4, or an east-flank wall buy). Then survive 15 waves — or take **CONTINUE — ENDLESS** past the finish and see how far you get. Kills drop ammo and medkits. Multi-kill streaks award escalating bonuses (DOUBLE → RAMPAGE).
 
@@ -43,6 +45,7 @@ The soundtrack is synthesised in-browser and follows the fight: a D-minor cue at
 ## Repository layout
 
 - `dist/Operation Blackout.html` — the shippable, self-contained game (all assets embedded as base64; works from `file://`)
+- `dist/pwa/` — the hosted edition: publish this entire directory together to one HTTPS origin. Use localhost for development; opening `index.html` from disk does not install the service worker.
 - `src/` — modular source: pure core logic, settings, procedural textures, config/world, player, touch input, weapons and viewmodels, procedural soldiers and ragdolls, enemies/AI, particles, VFX/audio and the adaptive score, grenades, stations and scorestreaks, HUD/waves, post-processing, main loop
 - `src/01_core.js` — engine-free gameplay rules (distances, sub-stepping, ballistics, wave scaling, AI navigation). No THREE, no DOM, so it runs unchanged in the browser build *and* under `node --test`.
 - `vendor/` — three.js **r186** + GLTFLoader, bundled to a single IIFE (MIT). See `vendor/README.md` to regenerate.
@@ -55,7 +58,7 @@ The `src/` tree is the readable code; the `dist/` file is what you run.
 ## Build
 
 ```bash
-python3 scripts/build.py .   # or: python3 scripts/build.py <repo root>
+python3 scripts/build.py .   # builds both the standalone HTML and dist/pwa/
 ```
 
 ## Testing
@@ -65,6 +68,7 @@ Run all JavaScript regression files, the Python release-integrity suite, and the
 ```bash
 node --test tests/*.js                      # all JavaScript regression suites
 python3 -m unittest tests.test_release_build # build integrity + core Node tests
+python3 -m unittest tests.test_mobile_browser_features tests.test_first_shot_probe tests.test_pwa_build -v
 ```
 
 The Python suite invokes only `tests/test_core.js`, not all JavaScript suites, so run

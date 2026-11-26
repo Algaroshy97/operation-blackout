@@ -266,10 +266,14 @@ function showHitmarker(isHead, tier) {
 function showDamageFx(dirDeg, amount, healthDmg, absorbedDmg) {
   const isArmorOnly = (healthDmg !== undefined && healthDmg <= 0 && absorbedDmg > 0);
   const alpha = CORE.damageVignetteAlpha(amount);
-  hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(alpha, isArmorOnly);
+  // Opacity + colour variant only: the gradient is static so the browser composites
+  // the layer instead of repainting the viewport on every hit.
+  const overlay = CORE.damageVignetteOverlay(alpha, isArmorOnly);
+  hud.dmgVig.classList.toggle('armor', overlay.variant === 'armor');
+  hud.dmgVig.style.opacity = overlay.opacity.toFixed(3);
   clearTimeout(hud.dmgVig._t);
   hud.dmgVig._t = setTimeout(function () {
-    hud.dmgVig.style.boxShadow = CORE.damageVignetteStyle(0, false);
+    hud.dmgVig.style.opacity = '0';
   }, 220);
   // directional indicator: dirDeg = world bearing of attacker relative to player facing
   if (dirDeg !== undefined) {

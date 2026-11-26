@@ -99,6 +99,17 @@ const CORE = (function () {
     return moveZ > JOYSTICK_SPRINT_FORWARD && Math.hypot(moveX, moveZ) > JOYSTICK_SPRINT_MAGNITUDE;
   }
 
+  // A dedicated mobile sprint control behaves like the keyboard's Shift: held means
+  // sprint in whatever direction the stick points, at whatever depth. Auto-sprint
+  // (full forward tilt) still applies when the control is not held, so players who
+  // never tap it keep the old behaviour.
+  function touchSprintIntent(held, moveX, moveZ, ads) {
+    if (ads) return false;
+    if (!_isNum(moveX) || !_isNum(moveZ)) return false;
+    if (held === true) return Math.hypot(moveX, moveZ) > JOYSTICK_DEADZONE;
+    return isAutoSprint(moveX, moveZ, ads);
+  }
+
   // Mobile virtual joystick coordinate and deadzone resolution. Clamps touch
   // displacement within the base radius and maps screen delta to yaw-relative
   // movement axes (negative dy = forward = +z). Inputs within the deadzone are
@@ -158,6 +169,48 @@ const CORE = (function () {
     if (angle >= 225 && angle < 315) return gyroLookDelta(-gammaDelta, -betaDelta, sensitivity, out);
     if (angle >= 135 && angle < 225) return gyroLookDelta(-betaDelta, -gammaDelta, sensitivity, out);
     return gyroLookDelta(betaDelta, gammaDelta, sensitivity, out);
+  }
+  function normalizeGyroMode(mode) {
+    if (mode === true || mode === 'true' || mode === 'always') return 'always';
+    if (mode === 'ads') return 'ads';
+    return 'off';
+  }
+  function isGyroModeActive(mode, isAds) {
+    const m = normalizeGyroMode(mode);
+    return m === 'always' || (m === 'ads' && Boolean(isAds));
+  }
+  function gyroEffectiveSensitivity(hipSens, adsSens, isAds, isScoped, isSteady) {
+    const hip = _isPos(hipSens) ? hipSens : 1.0;
+    if (!isAds) return hip;
+    const ads = _isPos(adsSens) ? adsSens : 0.65;
+    if (isSteady) return ads * 0.385;
+    if (isScoped) return ads * 0.615;
+    return ads;
+  }
+  function stepGyroSample(prev, beta, gamma, screenAngle, nowMs, active, maxGapMs, out) {
+    const res = _isObj(out) ? out : { rebaselined: false, betaDelta: 0, gammaDelta: 0 };
+    res.betaDelta = 0; res.gammaDelta = 0;
+    if (!active || typeof beta !== 'number' || typeof gamma !== 'number' || !isFinite(beta) || !isFinite(gamma)) {
+      res.rebaselined = true;
+      return res;
+    }
+    const angle = ((Number(screenAngle) || 0) % 360 + 360) % 360;
+    const gap = _isPos(maxGapMs) ? maxGapMs : 250;
+    const ts = _isNum(nowMs) ? nowMs : 0;
+    if (!prev || prev.angle !== angle || (_isNum(prev.ts) && ts - prev.ts > gap)) {
+      res.rebaselined = true;
+      return res;
+    }
+    const db = ((beta - prev.beta + 540) % 360) - 180;
+    const dg = ((gamma - prev.gamma + 540) % 360) - 180;
+    if (Math.abs(db) > 45 || Math.abs(dg) > 45) {
+      res.rebaselined = true;
+      return res;
+    }
+    res.rebaselined = false;
+    res.betaDelta = db;
+    res.gammaDelta = dg;
+    return res;
   }
 
   // Ceiling resolve. The old code zeroed upward velocity on a head bonk but never
@@ -387,8 +440,9 @@ const CORE = (function () {
   const SETTINGS_SCHEMA = {
     sensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.05, label: 'Mouse sensitivity' },
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
-    gyroSensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.1, label: 'Gyroscope sensitivity', help: 'Adjusts phone-tilt aiming independently of touch look.' },
-    gyroAim: { type: 'bool', def: false, label: 'Gyroscope aiming', help: 'Turn your phone to aim. Enable on this device; sensor access may require permission.' },
+    gyroSensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.1, label: 'Gyro hipfire sensitivity', help: 'Phone-tilt aiming sensitivity while firing from the hip.' },
+    gyroAdsSensitivity: { type: 'number', def: 0.65, min: 0.1, max: 4.0, step: 0.05, label: 'Gyro ADS sensitivity', help: 'Phone-tilt aiming sensitivity while aiming down sights or scoped.' },
+    gyroAim: { type: 'enum', def: 'off', values: ['off', 'ads', 'always'], label: 'Gyroscope aiming', help: 'Turn your phone to aim: Off, ADS only, or Always on. Sensor access may require permission.' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
     fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
     fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
@@ -398,6 +452,8 @@ const CORE = (function () {
     musicVolume: { type: 'number', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Music & ambience' },
     muted: { type: 'bool', def: false, label: 'Mute all audio' },
     quality: { type: 'enum', def: 'auto', values: ['low', 'medium', 'high', 'auto'], label: 'Graphics quality' },
+    adaptiveResolution: { type: 'bool', def: false, label: 'Adaptive resolution', help: 'Opt in to scale render resolution automatically within safe bounds when FPS drops below target.' },
+    fpsCap: { type: 'enum', def: 'uncapped', values: ['uncapped', '60', '45', '30'], label: 'FPS cap', help: 'Limits maximum render frame rate to save battery while keeping the game clock accurate.' },
     enemyDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Enemy detail (reload page)', help: 'Detailed soldiers cost more draw calls. Reload the page to apply; current enemies are not rebuilt.' },
     sceneryDetail: { type: 'enum', def: 'auto', values: ['auto', 'simple', 'detailed'], label: 'Scenery detail (reload page)', help: 'Detailed GLB props use more GPU memory and draw calls. Reload the page to apply; cover and collisions stay the same.' },
     effects: { type: 'enum', def: 'auto', values: ['auto', 'off', 'reduced', 'full'], label: 'Particles & effect lights', help: 'Applies now. Full enables 2600 particle slots and two flash lights; reduced uses 900 slots without lights. Off hides decorative particles, not gameplay smoke or fire hazards.' },
@@ -420,6 +476,74 @@ const CORE = (function () {
     gunGameActorCount: { type: 'number', def: 8, min: 2, max: 8, step: 1, label: 'Gun Game actors' }
   };
 
+  const SETTINGS_TABS = [
+    { id: 'controls', label: 'Controls' },
+    { id: 'touch', label: 'Touch & Gyro' },
+    { id: 'graphics', label: 'Graphics' },
+    { id: 'audio', label: 'Audio' },
+    { id: 'gameplay', label: 'Gameplay' }
+  ];
+  const _SETTING_TAB_MAP = {
+    sensitivity: 'controls', invertY: 'controls', fov: 'controls', reducedMotion: 'controls', colorblindMarkers: 'controls',
+    touchSensitivity: 'touch', gyroAim: 'touch', gyroSensitivity: 'touch', gyroAdsSensitivity: 'touch',
+    touchLayout: 'touch', fireMode: 'touch', fireLook: 'touch',
+    quality: 'graphics', adaptiveResolution: 'graphics', fpsCap: 'graphics', showFps: 'graphics',
+    enemyDetail: 'graphics', sceneryDetail: 'graphics', effects: 'graphics', ragdollQuality: 'graphics',
+    shadowQuality: 'graphics', postProcessing: 'graphics',
+    masterVolume: 'audio', musicVolume: 'audio', muted: 'audio',
+    gameMode: 'gameplay', difficulty: 'gameplay', startingPerk: 'gameplay', gameMap: 'gameplay',
+    weather: 'gameplay', tdmTeamSize: 'gameplay', tdmScoreLimit: 'gameplay', ffaActorCount: 'gameplay',
+    ffaScoreLimit: 'gameplay', dominationScoreLimit: 'gameplay', gunGameActorCount: 'gameplay'
+  };
+  function settingTab(key) {
+    return _SETTING_TAB_MAP[key] || 'gameplay';
+  }
+  const ADAPTIVE_PR_MIN = 0.65;
+  const ADAPTIVE_PR_STEP = 0.1;
+  const ADAPTIVE_SAMPLE_WINDOW = 4.5;
+  function parseFpsCap(cap) {
+    if (cap === '60' || cap === 60) return 60;
+    if (cap === '45' || cap === 45) return 45;
+    if (cap === '30' || cap === 30) return 30;
+    return 0;
+  }
+  function shouldRenderFrame(nowMs, lastRenderMs, fpsCap) {
+    const hz = parseFpsCap(fpsCap);
+    if (!hz || !_isNum(lastRenderMs) || !_isNum(nowMs) || nowMs <= lastRenderMs) return true;
+    const minInterval = (1000 / hz) - 1.5;
+    return (nowMs - lastRenderMs) >= minInterval;
+  }
+  function computeAdaptivePixelRatio(currentPR, fps, devicePixelRatio, quality, isTouch, fpsCap, upscaleStreak, out) {
+    const maxPR = qualityRenderSettings(quality, devicePixelRatio, isTouch).pixelRatio;
+    const minPR = Math.min(ADAPTIVE_PR_MIN, maxPR);
+    const cur = _isPos(currentPR) ? currentPR : maxPR;
+    const cap = parseFpsCap(fpsCap);
+    const downFps = cap > 0 ? Math.min(48, cap * 0.82) : 48;
+    const upFps = cap > 0 ? Math.min(58, cap * 0.96) : 58;
+    let desired = Math.max(minPR, Math.min(maxPR, cur));
+    let streak = _isNonNeg(upscaleStreak) ? Math.floor(upscaleStreak) : 0;
+    if (_isPos(fps)) {
+      if (fps < downFps && cur > minPR) {
+        desired = Math.max(minPR, Math.min(maxPR, cur - ADAPTIVE_PR_STEP));
+        streak = 0;
+      } else if (fps >= upFps && cur < maxPR) {
+        streak++;
+        if (streak >= 3) {
+          desired = Math.min(maxPR, cur + ADAPTIVE_PR_STEP);
+          streak = 0;
+        }
+      } else {
+        streak = 0;
+      }
+    }
+    const rounded = Number(desired.toFixed(2));
+    const res = _isObj(out) ? out : {};
+    res.pixelRatio = rounded;
+    res.upscaleStreak = streak;
+    res.changed = Math.abs(rounded - cur) >= 0.05;
+    return res;
+  }
+
   function defaultSettings() {
     const out = {};
     for (const k in SETTINGS_SCHEMA) out[k] = SETTINGS_SCHEMA[k].def;
@@ -436,6 +560,7 @@ const CORE = (function () {
       return spec.def;
     }
     if (spec.type === 'enum') {
+      if (key === 'gyroAim') return normalizeGyroMode(value);
       return spec.values.indexOf(value) >= 0 ? value : spec.def;
     }
     const n = typeof value === 'number' ? value : parseFloat(value);
@@ -449,6 +574,14 @@ const CORE = (function () {
     if (!stored || typeof stored !== 'object') return out;
     for (const k in SETTINGS_SCHEMA) {
       if (Object.prototype.hasOwnProperty.call(stored, k)) out[k] = clampSetting(k, stored[k]);
+    }
+    if (!Object.prototype.hasOwnProperty.call(stored, 'gyroSensitivity') &&
+        Object.prototype.hasOwnProperty.call(stored, 'gyroHipSensitivity')) {
+      out.gyroSensitivity = clampSetting('gyroSensitivity', stored.gyroHipSensitivity);
+    }
+    if (Object.prototype.hasOwnProperty.call(stored, 'gyroSensitivity') &&
+        !Object.prototype.hasOwnProperty.call(stored, 'gyroAdsSensitivity')) {
+      out.gyroAdsSensitivity = clampSetting('gyroAdsSensitivity', out.gyroSensitivity * 0.65);
     }
     return out;
   }
@@ -613,6 +746,34 @@ const CORE = (function () {
     const base = _isNum(baseRate) ? baseRate : 1.0;
     const r = _isNum(rand) ? rand : Math.random();
     return base + (r - 0.5) * SOUND_VARIED_RANGE;
+  }
+
+  // ---- Music ducking for warning cues -----------------------------------------
+  // A warning cue lowers the soundtrack so the cue reads clearly. Ducking the whole
+  // music bus to 4% with a 3 ms attack, once per cue, turned dense cues (whizzes
+  // under fire, the low-health heartbeat) into audible pumping: the phone's mixer
+  // never finishes one ramp before the next cancel. Every cue now stays audible,
+  // fades in gently, and re-schedules at most once per MUSIC_DUCK_MIN_GAP.
+  const MUSIC_DUCK_MIN_GAP = 0.5;
+  const MUSIC_DUCK_ATTACK = 0.05;
+  const MUSIC_DUCK_RELEASE = 0.22;
+  const MUSIC_DUCK_TRIGGERS = /^(low_ammo|bullet_whiz|player_down|heartbeat)$/;
+  const MUSIC_DUCK_LEVELS = {
+    low_ammo: 0.34,
+    bullet_whiz: 0.62, // incoming fire is constant; only a subtle dip
+    player_down: 0.12, // death cue may duck deep
+    heartbeat: 0.34
+  };
+  // Returns { level, attack, release, hold } for a cue that should duck, or null when
+  // the cue must leave the music alone (unknown sound, or already ducked recently).
+  // `hold` is how long to stay down before the ramp back, in seconds.
+  function musicDuckPlan(name, now, lastDuckAt) {
+    if (typeof name !== 'string' || !_isNum(now)) return null;
+    if (!MUSIC_DUCK_TRIGGERS.test(name)) return null;
+    const prev = _isNum(lastDuckAt) ? lastDuckAt : -99;
+    if (now - prev < MUSIC_DUCK_MIN_GAP) return null;
+    const level = _isNum(MUSIC_DUCK_LEVELS[name]) ? MUSIC_DUCK_LEVELS[name] : 0.4;
+    return { level, attack: MUSIC_DUCK_ATTACK, release: MUSIC_DUCK_RELEASE, hold: 0.12 };
   }
 
   // ---- Positional spatial audio -----------------------------------------------
@@ -3272,6 +3433,7 @@ const CORE = (function () {
     'tbtn-ads': 'ADS',
     'tbtn-jump': 'JUMP',
     'tbtn-slide': 'SLIDE',
+    'tbtn-sprint': 'SPRINT',
     'tbtn-reload': 'RELOAD',
     'tbtn-nade': 'LETHAL',
     'tbtn-swap': 'SWAP',
@@ -3319,6 +3481,9 @@ const CORE = (function () {
   const TOUCH_MIN_CONTROL_SIZE = 44;
   const TOUCH_MAX_CONTROL_SIZE = 150;
   const TOUCH_DEFAULT_CONTROL_SIZE = 72;
+  const TOUCH_MIN_CONTROL_OPACITY = 0.25;
+  const TOUCH_MAX_CONTROL_OPACITY = 1.0;
+  const TOUCH_DEFAULT_CONTROL_OPACITY = 1.0;
   const TOUCH_MAX_LOOK_DELTA = 180;
 
   // Clamps mobile touch control size dimension [minSize, maxSize] in pixels.
@@ -3330,6 +3495,48 @@ const CORE = (function () {
     return Math.max(min, Math.min(max, Math.round(size)));
   }
 
+  function clampTouchControlOpacity(opacity) {
+    const n = typeof opacity === 'number' ? opacity : parseFloat(opacity);
+    if (!isFinite(n)) return TOUCH_DEFAULT_CONTROL_OPACITY;
+    return Math.max(TOUCH_MIN_CONTROL_OPACITY, Math.min(TOUCH_MAX_CONTROL_OPACITY, Number(n.toFixed(2))));
+  }
+
+  function clampTouchControlRect(leftPct, topPct, widthPx, heightPx, viewportW, viewportH, insets, out) {
+    const vw = _isPos(viewportW) ? viewportW : 1;
+    const vh = _isPos(viewportH) ? viewportH : 1;
+    const w = _isPos(widthPx) ? widthPx : TOUCH_MIN_CONTROL_SIZE;
+    const h = _isPos(heightPx) ? heightPx : TOUCH_MIN_CONTROL_SIZE;
+    const ins = _isObj(insets) ? insets : {};
+    const saL = _isNonNeg(ins.left) ? ins.left : 0;
+    const saR = _isNonNeg(ins.right) ? ins.right : 0;
+    const saT = _isNonNeg(ins.top) ? ins.top : 0;
+    const saB = _isNonNeg(ins.bottom) ? ins.bottom : 0;
+    const minX = Math.min(vw, saL);
+    const maxX = Math.max(minX, vw - saR - w);
+    const minY = Math.min(vh, saT);
+    const maxY = Math.max(minY, vh - saB - h);
+    const rawX = ((_isNum(leftPct) ? leftPct : 0) / 100) * vw;
+    const rawY = ((_isNum(topPct) ? topPct : 0) / 100) * vh;
+    const px = Math.max(minX, Math.min(maxX, rawX));
+    const py = Math.max(minY, Math.min(maxY, rawY));
+    const res = _isObj(out) ? out : {};
+    res.left = Number((px / vw * 100).toFixed(2));
+    res.top = Number((py / vh * 100).toFixed(2));
+    return res;
+  }
+
+  function touchLayoutDragPercent(clientCoord, dimPx, viewportSpan, insetStart, insetEnd) {
+    const span = _isPos(viewportSpan) ? viewportSpan : 1;
+    const dim = _isNum(dimPx) ? dimPx : 0;
+    const coord = _isNum(clientCoord) ? clientCoord : 0;
+    const s = _isNonNeg(insetStart) ? insetStart : 0;
+    const e = _isNonNeg(insetEnd) ? insetEnd : 0;
+    const minPx = Math.min(span, s);
+    const maxPx = Math.max(minPx, span - e - dim);
+    const px = Math.max(minPx, Math.min(maxPx, coord - dim / 2));
+    return Number((px / span * 100).toFixed(2));
+  }
+
   // Clamps mobile touch layout percentage coordinate [0, maxPct].
   // Pure: no side effects, no DOM, no THREE.
   function clampTouchLayoutCoord(coordPct, maxPct) {
@@ -3338,7 +3545,7 @@ const CORE = (function () {
     return Math.max(0, Math.min(max, Number(coordPct.toFixed(2))));
   }
 
-  // Sanitizes a single touch layout entry { left, top, size }.
+  // Sanitizes a single touch layout entry { left, top, size, opacity }.
   // Pure: no side effects, no DOM, no THREE.
   function sanitizeTouchLayoutPosition(entry, minSize, maxSize) {
     if (!entry || typeof entry !== 'object') return null;
@@ -3351,6 +3558,9 @@ const CORE = (function () {
     }
     if (_isNum(entry.size)) {
       out.size = clampTouchControlSize(entry.size, minSize, maxSize);
+    }
+    if (_isNum(entry.opacity)) {
+      out.opacity = clampTouchControlOpacity(entry.opacity);
     }
     return Object.keys(out).length > 0 ? out : null;
   }
@@ -4739,6 +4949,14 @@ const CORE = (function () {
     }
     const color = isArmorOnly ? 'rgba(79,163,216,' : 'rgba(180,0,0,';
     return 'inset 0 0 120px 40px ' + color + alpha.toFixed(3) + ')';
+  }
+
+  // Composited damage overlay: a static radial gradient whose opacity is animated.
+  // Animating an inset box-shadow repaints the whole viewport on every hit, which
+  // starves the audio thread on phones; opacity is composited off the main thread.
+  function damageVignetteOverlay(alpha, isArmorOnly) {
+    const a = _isPos(alpha) ? Math.min(1, alpha) : 0;
+    return { opacity: a, variant: isArmorOnly === true ? 'armor' : 'health' };
   }
 
   function worldBearing(fromX, fromZ, toX, toZ) {
@@ -8250,7 +8468,8 @@ const CORE = (function () {
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
     waveEnemyCount, waveHpMultiplier, waveRangedAccuracy, WAVE_SCORE_PER_WAVE, waveClearScore,
     RESUPPLY_MAG_RATIO, waveResupplyAmmo, aabbOverlapsXZ, blocksWalker, isSpawnValid,
-    SETTINGS_SCHEMA, defaultSettings, clampSetting, sanitizeSettings,
+    SETTINGS_SCHEMA, SETTINGS_TABS, settingTab, defaultSettings, clampSetting, sanitizeSettings,
+    parseFpsCap, shouldRenderFrame, ADAPTIVE_PR_MIN, ADAPTIVE_PR_STEP, ADAPTIVE_SAMPLE_WINDOW, computeAdaptivePixelRatio,
     qualityRenderSettings, graphicsSettings, createFrameTimeTelemetry, createRuntimeTelemetry,
     stepGrenadeMotion, lookSensitivity, combatIntensity, BASE_SENSITIVITY, defaultStats,
     sanitizeStats, resumeCheckpointState, settlementAccounting, mergeRunIntoStats, mergeModeStats, modeAccuracy, modeFavoriteWeapon,
@@ -8302,15 +8521,17 @@ const CORE = (function () {
     isExtractionWave, extractionSurgeProgress, pickExtractionSurgeKind,
     isPlayerInsideLz, rotorWashImpulse, extractionCinematicStep, extractionHudLabel,
     REACH_MAX_VERT, withinReach, UNREACHABLE, SOUND_VARIED_RANGE, soundPlaybackRate,
+    MUSIC_DUCK_MIN_GAP, MUSIC_DUCK_LEVELS, musicDuckPlan,
     SPATIAL_AUDIO_MAX_DIST, SPATIAL_AUDIO_PAN_BOOST, SPATIAL_AUDIO_MIN_VOL,
     spatialAudioPan, spatialAudioVolume, spatialAudioParams, JOYSTICK_SPRINT_FORWARD,
-    JOYSTICK_SPRINT_MAGNITUDE, isAutoSprint, JOYSTICK_RADIUS, JOYSTICK_DEADZONE,
+    JOYSTICK_SPRINT_MAGNITUDE, isAutoSprint, touchSprintIntent, JOYSTICK_RADIUS, JOYSTICK_DEADZONE,
     joystickInput, resolveAabbXZ, ARMOR_ABSORB_RATIO, resolveArmorDamage,
     enemyMeleeDamage, enemyRangedDamage, resolveVerticalBounds, findFloorY,
     hasCrouchHeadroom, SPATIAL_EXPLOSION_MAX_DIST, spatialExplosionParams,
     tacticalDetonationSound, grenadeContactSound, JOYSTICK_MOVE_THRESHOLD,
     touchMovementKeys,
-    gyroLookDelta, gyroScreenLookDelta, touchReloadState, ENEMY_HEALTH_SCALE,
+    gyroLookDelta, gyroScreenLookDelta, normalizeGyroMode, isGyroModeActive, gyroEffectiveSensitivity, stepGyroSample,
+    touchReloadState, ENEMY_HEALTH_SCALE,
     SHIELD_ARC_COS, SHIELD_ABSORB_RATIO, enemyBaseHealth, enemyMaxHealth,
     enemyAccuracy, playerBulletDamage, shieldMultiplier, HITMARK_COLOR,
     hitmarkerTier, hitmarkerParams, ENEMY_SEPARATION_RADIUS, enemySeparationRadius,
@@ -8326,7 +8547,7 @@ const CORE = (function () {
     canEnemyMelee, enemyMeleeReach, enemyAttackCooldown,
     VIGNETTE_MAX_ALPHA, VIGNETTE_BASE_ALPHA, VIGNETTE_SCALE_DIVISOR,
     HIT_ARC_LIFE, HIT_ARC_FADE_START, HIT_ARC_MAX_OPACITY,
-    damageVignetteAlpha, damageVignetteStyle, worldBearing, screenHitAngle,
+    damageVignetteAlpha, damageVignetteStyle, damageVignetteOverlay, worldBearing, screenHitAngle,
     hitArcOpacity, stepParticlePhysics, ammoHudChanged, syncAmmoHudState,
     healthHudChanged, syncHealthHudState, killConfirmationSound,
     MK_WINDOW, MK_MAX_STREAK, advanceKillStreak, multikillLabel, multikillSound,
@@ -8353,7 +8574,8 @@ const CORE = (function () {
     touchSlideChanged, syncTouchSlideState, touchMeleeChanged, syncTouchMeleeState,
     isMobileSteadyAim, touchFireState, touchFireLabel, touchReloadLabel,
     TOUCH_BUTTON_DEFAULT_SIZE, TOUCH_FIRE_DEFAULT_SIZE, TOUCH_PAUSE_DEFAULT_SIZE, touchControlName,
-    touchEditorControlLabel, touchLayoutClampPercent, touchFireChanged, syncTouchFireState, touchReloadChanged,
+    touchEditorControlLabel, touchLayoutClampPercent, clampTouchControlOpacity, clampTouchControlRect, touchLayoutDragPercent,
+    touchFireChanged, syncTouchFireState, touchReloadChanged,
     syncTouchReloadState, touchPlateChanged, syncTouchPlateState, touchEquipmentChanged, syncTouchEquipmentState,
     touchStreakChanged, syncTouchStreakState, touchSwapChanged, syncTouchSwapState, touchSwapNextSlot,
     FOOTSTEP_BASE_CADENCE, FOOTSTEP_SPRINT_CADENCE, FOOTSTEP_TAC_SPRINT_CADENCE, FOOTSTEP_CROUCH_CADENCE,

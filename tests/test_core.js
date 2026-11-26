@@ -2920,6 +2920,91 @@ test('isAutoSprint triggers on forward joystick tilt above threshold without ADS
   assert.strictEqual(CORE.isAutoSprint(undefined, 1.0, false), false);
 });
 
+// A held sprint control must behave like the keyboard's Shift: any direction, any
+// stick depth. Auto-sprint (full forward tilt) stays available for players who
+// never touch the button.
+test('touchSprintIntent honours a held sprint control in any direction', () => {
+  // Half-depth forward push: too shallow for auto-sprint, sprinting while held.
+  assert.strictEqual(CORE.isAutoSprint(0, 0.5, false), false);
+  assert.strictEqual(CORE.touchSprintIntent(true, 0, 0.5, false), true);
+  // Sideways and backward movement sprint too, exactly like Shift on desktop.
+  assert.strictEqual(CORE.touchSprintIntent(true, -0.9, 0, false), true);
+  assert.strictEqual(CORE.touchSprintIntent(true, 0, -0.6, false), true);
+  // Aiming down sights cancels sprint while the button is held.
+  assert.strictEqual(CORE.touchSprintIntent(true, 1.0, 0.8, true), false);
+  // A held button with a centred stick has no movement input to speed up.
+  assert.strictEqual(CORE.touchSprintIntent(true, 0, 0, false), false);
+  // Release falls back to the existing auto-sprint rule.
+  assert.strictEqual(CORE.touchSprintIntent(false, 0, 1.0, false), true);
+  assert.strictEqual(CORE.touchSprintIntent(false, 0, 0.5, false), false);
+  // Junk input never sprints.
+  assert.strictEqual(CORE.touchSprintIntent(true, NaN, 0.5, false), false);
+  assert.strictEqual(CORE.touchSprintIntent(true, '1', 1, false), false);
+  // A non-boolean held flag is treated as "not held": the auto rule decides.
+  assert.strictEqual(CORE.touchSprintIntent('yes', 0, 0.3, false), false);
+  assert.strictEqual(CORE.touchSprintIntent('yes', 0, 1.0, false), true);
+});
+
+// Warning cues used to slam the whole music bus to 4% with a 3 ms attack on every
+// single occurrence. Under enemy fire (whizzes, low-health heartbeat) that pumping
+// is what players hear as "the audio lags or stops". A duck must stay audible,
+// fade in gently, and be rate limited.
+test('musicDuckPlan keeps warning ducks audible, gentle and rate limited', () => {
+  // Combat sounds never duck the soundtrack.
+  assert.strictEqual(CORE.musicDuckPlan('shot', 10, 0), null);
+  assert.strictEqual(CORE.musicDuckPlan('hit', 10, 0), null);
+  assert.strictEqual(CORE.musicDuckPlan('enemy_shot', 10, 0), null);
+  assert.strictEqual(CORE.musicDuckPlan('', 10, 0), null);
+  assert.strictEqual(CORE.musicDuckPlan(null, 10, 0), null);
+
+  const whiz = CORE.musicDuckPlan('bullet_whiz', 10, 0);
+  assert.ok(whiz, 'bullet_whiz must still produce a duck plan');
+  assert.ok(whiz.level >= 0.5 && whiz.level <= 1,
+    `bullet_whiz must stay subtle, got ${whiz.level}`);
+  assert.ok(whiz.attack >= 0.03, `attack must avoid clicks, got ${whiz.attack}`);
+  assert.ok(whiz.hold >= 0.1, `hold must be long enough to be a duck, got ${whiz.hold}`);
+
+  // Death cue may duck deep, but never to silence.
+  const down = CORE.musicDuckPlan('player_down', 10, 0);
+  assert.ok(down && down.level > 0 && down.level <= 0.25, 'player_down ducks deep but stays audible');
+  // Low-ammo and heartbeat are cues, not mutes.
+  const low = CORE.musicDuckPlan('low_ammo', 10, 0);
+  const beat = CORE.musicDuckPlan('heartbeat', 10, 0);
+  assert.ok(low && low.level >= 0.25, `low_ammo duck too deep: ${low && low.level}`);
+  assert.ok(beat && beat.level >= 0.25, `heartbeat duck too deep: ${beat && beat.level}`);
+
+  // Sustained suppression: whizzes 0.1 s apart schedule one duck, not ten.
+  assert.ok(CORE.musicDuckPlan('bullet_whiz', 10.0, 9.0), 'first whiz after the gap may duck');
+  assert.strictEqual(CORE.musicDuckPlan('bullet_whiz', 10.1, 10.0), null,
+    'a whiz inside the minimum gap must not re-schedule the ramp');
+  assert.strictEqual(CORE.musicDuckPlan('heartbeat', 10.2, 10.0), null,
+    'a different warning cue inside the gap also waits');
+  // Once the gap has passed, the next cue ducks again.
+  assert.ok(CORE.musicDuckPlan('bullet_whiz', 10.0 + CORE.MUSIC_DUCK_MIN_GAP + 0.01, 10.0));
+  // Missing/invalid timestamps never produce a schedule.
+  assert.strictEqual(CORE.musicDuckPlan('bullet_whiz', NaN, 0), null);
+  assert.strictEqual(CORE.musicDuckPlan('bullet_whiz', 10, NaN) === null, false);
+});
+
+// The damage vignette used to be an animated inset box-shadow on a full-viewport
+// layer: every hit repainted the whole screen for 200 ms, and on a phone that hitch
+// is audible in the audio thread. The overlay now only moves opacity (composited)
+// and switches a colour variant class.
+test('damageVignetteOverlay animates opacity only, with armor as a variant', () => {
+  const hit = CORE.damageVignetteOverlay(CORE.damageVignetteAlpha(30), false);
+  assert.ok(hit && typeof hit.opacity === 'number', 'overlay must expose a numeric opacity');
+  assert.ok(hit.opacity > 0 && hit.opacity <= 1, `opacity must be a usable fraction, got ${hit.opacity}`);
+  assert.strictEqual(hit.variant, 'health');
+  const armor = CORE.damageVignetteOverlay(0.5, true);
+  assert.strictEqual(armor.opacity, 0.5);
+  assert.strictEqual(armor.variant, 'armor');
+  // Cleared/zero/junk alpha renders nothing rather than a stray tint.
+  assert.strictEqual(CORE.damageVignetteOverlay(0, false).opacity, 0);
+  assert.strictEqual(CORE.damageVignetteOverlay(-1, true).opacity, 0);
+  assert.strictEqual(CORE.damageVignetteOverlay(NaN, true).opacity, 0);
+  assert.strictEqual(CORE.damageVignetteOverlay(2, false).opacity, 1);
+});
+
 test('joystickInput clamps radius, maps screen delta to movement axes, and gates deadzone', () => {
   assert.strictEqual(CORE.JOYSTICK_RADIUS, 56);
   assert.strictEqual(CORE.JOYSTICK_DEADZONE, 0.12);

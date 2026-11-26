@@ -12,6 +12,8 @@ def probe_graphics(browser, base_url, check, all_errors):
     page.evaluate('localStorage.removeItem(STORE_KEY_SETTINGS)')
     page.reload(wait_until='networkidle')
     page.click('#btn-settings')
+    if page.locator('#settings-tab-graphics').count():
+        page.click('#settings-tab-graphics')
     keys = ['enemyDetail', 'sceneryDetail', 'effects', 'ragdollQuality', 'shadowQuality', 'postProcessing']
     check('Touch graphics controls generated with auto defaults', all(page.locator('#set-'+k).input_value() == 'auto' for k in keys))
     check('Touch graphics help accessible', page.locator('#set-enemyDetail').get_attribute('aria-describedby') is not None)
@@ -79,6 +81,8 @@ def probe_graphics(browser, base_url, check, all_errors):
     page.evaluate("setSetting('ragdollQuality','full'); killEnemy(enemies[enemies.length-1],false); window.simpleGeometryTotal=0; window.simpleGeometryDisposed=0; const owned=new Set(); for(const r of ragdolls){r.en.parts.group.traverse(o=>{if(o.geometry)owned.add(o.geometry)}); for(const p of r.boxParts||[])p.obj.traverse(o=>{if(o.geometry)owned.add(o.geometry)})} window.simpleGeometryTotal=owned.size; for(const g of owned)g.addEventListener('dispose',()=>window.simpleGeometryDisposed++); setSetting('ragdollQuality','off')")
     check('Simple corpse retirement disposes every detached and retained geometry', page.evaluate('simpleGeometryTotal>0 && simpleGeometryDisposed>=simpleGeometryTotal && ragdollCount()===0'))
     page.click('#btn-settings')
+    if page.locator('#settings-tab-graphics').count():
+        page.click('#settings-tab-graphics')
     page.locator('#set-postProcessing').scroll_into_view_if_needed()
     check('Last graphics control remains reachable on mobile', page.locator('#set-postProcessing').is_visible())
     page.click('#btn-settings-reset')
@@ -97,7 +101,10 @@ def probe_graphics(browser, base_url, check, all_errors):
     page = blocked.new_page(); storage_errors=[]
     page.on('pageerror', lambda e: storage_errors.append(str(e)))
     page.goto(base_url,wait_until='networkidle')
-    page.click('#btn-settings'); page.locator('#set-effects').select_option('full')
+    page.click('#btn-settings')
+    if page.locator('#settings-tab-graphics').count():
+        page.click('#settings-tab-graphics')
+    page.locator('#set-effects').select_option('full')
     check('Unavailable storage still permits usable live graphics UI', page.evaluate("SETTINGS.effects==='full' && PFX_ADD.cap+PFX_SMOKE.cap===2600"))
     page.click('#btn-settings-reset')
     check('Unavailable storage reset works without exception', page.evaluate("SETTINGS.effects==='auto'") and not storage_errors)
