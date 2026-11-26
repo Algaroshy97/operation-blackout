@@ -197,7 +197,11 @@ class MobileBrowserFeatureTests(unittest.TestCase):
                 fireEv(look, 'touchmove', [tLookMove], [tJoyMove, tLookMove, tAds, tFire]);
 
                 const inputDeadline = performance.now() + 15000;
-                while (curS().ammo >= pBefore.mag && performance.now() < inputDeadline) {
+                // The first shot can land on a frame with very little movement.
+                // Keep all four touches held until both gameplay effects occur.
+                while ((curS().ammo >= pBefore.mag ||
+                        Math.hypot(player.pos.x - pBefore.x, player.pos.z - pBefore.z) <= 0.15) &&
+                       performance.now() < inputDeadline) {
                     await new Promise(requestAnimationFrame);
                 }
 
@@ -291,7 +295,7 @@ class MobileBrowserFeatureTests(unittest.TestCase):
         self.assertTrue(snap["during"]["mouse2"])
         self.assertGreater(snap["during"]["yawDelta"], 0.01)
         self.assertLess(snap["during"]["magDuring"], snap["during"]["magBefore"])
-        self.assertGreater(snap["during"]["distMoved"], 0.15)
+        self.assertGreater(snap["during"]["distMoved"], 0.15, snap)
 
         for cleared in (snap["afterCancel"], snap["afterBlur"], snap["afterHidden"]):
             self.assertFalse(cleared["firing"])
@@ -321,6 +325,9 @@ class MobileBrowserFeatureTests(unittest.TestCase):
         # Inject legacy boolean gyroAim + single gyroSensitivity before load
         page.add_init_script(
             """(() => {
+                // This probe supplies synthetic readings, not a physical sensor.
+                // Make the permission boundary explicit across Chromium versions.
+                DeviceOrientationEvent.requestPermission = () => Promise.resolve('granted');
                 if (!sessionStorage.getItem('__legacy_seeded')) {
                     sessionStorage.setItem('__legacy_seeded', '1');
                     localStorage.setItem('blackout.settings.v1', JSON.stringify({ gyroAim: true, gyroSensitivity: 1.8 }));
@@ -342,6 +349,7 @@ class MobileBrowserFeatureTests(unittest.TestCase):
         self.assertAlmostEqual(migrated["ads"], 1.17)
 
         deploy_game(page)
+        page.wait_for_function("() => gyroEnabled && touchGameplayEnabled()", timeout=10000)
 
         res = page.evaluate(
             """async () => {
@@ -353,9 +361,9 @@ class MobileBrowserFeatureTests(unittest.TestCase):
                     window.dispatchEvent(ev);
                 };
                 const setAngle = (ang) => {
-                    Object.defineProperty(screen, 'orientation', {
+                    Object.defineProperty(screen.orientation, 'angle', {
                         configurable: true,
-                        value: { angle: ang, addEventListener: () => {} },
+                        value: ang,
                     });
                 };
 
@@ -433,7 +441,7 @@ class MobileBrowserFeatureTests(unittest.TestCase):
 
         self.assertEqual(res["movedWithoutAds"], 0.0)
         self.assertEqual(res["movedOnRebaseSample"], 0.0)
-        self.assertNotEqual(res["look90Sample"], 0.0)
+        self.assertNotEqual(res["look90Sample"], 0.0, res)
         self.assertEqual(res["jumpAfterFlip"], 0.0)
         self.assertLess(res["look90Sample"] * res["look270"], 0.0, f"expected opposite signs at 90 vs 270: {res}")
         self.assertGreater(abs(res["hipLook"]), abs(res["adsLook"]) * 3.0)
