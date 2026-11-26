@@ -82,15 +82,27 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
           await new Promise(r => setTimeout(r, 400));
           async function capture(name) {
             window.outputSamples.length = 0;
-            const start = MUSIC.ctx.currentTime;
+            const start = MUSIC.ctx.currentTime, deadline = performance.now() + 5000;
+            async function waitForAudio(ms) {
+              if (performance.now() > deadline) throw new Error(`Audio clock stalled during ${name || 'music'}`);
+              await new Promise(r => setTimeout(r, ms));
+            }
             if (name === 'enemy-step') playSound3D('estep', player.pos.x + 1, player.pos.y, player.pos.z, 18);
             else if (name) playSound(name, null, true);
-            await new Promise(r => setTimeout(r, 70));
-            const duck = MUSIC.duck ? MUSIC.duck.gain.value : 1;
-            await new Promise(r => setTimeout(r, 1130));
+            // Sample during the attack/hold in audio time, not at a single
+            // wall-clock instant that can land on the release on a slow runner.
+            let duck = 1, duckSamples = 0;
+            while (MUSIC.ctx.currentTime - start < 0.18) {
+              if (MUSIC.ctx.currentTime - start >= 0.06) {
+                duck = Math.min(duck, MUSIC.duck.gain.value);
+                duckSamples++;
+              }
+              await waitForAudio(10);
+            }
+            while (MUSIC.ctx.currentTime - start < 1.2) await waitForAudio(40);
             const cueBlocks = window.outputSamples.filter(x => x.time >= start && x.time < start + 0.12);
             return {blocks: window.outputSamples.length,
-                    duck, recovered: MUSIC.duck ? MUSIC.duck.gain.value : 1,
+                    duck, duckSamples, recovered: MUSIC.duck.gain.value,
                     cueBlocks: cueBlocks.length, cueRms: Math.max(0, ...cueBlocks.map(x => x.rms)),
                     start, end: MUSIC.ctx.currentTime,
                     first: window.outputSamples[0]?.time, last: window.outputSamples.at(-1)?.time,
@@ -111,8 +123,10 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         print('destination-path combat/cue blocks:', mix)
         assert mix['intensity'] > 0.5, mix
         assert all(mix[k]['blocks'] > 0 and mix[k]['rmsMax'] > 0 for k in ('music', 'stepMix', 'enemyStep', 'warningMix', 'stepAlone', 'warningAlone')), mix
-        # User superseded the old footstep-duck requirement; warnings still duck.
-        assert mix['stepMix']['duck'] > 0.99 and mix['enemyStep']['duck'] > 0.99 and mix['warningMix']['duck'] < 0.2, mix
+        # Low ammo targets 0.34 with a soft attack; the score must dip, not mute.
+        assert all(mix[k]['duckSamples'] > 0 for k in ('stepMix', 'enemyStep', 'warningMix', 'click')), mix
+        assert mix['stepMix']['duck'] > 0.99 and mix['enemyStep']['duck'] > 0.99, mix
+        assert 0.32 < mix['warningMix']['duck'] < 0.65, mix
         assert all(mix[k]['cueBlocks'] and mix[k]['cueRms'] > 0 for k in ('stepMix', 'enemyStep', 'warningMix')), mix
         assert mix['stepMix']['recovered'] > 0.9 and mix['warningMix']['recovered'] > 0.9 and mix['click']['duck'] > 0.9, mix
         page.evaluate('pauseGame()')

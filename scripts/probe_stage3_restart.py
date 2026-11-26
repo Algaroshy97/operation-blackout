@@ -19,6 +19,8 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         page.click('#gun-select .gun-card:not(.locked)'); page.click('#gun-select .gun-card:not(.locked)')
         assert page.evaluate('activeWeather') == 'night'
         page.evaluate('pauseGame()'); page.click('#btn-settings-pause')
+        if page.locator('#settings-tab-gameplay').count():
+            page.click('#settings-tab-gameplay')
         page.select_option('#set-weather', 'dusk')
         assert page.evaluate('activeWeather') == 'night', 'next match setting must not change the current match'
         page.click('#btn-settings-back'); page.click('#btn-resume')
@@ -36,7 +38,10 @@ def main(build=ROOT / 'dist/Operation Blackout.html'):
         state = page.evaluate("() => ({weather:activeWeather, calls:window.weatherCalls, sun:sun.intensity, expected:1.35*LIGHT_COMPAT*0.72, light:nightLight && nightLight.parent === scene})")
         print('manual restart:', state)
         assert state['weather'] == 'dusk' and state['calls'] == 1 and abs(state['sun'] - state['expected']) < 0.001 and not state['light'], state
-        page.evaluate('pauseGame()'); page.click('#btn-settings-pause'); page.select_option('#set-weather', 'random')
+        page.evaluate('pauseGame()'); page.click('#btn-settings-pause')
+        if page.locator('#settings-tab-gameplay').count():
+            page.click('#settings-tab-gameplay')
+        page.select_option('#set-weather', 'random')
         assert page.evaluate('activeWeather') == 'dusk'
         page.click('#btn-settings-back'); page.click('#btn-resume')
         page.evaluate('() => { window.weatherCalls = 0; const mode = getActiveMode(); mode.timeLeft = 0; mode.update(1/60); }')

@@ -30,6 +30,7 @@ function pauseGame() {
   paused = true;
   stopMusic();
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
+  if (typeof clearInputState === 'function') clearInputState();
   $id('pause-menu').style.display = 'flex';
   if (document.pointerLockElement) document.exitPointerLock();
 }
@@ -463,12 +464,93 @@ function gunsmithOption(slot, a, current, rank) {
   return btn;
 }
 
+function gyroStatusText(status, mode) {
+  if (mode === 'off') return 'Off';
+  if (status === 'active') return 'Active (sensor receiving data)';
+  if (status === 'waiting') return 'Waiting for sensor data…';
+  if (status === 'no-sensor') return 'No gyroscope sensor detected on this device';
+  if (status === 'denied') return 'Sensor permission denied';
+  if (status === 'needs-permission') return 'Tap Enable Gyroscope to grant sensor permission';
+  if (status === 'insecure') return 'Requires HTTPS / secure context';
+  if (status === 'unsupported') return 'Gyroscope API unavailable in this browser';
+  return 'Touch device only';
+}
+function updateGyroStatusUI() {
+  const el = $id('gyro-status-line');
+  if (!el) return;
+  const mode = typeof getSetting === 'function' ? getSetting('gyroAim') : 'off';
+  const st = typeof gyroStatus !== 'undefined' ? gyroStatus : 'off';
+  el.textContent = 'Sensor status: ' + gyroStatusText(st, mode);
+  const btn = $id('btn-gyro-permission');
+  if (btn) btn.style.display = (mode !== 'off' && (st === 'needs-permission' || st === 'denied')) ? '' : 'none';
+}
+
 let settingsReturnTo = 'menu';
+let activeSettingsTab = 'controls';
+function selectSettingsTab(tabId, focusTab) {
+  const tabs = (typeof CORE !== 'undefined' && Array.isArray(CORE.SETTINGS_TABS)) ? CORE.SETTINGS_TABS : [];
+  if (!tabs.some(function (t) { return t.id === tabId; })) return;
+  activeSettingsTab = tabId;
+  const tabBtns = document.querySelectorAll('#settings-tabs [role="tab"]');
+  tabBtns.forEach(function (btn) {
+    const on = btn.dataset.tab === tabId;
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    btn.tabIndex = on ? 0 : -1;
+    if (on && focusTab) btn.focus();
+  });
+  document.querySelectorAll('#settings-list [role="tabpanel"]').forEach(function (panel) {
+    panel.hidden = panel.dataset.tab !== tabId;
+  });
+}
 function buildSettingsUI() {
+  const tabsBar = $id('settings-tabs');
   const list = $id('settings-list');
   list.innerHTML = '';
+  const tabs = (typeof CORE !== 'undefined' && Array.isArray(CORE.SETTINGS_TABS))
+    ? CORE.SETTINGS_TABS
+    : [{ id: 'controls', label: 'Controls' }];
+  if (!tabs.some(function (t) { return t.id === activeSettingsTab; })) activeSettingsTab = tabs[0].id;
+  const panels = {};
+  if (tabsBar) {
+    tabsBar.innerHTML = '';
+    tabs.forEach(function (t, idx) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'set-tab';
+      btn.id = 'settings-tab-' + t.id;
+      btn.dataset.tab = t.id;
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-controls', 'settings-panel-' + t.id);
+      const isSel = t.id === activeSettingsTab;
+      btn.setAttribute('aria-selected', isSel ? 'true' : 'false');
+      btn.tabIndex = isSel ? 0 : -1;
+      btn.textContent = t.label;
+      btn.addEventListener('click', function () { selectSettingsTab(t.id); });
+      btn.addEventListener('keydown', function (e) {
+        let nextIdx = -1;
+        if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') nextIdx = 0;
+        else if (e.key === 'End') nextIdx = tabs.length - 1;
+        if (nextIdx >= 0) {
+          e.preventDefault();
+          selectSettingsTab(tabs[nextIdx].id, true);
+        }
+      });
+      tabsBar.appendChild(btn);
+      const panel = document.createElement('div');
+      panel.className = 'set-panel';
+      panel.id = 'settings-panel-' + t.id;
+      panel.dataset.tab = t.id;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', btn.id);
+      panel.hidden = !isSel;
+      list.appendChild(panel);
+      panels[t.id] = panel;
+    });
+  }
   for (const key in CORE.SETTINGS_SCHEMA) {
-    if ((key === 'gyroAim' || key === 'gyroSensitivity') && !IS_TOUCH) continue;
+    if ((key === 'gyroAim' || key === 'gyroSensitivity' || key === 'gyroAdsSensitivity') && !IS_TOUCH) continue;
     const spec = CORE.SETTINGS_SCHEMA[key];
     const row = document.createElement('div');
     row.className = 'set-row';
@@ -515,14 +597,25 @@ function buildSettingsUI() {
       wrap.firstElementChild.setAttribute('aria-describedby', help.id);
       row.appendChild(help);
     }
-    list.appendChild(row);
+    const targetPanel = (typeof CORE.settingTab === 'function' && panels[CORE.settingTab(key)]) || panels[tabs[0].id] || list;
+    targetPanel.appendChild(row);
+    if (key === 'gyroAim' && IS_TOUCH) {
+      const stRow = document.createElement('div');
+      stRow.className = 'set-row set-gyro-status';
+      stRow.innerHTML = '<span id="gyro-status-line" class="set-help" aria-live="polite"></span><button type="button" id="btn-gyro-permission" style="display:none">ENABLE SENSOR</button>';
+      stRow.querySelector('#btn-gyro-permission').addEventListener('click', function () {
+        if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(getSetting('gyroAim'));
+      });
+      targetPanel.appendChild(stRow);
+      updateGyroStatusUI();
+    }
   }
   if (typeof openTouchLayoutEditor === 'function' && IS_TOUCH) {
     const row = document.createElement('div');
     row.className = 'set-row set-layout-action';
-    row.innerHTML = '<label>Button positions and sizes</label><button type="button" id="btn-edit-touch-layout">EDIT ON SCREEN</button>';
+    row.innerHTML = '<label>Button positions, sizes and opacity</label><button type="button" id="btn-edit-touch-layout">EDIT ON SCREEN</button>';
     row.querySelector('button').addEventListener('click', openTouchLayoutEditor);
-    list.appendChild(row);
+    (panels.touch || list).appendChild(row);
   }
 }
 function openSettings(from) {
@@ -905,12 +998,12 @@ function startGame() {
   if (!activeMode || activeMode.id === 'survival') {
     // "GET READY" + COMBAT IN n countdown until wave 1
     showWaveBanner(0);
-    startMusic();
   } else {
     updateMatchHud(activeMode);
   }
   $id('start-screen').style.display = 'none';
   document.body.classList.add('started');
+  if (typeof AC !== 'undefined' && AC && typeof prerenderSounds === 'function') prerenderSounds();
   startMusic();
   if (!IS_TOUCH) canvas.requestPointerLock();
 }
@@ -1392,43 +1485,38 @@ const _camPosOut = { x: 0, y: 0 };
 let _slideOvEl = null;
 let _slideVigOpacity = 0;
 let _lastSlideVigWritten = -1;
+const _adaptiveResOut = { pixelRatio: 1, upscaleStreak: 0, changed: false };
 function frame(now) {
   requestAnimationFrame(frame);
-  let dt = (now - lastT) / 1000;
-  lastT = now;
-  const wallDt = Math.max(0, dt);
-  if (dt > 0.1) dt = 0.1;
   // Nothing can be drawn until the driver hands the context back; rendering into a
   // lost context throws every frame and buries the console.
   if (contextLost) return;
+  const fpsCap = typeof getSetting === 'function' ? getSetting('fpsCap') : 'uncapped';
+  if (!CORE.shouldRenderFrame(now, frame.lastRenderNow, fpsCap)) return;
+  const prevNow = frame.lastRenderNow !== undefined ? frame.lastRenderNow : lastT;
+  frame.lastRenderNow = now;
+  let dt = (now - prevNow) / 1000;
+  lastT = now;
+  const wallDt = Math.max(0, dt);
+  if (dt > 0.1) dt = 0.1;
   // Measure real frame time, not the clamped simulation timestep.
   if (runtimeTelemetry.enabled) runtimeTelemetry.record(Math.max(0, now - (frame.previousNow || now)));
   fpsAcc += Math.max(0, (now - (frame.previousNow || now)) / 1000); frame.previousNow = now; fpsN++;
   if (fpsAcc > 0.5) {
     const fps = fpsN / fpsAcc;
-    hud.fps.textContent = Math.round(fps) + ' FPS';
+    if (hud.fps) hud.fps.textContent = Math.round(fps) + ' FPS';
     // Adapt deliberately, not every sample: frequent canvas reallocations cause
-    // the camera to appear to hitch on slower GPUs.
+    // the camera to appear to hitch on slower GPUs. Only runs when opted in.
     qualityAdjustT += fpsAcc;
-    // An explicit quality preset means the player has decided; stop second-guessing.
-    if (qualityAdjustT >= 4.5 && qualityIsAuto()) {
-      const maxPR = Math.min(window.devicePixelRatio, 1.5);
+    if (qualityAdjustT >= CORE.ADAPTIVE_SAMPLE_WINDOW && typeof adaptiveResolutionEnabled === 'function' && adaptiveResolutionEnabled()) {
       const currentPR = renderer.getPixelRatio();
-      let desiredPR = currentPR;
-      if (fps < 48 && currentPR > 0.65) desiredPR = Math.max(0.65, currentPR - 0.1);
-      // Upscale threshold must be below 60 (58) because vsync on 60 Hz displays caps fps near 60,
-      // which would make >62 unreachable and prevent resolution from recovering after a hitch.
-      // Asymmetric on purpose: each change reallocates the drawing buffer, which is
-      // itself a hitch, so step down readily but require several consecutive good
-      // samples before stepping back up. Stops the oscillation near the threshold.
-      else if (fps > 58 && currentPR < maxPR) {
-        upscaleStreak++;
-        if (upscaleStreak >= 3) { desiredPR = Math.min(maxPR, currentPR + 0.1); upscaleStreak = 0; }
-      } else upscaleStreak = 0;
-      if (desiredPR < currentPR) upscaleStreak = 0;
-      if (Math.abs(desiredPR - currentPR) >= 0.05) {
-        renderer.setPixelRatio(desiredPR);
-      }
+      const res = CORE.computeAdaptivePixelRatio(
+        currentPR, fps, window.devicePixelRatio,
+        typeof getSetting === 'function' ? getSetting('quality') : 'auto',
+        IS_TOUCH, fpsCap, upscaleStreak, _adaptiveResOut
+      );
+      upscaleStreak = res.upscaleStreak;
+      if (res.changed) renderer.setPixelRatio(res.pixelRatio);
       qualityAdjustT = 0;
     }
     fpsAcc = 0; fpsN = 0;
@@ -1586,6 +1674,7 @@ function preloadGameAssets() {
       setTimeout(function () { note.classList.add('hidden'); }, failed ? 4000 : 1200);
       setTimeout(function () { note.style.display = 'none'; }, failed ? 4600 : 1800);
     }
+    if (typeof warmupFirstShotVfx === 'function') warmupFirstShotVfx();
     assetsReady = true;
     setDeployReady(true);
     if (n) console.log('preloaded props placed:', n);

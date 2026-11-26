@@ -242,7 +242,7 @@ class TouchLayoutTests(unittest.TestCase):
     def test_stylesheet_defines_every_touch_control(self) -> None:
         boxes = self._boxes()
         expected = {"joy-base", "tbtn-fire", "tbtn-ads", "tbtn-jump", "tbtn-slide",
-                    "tbtn-reload", "tbtn-nade", "tbtn-swap", "tbtn-pause",
+                    "tbtn-sprint", "tbtn-reload", "tbtn-nade", "tbtn-swap", "tbtn-pause",
                     "tbtn-melee", "tbtn-use", "tbtn-plate",
                     "tbtn-tactical", "tbtn-streak"}
         self.assertEqual(expected, set(boxes), "touch control set changed — update this test")

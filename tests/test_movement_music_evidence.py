@@ -64,6 +64,55 @@ class ContinuityEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'scheduler'):
             validate_scheduler(frames, scheduled, 0.1)
 
+    def test_scheduler_accepts_even_renderer_bound_cadence(self):
+        # Software GL on a moving scene: frames arrive every ~0.4s, evenly.
+        frames = [{'t': 0.4 * i} for i in range(13)]
+        frames[11]['t'] = 0.4 * 11 + 0.18
+        scheduled = [{'n': i, 't': 0.1 * i, 'now': 0.1 * i - 0.05} for i in range(1, 40)]
+        metrics = validate_scheduler(frames, scheduled, 0.1)
+        self.assertAlmostEqual(metrics['median_frame_gap'], 0.4, places=6)
+        self.assertGreaterEqual(round(metrics['max_frame_gap_bound'], 6), 0.8)
+
+    def test_scheduler_rejects_true_stall_inside_renderer_bound_capture(self):
+        frames = [{'t': 0.4 * i} for i in range(13)]
+        frames[6]['t'] = frames[5]['t'] + 1.6
+        for i in range(7, 13):
+            frames[i]['t'] = frames[5]['t'] + 1.6 + 0.4 * (i - 6)
+        scheduled = [{'n': i, 't': 0.1 * i, 'now': 0.1 * i - 0.05} for i in range(1, 40)]
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
+
+    def test_scheduler_accepts_lateness_within_one_render_cadence(self):
+        # Steps are drained inside frames only, so at a ~0.4s cadence a step
+        # due between two frames is structurally late by up to one gap.
+        frames = [{'t': 0.4 * i} for i in range(13)]
+        scheduled = [{'n': i, 't': 0.1 * i, 'now': 0.1 * i + 0.14} for i in range(1, 40)]
+        metrics = validate_scheduler(frames, scheduled, 0.1)
+        self.assertAlmostEqual(metrics['max_lateness_bound'], 0.4, places=6)
+        self.assertGreater(metrics['max_lateness'], 0.08)
+
+    def test_scheduler_rejects_lateness_beyond_one_render_cadence(self):
+        # A step left past a whole frame that was available is a real defect,
+        # even on a renderer-bound capture.
+        frames = [{'t': 0.4 * i} for i in range(13)]
+        scheduled = [{'n': i, 't': 0.1 * i, 'now': 0.1 * i + 0.05} for i in range(1, 20)]
+        scheduled[4]['now'] = scheduled[4]['t'] + 1.1
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
+
+    def test_scheduler_keeps_absolute_lateness_bound_when_rendering_is_smooth(self):
+        frames = [{'t': 0.016 * i} for i in range(40)]
+        scheduled = [{'n': i, 't': 0.1 * i, 'now': 0.1 * i + 0.05} for i in range(1, 12)]
+        scheduled[3]['now'] = scheduled[3]['t'] + 0.12
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
+
+    def test_scheduler_keeps_absolute_bound_for_small_samples(self):
+        frames = [{'t': t} for t in (0, 0.4, 1.1)]
+        scheduled = [{'n': 1, 't': 0.1, 'now': 0.05}, {'n': 2, 't': 0.2, 'now': 0.15}]
+        with self.assertRaisesRegex(ValueError, 'scheduler'):
+            validate_scheduler(frames, scheduled, 0.1)
+
     def test_rejects_missing_capture_intervals(self):
         samples = blocks()
         del samples[30:70]

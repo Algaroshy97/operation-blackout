@@ -4,34 +4,116 @@
 
 let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
 let adsHeld = false;
+// Dedicated mobile sprint control, held like the keyboard's Shift.
+let sprintHeld = false;
+// Game-time of the last RUN tap, for the tactical-sprint double-tap window.
+let lastSprintTapAt = -99;
 let gyroEnabled = false;
+let gyroMode = 'off';
+let gyroStatus = 'off';
 let gyroLast = null;
+let gyroSensorSeen = false;
+let gyroProbeTimer = null;
 const gyroDelta = { yaw: 0, pitch: 0 };
-function setGyroAimEnabled(enabled) {
-  if (!enabled) {
-    gyroEnabled = false; gyroLast = null;
-    if (typeof window !== 'undefined') window.removeEventListener('deviceorientation', onGyroOrientation);
+const _gyroSampleOut = { rebaselined: false, betaDelta: 0, gammaDelta: 0 };
+function currentScreenAngle() {
+  if (typeof window === 'undefined') return 0;
+  if (window.screen && window.screen.orientation && typeof window.screen.orientation.angle === 'number') return window.screen.orientation.angle;
+  return typeof window.orientation === 'number' ? window.orientation : 0;
+}
+function rebaselineGyro() { gyroLast = null; }
+function notifyGyroStatusUI() {
+  if (typeof updateGyroStatusUI === 'function') updateGyroStatusUI();
+}
+function attachGyroListeners() {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('deviceorientation', onGyroOrientation);
+  window.removeEventListener('orientationchange', rebaselineGyro);
+  window.addEventListener('deviceorientation', onGyroOrientation, { passive: true });
+  window.addEventListener('orientationchange', rebaselineGyro, { passive: true });
+  if (window.screen && window.screen.orientation && typeof window.screen.orientation.addEventListener === 'function') {
+    window.screen.orientation.removeEventListener('change', rebaselineGyro);
+    window.screen.orientation.addEventListener('change', rebaselineGyro, { passive: true });
+  }
+}
+function detachGyroListeners() {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('deviceorientation', onGyroOrientation);
+  window.removeEventListener('orientationchange', rebaselineGyro);
+  if (window.screen && window.screen.orientation && typeof window.screen.orientation.removeEventListener === 'function') {
+    window.screen.orientation.removeEventListener('change', rebaselineGyro);
+  }
+}
+function setGyroAimEnabled(mode) {
+  const nextMode = CORE.normalizeGyroMode(mode);
+  const modeChanged = nextMode !== gyroMode;
+  gyroMode = nextMode;
+  if (gyroProbeTimer) { clearTimeout(gyroProbeTimer); gyroProbeTimer = null; }
+  if (nextMode === 'off') {
+    gyroEnabled = false; gyroLast = null; gyroSensorSeen = false; gyroStatus = 'off';
+    detachGyroListeners();
+    notifyGyroStatusUI();
     return;
   }
-  if (!IS_TOUCH || !window.isSecureContext || !('DeviceOrientationEvent' in window)) {
+  if (!IS_TOUCH) {
+    gyroEnabled = false; gyroLast = null; gyroStatus = 'touch-only';
+    notifyGyroStatusUI();
     return;
   }
-  if (gyroEnabled) return;
+  if (typeof window === 'undefined' || !window.isSecureContext) {
+    gyroEnabled = false; gyroLast = null; gyroStatus = 'insecure';
+    notifyGyroStatusUI();
+    return;
+  }
+  const hasDoe = ('DeviceOrientationEvent' in window) || typeof DeviceOrientationEvent !== 'undefined';
+  if (!hasDoe) {
+    gyroEnabled = false; gyroLast = null; gyroStatus = 'unsupported';
+    notifyGyroStatusUI();
+    return;
+  }
+  if (gyroEnabled) {
+    if (modeChanged) rebaselineGyro();
+    notifyGyroStatusUI();
+    return;
+  }
+  const Doe = window.DeviceOrientationEvent || DeviceOrientationEvent;
   let request;
   try {
-    request = typeof DeviceOrientationEvent.requestPermission === 'function'
-      ? DeviceOrientationEvent.requestPermission() : Promise.resolve('granted');
-  } catch (e) { return; } // iOS requires a trusted user gesture; retry on the next tap.
-  request.then(function (permission) {
-    if (permission !== 'granted') throw new Error('orientation permission denied');
-    gyroEnabled = true; gyroLast = null;
-    window.addEventListener('deviceorientation', onGyroOrientation, { passive: true });
+    request = Doe && typeof Doe.requestPermission === 'function'
+      ? Doe.requestPermission() : Promise.resolve('granted');
+  } catch (e) {
+    gyroEnabled = false; gyroLast = null; gyroStatus = 'needs-permission';
+    notifyGyroStatusUI();
+    return;
+  }
+  const pending = (request && typeof request.then === 'function') ? request : Promise.resolve(request);
+  pending.then(function (permission) {
+    if (gyroMode === 'off') return;
+    if (permission !== 'granted') {
+      gyroEnabled = false; gyroLast = null; gyroStatus = 'denied';
+      notifyGyroStatusUI();
+      return;
+    }
+    gyroEnabled = true; gyroLast = null; gyroSensorSeen = false; gyroStatus = 'waiting';
+    attachGyroListeners();
+    gyroProbeTimer = setTimeout(function () {
+      gyroProbeTimer = null;
+      if (gyroEnabled && !gyroSensorSeen) {
+        gyroStatus = 'no-sensor';
+        notifyGyroStatusUI();
+      }
+    }, 1500);
+    notifyGyroStatusUI();
   }).catch(function () {
-    gyroEnabled = false; gyroLast = null;
+    gyroEnabled = false; gyroLast = null; gyroStatus = 'denied';
+    notifyGyroStatusUI();
   });
 }
 if (typeof window !== 'undefined') window.addEventListener('click', function () {
-  if (typeof getSetting === 'function' && getSetting('gyroAim') && !gyroEnabled) setGyroAimEnabled(true);
+  if (typeof getSetting === 'function' && CORE.normalizeGyroMode(getSetting('gyroAim')) !== 'off' &&
+      !gyroEnabled && (gyroStatus === 'needs-permission' || gyroStatus === 'off')) {
+    setGyroAimEnabled(getSetting('gyroAim'));
+  }
 }, { passive: true });
 function touchLookFactor(base) {
   const isAds = !!(touchState && touchState.ads);
@@ -42,15 +124,30 @@ function touchLookFactor(base) {
     : (isAds ? base * 0.65 : base);
 }
 function onGyroOrientation(event) {
-  if (!gyroEnabled || !touchState.active || !touchGameplayEnabled() ||
-      typeof event.beta !== 'number' || typeof event.gamma !== 'number') return;
-  if (!gyroLast) { gyroLast = { beta: event.beta, gamma: event.gamma }; return; }
-  const betaDelta = ((event.beta - gyroLast.beta + 540) % 360) - 180;
-  const gammaDelta = ((event.gamma - gyroLast.gamma + 540) % 360) - 180;
-  gyroLast.beta = event.beta; gyroLast.gamma = event.gamma;
-  const angle = window.screen && window.screen.orientation ? window.screen.orientation.angle : (window.orientation || 0);
-  const sensitivity = touchLookFactor(getSetting('gyroSensitivity') || 1);
-  CORE.gyroScreenLookDelta(betaDelta, gammaDelta, angle, sensitivity * 7, gyroDelta);
+  if (!event || typeof event.beta !== 'number' || typeof event.gamma !== 'number' ||
+      !isFinite(event.beta) || !isFinite(event.gamma)) return;
+  gyroSensorSeen = true;
+  if (gyroProbeTimer) { clearTimeout(gyroProbeTimer); gyroProbeTimer = null; }
+  if (gyroStatus !== 'active') { gyroStatus = 'active'; notifyGyroStatusUI(); }
+  const isAds = !!(touchState.ads || (typeof adsDown === 'function' && adsDown()));
+  const active = gyroEnabled && touchState.active && touchGameplayEnabled() && CORE.isGyroModeActive(gyroMode, isAds);
+  const angle = currentScreenAngle();
+  const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  const step = CORE.stepGyroSample(gyroLast, event.beta, event.gamma, angle, nowMs, active, 250, _gyroSampleOut);
+  if (!active) { gyroLast = null; return; }
+  if (step.rebaselined) {
+    gyroLast = { beta: event.beta, gamma: event.gamma, angle: ((Number(angle) || 0) % 360 + 360) % 360, ts: nowMs };
+    return;
+  }
+  gyroLast.beta = event.beta; gyroLast.gamma = event.gamma; gyroLast.ts = nowMs;
+  const isScp = typeof isScoped === 'function' ? isScoped() : false;
+  const isStd = typeof steadyActive === 'boolean' ? steadyActive : false;
+  const sens = CORE.gyroEffectiveSensitivity(
+    typeof getSetting === 'function' ? getSetting('gyroSensitivity') : 1.0,
+    typeof getSetting === 'function' ? getSetting('gyroAdsSensitivity') : 0.65,
+    isAds, isScp, isStd
+  );
+  CORE.gyroScreenLookDelta(step.betaDelta, step.gammaDelta, angle, sens * 7, gyroDelta);
   touchState.lookX += gyroDelta.yaw;
   touchState.lookY += gyroDelta.pitch;
 }
@@ -80,6 +177,7 @@ function touchGameplayEnabled() {
     <div id="tbtn-ads" role="button" aria-label="Aim down sights" class="tbtn tbtn-sm">ADS</div>
     <div id="tbtn-jump" role="button" aria-label="Jump / climb" class="tbtn tbtn-sm">JUMP</div>
     <div id="tbtn-slide" role="button" aria-label="Slide / crouch" class="tbtn tbtn-sm">SLIDE</div>
+    <div id="tbtn-sprint" role="button" aria-label="Sprint (double-tap for tactical sprint)" class="tbtn tbtn-sm">RUN</div>
     <div id="tbtn-reload" role="button" aria-label="Reload" class="tbtn tbtn-sm">RLD</div>
     <div id="tbtn-nade" role="button" aria-label="Hold grenade" class="tbtn tbtn-sm">NADE</div>
     <div id="tbtn-swap" role="button" aria-label="Swap weapon" class="tbtn tbtn-sm">SWAP</div>
@@ -152,7 +250,9 @@ function touchGameplayEnabled() {
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
   resetTouchControls = function () {
-    joyId = null; lookId = null; fireId = null; adsHeld = false;
+    joyId = null; lookId = null; fireId = null; adsHeld = false; sprintHeld = false;
+    lastSprintTapAt = -99;
+    rebaselineGyro();
     touchState.moveX = touchState.moveZ = touchState.lookX = touchState.lookY = 0;
     touchState.firing = touchState.tapFiring = touchState.ads = false;
     mouse1Down = false; mouseX = mouseY = 0;
@@ -263,6 +363,25 @@ function touchGameplayEnabled() {
     // No delayed key writes: releasing/cancelling immediately releases crouch.
     keys['KeyC'] = true;
   }, function () { keys['KeyC'] = false; });
+  // Sprint control: held means sprint in any direction at any stick depth, the way
+  // Shift works on desktop. The press also feeds the sprint double-tap window, so
+  // tapping it twice opens a tactical sprint (previously unreachable by touch).
+  holdBtn('tbtn-sprint', function () {
+    sprintHeld = true;
+    keys['ShiftLeft'] = true;
+    pressed['ShiftLeft'] = true;
+    // Tactical sprint straight from the touch layer. `pressed` is a one-frame edge set
+    // owned by the player loop, so a tap that lands between frames can be cleared
+    // before `updatePlayer` reads it; arming `tacT` here makes the double-tap reliable
+    // while using the same window/rule as the keyboard.
+    if (typeof CORE.isTacSprintTriggered === 'function' && typeof player !== 'undefined') {
+      const nowT = typeof gameT === 'number' ? gameT : 0;
+      if (CORE.isTacSprintTriggered(nowT, lastSprintTapAt, !!player.exhausted, CORE.TAC_TAP_WINDOW)) {
+        player.tacT = CORE.TAC_DURATION;
+      }
+      lastSprintTapAt = nowT;
+    }
+  }, function () { sprintHeld = false; });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { cycleWeapon(1); }, function () {});
@@ -304,20 +423,55 @@ function loadTouchLayoutPositions() {
   }
   catch (e) { touchLayoutPositions = {}; }
 }
+function readSafeAreaInsets() {
+  if (typeof getComputedStyle !== 'function' || typeof document === 'undefined' || !document.documentElement) return null;
+  const cs = getComputedStyle(document.documentElement);
+  const px = function (prop) {
+    const v = parseFloat(cs.getPropertyValue(prop));
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  return { top: px('--sa-t'), right: px('--sa-r'), bottom: px('--sa-b'), left: px('--sa-l') };
+}
 function applyTouchLayoutPositions() {
   if (!IS_TOUCH) return;
   loadTouchLayoutPositions();
+  const insets = readSafeAreaInsets();
+  const vw = typeof innerWidth === 'number' && innerWidth > 0 ? innerWidth : 0;
+  const vh = typeof innerHeight === 'number' && innerHeight > 0 ? innerHeight : 0;
   for (const id in touchLayoutPositions) {
     const el = document.getElementById(id);
     const p = touchLayoutPositions[id];
     if (!el || !p) continue;
-    if (Number.isFinite(p.left)) { el.style.left = p.left + '%'; el.style.right = 'auto'; }
-    if (Number.isFinite(p.top)) { el.style.top = p.top + '%'; el.style.bottom = 'auto'; }
+    el.classList.toggle('touch-custom-position', Number.isFinite(p.left) || Number.isFinite(p.top));
+    el.classList.toggle('touch-custom-size', Number.isFinite(p.size));
+    let sz = null;
     if (Number.isFinite(p.size)) {
-      const sz = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
+      sz = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
         ? CORE.clampTouchControlSize(p.size)
         : p.size;
       el.style.width = sz + 'px'; el.style.height = sz + 'px';
+    }
+    if (Number.isFinite(p.opacity)) {
+      const op = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlOpacity === 'function')
+        ? CORE.clampTouchControlOpacity(p.opacity)
+        : p.opacity;
+      el.style.opacity = String(op);
+    } else {
+      el.style.opacity = '';
+    }
+    if (Number.isFinite(p.left) || Number.isFinite(p.top)) {
+      let left = Number.isFinite(p.left) ? p.left : 0;
+      let top = Number.isFinite(p.top) ? p.top : 0;
+      if (insets && vw > 0 && vh > 0 && typeof CORE.clampTouchControlRect === 'function') {
+        const rect = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+        const w = sz || (rect && rect.width) || 56;
+        const h = sz || (rect && rect.height) || 56;
+        const clamped = CORE.clampTouchControlRect(left, top, w, h, vw, vh, insets);
+        left = clamped.left; top = clamped.top;
+        p.left = left; p.top = top;
+      }
+      if (Number.isFinite(p.left)) { el.style.left = left + '%'; el.style.right = 'auto'; }
+      if (Number.isFinite(p.top)) { el.style.top = top + '%'; el.style.bottom = 'auto'; }
     }
   }
 }
@@ -333,22 +487,36 @@ function openTouchLayoutEditor() {
   let bar = document.getElementById('touch-editor-bar');
   if (!bar) {
     bar = document.createElement('div'); bar.id = 'touch-editor-bar';
-    bar.innerHTML = '<b>DRAG BUTTONS TO POSITION</b><span id="touch-editor-name">Select a button</span><input id="touch-editor-size" type="range" min="44" max="150" value="72"><button id="touch-editor-reset">RESET</button><button id="touch-editor-done">DONE</button>';
+    bar.innerHTML = '<b>DRAG BUTTONS</b><span id="touch-editor-name">Select a button</span>' +
+      '<label>SIZE <input id="touch-editor-size" type="range" min="44" max="150" value="72" aria-label="Control size"></label>' +
+      '<label>OPACITY <input id="touch-editor-opacity" type="range" min="0.25" max="1" step="0.05" value="1" aria-label="Control opacity"></label>' +
+      '<button id="touch-editor-reset">RESET</button><button id="touch-editor-done">DONE</button>';
     document.body.appendChild(bar);
     bar.querySelector('#touch-editor-reset').addEventListener('click', function () {
       touchLayoutPositions = {};
       try { localStorage.removeItem(TOUCH_LAYOUT_KEY); } catch (e) {}
-      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = ''; el.style.width = ''; el.style.height = ''; el.classList.remove('selected'); });
+      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) {
+        el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = '';
+        el.style.width = ''; el.style.height = ''; el.style.opacity = '';
+        el.classList.remove('selected', 'touch-custom-position', 'touch-custom-size');
+      });
       bar.dataset.selected = '';
       bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
         ? CORE.touchEditorControlLabel(null)
         : 'Select a button';
+      const opEl = bar.querySelector('#touch-editor-opacity');
+      if (opEl) opEl.value = 1;
       applyTouchLayoutPositions();
     });
     bar.querySelector('#touch-editor-done').addEventListener('click', function () {
-      localStorage.setItem(TOUCH_LAYOUT_KEY, JSON.stringify(touchLayoutPositions));
+      try { localStorage.setItem(TOUCH_LAYOUT_KEY, JSON.stringify(CORE.sanitizeTouchLayout(touchLayoutPositions))); } catch (e) {}
       document.body.classList.remove('touch-editing');
-      document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base').forEach(function (el) { el.classList.remove('selected'); });
+      if (endDrag) endDrag();
+      selectable.forEach(function (el) {
+        el.classList.remove('selected');
+        el.removeEventListener('touchstart', touchEditorStart, true);
+        el.removeEventListener('mousedown', touchEditorStart, true);
+      });
       bar.remove();
       if (settings) { settings.style.display = 'flex'; buildSettingsUI(); }
     });
@@ -359,8 +527,21 @@ function openTouchLayoutEditor() {
       const sizeVal = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlSize === 'function')
         ? CORE.clampTouchControlSize(rawVal)
         : rawVal;
+      el.classList.add('touch-custom-size');
       el.style.width = sizeVal + 'px'; el.style.height = sizeVal + 'px';
       touchLayoutPositions[id] = touchLayoutPositions[id] || {}; touchLayoutPositions[id].size = sizeVal;
+      const insets = readSafeAreaInsets() || { top: 0, right: 0, bottom: 0, left: 0 };
+      if (typeof innerWidth === 'number' && innerWidth > 0 && typeof innerHeight === 'number' && innerHeight > 0 &&
+          typeof CORE.clampTouchControlRect === 'function') {
+        const curRect = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+        const curL = Number.isFinite(touchLayoutPositions[id].left) ? touchLayoutPositions[id].left : (curRect ? (curRect.left / innerWidth * 100) : 0);
+        const curT = Number.isFinite(touchLayoutPositions[id].top) ? touchLayoutPositions[id].top : (curRect ? (curRect.top / innerHeight * 100) : 0);
+        const clamped = CORE.clampTouchControlRect(curL, curT, sizeVal, sizeVal, innerWidth, innerHeight, insets);
+        if (Number.isFinite(touchLayoutPositions[id].left) || clamped.left !== Number(curL.toFixed(2)) || clamped.top !== Number(curT.toFixed(2))) {
+          el.style.left = clamped.left + '%'; el.style.top = clamped.top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
+          touchLayoutPositions[id].left = clamped.left; touchLayoutPositions[id].top = clamped.top;
+        }
+      }
       const nameEl = bar.querySelector('#touch-editor-name');
       if (nameEl) {
         nameEl.textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
@@ -368,16 +549,36 @@ function openTouchLayoutEditor() {
           : id.replace('tbtn-', '').toUpperCase() + ' (' + sizeVal + 'px)';
       }
     });
+    const opInput = bar.querySelector('#touch-editor-opacity');
+    if (opInput) opInput.addEventListener('input', function (e) {
+      const id = bar.dataset.selected; const el = id && document.getElementById(id);
+      if (!el) return;
+      const opVal = (typeof CORE !== 'undefined' && typeof CORE.clampTouchControlOpacity === 'function')
+        ? CORE.clampTouchControlOpacity(e.target.value)
+        : Number(e.target.value);
+      el.style.opacity = String(opVal);
+      touchLayoutPositions[id] = touchLayoutPositions[id] || {};
+      touchLayoutPositions[id].opacity = opVal;
+    });
   }
   const size = bar.querySelector('#touch-editor-size');
+  const opacitySlider = bar.querySelector('#touch-editor-opacity');
   const selectable = document.querySelectorAll('#touch-ui .tbtn, #touch-ui #joy-base');
+  let endDrag = null;
   selectable.forEach(function (el) {
     el.addEventListener('touchstart', touchEditorStart, { capture: true, passive: false });
+    el.addEventListener('mousedown', touchEditorStart, { capture: true });
   });
   function touchEditorStart(e) {
     if (!document.body.classList.contains('touch-editing')) return;
     e.preventDefault(); e.stopPropagation();
-    const el = e.currentTarget, t = e.changedTouches[0], r = el.getBoundingClientRect();
+    if (endDrag) return;
+    const el = e.currentTarget;
+    const isMouse = e.type === 'mousedown';
+    const t = isMouse ? e : (e.changedTouches && e.changedTouches[0]);
+    if (!t) return;
+    const dragId = isMouse ? 'mouse' : t.identifier;
+    const r = el.getBoundingClientRect();
     bar.dataset.selected = el.id;
     selectable.forEach(function (btn) {
       const isSel = (typeof CORE !== 'undefined' && typeof CORE.isTouchControlSelected === 'function')
@@ -391,35 +592,62 @@ function openTouchLayoutEditor() {
         ? CORE.clampTouchControlSize(baseW)
         : baseW);
     size.value = curSize;
+    if (opacitySlider) {
+      opacitySlider.value = (touchLayoutPositions[el.id] && Number.isFinite(touchLayoutPositions[el.id].opacity))
+        ? touchLayoutPositions[el.id].opacity : 1;
+    }
     bar.querySelector('#touch-editor-name').textContent = (typeof CORE !== 'undefined' && typeof CORE.touchEditorControlLabel === 'function')
       ? CORE.touchEditorControlLabel(el.id, curSize)
       : (typeof CORE !== 'undefined' && typeof CORE.touchControlName === 'function')
         ? CORE.touchControlName(el.id) + ' (' + curSize + 'px)'
         : el.id.replace('tbtn-', '').toUpperCase() + ' (' + curSize + 'px)';
+    const insets = readSafeAreaInsets() || { top: 0, right: 0, bottom: 0, left: 0 };
+    const applyPoint = function (cx, cy) {
+      el.classList.add('touch-custom-position');
+      const r = el.getBoundingClientRect();
+      const left = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutDragPercent === 'function')
+        ? CORE.touchLayoutDragPercent(cx, r.width, innerWidth, insets.left, insets.right)
+        : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (cx - r.width / 2) / innerWidth * 100));
+      const top = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutDragPercent === 'function')
+        ? CORE.touchLayoutDragPercent(cy, r.height, innerHeight, insets.top, insets.bottom)
+        : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (cy - r.height / 2) / innerHeight * 100));
+      el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
+      touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {};
+      touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
+    };
     const move = function (ev) {
-      for (const mt of ev.changedTouches) if (mt.identifier === t.identifier) {
+      if (isMouse) { ev.preventDefault(); applyPoint(ev.clientX, ev.clientY); return; }
+      for (const mt of ev.changedTouches) if (mt.identifier === dragId) {
         ev.preventDefault();
-        const rawLeft = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
-          ? CORE.touchLayoutClampPercent(mt.clientX, r.width, innerWidth)
-          : Math.max(0, Math.min(100 - (r.width / innerWidth * 100), (mt.clientX - r.width / 2) / innerWidth * 100));
-        const rawTop = (typeof CORE !== 'undefined' && typeof CORE.touchLayoutClampPercent === 'function')
-          ? CORE.touchLayoutClampPercent(mt.clientY, r.height, innerHeight)
-          : Math.max(0, Math.min(100 - (r.height / innerHeight * 100), (mt.clientY - r.height / 2) / innerHeight * 100));
-        const left = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
-          ? CORE.clampTouchLayoutCoord(rawLeft)
-          : rawLeft;
-        const top = (typeof CORE !== 'undefined' && typeof CORE.clampTouchLayoutCoord === 'function')
-          ? CORE.clampTouchLayoutCoord(rawTop)
-          : rawTop;
-        el.style.left = left + '%'; el.style.top = top + '%'; el.style.right = 'auto'; el.style.bottom = 'auto';
-        touchLayoutPositions[el.id] = touchLayoutPositions[el.id] || {}; touchLayoutPositions[el.id].left = left; touchLayoutPositions[el.id].top = top;
+        applyPoint(mt.clientX, mt.clientY);
       }
     };
-    const end = function (ev) { for (const et of ev.changedTouches) if (et.identifier === t.identifier) { removeEventListener('touchmove', move, true); removeEventListener('touchend', end, true); } };
-    addEventListener('touchmove', move, { capture: true, passive: false }); addEventListener('touchend', end, true);
+    const end = function (ev) {
+      if (isMouse || Array.from(ev.changedTouches).some((t) => t.identifier === dragId)) endDrag();
+    };
+    endDrag = function () {
+      if (isMouse) {
+        removeEventListener('mousemove', move, true); removeEventListener('mouseup', end, true);
+      } else {
+        removeEventListener('touchmove', move, true); removeEventListener('touchend', end, true); removeEventListener('touchcancel', end, true);
+      }
+      endDrag = null;
+    };
+    if (isMouse) {
+      addEventListener('mousemove', move, true); addEventListener('mouseup', end, true);
+    } else {
+      addEventListener('touchmove', move, { capture: true, passive: false });
+      addEventListener('touchend', end, true);
+      addEventListener('touchcancel', end, true);
+    }
   }
 }
 applyTouchLayoutPositions();
+if (typeof addEventListener === 'function' && IS_TOUCH) {
+  addEventListener('resize', function () {
+    if (Object.keys(touchLayoutPositions).length) applyTouchLayoutPositions();
+  });
+}
 
 // Feed touch state into the keyboard-driven player controller each frame.
 // Called from updatePlayer BEFORE movement intent is read.
@@ -431,6 +659,7 @@ function applyTouchInput() {
   if (!touchGameplayEnabled()) {
     resetTouchControls();
     updateTouchSlideBtn();
+    updateTouchSprintBtn();
     updateTouchMeleeBtn();
     updateTouchAdsBtn();
     updateTouchJumpBtn();
@@ -455,8 +684,11 @@ function applyTouchInput() {
     keys['KeyA'] = _touchMoveKeys.a;
     _touchAnalogMove.x = touchState.moveX; _touchAnalogMove.z = touchState.moveZ;
     window.__analogMove = _touchAnalogMove;
-    // Full forward stick automatically sprints; ease the stick back to walk.
-    const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+    // Held sprint control sprints in any direction; otherwise a full forward stick
+    // still auto-sprints and easing the stick back returns to a walk.
+    const isSprint = typeof CORE.touchSprintIntent === 'function'
+      ? CORE.touchSprintIntent(sprintHeld, touchState.moveX, touchState.moveZ, touchState.ads)
+      : CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
     keys['ShiftLeft'] = isSprint;
     const isDowned = typeof player !== 'undefined' && !!player.downed;
     const isDead = typeof player !== 'undefined' && !!player.dead;
@@ -505,12 +737,15 @@ function applyTouchInput() {
     }
   }
   keys['Mouse2'] = !isDowned && (touchState.ads || (mouse1Down && getSetting('fireMode') === 'ads + fire'));
+  if (gyroMode === 'ads' && !keys['Mouse2']) rebaselineGyro();
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
   touchState.lookX = 0; touchState.lookY = 0;
 
   // Stance / slide button tactical feedback
   updateTouchSlideBtn();
+  // Sprint control: lit while sprinting, marked during a tactical sprint
+  updateTouchSprintBtn();
   // Melee strike readiness and cooldown feedback
   updateTouchMeleeBtn();
   // ADS / scoped optical indicator
@@ -526,7 +761,9 @@ let _touchSlideCache = { slideState: '', slideLabel: 'SLIDE' };
 function updateTouchSlideBtn() {
   if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
   if (!tbtnSlideEl || typeof player === 'undefined') return;
-  const isSprint = CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+  const isSprint = typeof CORE.touchSprintIntent === 'function'
+    ? CORE.touchSprintIntent(sprintHeld, touchState.moveX, touchState.moveZ, touchState.ads)
+    : CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
   const isDowned = !!player.downed;
   const isDead = !!player.dead;
   const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint, isDowned, isDead);
@@ -542,6 +779,19 @@ function updateTouchSlideBtn() {
 }
 
 let tbtnMeleeEl = null;
+// Sprint control feedback: lit while the player is actually sprinting, and marked
+// "tac" during a tactical sprint burst so the bonus state is visible on the phone.
+let tbtnSprintEl = null;
+function updateTouchSprintBtn() {
+  if (!tbtnSprintEl) tbtnSprintEl = document.getElementById('tbtn-sprint');
+  if (!tbtnSprintEl) return;
+  const isSprinting = typeof player !== 'undefined' && !!player.sprinting;
+  const isTac = typeof player !== 'undefined' && !!(player.tacT > 0);
+  tbtnSprintEl.classList.toggle('sprinting', isSprinting);
+  tbtnSprintEl.classList.toggle('tac', isTac);
+  tbtnSprintEl.classList.toggle('locked', typeof player !== 'undefined' && (!!player.dead || !!player.downed));
+}
+
 let _touchMeleeCache = { meleeState: '', meleeLabel: 'KNIFE' };
 function updateTouchMeleeBtn() {
   if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');

@@ -151,7 +151,7 @@
   .hit-dir .arc{position:absolute;top:-116px;left:-14px;width:28px;height:28px;border-top:4px solid #ff3020;border-radius:50%/100% 100% 0 0;transform:rotate(-45deg)}
   .hit-dir.armor .arc{border-top-color:#4fa3d8}
   .hit-dir.miss .arc{border-top-color:#d8d8d0;border-top-width:2px}
-  #suppress-vignette{top:0;left:0;width:100%;height:100%;opacity:0;z-index:4;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(8,8,10,.55) 85%,rgba(0,0,0,.8) 100%)}
+  #suppress-vignette{top:0;left:0;width:100%;height:100%;opacity:0;z-index:4;pointer-events:none;will-change:opacity;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(8,8,10,.55) 85%,rgba(0,0,0,.8) 100%)}
   .gren-warn{position:absolute;left:0;top:0;opacity:0;pointer-events:none}
   .gren-warn .gw{position:absolute;left:-19px;top:-172px;width:38px;height:52px;text-align:center}
   .gren-warn .gw-arrow{width:0;height:0;margin:0 auto 2px;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:10px solid #ffb020}
@@ -161,10 +161,16 @@
   .gren-warn.hot .gw-arrow{border-bottom-color:#ff3a20}
   @keyframes gw-blink{to{background:rgba(160,24,8,.8)}}
   body.reduced-motion .gren-warn.hot .gw-icon{animation:none;background:rgba(160,24,8,.8)}
-  #damage-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 120px 40px rgba(180,0,0,0);transition:box-shadow .2s;z-index:5}
-  #critical-vignette{top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 90px 30px rgba(180,15,15,0);transition:opacity .25s ease-out;z-index:4;pointer-events:none;opacity:0}
+  /* Damage feedback is a static gradient whose opacity animates: a composited layer
+     costs the GPU one texture, while an animated inset box-shadow repainted the whole
+     viewport on every hit and made the audio stutter on phones. */
+  #damage-vignette{top:0;left:0;width:100%;height:100%;--vig:180,0,0;background:radial-gradient(ellipse at center,rgba(var(--vig),0) 42%,rgba(var(--vig),.42) 82%,rgba(var(--vig),.72) 100%);opacity:0;transition:opacity .2s ease-out;will-change:opacity;pointer-events:none;z-index:5}
+  #damage-vignette.armor{--vig:79,163,216}
+  /* Critical pulse animates opacity, not box-shadow: a keyframed inset shadow on a
+     full-viewport layer repaints every screen frame and stalls the audio thread. */
+  #critical-vignette{top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at center,rgba(180,15,15,0) 40%,rgba(180,15,15,.45) 80%,rgba(180,15,15,.8) 100%);transition:opacity .25s ease-out;will-change:opacity;z-index:4;pointer-events:none;opacity:0}
   #critical-vignette.active{opacity:1;animation:crit-pulse 1.1s infinite alternate ease-in-out}
-  @keyframes crit-pulse{0%{box-shadow:inset 0 0 85px 28px rgba(180,15,15,.32)}100%{box-shadow:inset 0 0 135px 52px rgba(220,20,20,.72)}}
+  @keyframes crit-pulse{0%{opacity:.4}100%{opacity:1}}
   #sprint-ind{bottom:56px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.55);font-size:10px;letter-spacing:3px;font-weight:700;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .15s,color .15s}
   #sprint-ind.tac{color:#50b4ff;text-shadow:0 0 8px rgba(80,180,255,.6),0 1px 3px #000}
   #sprint-ind.slide{color:#80d4ff;text-shadow:0 0 8px rgba(128,212,255,.5),0 1px 3px #000}
@@ -283,6 +289,9 @@
   body.touch #tbtn-streak::before{background-position:100.000000% 100.000000%}
   body.touch #tbtn-pause::before{background-position:100.000000% 66.666667%}
   body.touch #tbtn-slide.sprint::before{background-position:33.333333% 33.333333%}
+  /* Dedicated sprint control: the running figure from the atlas. Sits above the
+     SLIDE/JUMP column beside STRK, so nothing shifts and no target doubles up. */
+  body.touch #tbtn-sprint::before{background-position:33.333333% 33.333333%}
   /* Right-hand cluster. The old layout stacked five controls in one column reaching
      346px up from the bottom; a landscape phone is 360px tall, so RELOAD arrived at
      the top edge and overlapped PAUSE by its full height — a tap in that zone could
@@ -353,6 +362,11 @@
   body.touch #tbtn-streak.field{border-color:#50b4ff;color:#50b4ff;}
   body.touch #tbtn-streak.empty{opacity:.35;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.35)}
   body.touch #tbtn-streak.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
+  body.touch #tbtn-sprint{left:calc(216px + var(--sa-l));bottom:calc(228px + var(--sa-b));width:56px;height:56px;font-size:10px;letter-spacing:.5px;}
+  body.touch #tbtn-sprint.on{background:transparent;border-color:#50b4ff;color:#fff;}
+  body.touch #tbtn-sprint.sprinting{border-color:#80d4ff;color:#fff;}
+  body.touch #tbtn-sprint.tac{border-color:#ffd24a;color:#ffd24a;}
+  body.touch #tbtn-sprint.locked{opacity:.4;border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.4)}
   /* The buy prompt would sit under the right-hand thumb cluster at phone height. */
   body.touch #buy-prompt{bottom:calc(234px + var(--sa-b))}
   body.touch #tbtn-pause{right:calc(14px + var(--sa-r));top:calc(14px + var(--sa-t));width:44px;height:44px;background:transparent}
@@ -363,6 +377,8 @@
   body.touch-layout-large .tbtn{transform:scale(1.18);transform-origin:center}
   body.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom right}
   body.touch-layout-left.touch-layout-large #tbtn-fire{transform:scale(1.18);transform-origin:bottom left}
+  body.touch #touch-ui .touch-custom-position{transform:none}
+  body.touch #touch-ui .touch-custom-size{box-sizing:border-box;transform:none}
   body.touch-layout-left #joy-base{left:auto;right:calc(26px + var(--sa-r))}
   body.touch-layout-left #look-zone{left:0;right:auto}
   body.touch-layout-left #tbtn-fire{left:calc(26px + var(--sa-l));right:auto;bottom:calc(56px + var(--sa-b))}
@@ -377,6 +393,7 @@
   body.touch-layout-left #tbtn-plate{left:auto;right:calc(282px + var(--sa-r));bottom:calc(100px + var(--sa-b))}
   body.touch-layout-left #tbtn-tactical{left:auto;right:calc(282px + var(--sa-r));bottom:calc(164px + var(--sa-b))}
   body.touch-layout-left #tbtn-streak{left:auto;right:calc(150px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
+  body.touch-layout-left #tbtn-sprint{left:auto;right:calc(216px + var(--sa-r));bottom:calc(228px + var(--sa-b))}
   body.touch-layout-left #tbtn-pause{left:calc(14px + var(--sa-l));right:auto}
   body.touch-layout-left #minimap{left:auto;right:calc(16px + var(--sa-r))}
   body.touch-layout-left #score-hud{right:auto;left:calc(16px + var(--sa-l))}
@@ -416,16 +433,22 @@
   /* Reduced motion includes loadout/menu feedback, not only the combat HUD. */
   body.reduced-motion .gun-card,body.reduced-motion .menu-btn,body.reduced-motion .diff-btn{transition:none}
   body.reduced-motion .gun-card:hover{transform:none}
-  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #slide-vignette,body.reduced-motion #scoping-overlay,body.reduced-motion #steady-ind,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #tbtn-pause,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
+  body.reduced-motion #health-bar,body.reduced-motion #health-num,body.reduced-motion #armor-bar,body.reduced-motion .armor-bar-bg,body.reduced-motion #damage-vignette,body.reduced-motion #critical-vignette,body.reduced-motion #slide-vignette,body.reduced-motion #scoping-overlay,body.reduced-motion #steady-ind,body.reduced-motion #joy-base,body.reduced-motion #joy-stick,body.reduced-motion #tbtn-fire,body.reduced-motion #tbtn-reload,body.reduced-motion #tbtn-plate,body.reduced-motion #tbtn-nade,body.reduced-motion #tbtn-tactical,body.reduced-motion #tbtn-streak,body.reduced-motion #tbtn-swap,body.reduced-motion #tbtn-use,body.reduced-motion #tbtn-slide,body.reduced-motion #tbtn-sprint,body.reduced-motion #tbtn-melee,body.reduced-motion #tbtn-ads,body.reduced-motion #tbtn-jump,body.reduced-motion #tbtn-pause,body.reduced-motion #sprint-ind,body.reduced-motion #crosshair,body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transition:none}
   body.reduced-motion #crosshair .c-v,body.reduced-motion #crosshair .c-h{transform:none}
-  body.reduced-motion #critical-vignette.active{animation:none;box-shadow:inset 0 0 90px 30px rgba(180,15,15,.42)}
+  body.reduced-motion #critical-vignette.active{animation:none;opacity:.72}
   body.reduced-motion .health-bar-bg.critical{animation:none}
   body.reduced-motion #crosshair .hitmark.kill span{box-shadow:0 0 2px #000}
   @media (prefers-reduced-motion: reduce){ .killfeed-item{animation-duration:.01ms} }
   /* ---- Settings panel ---- */
   #settings-screen{position:absolute;top:0;left:0;width:100%;height:100%;height:100dvh;min-height:0;background:rgba(6,10,6,.92);z-index:60;display:none;align-items:stretch;justify-content:flex-start;flex-direction:column;backdrop-filter:blur(3px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;padding:clamp(12px,4vh,28px) 12px calc(18px + var(--sa-b));touch-action:pan-y}
   #settings-screen h2{flex:0 0 auto;color:#ffdf8a;font-size:clamp(21px,6vw,30px);letter-spacing:clamp(3px,1.5vw,8px);font-weight:900;margin:0 0 12px;text-shadow:0 2px 10px #000;width:100%;text-align:center}
+  #settings-tabs{width:min(520px,100%);margin:0 auto 10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;flex:0 0 auto}
+  .set-tab{background:rgba(20,26,20,.85);border:1px solid rgba(255,255,255,.22);color:rgba(255,255,255,.78);font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1.5px;padding:7px 11px;border-radius:4px;cursor:pointer;text-transform:uppercase;min-height:34px}
+  .set-tab[aria-selected="true"]{border-color:#ffdf8a;color:#ffdf8a;background:rgba(120,90,20,.55)}
+  .set-tab:focus-visible{outline:2px solid #ffd24a;outline-offset:2px}
   #settings-list{width:min(520px,100%);margin:0 auto;display:flex;flex-direction:column;gap:2px;flex:0 0 auto}
+  .set-panel{display:flex;flex-direction:column;gap:2px}
+  .set-panel[hidden]{display:none}
   .set-row{min-height:42px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border-radius:4px}
   .set-help{grid-column:1/-1;margin:0;color:rgba(255,255,255,.65);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
   .set-row label{min-width:0;color:rgba(255,255,255,.85);font-size:clamp(11px,3.2vw,13px);letter-spacing:.5px}
@@ -434,10 +457,11 @@
   #settings-screen .set-note{width:min(520px,100%);margin:10px auto 0;color:rgba(255,255,255,.5);font-size:10px;line-height:1.45;text-align:center;flex:0 0 auto}
   .set-layout-action{grid-template-columns:1fr auto;border:1px solid rgba(255,210,74,.22);margin-top:5px}
   .set-layout-action button,#touch-editor-bar button{border:1px solid rgba(255,210,74,.55);background:rgba(70,50,10,.75);color:#ffdf8a;border-radius:3px;padding:8px 10px;font:700 11px inherit;letter-spacing:1px;touch-action:manipulation}
-  #touch-editor-bar{position:fixed;left:0;right:0;top:0;z-index:100;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:8px calc(8px + var(--sa-l));background:rgba(6,10,6,.96);color:#ffdf8a;font-size:10px;letter-spacing:1px;pointer-events:auto;box-sizing:border-box}
+  #touch-editor-bar{position:fixed;left:0;right:0;top:0;z-index:100;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:8px calc(8px + var(--sa-l)) 8px calc(8px + var(--sa-l));background:rgba(6,10,6,.96);color:#ffdf8a;font-size:10px;letter-spacing:1px;pointer-events:auto;box-sizing:border-box}
   #touch-editor-bar b{font-size:11px}
   #touch-editor-bar span{color:#fff;opacity:.75}
-  #touch-editor-bar input{width:90px;accent-color:#ffd24a}
+  #touch-editor-bar label{display:inline-flex;align-items:center;gap:4px;font-weight:700}
+  #touch-editor-bar input{width:76px;accent-color:#ffd24a}
   body.touch-editing #touch-ui{z-index:90}
   body.touch-editing #look-zone{display:none}
   body.touch-editing #touch-ui .tbtn,body.touch-editing #touch-ui #joy-base{outline:2px dashed rgba(255,210,74,.8);outline-offset:3px}
@@ -530,7 +554,7 @@
 <div id="gun-select"><h2>SELECT PRIMARY</h2><div id="map-row" style="display:flex;gap:8px;margin-bottom:8px"></div><div id="mode-row" style="display:flex;gap:8px;margin-bottom:8px"></div><div id="diff-row"></div><label id="starting-perk-row">STARTING PERK <select id="starting-perk"><option value="none">None</option><option value="reload">Speed Reload — reload 40% faster</option><option value="steady">Steady Aim — less bloom, faster ADS</option><option value="scav">Scavenger — richer pickups</option></select> · occupies one of 3 slots</label><div id="tdm-settings-row" style="display:none;gap:12px;margin-bottom:8px;align-items:center"></div><div id="gun-cards"></div></div>
 <div id="pause-menu"><h2>PAUSED</h2><div class="menu-btn" id="btn-resume">RESUME</div><div class="menu-btn" id="btn-settings-pause">SETTINGS</div><div class="menu-btn fullscreen-btn" id="btn-fullscreen-pause">FULL SCREEN</div><div class="menu-btn" id="btn-quit">QUIT TO MENU</div></div>
 <div id="gunsmith-screen"><div><h2>GUNSMITH</h2><div id="gs-weapons"></div><div id="gs-slots"></div><div class="menu-btn" id="btn-gunsmith-back">BACK</div></div></div>
-<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser. On mobile, ADS BUTTON FOR ROTATION lets the FIRE button aim while held and dragged; turn it off for a fixed right-fire perspective.</p></div>
+<div id="settings-screen"><h2>SETTINGS</h2><div id="settings-tabs" role="tablist" aria-label="Settings categories"></div><div id="settings-list"></div><div id="settings-actions"><div class="menu-btn" id="btn-settings-back">BACK</div><div class="menu-btn" id="btn-settings-reset">RESET DEFAULTS</div></div><p class="set-note">Settings are saved in this browser. On mobile, ADS BUTTON FOR ROTATION lets the FIRE button aim while held and dragged; turn it off for a fixed right-fire perspective.</p></div>
 <section id="stats-screen" aria-labelledby="stats-title" style="display:none;position:fixed;inset:0;z-index:200;background:#080c12;color:#fff;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow:auto"><h2 id="stats-title">STATISTICS</h2><div id="stats-records" style="line-height:2;max-width:900px"></div><button class="menu-btn" id="btn-stats-back">BACK</button></section>
 <div id="rotate-prompt"><div class="rp-icon">⟳</div>ROTATE YOUR DEVICE<br><span style="font-size:12px;letter-spacing:2px;opacity:.7">Landscape is required to play</span></div>
 <div id="death-screen"><h2>K.I.A.</h2><div class="end-stats" id="ds-stats"></div><div class="menu-btn" id="btn-restart">REDEPLOY</div><div class="menu-btn" id="btn-death-quit">MAIN MENU</div></div>

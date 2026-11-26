@@ -294,6 +294,10 @@ test('v126 mobile UI polish: downed control states, touch editor selection, and 
   assert.equal(fire.classList.contains('selected'), true);
   assert.equal(ads.classList.contains('selected'), false);
 
+  // A second finger cannot steal the current drag; it can select after release.
+  ads.emit('touchstart', [finger(2)]);
+  assert.equal(fire.classList.contains('selected'), true);
+  h.win.emit('touchend', [finger(1)]);
   ads.emit('touchstart', [finger(2)]);
   assert.equal(ads.classList.contains('selected'), true);
   assert.equal(fire.classList.contains('selected'), false);

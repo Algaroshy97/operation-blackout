@@ -20,7 +20,7 @@ def main(build=Path(__file__).resolve().parents[1] / 'dist/Operation Blackout.ht
             let handle=cue?setInterval(()=>{sent.push(ctx.currentTime);playSound(cue,null,true)},interval):null;
             await wait(3500); if(handle)clearInterval(handle); await wait(400);
             let values=chunks.filter(x=>x.t>=start && x.t<start+3.5);
-            return {name,sent,blocks:values.length,min:Math.min(...values.map(x=>x.g)),max:Math.max(...values.map(x=>x.g)),below20:values.filter(x=>x.g<0.2).length,below50:values.filter(x=>x.g<0.5).length,raw:values};
+            return {name,sent,blocks:values.length,min:Math.min(...values.map(x=>x.g)),max:Math.max(...values.map(x=>x.g))};
           }
           let baseline=await trial('no cue',null,500),steps=await trial('step','step',500),warning=await trial('warning','low_ammo',1200);
           await wait(1300); chunks=[];
@@ -30,33 +30,76 @@ def main(build=Path(__file__).resolve().parents[1] / 'dist/Operation Blackout.ht
           const playerSteps=setInterval(()=>{denseSent.push(['step',ctx.currentTime]);playSound('step',null,true)},240);
           await wait(3500);clearInterval(enemy);clearInterval(playerSteps);await wait(400);
           const denseBlocks=chunks.filter(x=>x.t>=denseStart+0.5 && x.t<denseStart+3.4);
-          const dense={sent:denseSent,blocks:denseBlocks.length,mean:denseBlocks.reduce((a,x)=>a+x.g,0)/denseBlocks.length,below20:denseBlocks.filter(x=>x.g<0.2).length};
-          playSound('low_ammo',null,true); await wait(40); playSound('step',null,true); await wait(40); const overlap=MUSIC.duck.gain.value;
-          await wait(1000); playSound('player_down',null,true); await wait(180); playSound('step',null,true); await wait(40); const longOverlap=MUSIC.duck.gain.value;
-          await wait(800); playSound('step',null,true); await wait(30); playSound('low_ammo',null,true); await wait(50); const reverseOverlap=MUSIC.duck.gain.value;
-          await wait(800); playSound('player_down',null,true); await wait(160); playSound('low_ammo',null,true); await wait(80); playSound('step',null,true); await wait(40); const warningsOverlap=MUSIC.duck.gain.value;
+          const dense={cues:denseSent.length,blocks:denseBlocks.length,min:Math.min(...denseBlocks.map(x=>x.g))};
+          // Use rendered audio, not AudioParam.value (a main-thread snapshot),
+          // to check attack and recovery even if the capture callback arrives late.
+          function windowAt(start, from, to) {
+            const gain=chunks.filter(x=>x.t>=start+from && x.t<start+to).map(x=>x.g);
+            return {blocks:gain.length,min:Math.min(...gain),max:Math.max(...gain)};
+          }
+          async function envelope(cue, {before=false, after=[], steps=false}={}) {
+            await wait(1300); chunks=[];
+            if(before){ playSound('step',null,true); await wait(30); }
+            const start=ctx.currentTime;
+            playSound(cue,null,true);
+            const sent=[];
+            const timers=after.map(([name,ms])=>setTimeout(()=>{
+              sent.push([name,ctx.currentTime-start]); playSound(name,null,true);
+            },ms));
+            const repeat=steps ? setInterval(()=>{sent.push(['estep',ctx.currentTime-start]);playSound('estep',null,true)},80) : null;
+            try { await wait(1250); } finally {
+              timers.forEach(clearTimeout);
+              if(repeat) clearInterval(repeat);
+            }
+            return {sent, attack:windowAt(start,0.07,0.16), release:windowAt(start,0.3,0.5), recovered:windowAt(start,0.95,1.1)};
+          }
+          const ammoWithStep=await envelope('low_ammo',{after:[['step',40]]});
+          const stepBeforeAmmo=await envelope('low_ammo',{before:true});
+          const death=await envelope('player_down');
+          const deathOverlap=await envelope('player_down',{after:[['low_ammo',160],['step',240]]});
+          const whizz=await envelope('bullet_whiz',{steps:true});
           dc.disconnect(); await wait(300); let neg=chunks.slice(-20);
-          return {baseline,steps,warning,dense,overlap,longOverlap,reverseOverlap,warningsOverlap,negative:neg};
+          return {baseline,steps,warning,dense,ammoWithStep,stepBeforeAmmo,death,deathOverlap,whizz,negative:neg};
         }''')
-        for key in ('baseline','steps','warning'):
-            x=result[key]; raw=x.pop('raw'); print(key,x,flush=True)
-        print('negative',result['negative'],flush=True)
-        print('dense',result['dense'],flush=True)
+        for key, value in result.items():
+            print(key, value, flush=True)
+        # Cue-specific output bands at the end of attack. These are measured
+        # envelopes, not the lower asymptotic targets (0.34, 0.12, 0.62).
+        ammo_band, death_band, whizz_band = (0.34, 0.48), (0.12, 0.28), (0.62, 0.73)
+
+        def envelope_ok(key, band):
+            x = result[key]
+            return (all(x[k]['blocks'] >= 8 for k in ('attack', 'release', 'recovered'))
+                    and band[0] <= x['attack']['min'] <= band[1]
+                    and x['release']['min'] > x['attack']['min'] + 0.1
+                    and x['recovered']['min'] > 0.97)
+
         checks = [
             (all(result[k]['blocks'] > 100 for k in ('baseline','steps','warning')), 'insufficient blocks'),
             (len(result['steps']['sent']) >= 5 and len(result['warning']['sent']) >= 2, 'insufficient cues'),
-            (result['baseline']['min'] > 0.99 and result['baseline']['below20'] == 0, 'baseline gain'),
+            (result['baseline']['min'] > 0.99, 'baseline gain'),
             (bool(result['negative']) and all(abs(x['g']) < 0.001 for x in result['negative']), 'disconnect control'),
             # The user superseded footstep priority ducking: isolated and dense
             # footsteps must leave the music gain steady, not merely shallower.
             (result['steps']['min'] > 0.99, 'footsteps must not duck music'),
-            (len(result['dense']['sent']) >= 45 and result['dense']['blocks'] > 400 and result['dense']['mean'] > 0.99 and result['dense']['below20'] == 0, 'dense footsteps must not duck music'),
-            (result['warning']['min'] < 0.2, 'warning duck'),
-            (all(result[k] < 0.2 for k in ('overlap','longOverlap','reverseOverlap','warningsOverlap')), 'warning overlap'),
+            (result['dense']['cues'] >= 45 and result['dense']['blocks'] > 400 and result['dense']['min'] > 0.99, 'dense footsteps must not duck music'),
+            (ammo_band[0] <= result['warning']['min'] <= ammo_band[1], 'low-ammo duck'),
+            (envelope_ok('ammoWithStep', ammo_band)
+             and len(result['ammoWithStep']['sent']) == 1
+             and 0 < result['ammoWithStep']['sent'][0][1] < 0.12,
+             'step must not cancel active ammo duck'),
+            (envelope_ok('stepBeforeAmmo', ammo_band), 'recent step must not prevent ammo duck'),
+            (envelope_ok('death', death_band), 'death duck and recovery'),
+            (envelope_ok('deathOverlap', death_band)
+             and [cue for cue, _ in result['deathOverlap']['sent']] == ['low_ammo', 'step']
+             and 0.12 < result['deathOverlap']['sent'][0][1] < 0.5
+             and abs(result['deathOverlap']['release']['min'] - result['death']['release']['min']) < 0.05,
+             'overlapping warning must not replace the death envelope'),
+            (envelope_ok('whizz', whizz_band) and len(result['whizz']['sent']) >= 10, 'incoming fire ducks gently over enemy footsteps'),
         ]
-        for ok, label in checks:
-            if not ok:
-                raise ValueError(f'{label}: {result}')
+        failures = [label for ok, label in checks if not ok]
+        if failures:
+            raise ValueError('Music duck probe failed: ' + '; '.join(failures))
         browser.close()
 
 

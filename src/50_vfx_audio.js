@@ -217,6 +217,15 @@ const decalMat = new THREE.MeshBasicMaterial({
   polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
 });
 const DECAL = { max: CORE.DECAL_MAX, live: [], pool: [] };
+for (let i = 0; i < 4; i++) {
+  const dm = new THREE.Mesh(decalGeo, decalMat);
+  dm.userData.vfx = true;
+  dm.userData.decal = true;
+  dm.renderOrder = 1;
+  dm.visible = false;
+  scene.add(dm);
+  DECAL.pool.push({ m: dm, life: CORE.DECAL_LIFETIME, weaponType: 'AR', surface: 'default' });
+}
 const _tmpD = new THREE.Vector3();
 const _tmpD2 = new THREE.Vector3();
 function spawnDecal(point, normal, obj, weaponType) {
@@ -412,19 +421,87 @@ function spawnSlideDust(pos, actionType, speed) {
 }
 
 // ---- Muzzle light (point light flash at gun) ----
+// Created once and parked at intensity 0 so adding a PointLight on the first
+// shot never triggers synchronous WebGL shader recompilation across the arena.
 let muzzleLight = null;
-function flashMuzzleLight(weaponType, isSuppressed) {
+function initMuzzleLight() {
   if (!muzzleLight) {
     // Punctual lights are in candela since r155; decay 2 is now the default.
     muzzleLight = new THREE.PointLight(CORE.MUZZLE_LIGHT_COLOR_STANDARD, 0, CORE.MUZZLE_LIGHT_DIST_STANDARD, 2);
     muzzleLight.userData.vfx = true;
     scene.add(muzzleLight);
   }
+  return muzzleLight;
+}
+initMuzzleLight();
+function flashMuzzleLight(weaponType, isSuppressed) {
+  initMuzzleLight();
   const params = CORE.muzzleFlashLightParams(weaponType, isSuppressed);
   muzzleLight.color.setHex(params.color);
   muzzleLight.distance = params.distance;
   muzzleLight.position.copy(camera.position);
   muzzleLight.intensity = CORE.VIEWMODEL_MUZZLE_LIGHT_BASE_INTENSITY * LIGHT_COMPAT * 4 * params.intensityMul;
+}
+// Pre-warm shot VFX shaders and textures in the active render-target mode before
+// deployment so the first shot in combat compiles zero new WebGL programs.
+const _warmupFwd = new THREE.Vector3();
+function warmupFirstShotVfx() {
+  if (typeof renderer === 'undefined' || !renderer || typeof scene === 'undefined' || !camera) return;
+  initMuzzleLight();
+  if (typeof renderer.initTexture === 'function') {
+    if (typeof TEX !== 'undefined' && TEX.bulletHole) renderer.initTexture(TEX.bulletHole);
+    if (typeof TEX !== 'undefined' && TEX.flash) renderer.initTexture(TEX.flash);
+  }
+  const staged = [];
+  const tempEnemyTracer = tracerPool.length > 1 ? tracerPool[1] : new THREE.Mesh(tracerGeo, tracerMatE);
+  const prevTracerMat = tempEnemyTracer.material;
+  tempEnemyTracer.material = tracerMatE;
+  tempEnemyTracer.userData.vfx = true;
+  _warmupFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  const wx = camera.position.x + _warmupFwd.x * 2.0;
+  const wy = camera.position.y + _warmupFwd.y * 2.0;
+  const wz = camera.position.z + _warmupFwd.z * 2.0;
+  const decalMesh = DECAL.pool.length ? DECAL.pool[0].m : null;
+  const candidates = [tracerPool[0], tempEnemyTracer, impactPool[0], casingPool[0], decalMesh];
+  for (let i = 0; i < candidates.length; i++) {
+    const m = candidates[i];
+    if (!m) continue;
+    staged.push({ m: m, wasParent: !!m.parent, wasVis: m.visible, wasCull: m.frustumCulled });
+    m.position.set(wx, wy, wz);
+    m.scale.setScalar(0.001);
+    m.frustumCulled = false;
+    m.visible = true;
+    if (!m.parent) scene.add(m);
+  }
+  const wasFlashVis = typeof muzzleFlash !== 'undefined' && muzzleFlash ? muzzleFlash.visible : false;
+  const wasGunVis = typeof gunGroup !== 'undefined' && gunGroup ? gunGroup.visible : true;
+  if (typeof gunGroup !== 'undefined' && gunGroup) gunGroup.visible = true;
+  if (typeof muzzleFlash !== 'undefined' && muzzleFlash) muzzleFlash.visible = true;
+  const prevTarget = renderer.getRenderTarget();
+  const prevAutoClear = renderer.autoClear;
+  try {
+    const target = (typeof POST !== 'undefined' && POST.enabled && POST.rt) ? POST.rt : null;
+    renderer.setRenderTarget(target);
+    renderer.autoClear = true;
+    renderer.render(scene, camera);
+    if (typeof gunScene !== 'undefined' && typeof gunCamera !== 'undefined') {
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.render(gunScene, gunCamera);
+    }
+  } catch (e) { /* keep warmup non-fatal on restricted contexts */ }
+  renderer.autoClear = prevAutoClear;
+  renderer.setRenderTarget(prevTarget);
+  if (typeof muzzleFlash !== 'undefined' && muzzleFlash) muzzleFlash.visible = wasFlashVis;
+  if (typeof gunGroup !== 'undefined' && gunGroup) gunGroup.visible = wasGunVis;
+  for (let i = 0; i < staged.length; i++) {
+    const s = staged[i];
+    s.m.visible = s.wasVis;
+    s.m.frustumCulled = s.wasCull;
+    s.m.scale.set(1, 1, 1);
+    if (!s.wasParent) scene.remove(s.m);
+  }
+  tempEnemyTracer.material = prevTracerMat;
 }
 function updateMuzzleLight(dt) {
   if (muzzleLight && muzzleLight.intensity > 0) {
@@ -533,6 +610,9 @@ const SND_MIN_GAP = {
   shot_suppressed: 0.045, smg_suppressed: 0.04, br_suppressed: 0.05, sniper_suppressed: 0.15,
   plate_insert: 0.3, plate_lock: 0.3, tinnitus: 1.5,
   melee_hit: 0.12, melee_backstab: 0.20, hit_cover: 0.03, step_tac: 0.04, land_heavy: 0.20,
+  // Incoming fire arrives in bursts: without a gap, every bullet built its own audio
+  // source plus a 3D filter chain, and the node churn starved the audio thread on phones.
+  bullet_whiz: 0.07, hurt: 0.12,
   jump_slide: 0.15, chamber_empty: 0.10, enemy_hit: 0.08, enemy_hit_heavy: 0.15,
   shield_deflect: 0.05, helmet_hit: 0.04,
   estep_heavy: 0.05, reload_heavy_out: 0.15, reload_heavy_in: 0.15, reload_smg_out: 0.15, reload_smg_in: 0.15, melee_hit_metal: 0.08,
@@ -799,7 +879,14 @@ function renderSoundBuffer(name) {
   } catch (e) { _sndRendering[name] = false; }
 }
 // Called once the audio context exists, so even the first shot is already cheap.
+const PRIORITY_SOUND_RECIPES = [
+  'shot', 'smg', 'br', 'sniper', 'shotgun', 'pistol', 'lmg',
+  'shot_suppressed', 'smg_suppressed', 'br_suppressed', 'sniper_suppressed',
+  'impact', 'impact_metal', 'impact_wood', 'impact_glass', 'impact_ground', 'impact_snow', 'impact_ice',
+  'casing', 'casing_heavy', 'hit', 'headshot', 'kill', 'kill_headshot', 'click'
+];
 function prerenderSounds() {
+  for (let i = 0; i < PRIORITY_SOUND_RECIPES.length; i++) renderSoundBuffer(PRIORITY_SOUND_RECIPES[i]);
   for (const name in SOUND_RECIPES) renderSoundBuffer(name);
 }
 
@@ -807,11 +894,23 @@ function playSound(name, dest, skipThrottle) {
   const ctx = audioCtx();
   if (!ctx) return;
   if (!skipThrottle && soundThrottled(name)) return;
-  if (/^(low_ammo|bullet_whiz|player_down|heartbeat)$/.test(name) && typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
-    const g = MUSIC.duck.gain, now = ctx.currentTime;
-    MUSIC.warningDuckUntil = Math.max(MUSIC.warningDuckUntil || 0, now + Math.max(0.12, recipeDuration(SOUND_RECIPES[name])));
-    g.cancelScheduledValues(now); g.setTargetAtTime(0.04, now, 0.003);
-    g.setTargetAtTime(1, MUSIC.warningDuckUntil, 0.14);
+  // Warning cues duck the soundtrack instead of muting it. CORE.musicDuckPlan decides
+  // how deep and how often; dense cues such as whizzes under fire or the low-health
+  // heartbeat are rate limited so the music never pumps.
+  if (typeof MUSIC !== 'undefined' && MUSIC.running && MUSIC.duck) {
+    const plan = typeof CORE !== 'undefined' && typeof CORE.musicDuckPlan === 'function'
+      ? CORE.musicDuckPlan(name, ctx.currentTime, MUSIC_LAST_DUCK_AT)
+      : null;
+    if (plan) {
+      const g = MUSIC.duck.gain, now = ctx.currentTime;
+      MUSIC_LAST_DUCK_AT = now;
+      MUSIC.warningDuckUntil = Math.max(MUSIC.warningDuckUntil || 0, now + plan.hold);
+      g.cancelScheduledValues(now);
+      // Start from the current value so the new ramp cannot click.
+      g.setValueAtTime(g.value, now);
+      g.setTargetAtTime(plan.level, now, plan.attack);
+      g.setTargetAtTime(1, MUSIC.warningDuckUntil, plan.release);
+    }
   }
   const out = dest || audioMaster() || ctx.destination;
   const buf = _sndBuffers[name];
@@ -910,7 +1009,18 @@ const MUSIC = {
   built: false, ctx: null, bus: null, duck: null, comp: null, verb: null, layers: null,
   intensity: 0, running: false, step: 0, nextT: 0
 };
-const MUSIC_LOOKAHEAD = 0.5;
+// How far ahead of the audio clock the score is scheduled. Kept short (the approved
+// ceiling is 0.5 s) so transitions are heard when they happen instead of up to a
+// second and a half late. Slow frames do not need a long lookahead: the loop below
+// never rewinds nextT, it keeps stepping forward and schedules overdue steps
+// immediately, so a heavy frame costs timing precision, not whole beats.
+const MUSIC_LOOKAHEAD = 0.4;
+// A gap this large is a real pause or a hidden tab, not a slow frame, so the score
+// rejoins on the next step instead of firing seconds of backlog at once.
+const MUSIC_REJOIN_GAP = 3.0;
+// Last time a warning cue re-scheduled the duck ramp; CORE.musicDuckPlan rate limits
+// against it so sustained cues (whizzes, heartbeat) do not pump the soundtrack.
+let MUSIC_LAST_DUCK_AT = -99;
 
 // Two seconds of decaying stereo noise: a cheap hall that glues the layers.
 function musicImpulse(ctx) {
@@ -1131,8 +1241,10 @@ function updateMusic(dt, state) {
   for (const k in MUSIC.layers) MUSIC.layers[k].gain.setTargetAtTime(gains[k], now, 0.35);
 
   // After a pause or a hidden tab the clock has run on without us: rejoin on the
-  // next step instead of firing the whole backlog at once.
-  if (MUSIC.nextT < now - 0.05) MUSIC.nextT = now + 0.05;
+  // next step instead of firing the whole backlog at once. Only a gap far larger
+  // than a slow frame counts as a stall — at 0.05 s every heavy frame (the kinds
+  // that arrive while the player is being shot) rewound the score and dropped beats.
+  if (MUSIC.nextT < now - MUSIC_REJOIN_GAP) MUSIC.nextT = now + 0.05;
   // muted: keep time, schedule nothing
   if (vol <= 0) {
     const st = CORE.musicStepSeconds();
