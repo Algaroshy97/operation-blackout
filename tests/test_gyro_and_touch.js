@@ -259,3 +259,133 @@ test('gyro reports permission denial, unavailable sensor, and no-sensor timeout 
   silent.advance(1600);
   assert.equal(silent.run('gyroStatus'), 'no-sensor');
 });
+
+test('gyro independent X/Y multipliers, inversion, and zero-lag jitter/drift/lifecycle suppression', async () => {
+  const def = CORE.defaultSettings();
+  assert.equal(def.gyroSensitivityX, 1.0);
+  assert.equal(def.gyroSensitivityY, 1.0);
+  assert.equal(def.gyroInvertX, false);
+  assert.equal(def.gyroInvertY, false);
+  assert.equal(CORE.settingTab('gyroSensitivityX'), 'touch');
+  assert.equal(CORE.settingTab('gyroInvertY'), 'touch');
+
+  const h = touchHost({
+    angle: 90,
+    settings: {
+      gyroAim: 'always',
+      gyroSensitivity: 1.0,
+      gyroSensitivityX: 1.5,
+      gyroSensitivityY: 0.5,
+      gyroInvertX: true,
+      gyroInvertY: true,
+    }
+  });
+  h.run("setGyroAimEnabled('always')");
+  await Promise.resolve();
+
+  // Baseline sample
+  h.win.emit('deviceorientation', { beta: 30, gamma: 40 });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouseX, 0);
+  assert.equal(h.ctx.mouseY, 0);
+
+  // Micro-jitter (+/-0.02 deg) produces zero output
+  h.advance(16); h.win.emit('deviceorientation', { beta: 30.02, gamma: 39.98 });
+  h.advance(16); h.win.emit('deviceorientation', { beta: 29.99, gamma: 40.02 });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouseX, 0);
+  assert.equal(h.ctx.mouseY, 0);
+
+  // Slow steady drift (0.005 deg over 16ms = 0.31 deg/s) is absorbed without accumulating into a tick
+  for (let i = 1; i <= 10; i++) {
+    h.advance(16);
+    h.win.emit('deviceorientation', { beta: 30 + i * 0.005, gamma: 40 + i * 0.005 });
+  }
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouseX, 0);
+  assert.equal(h.ctx.mouseY, 0);
+
+  // Real movement passes through 1:1 with zero lag, independent X/Y scaling and inversion
+  h.advance(16);
+  h.win.emit('deviceorientation', { beta: 32.05, gamma: 44.05 }); // +2.0 deg beta, +4.0 deg gamma from absorbed 30.05/40.05
+  h.run('applyTouchInput()');
+  assert.ok(Math.abs(h.ctx.mouseX - (2 * 1.5 * 7)) < 1e-3, 'X multiplier + invertX flipped sign and scaled 1.5x');
+  assert.ok(Math.abs(h.ctx.mouseY - (4 * 0.5 * 7)) < 1e-3, 'Y multiplier + invertY flipped sign and scaled 0.5x');
+
+  // Lifecycle blur rebaselines cleanly with zero synthetic movement
+  h.ctx.mouseX = 0; h.ctx.mouseY = 0;
+  h.win.emit('blur');
+  h.advance(16);
+  h.win.emit('deviceorientation', { beta: 10, gamma: 10 });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouseX, 0);
+  assert.equal(h.ctx.mouseY, 0);
+});
+
+test('mobile combined ADS+Fire sniper defaults to hold-aim/release-once with hold setting and lifecycle safety', () => {
+  const def = CORE.defaultSettings();
+  assert.equal(def.sniperAdsFire, 'release');
+  assert.deepEqual(CORE.SETTINGS_SCHEMA.sniperAdsFire.values, ['release', 'hold']);
+  assert.equal(CORE.settingTab('sniperAdsFire'), 'touch');
+
+  const h = touchHost({ settings: { fireMode: 'ads + fire', sniperAdsFire: 'release' } });
+  h.run("var curWeaponType = 'SR'; function curW() { return { type: curWeaponType }; } var adsAmount = 0; function resetTouchWeaponSwitch() { if (typeof cancelTouchSniperFire === 'function') cancelTouchSniperFire(); }");
+  const fireBtn = h.elements.get('tbtn-fire');
+
+  // 1) Hold aim -> does NOT fire while held, sets ADS
+  fireBtn.emit('touchstart', { changedTouches: [{ identifier: 1, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.run('touchState.ads && !!keys.Mouse2'), true);
+  assert.equal(h.ctx.mouse1Down, false, 'holding ADS+FIRE on sniper must not fire while held');
+
+  // Release -> fires ONCE with ADS active on the release frame
+  fireBtn.emit('touchend', { changedTouches: [{ identifier: 1, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, true, 'release triggers one shot');
+  assert.equal(h.run('!!keys.Mouse2'), true, 'release shot preserves ADS for accurate sniper spread');
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, false, 'only one shot on release');
+
+  // 2) Quick tap before scoped -> still fires once on release
+  fireBtn.emit('touchstart', { changedTouches: [{ identifier: 2, clientX: 700, clientY: 250 }] });
+  fireBtn.emit('touchend', { changedTouches: [{ identifier: 2, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, true, 'quick tap before scoped still fires once on release');
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, false);
+
+  // 3) touchcancel, blur, pause, death, and weapon switch cannot ghost fire
+  for (const abortAction of [
+    () => fireBtn.emit('touchcancel', { changedTouches: [{ identifier: 3, clientX: 700, clientY: 250 }] }),
+    () => h.win.emit('blur'),
+    () => h.run('clearInputState()'),
+    () => { h.run('player.dead = true; clearInputState(); player.dead = false;'); },
+    () => { h.run("curWeaponType = 'AR'; cancelTouchSniperFire();"); fireBtn.emit('touchend', { changedTouches: [{ identifier: 3, clientX: 700, clientY: 250 }] }); h.run("curWeaponType = 'SR'"); }
+  ]) {
+    fireBtn.emit('touchstart', { changedTouches: [{ identifier: 3, clientX: 700, clientY: 250 }] });
+    abortAction();
+    h.run('applyTouchInput()');
+    assert.equal(h.ctx.mouse1Down, false, 'cancelled/interrupted ADS+FIRE must not ghost fire');
+  }
+
+  // 4) Other weapon classes unaffected (AR fires immediately on press in ads+fire mode)
+  h.run("curWeaponType = 'AR'");
+  fireBtn.emit('touchstart', { changedTouches: [{ identifier: 4, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, true, 'AR still fires immediately in ads+fire mode');
+  fireBtn.emit('touchend', { changedTouches: [{ identifier: 4, clientX: 700, clientY: 250 }] });
+
+  // 5) sniperAdsFire='hold' retains immediate hold-fire for sniper; fireMode='fire' unaffected
+  h.run("curWeaponType = 'SR'");
+  h.settings.sniperAdsFire = 'hold';
+  fireBtn.emit('touchstart', { changedTouches: [{ identifier: 5, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, true, 'sniperAdsFire=hold retains hold-fire');
+  fireBtn.emit('touchend', { changedTouches: [{ identifier: 5, clientX: 700, clientY: 250 }] });
+
+  h.settings.sniperAdsFire = 'release';
+  h.settings.fireMode = 'fire';
+  fireBtn.emit('touchstart', { changedTouches: [{ identifier: 6, clientX: 700, clientY: 250 }] });
+  h.run('applyTouchInput()');
+  assert.equal(h.ctx.mouse1Down, true, 'standalone FIRE mode unaffected');
+});

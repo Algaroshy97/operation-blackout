@@ -62,12 +62,32 @@ def compact_css(css: str) -> str:
 
 
 def strip_css_comments(html: str) -> str:
-    """Drop CSS block comments from HTML head for the shipped release."""
+    """Drop CSS block comments and HTML comments from HTML head for the shipped release."""
     cleaned = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    cleaned = re.sub(r"<!--.*?-->", "", cleaned, flags=re.S)
     cleaned = re.sub(r'(?<=<style>)(.*?)(?=</style>)',
                      lambda match: compact_css(match.group(1)), cleaned, flags=re.S)
     return LF.join(line.strip() if line.lstrip().startswith('<') else line.rstrip()
                    for line in cleaned.split(LF))
+
+
+_JS_STR_RE = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
+
+
+def _compact_js_code(line: str, compact_extra: bool) -> str:
+    line = line.replace(' === ', '===').replace(' !== ', '!==')
+    line = line.replace(' && ', '&&').replace(' || ', '||')
+    line = line.replace(' = ', '=')
+    if compact_extra:
+        # Compact single operators only between operand tokens. Keep
+        # spaces between operators, e.g. `a + +b` and `a++ + b`.
+        line = re.sub(r'(?<=[\w)\]]) ([-+*%<>]) (?=[\w(])', r'\1', line)
+        line = re.sub(r'/\*[^*]*\*+(?:[^/*][^*]*\*+)*/', '', line)
+        line = re.sub(r'\s*([{}(),;\[\]:])\s*', r'\1', line)
+        line = re.sub(r'\s*\?(?!\.)\s*', '?', line)
+        line = re.sub(r'\s*(=>|<=|>=|==|!=|\+=|-=|\*=|\?\?)\s*', r'\1', line)
+        line = re.sub(r'\s+', ' ', line).strip()
+    return line
 
 
 def strip_line_comments(js: str, compact_extra: bool = False) -> str:
@@ -92,22 +112,37 @@ def strip_line_comments(js: str, compact_extra: bool = False) -> str:
         if not in_template:
             line = re.sub(r'''^([^/'"`]*;)\s+//.*$''', r'\1', line)
             if not any(char in line for char in "'\"`/"):
-                line = line.replace(' === ', '===').replace(' !== ', '!==')
-                line = line.replace(' && ', '&&').replace(' || ', '||')
-                line = line.replace(' = ', '=')
-                if compact_extra:
-                    # Compact single operators only between operand tokens. Keep
-                    # spaces between operators, e.g. `a + +b` and `a++ + b`.
-                    line = re.sub(r'(?<=[\w)\]]) ([-+*%<>]) (?=[\w(])', r'\1', line)
-                    line = re.sub(r'/\*[^*]*\*+(?:[^/*][^*]*\*+)*/', '', line)
-                    line = re.sub(r'\s*([{}(),;\[\]:])\s*', r'\1', line)
-                    line = re.sub(r'\s*\?(?!\.)\s*', '?', line)
-                    line = re.sub(r'\s*(=>|<=|>=|==|!=|\+=|-=|\*=|\?\?)\s*', r'\1', line)
-                    line = re.sub(r'\s+', ' ', line).strip()
+                line = _compact_js_code(line, compact_extra)
+            elif compact_extra and '`' not in line and '\x00' not in line:
+                saved = []
+                def _save(m):
+                    saved.append(m.group(0))
+                    return f'\x00S{len(saved) - 1}\x00'
+                masked = _JS_STR_RE.sub(_save, line)
+                if "'" not in masked and '"' not in masked:
+                    masked = re.sub(r'^([^/]*;)\s+//.*$', r'\1', masked)
+                    if '/' not in masked:
+                        masked = _compact_js_code(masked, True)
+                        for idx, val in enumerate(saved):
+                            masked = masked.replace(f'\x00S{idx}\x00', val)
+                        line = masked
         if line.count('`') % 2:
             in_template = not in_template
         kept.append(line)
-    return LF.join(kept)
+    if not compact_extra:
+        return LF.join(kept)
+    out = [kept[0], LF]
+    in_t = False
+    for idx, line in enumerate(kept[1:], 1):
+        was_t = in_t
+        if line.count('`') % 2:
+            in_t = not in_t
+        out.append(line)
+        if idx < len(kept) - 1:
+            if not was_t and not in_t and line.endswith(';') and '//' not in _JS_STR_RE.sub('', line):
+                continue
+            out.append(LF)
+    return ''.join(out)
 
 
 def build_pwa_bundle(project: Path, html_text: str, pwa_dir: Path) -> None:

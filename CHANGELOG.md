@@ -4,6 +4,15 @@ Recent changes verified against the repository's commit history and diffs, newes
 first. This is not a complete release archive. Commit titles are historical labels,
 not proof of deployment status, device support or measured frame-rate improvements.
 
+## Gameplay polish and minimap strike targeting — candidate
+
+- Keep body collision with large enemies while removing the excess stand-off gap, and resolve knife contact against the collider surface so visible strikes land.
+- Add independent gyro horizontal/vertical sensitivity multipliers and per-axis inversion, with a noise deadzone, drift suppression, orientation-aware deltas and rebaselining on pause, blur and interruption.
+- Default the mobile sniper's combined ADS + FIRE control to fire once on release (including quick taps) and keep the previous hold-to-fire behaviour as a setting.
+- Extend the slide to a longer, steerable move with stronger camera dip/roll and first-person weapon motion, ending crouched with headroom and lifecycle resets. Add Hold / Toggle crouch for keyboard and touch, Hold by default.
+- Target airstrikes from the minimap: a centred, pointer- and touch-enabled map selects a fictional strike zone, out-of-range and invalid points are rejected without spending the strike, and the zone marker stays with the frozen world point through camera rotation. Draw the warning ring and impact marker on the minimap and HUD.
+- Compact eligible JavaScript and CSS more conservatively at build time to stay inside the single-file budget.
+
 ## Mobile controls and offline PWA — candidate
 
 - Queue quick crouch taps during a sprint and ease the slide's camera and first-person weapon pose into and out of the move.

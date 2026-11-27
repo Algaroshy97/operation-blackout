@@ -715,11 +715,11 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const sprint = player.sprinting && !player.sliding && !tac ? 1 : 0;
   vmSpring.sprint += (sprint - vmSpring.sprint) * Math.min(1, 9 * dt);
   vmSpring.tac += (tac - vmSpring.tac) * Math.min(1, 10 * dt);
-  const sp = vmSpring.sprint * hipK, tk = vmSpring.tac * hipK, sl = player.slideBlend * hipK * motion;
+  const sp = vmSpring.sprint * hipK, tk = vmSpring.tac * hipK, sl = player.slideBlend * hipK * motion, slAds = player.slideBlend * ads * motion;
   px += 0.04 * sp; py -= 0.05 * sp; ry += 0.55 * sp; rz += 0.3 * sp; rx += -0.12 * sp;
   px -= 0.05 * tk; py += 0.03 * tk; pz += 0.04 * tk; rx += 0.95 * tk; rz -= 0.25 * tk; ry += 0.2 * tk;
-  px -= 0.045 * sl; py -= 0.045 * sl; pz += 0.025 * sl;
-  rx -= 0.15 * sl; ry += 0.13 * sl; rz += 0.27 * sl;
+  px -= 0.08 * sl; py -= 0.095 * sl; pz += 0.055 * sl;
+  rx -= 0.24 * sl; ry += 0.26 * sl; rz += 0.52 * sl + 0.14 * slAds;
   // recoil springs
   r = stepSpring(vmSpring.kz, vmSpring.kvz, 0, 260, 20, dt); vmSpring.kz = r[0]; vmSpring.kvz = r[1];
   r = stepSpring(vmSpring.kr, vmSpring.kvr, 0, 220, 17, dt); vmSpring.kr = r[0]; vmSpring.kvr = r[1];

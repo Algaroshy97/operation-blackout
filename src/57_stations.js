@@ -522,6 +522,10 @@ function downPlayer(attacker) {
   if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
   resetSprintInput(keyboardSprint);
   resetSprintInput(touchSprint);
+  if (typeof resetKeyboardCrouch === 'function') resetKeyboardCrouch();
+  if (typeof resetTouchCrouch === 'function') resetTouchCrouch();
+  if (typeof cancelTouchSniperFire === 'function') cancelTouchSniperFire();
+  if (typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(true);
   player.downedBy = killer;
   downT = 0;
   if (plateT > 0) plateT = 0;

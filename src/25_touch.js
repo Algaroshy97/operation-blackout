@@ -2,12 +2,26 @@
 'use strict';
 // IS_TOUCH is declared in 10_config_world.js
 
-let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, ads: false, lookX: 0, lookY: 0 };
+let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: false, sniperReleaseShot: false, ads: false, lookX: 0, lookY: 0 };
 let adsHeld = false;
+let sniperAdsFireArmed = false;
+function cancelTouchSniperFire() {
+  sniperAdsFireArmed = false;
+  touchState.sniperReleaseShot = false;
+  touchState.tapFiring = false;
+}
+function isTouchSniperReleaseActive() {
+  const w = typeof curW === 'function' ? curW() : null;
+  const fm = typeof getSetting === 'function' ? getSetting('fireMode') : 'fire';
+  const saf = typeof getSetting === 'function' ? getSetting('sniperAdsFire') : 'release';
+  return typeof CORE !== 'undefined' && typeof CORE.isSniperAdsReleaseMode === 'function'
+    ? CORE.isSniperAdsReleaseMode(fm, w ? w.type : '', saf)
+    : (fm === 'ads + fire' && !!w && w.type === 'SR' && saf !== 'hold');
+}
 // Dedicated mobile sprint control, held like the keyboard's Shift.
 let sprintHeld = false;
 function resetTouchSprint() {
-  resetSprintInput(touchSprint);
+  if (typeof resetSprintInput === 'function' && typeof touchSprint !== 'undefined') resetSprintInput(touchSprint);
   sprintHeld = false;
 }
 function touchRunRequested() {
@@ -150,7 +164,10 @@ function onGyroOrientation(event) {
     gyroLast = { beta: event.beta, gamma: event.gamma, angle: ((Number(angle) || 0) % 360 + 360) % 360, ts: nowMs };
     return;
   }
-  gyroLast.beta = event.beta; gyroLast.gamma = event.gamma; gyroLast.ts = nowMs;
+  gyroLast.beta = step.nextBeta !== undefined ? step.nextBeta : event.beta;
+  gyroLast.gamma = step.nextGamma !== undefined ? step.nextGamma : event.gamma;
+  gyroLast.ts = nowMs;
+  if (step.betaDelta === 0 && step.gammaDelta === 0) return;
   const isScp = typeof isScoped === 'function' ? isScoped() : false;
   const isStd = typeof steadyActive === 'boolean' ? steadyActive : false;
   const sens = CORE.gyroEffectiveSensitivity(
@@ -158,7 +175,11 @@ function onGyroOrientation(event) {
     typeof getSetting === 'function' ? getSetting('gyroAdsSensitivity') : 0.65,
     isAds, isScp, isStd
   );
-  CORE.gyroScreenLookDelta(step.betaDelta, step.gammaDelta, angle, sens * 7, gyroDelta);
+  const rawSx = typeof getSetting === 'function' ? getSetting('gyroSensitivityX') : 1.0;
+  const rawSy = typeof getSetting === 'function' ? getSetting('gyroSensitivityY') : 1.0;
+  const sx = (typeof rawSx === 'number' && isFinite(rawSx) ? rawSx : 1.0) * (typeof getSetting === 'function' && getSetting('gyroInvertX') ? -1 : 1);
+  const sy = (typeof rawSy === 'number' && isFinite(rawSy) ? rawSy : 1.0) * (typeof getSetting === 'function' && getSetting('gyroInvertY') ? -1 : 1);
+  CORE.gyroScreenLookDelta(step.betaDelta, step.gammaDelta, angle, sens * 7, gyroDelta, sx, sy);
   touchState.lookX += gyroDelta.yaw;
   touchState.lookY += gyroDelta.pitch;
 }
@@ -242,7 +263,7 @@ function touchGameplayEnabled() {
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) {
         joyId = null;
-        if (e.type === 'touchcancel') resetSprintInput(touchSprint);
+        if (e.type === 'touchcancel' && typeof resetSprintInput === 'function' && typeof touchSprint !== 'undefined') resetSprintInput(touchSprint);
         joyBase.classList.remove('on', 'sprint', 'crawl');
         touchState.moveX = 0; touchState.moveZ = 0;
         joyStick.style.transform = 'translate(0,0)';
@@ -250,7 +271,14 @@ function touchGameplayEnabled() {
       if (t.identifier === lookId) lookId = null;
       if (t.identifier === fireId) {
         fireId = null; touchState.firing = false; mouse1Down = false;
-        if (e.type === 'touchcancel') touchState.tapFiring = false;
+        if (e.type === 'touchcancel') {
+          cancelTouchSniperFire();
+        } else {
+          if (sniperAdsFireArmed && isTouchSniperReleaseActive() && touchGameplayEnabled() && !(typeof player !== 'undefined' && player && player.downed)) {
+            touchState.sniperReleaseShot = true;
+          }
+          sniperAdsFireArmed = false;
+        }
         syncAds();
         document.getElementById('tbtn-fire').classList.remove('on');
       }
@@ -264,13 +292,15 @@ function touchGameplayEnabled() {
   resetTouchControls = function () {
     joyId = null; lookId = null; fireId = null; adsHeld = false;
     resetTouchSprint();
+    if (typeof resetTouchCrouch === 'function') resetTouchCrouch();
+    cancelTouchSniperFire();
     rebaselineGyro();
     touchState.moveX = touchState.moveZ = touchState.lookX = touchState.lookY = 0;
-    touchState.firing = touchState.tapFiring = touchState.ads = false;
+    touchState.firing = touchState.tapFiring = touchState.sniperReleaseShot = touchState.ads = false;
     mouse1Down = false; mouseX = mouseY = 0;
     window.__analogMove = null;
     for (const k of ['Mouse2', '__touchCrouch', 'KeyG', '__use']) keys[k] = false;
-    for (const k of ['Space', 'KeyR', '__slide', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
+    for (const k of ['Space', 'KeyR', '__slide', '__touchSprint', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
     joyBase.classList.remove('on', 'sprint', 'crawl');
     joyStick.style.transform = 'translate(0,0)';
     document.getElementById('tbtn-fire').classList.remove('on');
@@ -284,7 +314,7 @@ function touchGameplayEnabled() {
   document.addEventListener('visibilitychange', function () { if (document.hidden) resetTouchControls(); });
   lookZone.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    if (!touchGameplayEnabled()) return;
+    if (!touchGameplayEnabled() || (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting())) return;
     const t = e.changedTouches[0];
     if (lookId !== null) return;
     lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY;
@@ -356,7 +386,7 @@ function touchGameplayEnabled() {
   const fireBtn = document.getElementById('tbtn-fire');
   fireBtn.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    if (!touchGameplayEnabled()) return;
+    if (!touchGameplayEnabled() || (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting())) return;
     const isDowned = typeof player !== 'undefined' && !!player.downed;
     const isDead = typeof player !== 'undefined' && !!player.dead;
     const isEditing = typeof document !== 'undefined' && document.body && document.body.classList.contains('touch-editing');
@@ -366,7 +396,13 @@ function touchGameplayEnabled() {
     const t = e.changedTouches[0];
     fireId = t.identifier; lastFX = t.clientX; lastFY = t.clientY;
     touchState.firing = true;
-    touchState.tapFiring = true; // retain taps shorter than one render frame, not cancelled touches
+    if (isTouchSniperReleaseActive()) {
+      sniperAdsFireArmed = true;
+      touchState.tapFiring = false;
+    } else {
+      sniperAdsFireArmed = false;
+      touchState.tapFiring = true; // retain taps shorter than one render frame, not cancelled touches
+    }
     syncAds();
     fireBtn.classList.add('on'); playSound('click');
   }, { passive: false });
@@ -380,6 +416,7 @@ function touchGameplayEnabled() {
   }, function () { keys['__touchCrouch'] = false; }, function () { delete pressed['__slide']; });
   holdBtn('tbtn-sprint', function () {
     sprintHeld = true;
+    pressed['__touchSprint'] = true;
     pressSprint(touchSprint, getSetting('touchSprint'));
   }, function () { sprintHeld = false; }, function () { resetSprintInput(touchSprint); });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
@@ -707,10 +744,15 @@ function applyTouchInput() {
     window.__analogMove = null;
   }
   // firing: mirror the touch button every frame so release cannot latch automatic fire
-  mouse1Down = touchState.firing || touchState.tapFiring;
+  const releaseShot = !!touchState.sniperReleaseShot;
+  touchState.sniperReleaseShot = false;
+  const isDowned = typeof player !== 'undefined' && !!player.downed;
+  if (isDowned) cancelTouchSniperFire();
+  const sniperReleaseMode = isTouchSniperReleaseActive();
+  const sniperHoldOnly = touchState.firing && sniperReleaseMode;
+  mouse1Down = (sniperHoldOnly ? false : touchState.firing) || touchState.tapFiring || (releaseShot && sniperReleaseMode && !isDowned);
   touchState.tapFiring = false;
   // ADS
-  const isDowned = typeof player !== 'undefined' && !!player.downed;
   if (isDowned) {
     adsHeld = false;
     touchState.ads = false;
@@ -718,7 +760,8 @@ function applyTouchInput() {
       CORE.sanitizeDownedInputKeys(keys, pressed);
     }
   }
-  keys['Mouse2'] = !isDowned && (touchState.ads || (mouse1Down && getSetting('fireMode') === 'ads + fire'));
+  const releaseAds = releaseShot && sniperReleaseMode && !isDowned;
+  keys['Mouse2'] = !isDowned && (touchState.ads || releaseAds || (mouse1Down && getSetting('fireMode') === 'ads + fire'));
   if (gyroMode === 'ads' && !keys['Mouse2']) rebaselineGyro();
   // look: drag deltas feed the same accumulators the mouse uses
   mouseX += touchState.lookX; mouseY += touchState.lookY;
