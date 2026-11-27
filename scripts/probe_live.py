@@ -684,52 +684,63 @@ def run_gameplay(args, checks, console_errors):
         checks.append(("no-melee-through-floor", melee["upstairs"] == 0))
         checks.append(("melee-still-works-same-floor", melee["sameFloor"] > 0))
 
-        # Rounds land through setTimeout, so the counter has to outlive the call that
-        # fires them: install it, fire, wait for the impacts, then read and restore.
-        page.evaluate("""() => {
+        # Use the same shooter, muzzle and guaranteed hit roll in both cases. The
+        # impact must run on a real timer against real map colliders, but live
+        # movement, AI shots and prior queued damage are not part of this fixture.
+        bullet_floor = page.evaluate("""async () => {
             const SLAB_EYE = 4.15 + CFG.player.height;
             for (const e of enemies) e.dead = true;
             enemies.length = 0;
             player.pos.set(0, CFG.player.height, 0);
             player.dead = false; player.downed = false;
             player.health = 100; player.armor = 0; godMode = false;
-            spawnEnemy(1, 0, 5);
-            const g = enemies[0];
-            g.pos.set(0, 0, 5); g.parts.group.position.copy(g.pos); g.dead = false;
-            window.__realDamage = damagePlayer;
-            window.__hits = 0;
-            damagePlayer = function () { window.__hits++; };
-            for (let i = 0; i < 60; i++) {
-                player.pos.set(0, CFG.player.height, 0);
-                enemyShoot(g, 5);
-                player.pos.set(0, SLAB_EYE, 0);      // climb before the round lands
+            const gunner = spawnEnemy(1, 0, 5);
+            gunner.pos.set(0, 0, 5);
+            gunner.parts.group.position.copy(gunner.pos);
+            // Keep the real spawned model's muzzle pose fixed without running its AI.
+            const realUpdateEnemies = updateEnemies;
+            const realUpdatePlayer = updatePlayer;
+            const realDamage = damagePlayer;
+            const realTracer = spawnTracer;
+            const realRandom = Math.random;
+            let hits = 0;
+            let launched = 0;
+            damagePlayer = function (amount, direction, type, source) {
+                if (source === gunner && type === 'bullet' && amount > 0) hits++;
+            };
+            updateEnemies = function () {};
+            updatePlayer = function () {};
+            async function run(impactY) {
+                player.pos.y = CFG.player.height;
+                hits = 0;
+                launched = 0;
+                try {
+                    Math.random = () => 0;
+                    spawnTracer = function (...args) { launched++; return realTracer(...args); };
+                    enemyShoot(gunner, 5);
+                } finally {
+                    Math.random = realRandom;
+                    spawnTracer = realTracer;
+                }
+                player.pos.y = impactY;
+                // The later timer runs after this shot's maximum possible delay.
+                await new Promise(resolve => setTimeout(resolve, CORE.ENEMY_BULLET_MAX_DELAY_MS + 50));
+                return { hits, launched };
+            }
+            try {
+                return { climbed: await run(SLAB_EYE), stayed: await run(CFG.player.height) };
+            } finally {
+                damagePlayer = realDamage;
+                updatePlayer = realUpdatePlayer;
+                updateEnemies = realUpdateEnemies;
+                player.pos.y = CFG.player.height;
+                player.health = 100;
             }
         }""")
-        page.wait_for_timeout(1000)
-        climbed = page.evaluate("() => { const n = window.__hits; window.__hits = 0; return n; }")
-        page.evaluate("""() => {
-            for (const e of enemies) e.dead = true;
-            enemies.length = 0;
-            player.pos.set(0, CFG.player.height, 0);
-            player.dead = false; player.downed = false;
-            player.health = 100; player.armor = 0; godMode = false;
-            spawnEnemy(1, 0, 5);
-            const g = enemies[0];
-            g.pos.set(0, 0, 5); g.parts.group.position.copy(g.pos); g.dead = false;
-            for (let i = 0; i < 60; i++) {
-                player.pos.set(0, CFG.player.height, 0);
-                enemyShoot(g, 5);
-            }
-        }""")
-        page.wait_for_timeout(1000)
-        stayed = page.evaluate("""() => {
-            const n = window.__hits;
-            damagePlayer = window.__realDamage;
-            player.health = 100;
-            return n;
-        }""")
-        checks.append(("no-bullets-through-floor", climbed == 0))
-        checks.append(("bullets-still-land-in-the-open", stayed > 0))
+        checks.append(("no-bullets-through-floor", bullet_floor["climbed"] == {"hits": 0, "launched": 1}))
+        checks.append(("bullets-still-land-in-the-open", bullet_floor["stayed"] == {"hits": 1, "launched": 1}))
+        if bullet_floor != {"climbed": {"hits": 0, "launched": 1}, "stayed": {"hits": 1, "launched": 1}}:
+            print(f"Bullet-floor probe: {bullet_floor}", file=sys.stderr)
 
         # 8) Ragdolls: corpses appear, stay capped, settle, and clean themselves up.
         rag = page.evaluate("""() => {
@@ -2658,8 +2669,17 @@ def run_gameplay(args, checks, console_errors):
             const rot = CORE.casingRestRotation(0.2, 1.5, 0.8);
             const rotOk = Math.abs(rot.rotX - Math.PI * 0.5) < 1e-4 && rot.rotY === 1.5 && rot.rotZ === 0;
 
-            const kPose = CORE.stepMeleeKnifePose(0.3);
-            const knifeOk = kPose.posZ === -0.3 && kPose.rotX === -0.2 && typeof kPose.posX === 'number';
+            const kRest = CORE.stepMeleeKnifePose(0);
+            const kWindup = CORE.stepMeleeKnifePose(0.12);
+            const kContact = CORE.stepMeleeKnifePose(CORE.MELEE_CONTACT_PROGRESS);
+            const kFollowThrough = CORE.stepMeleeKnifePose(0.43);
+            const kRecovered = CORE.stepMeleeKnifePose(1);
+            const knifeOk = ['posX', 'posY', 'posZ', 'rotX', 'rotY', 'rotZ'].every(axis =>
+                [kRest, kWindup, kContact, kFollowThrough, kRecovered].every(p => Number.isFinite(p[axis])) &&
+                Math.abs(kRecovered[axis] - kRest[axis]) < 1e-4) &&
+                kWindup.posX > kRest.posX && kWindup.posY > kRest.posY &&
+                kContact.posZ < kRest.posZ - 0.08 &&
+                kWindup.posX > kContact.posX && kContact.posX > kFollowThrough.posX;
 
             const dMid = CORE.meleeGunDodgeOffsets(0.5);
             const dodgeOk = Math.abs(dMid.posY - (-0.25)) < 1e-4 && Math.abs(dMid.rotX - (-0.5)) < 1e-4;

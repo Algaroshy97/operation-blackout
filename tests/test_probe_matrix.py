@@ -134,15 +134,20 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
         text = (ROOT / 'scripts/probe_live.py').read_text()
         self.assertIn('wait_until(page, "() => typeof enemies !== \'undefined\' && enemies.length > 0", 120)', text)
 
-    def test_probe_bullets_in_open_control_resets_enemy_state(self):
-        text = (ROOT / 'scripts/probe_live.py').read_text()
-        self.assertIn('bullets-still-land-in-the-open', text)
-        idx = text.find('bullets-still-land-in-the-open')
-        prior_block = text[max(0, idx - 850):idx]
-        self.assertIn('spawnEnemy(1, 0, 5)', prior_block,
-                      'bullets-still-land-in-the-open control must spawn/reset enemy cleanly at (0, 0, 5)')
-        self.assertIn('g.pos.set(0, 0, 5)', prior_block,
-                      'bullets-still-land-in-the-open control must reset g.pos to (0, 0, 5)')
+    def test_probe_bullet_floor_and_open_control_share_a_clean_shot(self):
+        tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
+        fixture = next(n.value.args[0].value for n in ast.walk(tree)
+                       if isinstance(n, ast.Assign) and any(
+                           isinstance(t, ast.Name) and t.id == 'bullet_floor' for t in n.targets)
+                       and isinstance(n.value, ast.Call) and n.value.args
+                       and isinstance(n.value.args[0], ast.Constant)
+                       and isinstance(n.value.args[0].value, str))
+        self.assertEqual(fixture.count('spawnEnemy('), 1)
+        self.assertIn('spawnEnemy(1, 0, 5)', fixture)
+        self.assertIn('gunner.pos.set(0, 0, 5)', fixture)
+        self.assertIn('enemyShoot(gunner, 5)', fixture)
+        self.assertIn('climbed: await run(SLAB_EYE), stayed: await run(CFG.player.height)', fixture)
+        self.assertIn('setTimeout(resolve, CORE.ENEMY_BULLET_MAX_DELAY_MS + 50)', fixture)
 
 
 if __name__ == '__main__':
