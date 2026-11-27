@@ -131,6 +131,12 @@ function applySetting(key) {
     case 'touchSprint':
       if (typeof resetTouchSprint === 'function') resetTouchSprint();
       break;
+    case 'keyboardCrouch':
+      if (typeof resetKeyboardCrouch === 'function') resetKeyboardCrouch();
+      break;
+    case 'touchCrouch':
+      if (typeof resetTouchCrouch === 'function') resetTouchCrouch();
+      break;
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;

@@ -147,6 +147,8 @@ function switchWeapon(slot) {
     prev.reloadPaused = true;
   }
   if (prev) prev.nextShot = CORE.shotScheduleAfterInactive();
+  if (typeof cancelTouchSniperFire === 'function') cancelTouchSniperFire();
+  if (typeof rebaselineGyro === 'function' && typeof gyroMode !== 'undefined' && gyroMode === 'ads') rebaselineGyro();
   curWeapon = s;
   const next = curS();
   const curWpn = curW();
@@ -236,7 +238,8 @@ function updateWeapons(dt) {
   // fire: consume every automatic-fire deadline that elapsed since the last
   // render. The first shot keeps the existing immediate-fire behaviour.
   const isPlating = typeof plateT === 'number' && plateT > 0;
-  if (mouse1Down && !wasReloading && started && !paused && CORE.canPlayerFire(player.dead, s.reloading, gunSwitchT < 1, s.ammo, isPlating)) {
+  const isTargetingStrike = typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting();
+  if (mouse1Down && !isTargetingStrike && !wasReloading && started && !paused && CORE.canPlayerFire(player.dead, s.reloading, gunSwitchT < 1, s.ammo, isPlating)) {
     if (player.sprinting) {
       const wasTac = typeof player.tacT === 'number' && player.tacT > 0;
       const hasFastHands = typeof CORE.hasPerk === 'function' ? CORE.hasPerk(perks, 'reload') : (perks && perks.indexOf('reload') >= 0);
