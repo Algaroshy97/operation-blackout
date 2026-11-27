@@ -447,37 +447,7 @@ def run_isolated(args, filter_pat: str) -> int:
     return 0 if passed == len(checks) else 1
 
 
-def main() -> int:
-    sanitize_headless_env()
-    ap = argparse.ArgumentParser(description="Headless verification of live gameplay state.")
-    ap.add_argument("--build", type=Path, default=DEFAULT_BUILD, help="Path to release build HTML")
-    ap.add_argument("--filter", "-k", type=str, default="",
-                    help="Filter check names matching substring or regex pattern")
-    ap.add_argument("--check", type=str, default="",
-                    help="Alias for --filter")
-    ap.add_argument("--isolate", type=str, default="",
-                    help="Alias for --filter to run isolated integration checks")
-    ap.add_argument("--suite", type=str, default="",
-                    help="Predefined check suite: checkpoint, snowy, modes, graphics, or all")
-    args = ap.parse_args()
-
-    filter_pat = args.filter or args.check or args.isolate
-    if not filter_pat and args.suite:
-        suites = {
-            "checkpoint": r"checkpoint|survival.*restoration",
-            "snowy": r"snowy|checkpoint",
-            "modes": r"tdm|ffa|domination|gun-game",
-            "graphics": r"graphics|touch|shadow|effects|ragdoll|post",
-            "all": "",
-        }
-        filter_pat = suites.get(args.suite.lower(), args.suite)
-
-    if filter_pat:
-        return run_isolated(args, filter_pat)
-
-    checks = []
-    console_errors = []
-
+def run_gameplay(args, checks, console_errors):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 720})
@@ -6520,6 +6490,8 @@ def main() -> int:
 
         browser.close()
 
+
+def run_lifecycle(args, checks):
     from contextlib import redirect_stdout
     from probe_stage3_music import main as probe_stage3_music
     from probe_stage3_combat_music import main as probe_stage3_combat_music
@@ -6545,6 +6517,9 @@ def main() -> int:
         probe_stage1_touch(args.build)
     checks.append(('stage1-touch-lifecycle', True))
 
+
+def run_progression(args, checks):
+    from contextlib import redirect_stdout
     from probe_stage2_weapons import main as probe_stage2_weapons
     with redirect_stdout(sys.stderr):
         probe_stage2_weapons(args.build)
@@ -6596,6 +6571,51 @@ def main() -> int:
     with redirect_stdout(sys.stderr):
         probe_stage2_legacy_build(args.build)
     checks.append(('stage2-legacy-build', True))
+
+
+def main() -> int:
+    sanitize_headless_env()
+    ap = argparse.ArgumentParser(description="Headless verification of live gameplay state.")
+    ap.add_argument("--build", type=Path, default=DEFAULT_BUILD, help="Path to release build HTML")
+    ap.add_argument("--filter", "-k", type=str, default="",
+                    help="Filter check names matching substring or regex pattern")
+    ap.add_argument("--check", type=str, default="",
+                    help="Alias for --filter")
+    ap.add_argument("--isolate", type=str, default="",
+                    help="Alias for --filter to run isolated integration checks")
+    ap.add_argument("--suite", type=str, default="",
+                    help="Predefined check suite: checkpoint, snowy, modes, graphics, or all")
+    ap.add_argument("--shard", choices=("gameplay", "lifecycle", "progression"),
+                    help="Run one part of full acceptance (default: all three)")
+    args = ap.parse_args()
+    if args.shard and (args.filter or args.check or args.isolate or args.suite):
+        ap.error("--shard cannot be combined with isolated checks")
+
+    filter_pat = args.filter or args.check or args.isolate
+    if not filter_pat and args.suite:
+        suites = {
+            "checkpoint": r"checkpoint|survival.*restoration",
+            "snowy": r"snowy|checkpoint",
+            "modes": r"tdm|ffa|domination|gun-game",
+            "graphics": r"graphics|touch|shadow|effects|ragdoll|post",
+            "all": "",
+        }
+        filter_pat = suites.get(args.suite.lower(), args.suite)
+
+    if filter_pat:
+        return run_isolated(args, filter_pat)
+
+    checks = []
+    console_errors = []
+
+    for name, run in (
+        ("gameplay", lambda: run_gameplay(args, checks, console_errors)),
+        ("lifecycle", lambda: run_lifecycle(args, checks)),
+        ("progression", lambda: run_progression(args, checks)),
+    ):
+        if args.shard in (None, name):
+            print(f"Acceptance shard: {name}", file=sys.stderr, flush=True)
+            run()
 
     passed = sum(1 for _, ok in checks if ok)
     failed = [name for name, ok in checks if not ok]
