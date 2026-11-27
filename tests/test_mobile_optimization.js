@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const playerSource = fs.readFileSync(path.join(__dirname, '../src/20_player.js'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, '../src/25_touch.js'), 'utf8');
 const head = fs.readFileSync(path.join(__dirname, '../src/00_head.html'), 'utf8');
 const CORE = require('../src/01_core.js');
@@ -16,7 +17,7 @@ test('portrait play requests fullscreen and landscape lock without a rotate-phon
 });
 
 // Minimal event/DOM host: execute the production touch listeners, not copies of their rules.
-function host(touch = true) {
+function host(touch = true, realController = false) {
   const elements = new Map(), timers = new Map();
   let clock = 0, timerId = 0;
   class Element {
@@ -51,15 +52,28 @@ function host(touch = true) {
   const win = new Element(), document = new Element(); document.body = new Element();
   document.createElement = () => new Element(); document.getElementById = id => elements.get(id) || null;
   document.querySelectorAll = () => [...elements.values()].filter(el => el.id.startsWith('tbtn-') || el.id === 'joy-base');
-  const settings = { touchSensitivity: 1, fireLook: true, fireMode: 'fire only' };
+  const settings = { ...CORE.defaultSettings(), touchSensitivity: 1, fireLook: true, fireMode: 'fire only' };
   const ctx = vm.createContext({ IS_TOUCH: touch, CORE, document, window: win, innerWidth: 800, innerHeight: 400,
     addEventListener: win.addEventListener.bind(win), removeEventListener: win.removeEventListener.bind(win),
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     performance: { now: () => clock }, setTimeout: (fn, ms) => { timers.set(++timerId, { fn, at: clock + ms }); return timerId; }, clearTimeout: id => timers.delete(id),
+    canvas: {addEventListener() {}}, gameT: 1, gameEnded: false, mapBounds: 80, GROUND: 0,
+    colliders: [], enemies: [], perks: [], adsAmount: 0, adsDown: () => false, curW: () => null, spawnSlideDust() {},
     getSetting: k => settings[k], playSound() {}, cycleWeapon() {}, pauseGame() {}, buildSettingsUI() {},
     keys: {}, pressed: {}, mouse1Down: false, mouseX: 0, mouseY: 0, started: true, paused: false, player: undefined,
     clearInputState() { ctx.mouse1Down = false; for (const k in ctx.keys) delete ctx.keys[k]; for (const k in ctx.pressed) delete ctx.pressed[k]; }
   });
+  if (realController) {
+    for (const name of ['keys', 'pressed', 'mouse1Down', 'mouseX', 'mouseY', 'started', 'paused', 'player', 'clearInputState']) delete ctx[name];
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../vendor/three-bundle.min.js'), 'utf8'), ctx);
+    const config = fs.readFileSync(path.join(__dirname, '../src/10_config_world.js'), 'utf8');
+    vm.runInContext(config.slice(config.indexOf('const CFG ='), config.indexOf('const $id =')), ctx);
+    vm.runInContext(playerSource, ctx);
+    vm.runInContext('started = true; player.onGround = true;', ctx);
+  } else {
+    ctx.touchSprint = {toggled: false};
+    ctx.resetSprintInput = input => { input.toggled = false; };
+  }
   vm.runInContext(source, ctx);
   return { ctx, elements, win, document, settings, run: code => vm.runInContext(code, ctx),
     advance(ms) { clock += ms; for (const [id, t] of [...timers]) if (t.at <= clock) { timers.delete(id); t.fn(); } } };
@@ -118,9 +132,9 @@ test('fire-and-look, separate look and movement coexist and unrelated releases d
   h.win.emit('touchend', [finger(99)]);
   h.run('applyTouchInput()');
   assert.equal(h.ctx.mouse1Down, true); assert.equal(h.ctx.mouseX, 30); assert.equal(h.ctx.mouseY, 10);
-  assert.equal(h.ctx.keys.KeyW, true);
+  assert.ok(h.win.__analogMove.z > 0);
   h.win.emit('touchend', [finger(1), finger(2), finger(3)]); h.run('applyTouchInput()');
-  assert.equal(h.ctx.mouse1Down, false); assert.equal(h.ctx.keys.KeyW, false);
+  assert.equal(h.ctx.mouse1Down, false); assert.equal(h.win.__analogMove, null);
   h.settings.fireLook = false;
   h.elements.get('tbtn-fire').emit('touchstart', [finger(4, 600, 100)]);
   h.win.emit('touchmove', [finger(4, 650, 150)]); h.run('applyTouchInput()');
@@ -149,10 +163,35 @@ test('quick ADS+fire tap retains ADS for its sampled shot only', () => {
 test('hold keys have multi-finger ownership and cancel immediately without minimum-hold timers', () => {
   const h = host(), el = h.elements.get('tbtn-slide');
   el.emit('touchstart', [finger(1), finger(2)]);
-  el.emit('touchend', [finger(1)]); assert.equal(h.ctx.keys.KeyC, true);
-  el.emit('touchcancel', [finger(2)]); assert.equal(h.ctx.keys.KeyC, false);
-  el.emit('touchstart', [finger(3)]); el.emit('touchend', [finger(3)]); assert.equal(h.ctx.keys.KeyC, false);
-  h.advance(100); assert.equal(h.ctx.keys.KeyC, false);
+  el.emit('touchend', [finger(1)]); assert.equal(h.ctx.keys.__touchCrouch, true);
+  el.emit('touchcancel', [finger(2)]); assert.equal(h.ctx.keys.__touchCrouch, false);
+  el.emit('touchstart', [finger(3)]); el.emit('touchend', [finger(3)]); assert.equal(h.ctx.keys.__touchCrouch, false);
+  assert.equal(h.ctx.pressed.__slide, true, 'release leaves one tap edge');
+  h.advance(100); assert.equal(h.ctx.keys.__touchCrouch, false);
+});
+
+test('real touch events preserve a released slide tap during a latched sprint', () => {
+  const h = host(true, true);
+  h.settings.touchSprint = 'toggle';
+  const run = h.elements.get('tbtn-sprint'), slide = h.elements.get('tbtn-slide');
+  h.elements.get('joy-base').emit('touchstart', [finger(1, 76, 130)]);
+  run.emit('touchstart', [finger(2)]);
+  run.emit('touchend', [finger(2)]);
+  h.run('updatePlayer(0.016)');
+  assert.equal(h.run('player.sprinting'), true);
+  slide.emit('touchstart', [finger(3)]);
+  slide.emit('touchend', [finger(3)]);
+  h.run('updatePlayer(0.016); delete pressed.__slide');
+  assert.equal(h.run('player.sliding && !keys.__touchCrouch && player.slideBlend > 0 && player.slideBlend < 1'), true);
+  const entryBlend = h.run('player.slideBlend');
+  h.run('for (let i = 0; i < 12; i++) updatePlayer(0.016)');
+  assert.equal(h.run('!player.sliding && player.sprinting && player.slideBlend > 0'), true);
+  h.run('for (let i = 0; i < 30; i++) updatePlayer(0.016)');
+  assert.ok(h.run('player.slideBlend') < entryBlend);
+  h.win.emit('touchcancel', [finger(1)]);
+  h.elements.get('joy-base').emit('touchstart', [finger(4, 76, 130)]);
+  h.run('updatePlayer(0.016)');
+  assert.equal(h.run('player.sprinting || touchSprint.toggled'), false);
 });
 
 for (const event of ['blur', 'pagehide', 'visibilitychange']) test(`${event} clears all touch channels and ownership`, () => {
@@ -166,7 +205,7 @@ for (const event of ['blur', 'pagehide', 'visibilitychange']) test(`${event} cle
   if (event === 'visibilitychange') { h.document.hidden = true; h.document.emit(event); } else h.win.emit(event);
   h.run('applyTouchInput()');
   assert.equal(h.ctx.mouse1Down, false); assert.equal(h.ctx.keys.Mouse2, false);
-  assert.equal(h.ctx.keys.KeyW, false); assert.equal(h.ctx.keys.KeyG, false);
+  assert.equal(h.win.__analogMove, null); assert.equal(h.ctx.keys.KeyG, false);
   assert.equal(h.ctx.mouseX, 0); assert.equal(h.ctx.mouseY, 0);
   assert.equal(h.elements.get('tbtn-fire').classList.contains('on'), false);
   h.elements.get('tbtn-fire').emit('touchstart', [finger(10)]); assert.equal(h.run('touchState.firing'), true);

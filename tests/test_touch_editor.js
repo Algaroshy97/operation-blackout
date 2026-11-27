@@ -110,7 +110,7 @@ test('touch HUD editor supports per-control opacity, resize re-clamping, safe-ar
     pauseGame() {},
     buildSettingsUI() {},
     keys: {}, pressed: {}, mouse1Down: false, mouseX: 0, mouseY: 0, started: true, paused: false,
-    clearInputState() {}
+    clearInputState() {}, touchSprint: {}, resetSprintInput() {}
   });
   vm.runInContext(touchSrc, ctx);
 

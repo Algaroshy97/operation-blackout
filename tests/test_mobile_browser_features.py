@@ -661,5 +661,287 @@ class MobileBrowserFeatureTests(unittest.TestCase):
         context.close()
 
 
+
+class BlackoutStandaloneBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        playwright = sync_playwright().start()
+        cls.addClassCleanup(playwright.stop)
+        cls.browser = playwright.chromium.launch(
+            headless=True,
+            args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+        )
+        cls.addClassCleanup(cls.browser.close)
+
+    def deployed_standalone(self, touch=False):
+        context = self.browser.new_context(
+            viewport={"width": 960, "height": 540}, has_touch=touch, is_mobile=touch,
+        )
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.goto(STANDALONE_HTML.as_uri())
+        page.wait_for_function("() => assetsReady")
+        deploy_game(page)
+        return page
+
+    def test_sprint_follows_the_active_movement_device(self):
+        page = self.deployed_standalone(touch=True)
+        result = page.evaluate("""() => {
+            const joy = document.getElementById('joy-base');
+            const run = document.getElementById('tbtn-sprint');
+            const bounds = joy.getBoundingClientRect();
+            const x = bounds.left + bounds.width / 2, y = bounds.top + bounds.height / 2;
+            const fire = (target, type, identifier, clientX, clientY) => {
+                const finger = new Touch({target, identifier, clientX, clientY});
+                target.dispatchEvent(new TouchEvent(type, {
+                    bubbles: true, cancelable: true, changedTouches: [finger]
+                }));
+            };
+            const moveStick = distance => {
+                fire(joy, 'touchstart', 1, x, y);
+                fire(joy, 'touchmove', 1, x, y - distance);
+            };
+            const releaseStick = () => fire(joy, 'touchend', 1, x, y);
+            const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code}));
+            const sprinting = () => { updatePlayer(0.016); return player.sprinting; };
+
+            moveStick(100);
+            const defaultTouchAutoSprint = sprinting();
+            releaseStick();
+            setSetting('touchSprint', 'toggle');
+            moveStick(24);
+            const touchStartsOff = !sprinting();
+            fire(run, 'touchstart', 2, 800, 400);
+            fire(run, 'touchend', 2, 800, 400);
+            const touchToggleSprints = sprinting();
+            releaseStick();
+            key('keydown', 'KeyW');
+            const touchToKeyboard = sprinting();
+            const touchToggleStillOn = touchSprint.toggled;
+
+            setSetting('touchSprint', 'hold');
+            setSetting('keyboardSprint', 'toggle');
+            key('keydown', 'ShiftLeft'); key('keyup', 'ShiftLeft');
+            const keyboardToggleSprints = sprinting();
+            key('keyup', 'KeyW');
+            moveStick(24);
+            const keyboardToTouch = sprinting();
+            return {defaultTouchAutoSprint, touchStartsOff, touchToggleSprints,
+                touchToKeyboard, touchToggleStillOn, keyboardToggleSprints, keyboardToTouch};
+        }""")
+        for control in ("defaultTouchAutoSprint", "touchStartsOff", "touchToggleSprints",
+                        "touchToggleStillOn", "keyboardToggleSprints"):
+            self.assertTrue(result[control], result)
+        for transition in ("touchToKeyboard", "keyboardToTouch"):
+            with self.subTest(transition=transition):
+                self.assertFalse(result[transition], result)
+
+    def test_slide_from_rest_follows_forward_and_backward_input(self):
+        page = self.deployed_standalone()
+        result = page.evaluate("""() => {
+            const input = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code}));
+            const slideFromRest = direction => {
+                clearInputState();
+                player.yaw = 0;
+                player.pos.set(0, CFG.player.height, 0);
+                player.vel.set(0, 0, 0);
+                player.onGround = true;
+                player.sliding = player.crouching = false;
+                input('keydown', direction);
+                input('keydown', 'ShiftLeft');
+                input('keydown', 'KeyC');
+                updatePlayer(0.016);
+                return {sliding: player.sliding, crouching: player.crouching, velocityZ: player.vel.z};
+            };
+            const forward = slideFromRest('KeyW');
+            const backward = slideFromRest('KeyS');
+            return {forward, backward};
+        }""")
+        for direction in ("forward", "backward"):
+            self.assertTrue(result[direction]["sliding"], result)
+            self.assertTrue(result[direction]["crouching"], result)
+        self.assertLess(result["forward"]["velocityZ"], 0)
+        self.assertGreater(result["backward"]["velocityZ"], 0)
+
+    def test_quick_touch_slide(self):
+        page = self.deployed_standalone(touch=True)
+        result = page.evaluate("""() => {
+            const joy = document.getElementById('joy-base');
+            const slide = document.getElementById('tbtn-slide');
+            const run = document.getElementById('tbtn-sprint');
+            const fire = (target, type, identifier, x, y) => {
+                const finger = new Touch({target, identifier, clientX: x, clientY: y});
+                target.dispatchEvent(new TouchEvent(type, {
+                    bubbles: true, cancelable: true, changedTouches: [finger]
+                }));
+            };
+            setSetting('touchSprint', 'toggle');
+            const bounds = joy.getBoundingClientRect();
+            const x = bounds.left + bounds.width / 2, y = bounds.top + bounds.height / 2;
+            fire(joy, 'touchstart', 1, x, y);
+            fire(joy, 'touchmove', 1, x, y - 24);
+            fire(run, 'touchstart', 2, 800, 400);
+            fire(run, 'touchend', 2, 800, 400);
+            player.onGround = true;
+            updatePlayer(0.016);
+            const sprint = player.sprinting;
+            fire(slide, 'touchstart', 3, 850, 400);
+            fire(slide, 'touchend', 3, 850, 400);
+            player.onGround = true;
+            updatePlayer(0.016);
+            const entered = player.sliding && !keys.__touchCrouch && player.slideBlend > 0 && player.slideBlend < 1;
+            delete pressed.__slide;
+            for (let i = 0; i < 12; i++) updatePlayer(0.016);
+            const recovered = !player.sliding && player.sprinting && player.slideBlend > 0;
+            fire(joy, 'touchcancel', 1, x, y - 24);
+            fire(joy, 'touchstart', 4, x, y - 24);
+            updatePlayer(0.016);
+            return {sprint, entered, recovered, cleared: !player.sprinting,
+                keyboardUnchanged: getSetting('keyboardSprint') === 'hold'};
+        }""")
+        self.assertTrue(all(result.values()), result)
+
+    def test_keyboard_toggle_and_persistence(self):
+        page = self.deployed_standalone()
+        result = page.evaluate("""() => {
+            setSetting('keyboardSprint', 'toggle');
+            const input = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code}));
+            const tap = () => { input('keydown', 'ShiftLeft'); input('keyup', 'ShiftLeft'); };
+            input('keydown', 'KeyW');
+            tap(); updatePlayer(0.016);
+            const latched = player.sprinting;
+            gameT += 0.12;
+            tap(); updatePlayer(0.016);
+            const tactical = player.sprinting && player.tacT > 0;
+            gameT += 0.5;
+            tap(); updatePlayer(0.016);
+            const stopped = !player.sprinting;
+            gameT += 0.5;
+            tap(); updatePlayer(0.016);
+            window.dispatchEvent(new Event('blur'));
+            input('keydown', 'KeyW'); updatePlayer(0.016);
+            return {latched, tactical, stopped, cleared: !player.sprinting,
+                touchUnchanged: getSetting('touchSprint') === 'hold'};
+        }""")
+        self.assertTrue(all(result.values()), result)
+        page.reload()
+        page.wait_for_function("() => assetsReady")
+        self.assertEqual(page.evaluate("() => getSetting('keyboardSprint')"), "toggle")
+
+    def test_weapon_grips_and_knife_render_pose(self):
+        page = self.deployed_standalone()
+        result = page.evaluate("""() => {
+            const results = {};
+            for (const family of ['AR', 'SMG', 'BR', 'SR', 'SG', 'LMG', 'PST']) {
+                const index = CFG.weapons.findIndex(w => (w.cls || w.type) === family);
+                if (index < 0) { results[family] = false; continue; }
+                weaponsOwned[curWeapon] = index;
+                const weapon = CFG.weapons[index];
+                wState[curWeapon] = {eff: weapon, ammo: 4, reloading: false};
+                buildViewmodel();
+                updateViewmodel(0.016);
+                const before = gunParts.handL.position.clone();
+                curS().reloading = true;
+                curS().reloadT = weapon.reload * 0.4;
+                updateViewmodel(0.016);
+                gunGroup.updateMatrixWorld(true);
+                const grip = gunParts.gripL;
+                results[family] = grip.children[0].geometry.type === 'SphereGeometry' &&
+                    grip.localToWorld(grip.forearm.wrist.clone()).distanceTo(
+                        grip.forearm.mesh.localToWorld(new THREE.Vector3(0, 0.5, 0))) < 0.0001 &&
+                    before.distanceTo(gunParts.handL.position) > 0.04;
+            }
+            weaponsOwned[curWeapon] = -1;
+            delete wState[curWeapon];
+            buildViewmodel();
+            doMelee(); updateViewmodel(0.016);
+            const windup = knifeGroup.position.clone();
+            updateWeapons(CORE.MELEE_COOLDOWN * CORE.MELEE_CONTACT_PROGRESS + 0.001);
+            updateViewmodel(0.016);
+            renderFrame(0.016);
+            results.knife = knifeGroup.visible && !gunGroup && knifeGroup.position.distanceTo(windup) > 0.2;
+            return results;
+        }""")
+        self.assertTrue(all(result.values()), result)
+
+    def test_wave_revive_discards_melee_started_before_downing(self):
+        page = self.deployed_standalone(touch=True)
+        result = page.evaluate("""() => {
+            player.pos.set(500, CFG.player.height, 500);
+            player.yaw = 0; player.pitch = 0;
+            player.spawnProtectionT = 0;
+            player.vel.set(0, 0, 0);
+            player.onGround = true;
+            const standingY = player.pos.y;
+            const attacker = spawnEnemy(1, 500, 498.5);
+            const contactTime = CORE.MELEE_COOLDOWN * CORE.MELEE_CONTACT_PROGRESS + 0.001;
+            doMelee();
+            const windup = meleeSwing === 1;
+            damagePlayer(1000, 0, 'bullet', attacker);
+            const downed = player.downed && !player.dead && player.downedBy === attacker;
+            const downedFeetY = player.pos.y - eyeHeight();
+            for (const enemy of enemies) enemy.dead = true;
+            waveActive = true;
+            waveQueue = 0;
+            updateWaves(0.016);
+            const revived = !waveActive && !player.downed && !player.dead &&
+                player.health === CORE.DOWN_REVIVE_HEALTH;
+            updatePlayer(0.016);
+            const grounded = player.onGround && !player.crouching && player.vel.y === 0;
+            const revivedY = player.pos.y;
+
+            // Movement clamps the out-of-arena fixture to the arena boundary.
+            // Keep the target in reach of the resulting simulation pose.
+            const target = spawnEnemy(1, player.pos.x, player.pos.z - 1.5);
+            const health = target.health;
+            updateWeapons(contactTime);
+            const afterPendingContact = target.health;
+            updateWeapons(CORE.MELEE_COOLDOWN);
+            const afterCooldown = target.health;
+            doMelee();
+            updateWeapons(contactTime);
+            return {windup, downed, revived, grounded, standingY, downedFeetY, revivedY, health, afterPendingContact, afterCooldown,
+                freshSwingHit: target.health < afterCooldown};
+        }""")
+        for control in ("windup", "downed", "revived"):
+            self.assertTrue(result[control], result)
+        self.assertEqual(result["afterPendingContact"], result["health"], result)
+        self.assertEqual(result["afterCooldown"], result["health"], result)
+        self.assertTrue(result["freshSwingHit"], result)
+        self.assertTrue(result["grounded"], result)
+        self.assertAlmostEqual(result["downedFeetY"], 0, places=6, msg=str(result))
+        self.assertAlmostEqual(result["revivedY"], result["standingY"], places=6, msg=str(result))
+
+    def test_knife_damage_at_contact_with_world_occlusion(self):
+        page = self.deployed_standalone()
+        result = page.evaluate("""() => {
+            for (const enemy of enemies) enemy.dead = true;
+            player.pos.set(500, CFG.player.height, 500);
+            player.yaw = 0; player.pitch = 0;
+            const ally = spawnEnemy(1, 500, 499.4, {team: player.team});
+            const blocked = spawnEnemy(1, 500, 498.7);
+            const exposed = spawnEnemy(1, 500.85, 498.5);
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3, 0.1), new THREE.MeshBasicMaterial());
+            wall.position.set(500, 1.5, 499);
+            wall.updateMatrixWorld(true);
+            raycastColliders.push(wall);
+            worldRayGrid = null;
+            const health = [ally.health, blocked.health, exposed.health];
+            const state = wState[curWeapon];
+            delete wState[curWeapon];
+            doMelee(); poseMeleeKnife();
+            const windup = knifeGroup.visible && exposed.health === health[2];
+            updateWeapons(CORE.MELEE_COOLDOWN * CORE.MELEE_CONTACT_PROGRESS + 0.001);
+            poseMeleeKnife();
+            const contact = exposed.health < health[2] && knifeGroup.visible && Math.abs(knifeGroup.position.x) < 0.07;
+            const after = exposed.health;
+            updateWeapons(0.15);
+            wState[curWeapon] = state;
+            return {windup, contact, once: exposed.health === after,
+                occluded: blocked.health === health[1], friendly: ally.health === health[0]};
+        }""")
+        self.assertTrue(all(result.values()), result)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6045,14 +6045,13 @@ test('casing dynamics, ground settling, smooth scale fade, and viewmodel kinemat
   assert.strictEqual(rot.rotZ, 0);
 
   // 6) stepMeleeKnifePose
-  const kPose = CORE.stepMeleeKnifePose(0.3);
-  assert.ok(kPose.posX !== undefined);
-  assert.ok(kPose.posY !== undefined);
-  assert.strictEqual(kPose.posZ, -0.3);
-  assert.strictEqual(kPose.rotX, -0.2);
+  const kPose = CORE.stepMeleeKnifePose(CORE.MELEE_CONTACT_PROGRESS);
   const kStart = CORE.stepMeleeKnifePose(0);
-  assert.ok(Math.abs(kStart.posX - 0.22) < 1e-4);
-  assert.ok(Math.abs(kStart.posY - (-0.12)) < 1e-4);
+  assert.ok(Math.abs(kPose.posX) < 0.05);
+  assert.ok(kPose.posY > kStart.posY);
+  assert.ok(kPose.posZ < kStart.posZ);
+  const kEnd = CORE.stepMeleeKnifePose(1);
+  for (const axis of Object.keys(kStart)) assert.ok(Math.abs(kStart[axis] - kEnd[axis]) < 1e-6);
 
   // 7) meleeGunDodgeOffsets
   const dStart = CORE.meleeGunDodgeOffsets(0);

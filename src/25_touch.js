@@ -6,8 +6,19 @@ let touchState = { active: false, moveX: 0, moveZ: 0, firing: false, tapFiring: 
 let adsHeld = false;
 // Dedicated mobile sprint control, held like the keyboard's Shift.
 let sprintHeld = false;
-// Game-time of the last RUN tap, for the tactical-sprint double-tap window.
-let lastSprintTapAt = -99;
+function resetTouchSprint() {
+  resetSprintInput(touchSprint);
+  sprintHeld = false;
+}
+function touchRunRequested() {
+  if (!touchState.active || !touchGameplayEnabled() || touchState.ads) return false;
+  if (getSetting('touchSprint') === 'toggle') return touchSprint.toggled;
+  return CORE.touchSprintIntent(sprintHeld, touchState.moveX, touchState.moveZ, false);
+}
+function touchSteadyAimRequested(weapon) {
+  return touchState.active && touchGameplayEnabled() &&
+    CORE.isMobileSteadyAim(touchState.ads, adsAmount, weapon?.type, touchState.moveX, touchState.moveZ);
+}
 let gyroEnabled = false;
 let gyroMode = 'off';
 let gyroStatus = 'off';
@@ -231,6 +242,7 @@ function touchGameplayEnabled() {
     for (const t of e.changedTouches) {
       if (t.identifier === joyId) {
         joyId = null;
+        if (e.type === 'touchcancel') resetSprintInput(touchSprint);
         joyBase.classList.remove('on', 'sprint', 'crawl');
         touchState.moveX = 0; touchState.moveZ = 0;
         joyStick.style.transform = 'translate(0,0)';
@@ -250,15 +262,15 @@ function touchGameplayEnabled() {
   // ---- look zone (drag to aim) ----
   let lookId = null, lastLX = 0, lastLY = 0;
   resetTouchControls = function () {
-    joyId = null; lookId = null; fireId = null; adsHeld = false; sprintHeld = false;
-    lastSprintTapAt = -99;
+    joyId = null; lookId = null; fireId = null; adsHeld = false;
+    resetTouchSprint();
     rebaselineGyro();
     touchState.moveX = touchState.moveZ = touchState.lookX = touchState.lookY = 0;
     touchState.firing = touchState.tapFiring = touchState.ads = false;
     mouse1Down = false; mouseX = mouseY = 0;
     window.__analogMove = null;
-    for (const k of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ShiftLeft', 'Mouse2', 'KeyC', 'KeyG', '__use']) keys[k] = false;
-    for (const k of ['Space', 'KeyR', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
+    for (const k of ['Mouse2', '__touchCrouch', 'KeyG', '__use']) keys[k] = false;
+    for (const k of ['Space', 'KeyR', '__slide', '__melee', '__plate', '__tactical', '__streak', '__field']) delete pressed[k];
     joyBase.classList.remove('on', 'sprint', 'crawl');
     joyStick.style.transform = 'translate(0,0)';
     document.getElementById('tbtn-fire').classList.remove('on');
@@ -306,7 +318,7 @@ function touchGameplayEnabled() {
 
 
   // ---- hold buttons ----
-  function holdBtn(id, on, off) {
+  function holdBtn(id, on, off, cancel) {
     const el = document.getElementById(id);
     const fingers = new Set();
     function reset() { fingers.clear(); el.classList.remove('on'); off(); }
@@ -316,7 +328,10 @@ function touchGameplayEnabled() {
       for (const t of e.changedTouches) if (fingers.delete(t.identifier)) owned = true;
       if (!owned) return;
       e.preventDefault();
-      if (!fingers.size) reset();
+      if (!fingers.size) {
+        reset();
+        if (e.type === 'touchcancel' && cancel) cancel();
+      }
     }
     el.addEventListener('touchstart', function (e) {
       e.preventDefault();
@@ -360,28 +375,13 @@ function touchGameplayEnabled() {
   holdBtn('tbtn-ads', function () { adsHeld = true; syncAds(); }, function () { adsHeld = false; syncAds(); });
   holdBtn('tbtn-jump', function () { pressed['Space'] = true; }, function () {});
   holdBtn('tbtn-slide', function () {
-    // No delayed key writes: releasing/cancelling immediately releases crouch.
-    keys['KeyC'] = true;
-  }, function () { keys['KeyC'] = false; });
-  // Sprint control: held means sprint in any direction at any stick depth, the way
-  // Shift works on desktop. The press also feeds the sprint double-tap window, so
-  // tapping it twice opens a tactical sprint (previously unreachable by touch).
+    keys['__touchCrouch'] = true;
+    pressed['__slide'] = true;
+  }, function () { keys['__touchCrouch'] = false; }, function () { delete pressed['__slide']; });
   holdBtn('tbtn-sprint', function () {
     sprintHeld = true;
-    keys['ShiftLeft'] = true;
-    pressed['ShiftLeft'] = true;
-    // Tactical sprint straight from the touch layer. `pressed` is a one-frame edge set
-    // owned by the player loop, so a tap that lands between frames can be cleared
-    // before `updatePlayer` reads it; arming `tacT` here makes the double-tap reliable
-    // while using the same window/rule as the keyboard.
-    if (typeof CORE.isTacSprintTriggered === 'function' && typeof player !== 'undefined') {
-      const nowT = typeof gameT === 'number' ? gameT : 0;
-      if (CORE.isTacSprintTriggered(nowT, lastSprintTapAt, !!player.exhausted, CORE.TAC_TAP_WINDOW)) {
-        player.tacT = CORE.TAC_DURATION;
-      }
-      lastSprintTapAt = nowT;
-    }
-  }, function () { sprintHeld = false; });
+    pressSprint(touchSprint, getSetting('touchSprint'));
+  }, function () { sprintHeld = false; }, function () { resetSprintInput(touchSprint); });
   holdBtn('tbtn-reload', function () { pressed['KeyR'] = true; }, function () {});
   holdBtn('tbtn-nade', function () { keys['KeyG'] = true; }, function () { keys['KeyG'] = false; });
   holdBtn('tbtn-swap', function () { cycleWeapon(1); }, function () {});
@@ -651,7 +651,6 @@ if (typeof addEventListener === 'function' && IS_TOUCH) {
 
 // Feed touch state into the keyboard-driven player controller each frame.
 // Called from updatePlayer BEFORE movement intent is read.
-const _touchMoveKeys = { w: false, s: false, a: false, d: false };
 const _touchAnalogMove = { x: 0, z: 0 };
 let _touchJoyCache = { sprint: false, tier: '' };
 function applyTouchInput() {
@@ -675,21 +674,11 @@ function applyTouchInput() {
     }
     return;
   }
-  // movement: joystick axes emulate WASD as analog
+  // Joystick travel is separate from the physical keyboard's held keys.
   if (touchState.moveX || touchState.moveZ) {
-    CORE.touchMovementKeys(touchState.moveX, touchState.moveZ, CORE.JOYSTICK_MOVE_THRESHOLD, _touchMoveKeys);
-    keys['KeyW'] = _touchMoveKeys.w;
-    keys['KeyS'] = _touchMoveKeys.s;
-    keys['KeyD'] = _touchMoveKeys.d;
-    keys['KeyA'] = _touchMoveKeys.a;
     _touchAnalogMove.x = touchState.moveX; _touchAnalogMove.z = touchState.moveZ;
     window.__analogMove = _touchAnalogMove;
-    // Held sprint control sprints in any direction; otherwise a full forward stick
-    // still auto-sprints and easing the stick back returns to a walk.
-    const isSprint = typeof CORE.touchSprintIntent === 'function'
-      ? CORE.touchSprintIntent(sprintHeld, touchState.moveX, touchState.moveZ, touchState.ads)
-      : CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
-    keys['ShiftLeft'] = isSprint;
+    const isSprint = touchRunRequested();
     const isDowned = typeof player !== 'undefined' && !!player.downed;
     const isDead = typeof player !== 'undefined' && !!player.dead;
     const joyTier = (typeof CORE !== 'undefined' && typeof CORE.joystickMoveSpeedTier === 'function')
@@ -704,13 +693,6 @@ function applyTouchInput() {
       }
     }
   } else {
-    // Explicitly clear derived keys so a released/interrupted joystick cannot keep moving.
-    keys['KeyW'] = keys['KeyS'] = keys['KeyA'] = keys['KeyD'] = false;
-    const w = (typeof curW === 'function') ? curW() : null;
-    const wType = w ? w.type : '';
-    const adsVal = typeof adsAmount === 'number' ? adsAmount : 0;
-    const isSteady = CORE.isMobileSteadyAim(touchState.ads, adsVal, wType, touchState.moveX, touchState.moveZ);
-    keys['ShiftLeft'] = isSteady;
     if (joyBaseEl && typeof CORE !== 'undefined' && typeof CORE.touchJoystickChanged === 'function') {
       const isDowned = typeof player !== 'undefined' && !!player.downed;
       const isDead = typeof player !== 'undefined' && !!player.dead;
@@ -761,9 +743,7 @@ let _touchSlideCache = { slideState: '', slideLabel: 'SLIDE' };
 function updateTouchSlideBtn() {
   if (!tbtnSlideEl) tbtnSlideEl = document.getElementById('tbtn-slide');
   if (!tbtnSlideEl || typeof player === 'undefined') return;
-  const isSprint = typeof CORE.touchSprintIntent === 'function'
-    ? CORE.touchSprintIntent(sprintHeld, touchState.moveX, touchState.moveZ, touchState.ads)
-    : CORE.isAutoSprint(touchState.moveX, touchState.moveZ, touchState.ads);
+  const isSprint = touchRunRequested();
   const isDowned = !!player.downed;
   const isDead = !!player.dead;
   const slideState = CORE.touchSlideState(!!player.sliding, !!player.crouching, isSprint, isDowned, isDead);
@@ -788,6 +768,7 @@ function updateTouchSprintBtn() {
   const isSprinting = typeof player !== 'undefined' && !!player.sprinting;
   const isTac = typeof player !== 'undefined' && !!(player.tacT > 0);
   tbtnSprintEl.classList.toggle('sprinting', isSprinting);
+  tbtnSprintEl.setAttribute('aria-pressed', String(getSetting('touchSprint') === 'toggle' ? touchSprint.toggled : sprintHeld));
   tbtnSprintEl.classList.toggle('tac', isTac);
   tbtnSprintEl.classList.toggle('locked', typeof player !== 'undefined' && (!!player.dead || !!player.downed));
 }
@@ -796,15 +777,13 @@ let _touchMeleeCache = { meleeState: '', meleeLabel: 'KNIFE' };
 function updateTouchMeleeBtn() {
   if (!tbtnMeleeEl) tbtnMeleeEl = document.getElementById('tbtn-melee');
   if (!tbtnMeleeEl || typeof player === 'undefined') return;
-  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
-  const targetIdx = (typeof enemies !== 'undefined' && typeof CORE.meleeTarget === 'function')
-    ? CORE.meleeTarget(enemies, player.pos.x, player.pos.z, dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE)
-    : -1;
   const cd = typeof meleeT !== 'undefined' ? meleeT : 0;
   const isDowned = !!player.downed;
   const isDead = !!player.dead;
-  const mState = CORE.touchMeleeState(targetIdx >= 0, cd, isDowned, isDead);
-  const mLabel = CORE.touchMeleeLabel(targetIdx >= 0, cd, isDowned, isDead);
+  const hasTarget = !isDead && !isDowned && cd <= 0 &&
+    typeof meleeContactTarget === 'function' && !!meleeContactTarget();
+  const mState = CORE.touchMeleeState(hasTarget, cd, isDowned, isDead);
+  const mLabel = CORE.touchMeleeLabel(hasTarget, cd, isDowned, isDead);
   if (!CORE.touchMeleeChanged(_touchMeleeCache, mState, mLabel)) return;
   CORE.syncTouchMeleeState(_touchMeleeCache, mState, mLabel);
 

@@ -84,24 +84,65 @@ function vmRail(parent, len, x, y, z) {
   const n = Math.floor(len / 0.012);
   for (let i = 0; i < n; i++) vmBox(parent, 0.028, 0.006, 0.005, x, y + 0.006, z - len / 2 + (i + 0.5) * (len / n), VMAT.metal);
 }
-// Gloved hand gripping around a vertical-ish grip. side: 1 right, -1 left
-function vmHand(parent, x, y, z, side, rx, rz) {
+function vmGloveOval(parent, mat, x, y, z, rx, ry, rz) {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), mat);
+  mesh.position.set(x, y, z);
+  mesh.scale.set(rx, ry, rz);
+  parent.add(mesh);
+  return mesh;
+}
+
+// Local -Z is the front of the grip, with mirrored palms and a lower wrist.
+function vmHand(parent, x, y, z, side, rx, rz, style = side > 0 ? 'trigger' : 'support') {
   const g = new THREE.Group();
+  g.name = style + ' grip';
   g.position.set(x, y, z);
   g.rotation.set(rx || 0, 0, rz || 0);
-  vmBox(g, 0.03, 0.075, 0.07, side * 0.028, 0, 0.005, VMAT.glove);
+  vmGloveOval(g, VMAT.glove, side * 0.025, -0.006, 0.006, 0.018, 0.041, 0.033);
   for (let i = 0; i < 4; i++) {
-    vmBox(g, 0.05, 0.016, 0.022, -side * 0.004, 0.027 - i * 0.018, -0.038, VMAT.glove);
-    vmBox(g, 0.012, 0.014, 0.018, -side * 0.028, 0.027 - i * 0.018, -0.03, VMAT.knuckle);
+    const index = i === 0 && style === 'trigger';
+    const fingerY = 0.024 - i * 0.016;
+    const fingerZ = index ? -0.046 : -0.035 + Math.max(0, i - 1) * 0.004;
+    const tipX = index ? side * 0.012 : -side * (0.018 - i * 0.0015);
+    const radius = 0.008 - i * 0.00055;
+    vmLimb(g, side * 0.026, fingerY, -0.013, side * 0.015, fingerY, fingerZ, radius, radius, VMAT.glove);
+    const tip = vmGloveOval(g, VMAT.glove, (side * 0.015 + tipX) / 2, fingerY - 0.002,
+      fingerZ, Math.abs(side * 0.015 - tipX) / 2 + radius, radius, radius);
+    tip.rotation.z = side * 0.12;
   }
-  vmBox(g, 0.02, 0.02, 0.05, -side * 0.028, 0.035, 0.012, VMAT.glove, 0.4, 0, 0);
-  vmBox(g, 0.05, 0.035, 0.05, side * 0.012, -0.045, 0.03, VMAT.glove);
+  vmLimb(g, side * 0.025, 0.014, 0.028, -side * 0.012, 0.035, 0.015, 0.011, 0.008, VMAT.glove);
+  vmGloveOval(g, VMAT.glove, -side * 0.014, 0.032, 0.004, 0.009, 0.009, 0.016);
+  vmGloveOval(g, VMAT.knuckle, side * 0.039, 0.010, 0.000, 0.006, 0.024, 0.022);
+  vmGloveOval(g, VMAT.glove, side * 0.018, -0.035, 0.023, 0.021, 0.022, 0.023);
   parent.add(g);
   return g;
 }
-function vmForearm(parent, wx, wy, wz, ex, ey, ez) {
-  vmLimb(parent, wx, wy, wz, ex, ey, ez, 0.034, 0.042, VMAT.sleeve);
-  vmLimb(parent, wx, wy, wz, wx + (ex - wx) * 0.12, wy + (ey - wy) * 0.12, wz + (ez - wz) * 0.12, 0.036, 0.036, VMAT.glove);
+
+function vmForearm(root, hand, ex, ey, ez) {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.044, 1, 10), VMAT.sleeve);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.029, 0.034, 10), VMAT.glove);
+  hand.forearm = {
+    mesh, cuff, elbow: new THREE.Vector3(ex, ey, ez),
+    wrist: new THREE.Vector3(hand.name === 'support grip' ? -0.018 : 0.018, -0.04, 0.029),
+  };
+  root.add(mesh, cuff);
+  poseForearm(root, hand);
+}
+
+function poseForearm(root, hand) {
+  const { mesh, cuff, wrist, elbow } = hand.forearm;
+  hand.updateMatrix();
+  _lA.copy(wrist).applyMatrix4(hand.matrix);
+  if (hand.parent !== root) {
+    hand.parent.updateMatrix();
+    _lA.applyMatrix4(hand.parent.matrix);
+  }
+  _lB.subVectors(_lA, elbow);
+  mesh.scale.set(1, _lB.length(), 0.88);
+  mesh.position.copy(elbow).lerp(_lA, 0.5);
+  mesh.quaternion.setFromUnitVectors(_lY, _lB.normalize());
+  cuff.position.copy(_lA).addScaledVector(_lB, -0.01);
+  cuff.quaternion.copy(mesh.quaternion);
 }
 function vmFlash(parent, z, y) {
   const g = new THREE.Group();
@@ -251,14 +292,14 @@ function vmBuildAR(g, P, att, fde) {
   else sight = vmIrons(g, -0.43, 0.02, 0.061);
   const grip = vmUnder(g, P, att, -0.33, 0.0);
   P.handR = vmHand(g, 0, -0.07, 0.04, 1, 0.28);
-  vmForearm(g, 0.02, -0.12, 0.07, 0.1, -0.24, 0.38);
+  vmForearm(g, P.handR, 0.1, -0.24, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
   if (grip) {
-    vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
-    vmForearm(P.handL, -0.01, grip.gripY - 0.05, grip.gripZ + 0.03, -0.12, -0.34, -0.02);
+    P.gripL = vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
+    vmForearm(g, P.gripL, -0.14, -0.27, -0.10);
   } else {
-    vmHand(P.handL, -0.005, -0.012, -0.34, -1, 1.2, 0.1);
-    vmForearm(P.handL, -0.03, -0.05, -0.31, -0.13, -0.34, -0.04);
+    P.gripL = vmHand(P.handL, -0.012, -0.027, -0.34, -1, 1.28, -0.19);
+    vmForearm(g, P.gripL, -0.15, -0.28, -0.12);
   }
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.15, -0.14, -0.36], kick: 0.9 };
 }
@@ -302,10 +343,10 @@ function vmBuildSMG(g, P, att) {
   // stock vertical grip
   if (att.under !== 'foregrip') vmBox(g, 0.022, 0.07, 0.03, 0, -0.07, -0.21, R, -0.2);
   P.handR = vmHand(g, 0, -0.065, 0.03, 1, 0.22);
-  vmForearm(g, 0.02, -0.115, 0.06, 0.1, -0.24, 0.38);
+  vmForearm(g, P.handR, 0.1, -0.24, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
-  vmHand(P.handL, 0, grip.gripY, grip.gripZ, -1, 0.2, 0);
-  vmForearm(P.handL, -0.01, grip.gripY - 0.05, grip.gripZ + 0.02, -0.12, -0.36, 0.0);
+  P.gripL = vmHand(P.handL, 0, grip.gripY, grip.gripZ, -1, 0.2, 0);
+  vmForearm(g, P.gripL, -0.14, -0.30, 0.02);
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.14, -0.13, -0.33], kick: 0.6 };
 }
 function vmBuildBR(g, P, att) {
@@ -398,10 +439,10 @@ function vmBuildSR(g, P, att) {
   vmBox(g, 0.01, 0.01, 0.18, -0.016, -0.058, -0.39, VMAT.metal); vmBox(g, 0.01, 0.01, 0.18, 0.016, -0.058, -0.39, VMAT.metal);
   vmUnder(g, P, att.under === 'laser' ? att : {}, -0.3, -0.01);
   P.handR = vmHand(g, 0, -0.082, 0.05, 1, 0.35);
-  vmForearm(g, 0.02, -0.13, 0.08, 0.1, -0.25, 0.38);
+  vmForearm(g, P.handR, 0.1, -0.25, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
-  vmHand(P.handL, 0, -0.04, -0.32, -1, 1.1, 0.05);
-  vmForearm(P.handL, -0.02, -0.08, -0.29, -0.13, -0.36, -0.03);
+  P.gripL = vmHand(P.handL, -0.012, -0.049, -0.32, -1, 1.24, -0.16);
+  vmForearm(g, P.gripL, -0.15, -0.30, -0.10);
   return { sightY: 0.1, sightZ: 0.11, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.15, -0.38], kick: 2.2 };
 }
 // Knife (melee): its own arm, shown only while slashing.
@@ -413,8 +454,8 @@ function buildKnife() {
   vmBox(k, 0.005, 0.012, 0.05, 0, 0.012, -0.23, VMAT.blade, -0.35);
   vmBox(k, 0.03, 0.012, 0.012, 0, 0, -0.035, VMAT.metal);
   vmBox(k, 0.022, 0.026, 0.1, 0, -0.002, 0.02, VMAT.polymer);
-  vmHand(k, 0, -0.005, 0.02, 1, 1.35);
-  vmForearm(k, 0.01, -0.04, 0.06, 0.09, -0.2, 0.34);
+  const grip = vmHand(k, 0, -0.004, 0.017, 1, 1.48, -0.12, 'knife');
+  vmForearm(k, grip, 0.11, -0.23, 0.32);
   knifeGroup.visible = false;
   gunCamera.add(knifeGroup);
 }
@@ -469,10 +510,10 @@ function vmBuildSG(g, P, att) {
     sight = { y: 0.069, z: -0.02 };
   }
   P.handR = vmHand(g, 0, -0.07, 0.05, 1, 0.3);
-  vmForearm(g, 0.02, -0.12, 0.08, 0.1, -0.24, 0.38);
+  vmForearm(g, P.handR, 0.1, -0.24, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
-  vmHand(P.handL, -0.004, -0.02, -0.32, -1, 1.2, 0.1);
-  vmForearm(P.handL, -0.03, -0.055, -0.29, -0.13, -0.34, -0.02);
+  P.gripL = vmHand(P.handL, -0.010, -0.024, -0.32, -1, 1.47, -0.16);
+  vmForearm(g, P.gripL, -0.16, -0.28, -0.10);
   P.loadPort = new THREE.Vector3(0, -0.05, -0.08);
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.15, -0.14, -0.36], kick: 1.5 };
 }
@@ -521,14 +562,14 @@ function vmBuildLMG(g, P, att) {
   else sight = vmIrons(g, -0.2 - bl * 0.75, 0.04, 0.052);
   const grip = vmUnder(g, P, att, -0.32, -0.02);
   P.handR = vmHand(g, 0, -0.075, 0.05, 1, 0.3);
-  vmForearm(g, 0.02, -0.125, 0.08, 0.1, -0.25, 0.38);
+  vmForearm(g, P.handR, 0.1, -0.25, 0.38);
   P.handL = new THREE.Group(); g.add(P.handL);
   if (grip) {
-    vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
-    vmForearm(P.handL, -0.01, grip.gripY - 0.05, grip.gripZ + 0.03, -0.12, -0.34, -0.02);
+    P.gripL = vmHand(P.handL, 0, grip.gripY, grip.gripZ + 0.01, -1, 0.15, 0);
+    vmForearm(g, P.gripL, -0.14, -0.28, -0.10);
   } else {
-    vmHand(P.handL, -0.004, -0.03, -0.3, -1, 1.2, 0.1);
-    vmForearm(P.handL, -0.03, -0.065, -0.27, -0.13, -0.34, -0.02);
+    P.gripL = vmHand(P.handL, -0.013, -0.044, -0.3, -1, 1.32, -0.19);
+    vmForearm(g, P.gripL, -0.16, -0.29, -0.08);
   }
   return { sightY: sight.y, sightZ: sight.z, muzzleZ: muzzleZ, muzzleY: 0.03, hip: [0.16, -0.16, -0.38], kick: 1.0 };
 }
@@ -563,10 +604,10 @@ function vmBuildPST(g, P, att) {
   dot.position.set(0, 0.064, -0.212); g.add(dot);
   const muzzleZ = att.barrel === 'suppressor' ? vmMuzzleDevice(g, att, -0.245, 0.04, 0.02) : -0.245;
   P.handR = vmHand(g, 0, -0.055, 0.0, 1, 0.22);
-  vmForearm(g, 0.02, -0.105, 0.03, 0.1, -0.24, 0.36);
+  vmForearm(g, P.handR, 0.1, -0.24, 0.36);
   P.handL = new THREE.Group(); g.add(P.handL);
-  vmHand(P.handL, -0.02, -0.065, 0.005, -1, 0.3, 0.35);
-  vmForearm(P.handL, -0.035, -0.11, 0.035, -0.13, -0.25, 0.34);
+  P.gripL = vmHand(P.handL, -0.016, -0.078, -0.002, -1, 0.48, 0.48);
+  vmForearm(g, P.gripL, -0.13, -0.24, 0.30);
   return { sightY: 0.064, sightZ: -0.035, muzzleZ: muzzleZ, muzzleY: 0.04, hip: [0.12, -0.13, -0.34], kick: 0.8 };
 }
 function buildGunModel(g, P, type, att) {
@@ -609,7 +650,7 @@ function disposeGunModel(g) {
 }
 
 // ---- springs: look inertia, recoil ----
-const vmSpring = { sx: 0, sy: 0, vx: 0, vy: 0, kz: 0, kvz: 0, kr: 0, kvr: 0, roll: 0, vroll: 0, tilt: 0, sprint: 0, tac: 0, slide: 0, mantle: 0, lastYaw: null, lastPitch: 0, boltT: 0, boltDur: 0 };
+const vmSpring = { sx: 0, sy: 0, vx: 0, vy: 0, kz: 0, kvz: 0, kr: 0, kvr: 0, roll: 0, vroll: 0, tilt: 0, sprint: 0, tac: 0, mantle: 0, lastYaw: null, lastPitch: 0, boltT: 0, boltDur: 0 };
 function kickViewmodel(w, tune) {
   const k = (tune ? tune.kick : 1) * (adsAmount > 0.5 ? 0.6 : 1) * Math.max(0.6, Math.min(1.3, w.recoilV / 0.014 * 0.5 + 0.5));
   vmSpring.kvz += 2.2 * k;
@@ -674,11 +715,11 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
   const sprint = player.sprinting && !player.sliding && !tac ? 1 : 0;
   vmSpring.sprint += (sprint - vmSpring.sprint) * Math.min(1, 9 * dt);
   vmSpring.tac += (tac - vmSpring.tac) * Math.min(1, 10 * dt);
-  vmSpring.slide += ((player.sliding ? 1 : 0) - vmSpring.slide) * Math.min(1, 10 * dt);
-  const sp = vmSpring.sprint * hipK, tk = vmSpring.tac * hipK, sl = vmSpring.slide * hipK;
+  const sp = vmSpring.sprint * hipK, tk = vmSpring.tac * hipK, sl = player.slideBlend * hipK * motion;
   px += 0.04 * sp; py -= 0.05 * sp; ry += 0.55 * sp; rz += 0.3 * sp; rx += -0.12 * sp;
   px -= 0.05 * tk; py += 0.03 * tk; pz += 0.04 * tk; rx += 0.95 * tk; rz -= 0.25 * tk; ry += 0.2 * tk;
-  px -= 0.03 * sl; py -= 0.02 * sl; rz += 0.35 * sl;
+  px -= 0.045 * sl; py -= 0.045 * sl; pz += 0.025 * sl;
+  rx -= 0.15 * sl; ry += 0.13 * sl; rz += 0.27 * sl;
   // recoil springs
   r = stepSpring(vmSpring.kz, vmSpring.kvz, 0, 260, 20, dt); vmSpring.kz = r[0]; vmSpring.kvz = r[1];
   r = stepSpring(vmSpring.kr, vmSpring.kvr, 0, 220, 17, dt); vmSpring.kr = r[0]; vmSpring.kvr = r[1];
@@ -713,6 +754,8 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       P.handL.position.x += _vmHandOut.posX;
       P.handL.position.y += _vmHandOut.posY;
       P.handL.position.z += _vmHandOut.posZ;
+      const reach = vmBump(0.08, 0.72, p);
+      P.handL.rotation.set(-0.32 * reach, 0.21 * reach, -0.27 * reach);
     }
     if (s.ammo === 0) {
       boltBack = vmBump(0.78, 0.94, p);
@@ -739,6 +782,7 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
       if (P.handL) P.handL.position.z += boltBack * 0.1;
     } else P.bolt.position.z = P.boltRest + boltBack * 0.07 + Math.min(1, shotKick) * 0.02;
   }
+  if (P.gripL) poseForearm(g, P.gripL);
   // melee: gun ducks out, knife slashes across
   const mk = meleeSwing > 0 ? 1 - meleeSwing : 0;
   CORE.meleeGunDodgeOffsets(mk, _vmDodgeOut);
@@ -759,7 +803,7 @@ function poseViewmodel(dt, g, P, tune, w, s, reducedMotion) {
 const _mzV = new THREE.Vector3();
 function poseMeleeKnife() {
   if (!knifeGroup) return;
-  knifeGroup.visible = meleeSwing > 0 && !player.dead;
+  knifeGroup.visible = meleeSwing > 0 && !player.dead && !player.downed;
   if (!knifeGroup.visible) return;
   CORE.stepMeleeKnifePose(1 - meleeSwing, _vmKnifeOut);
   knifeGroup.position.set(_vmKnifeOut.posX, _vmKnifeOut.posY, _vmKnifeOut.posZ);

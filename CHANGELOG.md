@@ -6,6 +6,10 @@ not proof of deployment status, device support or measured frame-rate improvemen
 
 ## Mobile controls and offline PWA — candidate
 
+- Queue quick crouch taps during a sprint and ease the slide's camera and first-person weapon pose into and out of the move.
+- Save separate Hold and Toggle sprint settings for keyboard and touch. Hold remains the default, with full-forward stick auto-sprint on touch. Double-tap still triggers tactical sprint. Toggle clears on pause, input interruption, exhaustion, or downing.
+- Reshape first-person gloves and sleeves, align support grips by weapon family, and keep the wrist joined to the sleeve during reloads and pump cycles.
+- Resolve knife damage at the visible strike. Melee readiness and contact share faction, height, range, and cover checks.
 - Prepare common firing effects and audio before the first shot. Headless cold-launch probes check for shader compilation and linking at the first shot; Xiaomi Mi 10T frame pacing is not yet measured.
 - Improve simultaneous touch handling and clear held controls across gameplay interruptions. Add off, ADS-only and always-on gyro modes, separate hip/ADS sensitivity, and a HUD editor with per-control position, size and opacity.
 - Organize settings into keyboard-accessible tabs and add an FPS cap, FPS display toggle and opt-in adaptive resolution.

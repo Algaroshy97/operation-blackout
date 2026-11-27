@@ -5,10 +5,38 @@ const pressed = Object.create(null);
 let paused = false, started = false, pointerLocked = false;
 let mouse1Down = false;
 let mouseX = 0, mouseY = 0;
+const keyboardSprint = { toggled: false, lastTap: -99, tactical: false };
+const touchSprint = { toggled: false, lastTap: -99, tactical: false };
+let tacOwner = null, lastSprintInput = null;
+
+function pressSprint(input, mode) {
+  if (!started || paused || gameEnded || player.dead || player.downed || player.exhausted) return;
+  const tactical = CORE.isTacSprintTriggered(gameT, input.lastTap, false, TAC_TAP_WINDOW);
+  input.lastTap = tactical ? -99 : gameT;
+  if (mode === 'toggle') input.toggled = tactical || !input.toggled;
+  if (tactical) input.tactical = true;
+}
+
+function resetSprintInput(input) {
+  input.toggled = false;
+  input.lastTap = -99;
+  input.tactical = false;
+  if (tacOwner === input) {
+    player.tacT = 0;
+    tacOwner = null;
+  }
+}
+
+
+function resetKeyboardSprint() {
+  resetSprintInput(keyboardSprint);
+  delete keys.ShiftLeft;
+}
 
 addEventListener('keydown', function (e) {
   if (e.repeat) return;
   keys[e.code] = true; pressed[e.code] = true;
+  if (e.code === 'ShiftLeft') pressSprint(keyboardSprint, getSetting('keyboardSprint'));
   if (['Space','ArrowUp','ArrowDown','KeyW','KeyA','KeyS','KeyD'].indexOf(e.code) >= 0) e.preventDefault();
   if ((e.code === 'Escape' || e.code === 'KeyP') && started && !paused) pauseGame();
   if (e.code === 'Tab') {
@@ -35,6 +63,9 @@ addEventListener('mouseup', function (e) {
   if (e.button === 2) keys['Mouse2'] = false;
 });
 function clearInputState() {
+  resetSprintInput(keyboardSprint);
+  resetSprintInput(touchSprint);
+  player.sprinting = false;
   mouse1Down = false; mouseX = 0; mouseY = 0;
   for (const k in keys) delete keys[k];
   for (const k in pressed) delete pressed[k];
@@ -45,6 +76,7 @@ function clearInputState() {
   window.__analogMove = null;
 }
 addEventListener('blur', clearInputState);
+addEventListener('pagehide', clearInputState);
 document.addEventListener('visibilitychange', function () { if (document.hidden) clearInputState(); });
 addEventListener('contextmenu', function (e) { e.preventDefault(); });
 canvas.addEventListener('wheel', function (e) {
@@ -78,7 +110,7 @@ const player = {
   bobPhase: 0, bobAmp: 0,
   recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
   // slide state
-  sliding: false, slideT: 0, slideDir: new THREE.Vector3(),
+  sliding: false, slideT: 0, slideBlend: 0, stanceOffset: 0, slideDir: new THREE.Vector3(),
   // jump feel
   coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
   // mantle (see tryMantle) and tactical-sprint burst
@@ -110,7 +142,6 @@ const TAC_TAP_WINDOW = CORE.TAC_TAP_WINDOW;
 const TAC_DURATION = CORE.TAC_DURATION;
 const TAC_MUL = CORE.TAC_SPRINT_SPEED_MUL;
 const TAC_DRAIN = 2.2;
-let lastSprintTap = -99;
 // Distance from the eye to the top of the head. The ceiling resolve keeps this
 // much space between the camera and any slab overhead.
 const HEAD_CLEARANCE = 0.20;
@@ -168,6 +199,18 @@ const _bobStepOut = { phase: 0, amp: 0 };
 const _jumpTimersOut = { coyoteT: 0, jumpBufT: 0 };
 const _assistDeltasOut = { yawDelta: 0, pitchDelta: 0 };
 const _assistLookOut = { yaw: 0, pitch: 0 };
+function updatePlayerStance(wantCrouch, dt) {
+  // Change the collision height around the feet and ease the visual eye height.
+  if (wantCrouch !== player.crouching &&
+      (wantCrouch || CORE.hasCrouchHeadroom(player.pos.x, player.pos.z, CFG.player.radius, player.pos.y + CFG.player.height - eyeHeight(), CFG.player.height, colliders))) {
+    const previousHeight = eyeHeight();
+    player.crouching = wantCrouch;
+    const heightDelta = eyeHeight() - previousHeight;
+    player.pos.y += heightDelta;
+    player.stanceOffset -= heightDelta;
+  }
+  player.stanceOffset *= Math.exp(-15 * dt);
+}
 function updatePlayer(dt) {
   if (player.dead) return;
   if (player.spawnProtectionT > 0 && (typeof paused === 'undefined' || !paused)) {
@@ -220,6 +263,7 @@ function updatePlayer(dt) {
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
   if (player.mantleT > 0) {
+    keyboardSprint.tactical = touchSprint.tactical = false;
     const step = CORE.stepMantleProgress(player.mantleT, dt, MANTLE_TIME);
     player.mantleT = step.remainingT;
     player.pos.lerpVectors(player.mantleFrom, player.mantleTo, step.progressK);
@@ -228,20 +272,40 @@ function updatePlayer(dt) {
     return;
   }
 
-  // ---- Slide (C/Ctrl while sprinting on ground) ----
-  const crouchKey = !!(keys['KeyC'] || keys['ControlLeft'] || keys['ControlRight']);
-  const movingInput = !!(keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']);
-  if (!player.sliding && crouchKey && player.sprinting && player.onGround && movingInput && !adsDown() && !player.exhausted && !player.downed) {
-    startSlide();
+  const analogMove = window.__analogMove;
+  const moveX = analogMove ? analogMove.x : Number(!!keys.KeyD) - Number(!!keys.KeyA);
+  const moveZ = analogMove ? analogMove.z : Number(!!keys.KeyW) - Number(!!keys.KeyS);
+  const moveThreshold = analogMove ? CORE.JOYSTICK_MOVE_THRESHOLD : 0;
+  const movingInput = Math.abs(moveX) > moveThreshold || Math.abs(moveZ) > moveThreshold;
+  const sprintInput = analogMove ? touchSprint : keyboardSprint;
+  const runRequested = analogMove ? touchRunRequested()
+    : getSetting('keyboardSprint') === 'toggle' ? keyboardSprint.toggled : keys.ShiftLeft;
+  const canRun = movingInput && !keys.Mouse2 && !player.downed && player.landStunT <= 0;
+
+  // ---- Slide (C/Ctrl or touch while sprinting on ground) ----
+  const crouchKey = !!(keys.KeyC || keys.ControlLeft || keys.ControlRight || keys.__touchCrouch);
+  const crouchPressed = !!(pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'] || pressed['__slide']);
+  const wasSliding = player.sliding;
+  const wasSprinting = player.sprinting && lastSprintInput === sprintInput;
+  const startsSlide = !wasSliding && (crouchKey || crouchPressed) &&
+    (wasSprinting || (runRequested && !player.crouching)) && player.onGround && canRun && !player.exhausted;
+  const wantsTac = sprintInput.tactical;
+  keyboardSprint.tactical = touchSprint.tactical = false;
+  if (!wasSliding) {
+    if (tacOwner !== sprintInput) player.tacT = 0;
+    if (wantsTac && (startsSlide || (runRequested && canRun && !crouchKey)) && !player.exhausted) {
+      player.tacT = TAC_DURATION;
+      tacOwner = sprintInput;
+    }
+  }
+  if (startsSlide) {
+    startSlide(moveX, moveZ);
   }
   if (player.sliding) {
     player.slideT += dt;
-    // steering: A/D curve the slide
-    let ix = 0;
-    if (keys['KeyA']) ix -= 1;
-    if (keys['KeyD']) ix += 1;
-    if (ix) {
-      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, ix, player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
+    // A/D or a lateral stick input curves the slide.
+    if (Math.abs(moveX) > moveThreshold) {
+      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, Math.sign(moveX), player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
     }
     // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
     const isTacSlide = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
@@ -260,16 +324,15 @@ function updatePlayer(dt) {
     // except releasing crouch, which removed the one piece of movement tech that
     // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
     // cannot also cancel it on the same frame.
-    if (CORE.canSlideCancel(player.slideT, CORE.SLIDE_CANCEL_MIN_T) && (pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'])) {
+    if (wasSliding && crouchPressed && CORE.canSlideCancel(player.slideT, CORE.SLIDE_CANCEL_MIN_T)) {
       player.sliding = false;
-      player.crouching = !!crouchKey;
       playSound(CORE.slideCancelSound());
       spawnSlideDust(player.pos, 'cancel', Math.hypot(player.vel.x, player.vel.z));
     }
     // slide ends: timeout, released crouch, or stopped
-    if (CORE.isSlideExpired(player.slideT, crouchKey, movingInput, slideTimeout, CORE.SLIDE_STOP_MIN_T)) {
+    const commitSlide = player.slideT < 0.16;
+    if (player.sliding && CORE.isSlideExpired(player.slideT, crouchKey || commitSlide, movingInput, slideTimeout, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
-      player.crouching = crouchKey;  // hold-to-crouch out of slide
       spawnSlideDust(player.pos, 'stop', Math.hypot(player.vel.x, player.vel.z));
     }
     // slide-jump: convert momentum into a boost jump
@@ -287,25 +350,12 @@ function updatePlayer(dt) {
     }
   }
 
-  // stance
-  const wantCrouch = player.sliding ? true : crouchKey;
-  if (wantCrouch !== player.crouching) {
-    if (!wantCrouch) {
-      if (CORE.hasCrouchHeadroom(player.pos.x, player.pos.z, CFG.player.radius, player.pos.y, CFG.player.height, colliders)) {
-        player.crouching = false;
-      }
-    } else player.crouching = true;
-  }
+  updatePlayerStance(player.sliding || crouchKey || player.downed, dt);
+  const slideTarget = player.sliding ? 1 : 0;
+  player.slideBlend += (slideTarget - player.slideBlend) * -Math.expm1(-(slideTarget ? 17 : 11) * dt);
 
-  // stamina & sprint (movingInput already declared in slide block above)
-  // Tactical sprint: a double-tap inside TAC_TAP_WINDOW opens a short burst.
-  if (pressed['ShiftLeft'] || pressed['__tacsprint']) {
-    if (CORE.isTacSprintTriggered(gameT, lastSprintTap, player.exhausted, TAC_TAP_WINDOW)) player.tacT = TAC_DURATION;
-    lastSprintTap = gameT;
-  }
-  const wantSprint = !!keys['ShiftLeft'] && movingInput && !player.crouching && !adsDown()
-    && !player.downed && player.landStunT <= 0;
-  if (player.tacT > 0 && (!wantSprint || player.exhausted)) player.tacT = 0;
+  const wantSprint = runRequested && canRun && !player.crouching;
+  if (player.tacT > 0 && ((!player.sliding && (!wantSprint || tacOwner !== sprintInput)) || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   const wasExhausted = player.exhausted;
   if (wantSprint && !player.exhausted) {
@@ -318,27 +368,17 @@ function updatePlayer(dt) {
     player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, false, false, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
     player.exhausted = CORE.isPlayerExhausted(player.stamina, player.exhausted, CFG.player.maxStamina, CORE.STAMINA_EXHAUST_RECOVER_RATIO);
   }
+  lastSprintInput = sprintInput;
+  if (player.exhausted || player.downed) {
+    resetSprintInput(keyboardSprint);
+    resetSprintInput(touchSprint);
+  }
   const exSnd = CORE.exhaustionSound(player.exhausted, wasExhausted);
   if (exSnd) playSound(exSnd);
 
-  // movement intent (yaw-relative). iz: +1 = forward (W), -1 = back (S)
-  let ix = 0, iz = 0;
-  if (window.__analogMove) {
-    ix = window.__analogMove.x;
-    iz = window.__analogMove.z;
-  } else {
-    if (keys['KeyW']) iz += 1;
-    if (keys['KeyS']) iz -= 1;
-    if (keys['KeyA']) ix -= 1;
-    if (keys['KeyD']) ix += 1;
-  }
-  if (window.__analogMove) {
-    // analog: keep direction from joystick, skip normalization beyond magnitude 1
-    const m = Math.hypot(ix, iz);
-    if (m > 1) { ix /= m; iz /= m; }
-    // scale walk speed by magnitude for analog walking
-    window.__analogMag = Math.min(1, m);
-  } else window.__analogMag = 1;
+  // Analog movement keeps stick magnitude for walking.
+  let ix = moveX, iz = moveZ;
+  window.__analogMag = analogMove ? Math.min(1, Math.hypot(ix, iz)) : 1;
   const len = Math.hypot(ix, iz);
   if (len > 0) { ix /= len; iz /= len; }
   const cw = curW();
@@ -516,13 +556,16 @@ function tryMantle() {
 }
 
 // ---- Slide helpers ----
-function startSlide() {
+function startSlide(moveX = 0, moveZ = 1) {
   player.sliding = true;
   player.slideT = 0;
-  // slide in current movement direction (momentum dir if moving)
+  // Carry existing momentum, or use the movement input when starting from rest.
   const hv = tmpV.set(player.vel.x, 0, player.vel.z);
-  if (hv.lengthSq() > 1) hv.normalize(); else hv.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-  player.slideDir.copy(hv);
+  if (hv.lengthSq() <= 1) {
+    CORE.movementTargetVelocity(moveX, moveZ, player.yaw, 1, _targetVelOut);
+    hv.set(_targetVelOut.x, 0, _targetVelOut.z);
+  }
+  player.slideDir.copy(hv.normalize());
   playSound(CORE.slideStartSound());
   spawnSlideDust(player.pos, 'start', Math.hypot(player.vel.x, player.vel.z));
 }

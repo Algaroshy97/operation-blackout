@@ -519,12 +519,15 @@ function downPlayer(attacker) {
     return;
   }
   player.downed = true;
+  if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
+  resetSprintInput(keyboardSprint);
+  resetSprintInput(touchSprint);
   player.downedBy = killer;
   downT = 0;
   if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
   player.health = 1;
-  player.crouching = true;
+  updatePlayerStance(true, 0);
   player.sprinting = false;
   player.sliding = false;
   showCenterMsg('DOWN — HOLD OUT');

@@ -442,6 +442,8 @@ const CORE = (function () {
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
     gyroSensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.1, label: 'Gyro hipfire sensitivity', help: 'Phone-tilt aiming sensitivity while firing from the hip.' },
     gyroAdsSensitivity: { type: 'number', def: 0.65, min: 0.1, max: 4.0, step: 0.05, label: 'Gyro ADS sensitivity', help: 'Phone-tilt aiming sensitivity while aiming down sights or scoped.' },
+    keyboardSprint: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Keyboard sprint', help: 'Hold Shift or tap Shift to toggle. Double-tap for tactical sprint. Toggle clears on pause, interruption or exhaustion.' },
+    touchSprint: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Touch sprint', help: 'Hold RUN or tap RUN to toggle. Hold mode also auto-sprints at full forward stick. Double-tap RUN for tactical sprint. Toggle clears on pause, interruption or exhaustion.' },
     gyroAim: { type: 'enum', def: 'off', values: ['off', 'ads', 'always'], label: 'Gyroscope aiming', help: 'Turn your phone to aim: Off, ADS only, or Always on. Sensor access may require permission.' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
     fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
@@ -484,8 +486,8 @@ const CORE = (function () {
     { id: 'gameplay', label: 'Gameplay' }
   ];
   const _SETTING_TAB_MAP = {
-    sensitivity: 'controls', invertY: 'controls', fov: 'controls', reducedMotion: 'controls', colorblindMarkers: 'controls',
-    touchSensitivity: 'touch', gyroAim: 'touch', gyroSensitivity: 'touch', gyroAdsSensitivity: 'touch',
+    sensitivity: 'controls', keyboardSprint: 'controls', invertY: 'controls', fov: 'controls', reducedMotion: 'controls', colorblindMarkers: 'controls',
+    touchSensitivity: 'touch', touchSprint: 'touch', gyroAim: 'touch', gyroSensitivity: 'touch', gyroAdsSensitivity: 'touch',
     touchLayout: 'touch', fireMode: 'touch', fireLook: 'touch',
     quality: 'graphics', adaptiveResolution: 'graphics', fpsCap: 'graphics', showFps: 'graphics',
     enemyDetail: 'graphics', sceneryDetail: 'graphics', effects: 'graphics', ragdollQuality: 'graphics',
@@ -2697,7 +2699,7 @@ const CORE = (function () {
   // Pick the nearest target inside a forward cone rather than the nearest target
   // outright, so the knife goes where the player is looking.
   // `targets` is either [{ x, z, dead }] or agents with .pos ({ pos: {x,z}, dead }); dirX/dirZ is the player's forward on XZ.
-  function meleeTarget(targets, px, pz, dirX, dirZ, reach, cosHalfAngle) {
+  function meleeTarget(targets, px, pz, dirX, dirZ, reach, cosHalfAngle, canHit) {
     let best = -1, bestD = Infinity;
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i];
@@ -2708,7 +2710,7 @@ const CORE = (function () {
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > reach || d < 1e-6) continue;
       if ((dx * dirX + dz * dirZ) / d < cosHalfAngle) continue;
-      if (d < bestD) { bestD = d; best = i; }
+      if (d < bestD && (!canHit || canHit(t))) { bestD = d; best = i; }
     }
     return best;
   }
@@ -2717,6 +2719,7 @@ const CORE = (function () {
   const MELEE_CONE = Math.cos(Math.PI / 4);
   const MELEE_DAMAGE = 150;
   const MELEE_COOLDOWN = 0.9;
+  const MELEE_CONTACT_PROGRESS = 0.26;
   const MELEE_BACKSTAB_MUL = 2.4;
   const MELEE_SLIDE_MOMENTUM_MUL = 1.30;
   const MELEE_SPRINT_MOMENTUM_MUL = 1.15;
@@ -6530,14 +6533,28 @@ const CORE = (function () {
 
 
   function stepMeleeKnifePose(progress, out) {
-    const o = out || { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0 }, p = _isNum(progress) ? _clamp01(progress) : 0, sw = vmSmooth(0.1, 0.45, p);
-    o.posX = 0.22 - sw * 0.36; o.posY = -0.12 + vmBump(0, 1, p) * 0.06; o.posZ = -0.3; o.rotX = -0.2; o.rotY = 0.9 - sw * 1.6; o.rotZ = -0.9 + sw * 0.9;
+    const o = out || {};
+    const p = _isNum(progress) ? _clamp01(progress) : 0;
+    const windup = vmSmooth(0, 0.12, p);
+    const sweep = 0.5 * (vmSmooth(0.12, MELEE_CONTACT_PROGRESS, p) + vmSmooth(MELEE_CONTACT_PROGRESS, 0.43, p));
+    const recovery = vmSmooth(0.45, 0.82, p);
+    const extension = vmBump(0.12, 0.4, p);
+    o.posX = 0.25 + 0.035 * windup - 0.49 * sweep + 0.455 * recovery;
+    o.posY = -0.29 + 0.20 * windup + 0.04 * extension - 0.20 * recovery;
+    o.posZ = -0.30 - 0.13 * extension;
+    o.rotX = 0.32 - 0.55 * windup + 0.37 * sweep + 0.18 * recovery;
+    o.rotY = 0.20 + 0.62 * windup - 1.64 * sweep + 1.02 * recovery;
+    o.rotZ = -0.33 - 0.51 * windup + 0.96 * sweep - 0.45 * recovery;
     return o;
   }
 
   function meleeGunDodgeOffsets(progress, out) {
-    const o = out || { posY: 0, rotX: 0, rotZ: 0 }, p = _isNum(progress) ? _clamp01(progress) : 0, gunOut = p > 0 && p < 1 ? vmBump(0, 1, p) : 0;
-    o.posY = gunOut !== 0 ? -gunOut * 0.25 : 0; o.rotX = gunOut !== 0 ? -gunOut * 0.5 : 0; o.rotZ = gunOut !== 0 ? gunOut * 0.4 : 0;
+    const o = out || {};
+    const p = _isNum(progress) ? _clamp01(progress) : 0;
+    const gunOut = vmSmooth(0.01, 0.22, p) * (1 - vmSmooth(0.5, 0.86, p));
+    o.posY = gunOut ? -gunOut * 0.25 : 0;
+    o.rotX = gunOut ? -gunOut * 0.5 : 0;
+    o.rotZ = gunOut * 0.4;
     return o;
   }
 
@@ -7716,12 +7733,12 @@ const CORE = (function () {
     return !paused && (controlId === 'joy-base' || !touchControlLocked(controlId, false, isDowned));
   }
   function isActionKeyLockedWhileDowned(keyCode) {
-    return keyCode === 'Space' || keyCode === 'KeyC' || keyCode === 'Mouse2' || keyCode === 'KeyG' || keyCode === '__use' || keyCode === '__melee' || keyCode === '__plate' || keyCode === '__tactical' || keyCode === '__streak' || keyCode === '__field';
+    return keyCode === 'Space' || keyCode === 'KeyC' || keyCode === '__touchCrouch' || keyCode === '__slide' || keyCode === 'Mouse2' || keyCode === 'KeyG' || keyCode === '__use' || keyCode === '__melee' || keyCode === '__plate' || keyCode === '__tactical' || keyCode === '__streak' || keyCode === '__field';
   }
   function sanitizeDownedInputKeys(keys, pressed) {
     let cleared = 0;
-    if (keys) { const kl = ['KeyC', 'Mouse2', 'KeyG', '__use']; for (let i = 0; i < kl.length; i++) if (keys[kl[i]]) { keys[kl[i]] = false; cleared++; } }
-    if (pressed) { const pl = ['Space', '__melee', '__plate', '__tactical', '__streak', '__field']; for (let i = 0; i < pl.length; i++) if (pressed[pl[i]]) { delete pressed[pl[i]]; cleared++; } }
+    if (keys) { const kl = ['KeyC', '__touchCrouch', 'Mouse2', 'KeyG', '__use']; for (let i = 0; i < kl.length; i++) if (keys[kl[i]]) { keys[kl[i]] = false; cleared++; } }
+    if (pressed) { const pl = ['Space', '__slide', '__melee', '__plate', '__tactical', '__streak', '__field']; for (let i = 0; i < pl.length; i++) if (pressed[pl[i]]) { delete pressed[pl[i]]; cleared++; } }
     return cleared;
   }
 
@@ -8488,7 +8505,7 @@ const CORE = (function () {
     BLOOM_RECOVER, bloomParams, bloomAfterShot, bloomDecay, effectiveSpread,
     PENETRATION_COST, MAX_PENETRATIONS, penetrationCost, penetrationPower,
     penetrate, penetrationDamageMul, meleeTarget, MELEE_REACH, MELEE_CONE,
-    MELEE_DAMAGE, MELEE_COOLDOWN, mantleTarget, CREDITS, creditsForDamage,
+    MELEE_DAMAGE, MELEE_COOLDOWN, MELEE_CONTACT_PROGRESS, mantleTarget, CREDITS, creditsForDamage,
     creditsForWave, POWERUPS, POWERUP_CHANCE, powerUpDropped, pickPowerUp,
     rayBoxEntry, sweepGrenade, penetrationWalk, penetrationMulAt, BUY_RADIUS,
     BUY_HOLD, nearestStation,
