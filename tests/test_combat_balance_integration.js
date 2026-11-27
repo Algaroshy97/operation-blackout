@@ -50,7 +50,7 @@ function weaponHarness() {
   const weapons = source('30_weapons.js');
   vm.runInContext(section(weapons, 'const _shotTargets =', '// ---- Melee ----'), c);
   const movement = source('20_player.js');
-  vm.runInContext(section(movement, 'function startSlide()'), c);
+  vm.runInContext(section(movement, 'function startSlide('), c);
   vm.runInContext(section(movement, 'function eyeHeight()', '// Ground/step height'), c);
   vm.runInContext(section(movement, 'function updatePlayerStance(', 'function updatePlayer(dt)'), c);
   c.applyStance = () => c.updatePlayerStance(c.player.sliding || c.crouchKey, 0.016);

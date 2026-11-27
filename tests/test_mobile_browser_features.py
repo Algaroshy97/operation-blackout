@@ -684,6 +684,85 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
         deploy_game(page)
         return page
 
+    def test_sprint_follows_the_active_movement_device(self):
+        page = self.deployed_standalone(touch=True)
+        result = page.evaluate("""() => {
+            const joy = document.getElementById('joy-base');
+            const run = document.getElementById('tbtn-sprint');
+            const bounds = joy.getBoundingClientRect();
+            const x = bounds.left + bounds.width / 2, y = bounds.top + bounds.height / 2;
+            const fire = (target, type, identifier, clientX, clientY) => {
+                const finger = new Touch({target, identifier, clientX, clientY});
+                target.dispatchEvent(new TouchEvent(type, {
+                    bubbles: true, cancelable: true, changedTouches: [finger]
+                }));
+            };
+            const moveStick = distance => {
+                fire(joy, 'touchstart', 1, x, y);
+                fire(joy, 'touchmove', 1, x, y - distance);
+            };
+            const releaseStick = () => fire(joy, 'touchend', 1, x, y);
+            const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code}));
+            const sprinting = () => { updatePlayer(0.016); return player.sprinting; };
+
+            moveStick(100);
+            const defaultTouchAutoSprint = sprinting();
+            releaseStick();
+            setSetting('touchSprint', 'toggle');
+            moveStick(24);
+            const touchStartsOff = !sprinting();
+            fire(run, 'touchstart', 2, 800, 400);
+            fire(run, 'touchend', 2, 800, 400);
+            const touchToggleSprints = sprinting();
+            releaseStick();
+            key('keydown', 'KeyW');
+            const touchToKeyboard = sprinting();
+            const touchToggleStillOn = touchSprint.toggled;
+
+            setSetting('touchSprint', 'hold');
+            setSetting('keyboardSprint', 'toggle');
+            key('keydown', 'ShiftLeft'); key('keyup', 'ShiftLeft');
+            const keyboardToggleSprints = sprinting();
+            key('keyup', 'KeyW');
+            moveStick(24);
+            const keyboardToTouch = sprinting();
+            return {defaultTouchAutoSprint, touchStartsOff, touchToggleSprints,
+                touchToKeyboard, touchToggleStillOn, keyboardToggleSprints, keyboardToTouch};
+        }""")
+        for control in ("defaultTouchAutoSprint", "touchStartsOff", "touchToggleSprints",
+                        "touchToggleStillOn", "keyboardToggleSprints"):
+            self.assertTrue(result[control], result)
+        for transition in ("touchToKeyboard", "keyboardToTouch"):
+            with self.subTest(transition=transition):
+                self.assertFalse(result[transition], result)
+
+    def test_slide_from_rest_follows_forward_and_backward_input(self):
+        page = self.deployed_standalone()
+        result = page.evaluate("""() => {
+            const input = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code}));
+            const slideFromRest = direction => {
+                clearInputState();
+                player.yaw = 0;
+                player.pos.set(0, CFG.player.height, 0);
+                player.vel.set(0, 0, 0);
+                player.onGround = true;
+                player.sliding = player.crouching = false;
+                input('keydown', direction);
+                input('keydown', 'ShiftLeft');
+                input('keydown', 'KeyC');
+                updatePlayer(0.016);
+                return {sliding: player.sliding, crouching: player.crouching, velocityZ: player.vel.z};
+            };
+            const forward = slideFromRest('KeyW');
+            const backward = slideFromRest('KeyS');
+            return {forward, backward};
+        }""")
+        for direction in ("forward", "backward"):
+            self.assertTrue(result[direction]["sliding"], result)
+            self.assertTrue(result[direction]["crouching"], result)
+        self.assertLess(result["forward"]["velocityZ"], 0)
+        self.assertGreater(result["backward"]["velocityZ"], 0)
+
     def test_quick_touch_slide(self):
         page = self.deployed_standalone(touch=True)
         result = page.evaluate("""() => {
@@ -784,6 +863,42 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
             return results;
         }""")
         self.assertTrue(all(result.values()), result)
+
+    def test_wave_revive_discards_melee_started_before_downing(self):
+        page = self.deployed_standalone(touch=True)
+        result = page.evaluate("""() => {
+            player.pos.set(500, CFG.player.height, 500);
+            player.yaw = 0; player.pitch = 0;
+            player.spawnProtectionT = 0;
+            const attacker = spawnEnemy(1, 500, 498.5);
+            const contactTime = CORE.MELEE_COOLDOWN * CORE.MELEE_CONTACT_PROGRESS + 0.001;
+            doMelee();
+            const windup = meleeSwing === 1;
+            damagePlayer(1000, 0, 'bullet', attacker);
+            const downed = player.downed && !player.dead && player.downedBy === attacker;
+            for (const enemy of enemies) enemy.dead = true;
+            waveActive = true;
+            waveQueue = 0;
+            updateWaves(0.016);
+            const revived = !waveActive && !player.downed && !player.dead &&
+                player.health === CORE.DOWN_REVIVE_HEALTH;
+
+            const target = spawnEnemy(1, 500, 498.5);
+            const health = target.health;
+            updateWeapons(contactTime);
+            const afterPendingContact = target.health;
+            updateWeapons(CORE.MELEE_COOLDOWN);
+            const afterCooldown = target.health;
+            doMelee();
+            updateWeapons(contactTime);
+            return {windup, downed, revived, health, afterPendingContact, afterCooldown,
+                freshSwingHit: target.health < afterCooldown};
+        }""")
+        for control in ("windup", "downed", "revived"):
+            self.assertTrue(result[control], result)
+        self.assertEqual(result["afterPendingContact"], result["health"], result)
+        self.assertEqual(result["afterCooldown"], result["health"], result)
+        self.assertTrue(result["freshSwingHit"], result)
 
     def test_knife_damage_at_contact_with_world_occlusion(self):
         page = self.deployed_standalone()

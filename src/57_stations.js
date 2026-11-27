@@ -519,6 +519,7 @@ function downPlayer(attacker) {
     return;
   }
   player.downed = true;
+  if (typeof meleeSwing !== 'undefined') meleeSwing = 0;
   resetSprintInput(keyboardSprint);
   resetSprintInput(touchSprint);
   player.downedBy = killer;

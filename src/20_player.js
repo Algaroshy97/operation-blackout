@@ -7,7 +7,7 @@ let mouse1Down = false;
 let mouseX = 0, mouseY = 0;
 const keyboardSprint = { toggled: false, lastTap: -99 };
 const touchSprint = { toggled: false, lastTap: -99 };
-let tacticalSprintInput = null;
+let tacticalSprintInput = null, lastSprintInput = null;
 
 function pressSprint(input, mode) {
   if (!started || paused || gameEnded || player.dead || player.downed || player.exhausted) return;
@@ -278,17 +278,21 @@ function updatePlayer(dt) {
   const moveZ = analogMove ? analogMove.z : Number(!!keys.KeyW) - Number(!!keys.KeyS);
   const moveThreshold = analogMove ? CORE.JOYSTICK_MOVE_THRESHOLD : 0;
   const movingInput = Math.abs(moveX) > moveThreshold || Math.abs(moveZ) > moveThreshold;
-  const keyboardRun = getSetting('keyboardSprint') === 'toggle' ? keyboardSprint.toggled : keys['ShiftLeft'];
-  const touchRun = typeof touchRunRequested === 'function' && touchRunRequested();
+  const sprintInput = analogMove ? touchSprint : keyboardSprint;
+  const runRequested = analogMove ? touchRunRequested()
+    : getSetting('keyboardSprint') === 'toggle' ? keyboardSprint.toggled : keys.ShiftLeft;
+  const tacticalFromOtherDevice = tacticalSprintInput && tacticalSprintInput !== sprintInput;
+  if (!player.sliding && tacticalFromOtherDevice) player.tacT = 0;
   const canRun = movingInput && !keys.Mouse2 && !player.downed && player.landStunT <= 0;
 
   // ---- Slide (C/Ctrl or touch while sprinting on ground) ----
   const crouchKey = !!(keys.KeyC || keys.ControlLeft || keys.ControlRight || keys.__touchCrouch);
   const crouchPressed = !!(pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'] || pressed['__slide']);
   const wasSliding = player.sliding;
-  if (!wasSliding && (crouchKey || crouchPressed) && (player.sprinting || ((keyboardRun || touchRun) && !player.crouching)) &&
+  const wasSprinting = player.sprinting && lastSprintInput === sprintInput;
+  if (!wasSliding && (crouchKey || crouchPressed) && (wasSprinting || (runRequested && !player.crouching)) &&
       player.onGround && canRun && !player.exhausted) {
-    startSlide();
+    startSlide(moveX, moveZ);
   }
   if (player.sliding) {
     player.slideT += dt;
@@ -343,8 +347,8 @@ function updatePlayer(dt) {
   const slideTarget = player.sliding ? 1 : 0;
   player.slideBlend += (slideTarget - player.slideBlend) * -Math.expm1(-(slideTarget ? 17 : 11) * dt);
 
-  const wantSprint = (keyboardRun || touchRun) && canRun && !player.crouching;
-  if (player.tacT > 0 && ((!wantSprint && !player.sliding) || player.exhausted)) player.tacT = 0;
+  const wantSprint = runRequested && canRun && !player.crouching;
+  if (player.tacT > 0 && ((!player.sliding && (!wantSprint || tacticalFromOtherDevice)) || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   const wasExhausted = player.exhausted;
   if (wantSprint && !player.exhausted) {
@@ -357,6 +361,7 @@ function updatePlayer(dt) {
     player.stamina = CORE.stepPlayerStamina(player.stamina, CFG.player.maxStamina, false, false, dt, 1, TAC_DRAIN, CORE.STAMINA_RECOVER_RATE);
     player.exhausted = CORE.isPlayerExhausted(player.stamina, player.exhausted, CFG.player.maxStamina, CORE.STAMINA_EXHAUST_RECOVER_RATIO);
   }
+  lastSprintInput = sprintInput;
   if (player.exhausted || player.downed) {
     resetSprintInput(keyboardSprint);
     resetSprintInput(touchSprint);
@@ -544,13 +549,16 @@ function tryMantle() {
 }
 
 // ---- Slide helpers ----
-function startSlide() {
+function startSlide(moveX = 0, moveZ = 1) {
   player.sliding = true;
   player.slideT = 0;
-  // slide in current movement direction (momentum dir if moving)
+  // Carry existing momentum, or use the movement input when starting from rest.
   const hv = tmpV.set(player.vel.x, 0, player.vel.z);
-  if (hv.lengthSq() > 1) hv.normalize(); else hv.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-  player.slideDir.copy(hv);
+  if (hv.lengthSq() <= 1) {
+    CORE.movementTargetVelocity(moveX, moveZ, player.yaw, 1, _targetVelOut);
+    hv.set(_targetVelOut.x, 0, _targetVelOut.z);
+  }
+  player.slideDir.copy(hv.normalize());
   playSound(CORE.slideStartSound());
   spawnSlideDust(player.pos, 'start', Math.hypot(player.vel.x, player.vel.z));
 }
