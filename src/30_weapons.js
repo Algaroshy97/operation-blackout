@@ -185,7 +185,15 @@ function tryReload() {
 
 function updateWeapons(dt) {
   if (meleeT > 0) meleeT = Math.max(0, meleeT - dt);
-  if (meleeSwing > 0) meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+  if (meleeSwing > 0) {
+    if (player.dead || player.downed) {
+      meleeSwing = 0;
+    } else {
+      const previous = 1 - meleeSwing;
+      meleeSwing = Math.max(0, meleeSwing - dt / CORE.MELEE_COOLDOWN);
+      if (previous < CORE.MELEE_CONTACT_PROGRESS && 1 - meleeSwing >= CORE.MELEE_CONTACT_PROGRESS) resolveMeleeContact();
+    }
+  }
   if ((pressed['KeyV'] || pressed['__melee']) && CORE.canPlayerMelee(player.dead, player.downed, meleeT)) doMelee();
   const s = curS(); if (!s) return;
   const w = curW();
@@ -309,7 +317,7 @@ const _swayOut = { x: 0, y: 0 };
 function updateSway(dt) {
   swayPhase += dt;
   const w = curW();
-  steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, !!keys['ShiftLeft'], steadyT);
+  steadyActive = CORE.isSteadyActive(w ? w.type : '', adsAmount, (!!keys['ShiftLeft'] || (typeof touchSteadyAimRequested === 'function' && touchSteadyAimRequested(w))), steadyT);
   steadyT = CORE.stepSteadyAim(steadyT, steadyActive, dt, STEADY_MAX, STEADY_RECOVER);
   const breathEvt = CORE.steadyAimBreathEvent(steadyActive, _wasSteadyActive, steadyT);
   if (breathEvt) playSound(breathEvt);
@@ -580,40 +588,69 @@ function finishShot(s, w, hit) {
   updateHudAmmo();
 }
 // ---- Melee ----
-// A runner that had closed inside its 1.9 m stop distance had no counter but
-// backpedalling, which is exactly the situation a knife exists to solve. Targets
-// are filtered by a forward cone rather than taken nearest-first, so the swing
-// goes where the player is looking.
 function doMelee() {
-  if (typeof player !== 'undefined') player.spawnProtectionT = 0;
+  player.spawnProtectionT = 0;
   meleeT = CORE.MELEE_COOLDOWN;
   meleeSwing = 1;
-  const isTac = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
-  playSound(CORE.meleeSwingSound(isTac, !!(player && player.sliding)));
+  _meleeMotion.sliding = player.sliding;
+  _meleeMotion.sprinting = player.sprinting;
+  _meleeMotion.tactical = player.tacT > 0;
+  playSound(CORE.meleeSwingSound(_meleeMotion.tactical, _meleeMotion.sliding));
+}
+
+function meleeWorldHit(distance) {
+  _meleeRay.set(_meleeOrigin, _meleeDir);
+  _meleeRay.far = distance;
+  _meleeWorldHits.length = 0;
+  _meleeRay.intersectObjects(worldRayTargets(_meleeOrigin, _meleeDir, distance), true, _meleeWorldHits);
+  return _meleeWorldHits[0];
+}
+
+function meleeBodyPoint(enemy, out) {
+  return out.set(enemy.pos.x, enemy.pos.y + 1.2 * CORE.enemyScale(enemy.kind), enemy.pos.z);
+}
+
+function canMeleeContact(enemy) {
+  if (!CORE.isHostile(player, enemy) || enemy.spawnProtectionT > 0) return false;
+  meleeBodyPoint(enemy, _meleePoint);
+  _meleeDir.subVectors(_meleePoint, _meleeOrigin);
+  // The chest has to overlap the swing's height band even on stairs and stacked floors.
+  if (Math.abs(_meleeDir.y) > 0.75) return false;
+  const distance = _meleeDir.length();
+  _meleeDir.divideScalar(distance);
+  return !meleeWorldHit(distance);
+}
+
+function meleeContactTarget() {
+  // Use the current simulation pose. The camera still holds last frame's transform.
+  _meleeOrigin.copy(player.pos);
+  _meleeOrigin.y -= 0.23;
   const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
   const idx = CORE.meleeTarget(enemies, player.pos.x, player.pos.z,
-    dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE);
-  if (idx < 0) {
-    _meleeDir.set(dirX, 0, dirZ);
-    raycaster.set(camera.position, _meleeDir);
-    raycaster.far = CORE.MELEE_REACH;
-    _worldHitsOut.length = 0;
-    const wh = raycaster.intersectObjects(worldRayTargets(camera.position, _meleeDir, CORE.MELEE_REACH), true, _worldHitsOut);
-    if (wh.length && CORE.canMeleeStrikeWorld(idx, wh[0].distance, CORE.MELEE_REACH)) {
-      const srf = fxSurfaceFor(wh[0].object);
-      spawnImpact(wh[0].point, wh[0].face ? wh[0].face.normal : null, wh[0].object, CORE.meleeSurfaceSound(srf));
+    dirX, dirZ, CORE.MELEE_REACH, CORE.MELEE_CONE, canMeleeContact);
+  return enemies[idx];
+}
+
+function resolveMeleeContact() {
+  const en = meleeContactTarget();
+  const dirX = -Math.sin(player.yaw), dirZ = -Math.cos(player.yaw);
+  if (!en) {
+    const pitch = player.pitch;
+    _meleeDir.set(dirX * Math.cos(pitch), Math.sin(pitch), dirZ * Math.cos(pitch));
+    const hit = meleeWorldHit(CORE.MELEE_REACH);
+    if (hit) {
+      const surface = fxSurfaceFor(hit.object);
+      spawnImpact(hit.point, hit.face ? hit.face.normal : null, hit.object, CORE.meleeSurfaceSound(surface));
     }
     return;
   }
-  const en = enemies[idx];
-  _meleePoint.set(en.pos.x, en.pos.y + 1.2, en.pos.z);
-  const isBackstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
-  const meleeDmg = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, isBackstab, !!player.sliding, !!player.sprinting, isTac);
-  const hitSnd = CORE.meleeHitSound(isBackstab);
-  if (hitSnd) playSound(hitSnd);
-  damageEnemy(en, meleeDmg, _meleePoint, isBackstab, false, 'MELEE', player);
+  meleeBodyPoint(en, _meleePoint);
+  const backstab = CORE.isMeleeBackstab(dirX, dirZ, en.yaw, player.pos.x, player.pos.z, en.pos.x, en.pos.z);
+  const damage = CORE.playerMeleeDamage(CORE.MELEE_DAMAGE, backstab, _meleeMotion.sliding, _meleeMotion.sprinting, _meleeMotion.tactical);
+  playSound(CORE.meleeHitSound(backstab));
+  damageEnemy(en, damage, _meleePoint, backstab, false, 'MELEE', player);
   CORE.meleeSlashNormal(player.yaw, _meleeNormOut);
-  if (typeof fxMeleeSlash === 'function') fxMeleeSlash(_meleePoint, _meleeNormOut, isBackstab);
+  if (typeof fxMeleeSlash === 'function') fxMeleeSlash(_meleePoint, _meleeNormOut, backstab);
 }
 
 // Smooth ramp from full damage at 0.6 x range down to 0.65 x at max range. The old
@@ -638,7 +675,10 @@ const _steadyIndState = { visible: null, steadyActive: null, label: null };
 let meleeT = 0;
 // 1 -> 0 viewmodel thrust
 let meleeSwing = 0;
-const _meleeTargets = [];
+const _meleeMotion = { sliding: false, sprinting: false, tactical: false };
+const _meleeOrigin = new THREE.Vector3();
+const _meleeRay = new THREE.Raycaster();
+const _meleeWorldHits = [];
 const _meleePoint = new THREE.Vector3();
 const _meleeDir = new THREE.Vector3();
 const _meleeNormOut = { x: 0, y: 0, z: 0 };
@@ -652,8 +692,6 @@ let gunParts = { bolt: null, mag: null, handL: null, handR: null };
 let vmTune = null;
 
 function buildViewmodel() {
-  meleeSwing = 0;
-  if (typeof knifeGroup !== 'undefined' && knifeGroup) knifeGroup.visible = false;
   if (gunGroup) {
     gunCamera.remove(gunGroup);
     disposeGunModel(gunGroup);

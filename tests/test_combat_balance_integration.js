@@ -45,13 +45,15 @@ function weaponHarness() {
     raycaster: { set: noop, intersectObjects: () => [] }, worldRayTargets: () => [], magnetizeBullet: d => d,
     spawnTracer: noop, spawnCasing: noop, playSound: noop, triggerMuzzleFlash: noop,
     flashMuzzleLight: noop, kickViewmodel: noop, vmTune: {}, muzzleFlash: false, updateHudAmmo: noop,
-    tmpV: new Vector3(), spawnSlideDust: noop, crouchKey: true, CFG: { player: { radius: 0.3, height: 1.8 } }
+    tmpV: new Vector3(), spawnSlideDust: noop, crouchKey: true, CFG: { player: { radius: 0.3, height: 1.8, crouchHeight: 1.05 } }
   });
   const weapons = source('30_weapons.js');
   vm.runInContext(section(weapons, 'const _shotTargets =', '// ---- Melee ----'), c);
   const movement = source('20_player.js');
   vm.runInContext(section(movement, 'function startSlide()'), c);
-  c.applyStance = () => vm.runInContext(`(() => { ${section(movement, '  // stance\n', '  // stamina & sprint')} })()`, c);
+  vm.runInContext(section(movement, 'function eyeHeight()', '// Ground/step height'), c);
+  vm.runInContext(section(movement, 'function updatePlayerStance(', 'function updatePlayer(dt)'), c);
+  c.applyStance = () => c.updatePlayerStance(c.player.sliding || c.crouchKey, 0.016);
   return { c, state, weapon };
 }
 function shotKickFor(crouching, sliding, onGround) {

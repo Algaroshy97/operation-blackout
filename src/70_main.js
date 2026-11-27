@@ -44,6 +44,7 @@ function resumeGame() {
 function killPlayer(killer) {
   if (player.dead) return;
   player.dead = true;
+  clearInputState();
   if (typeof noteModeDeath === 'function') noteModeDeath();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const sourceActor = killer || player.downedBy || player.lastAttacker || null;
@@ -244,12 +245,12 @@ function resetGame() {
   player.health = CFG.player.health; player.armor = CFG.player.armor;
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
-  player.sliding = false; player.slideT = 0; player.onGround = false;
+  player.sliding = false; player.slideT = 0; player.slideBlend = 0; player.stanceOffset = 0; player.onGround = false;
   player.spawnProtectionT = 0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
   player.recoilP = 0; player.recoilY = 0;
-  player.mantleT = 0; player.tacT = 0; lastSprintTap = -99;
+  player.mantleT = 0; player.tacT = 0;
   if (typeof resetStations === 'function') resetStations();
   if (typeof getSetting === 'function' && ['reload', 'steady', 'scav'].includes(getSetting('startingPerk'))) perks.push(getSetting('startingPerk'));
   if (typeof clearDowned === 'function') clearDowned();
@@ -1610,7 +1611,7 @@ function frame(now) {
     // GAP-08: reduced motion strips the bob and roll that make some players ill.
     const motion = getSetting('reducedMotion') ? 0 : 1;
     const isRedMotion = !motion;
-    const slideBlend = player.sliding ? 1 : 0;
+    const slideBlend = player.slideBlend;
     const isTac = player.tacT > 0;
     const desiredMobilityFov = CORE.mobilityFovBoost(player.sliding, isTac, adsAmount, isRedMotion);
     slideFov += (desiredMobilityFov - slideFov) * Math.min(1, 10 * dt);
@@ -1621,7 +1622,7 @@ function frame(now) {
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
 
     CORE.cameraPositionOffsets(player.bobPhase, player.bobAmp, slideBlend, isRedMotion, _camPosOut);
-    camera.position.set(player.pos.x + _camPosOut.x, player.pos.y + _camPosOut.y, player.pos.z);
+    camera.position.set(player.pos.x + _camPosOut.x, player.pos.y + player.stanceOffset + _camPosOut.y, player.pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw + player.recoilY;
     camera.rotation.x = player.pitch + player.recoilP;

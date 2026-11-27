@@ -63,9 +63,10 @@ class CssCompactionTests(unittest.TestCase):
 
     def test_extra_compaction_preserves_operator_token_boundaries(self) -> None:
         from scripts.build import strip_line_comments
-        source = '// banner\nlet a = 2, b = 3;\nlet result = [a + +b, a - -b, a < -b, a > -b];\nconsole.log(JSON.stringify(result));\n'
+        source = '// banner\nlet a = 2, b = 3;\nlet result = [a + +b, a - -b, a < -b, a > -b, a - b, a % b, a < b, a > b];\nconsole.log(JSON.stringify(result));\n'
         expected = subprocess.run(['node', '-e', source], text=True, capture_output=True, check=True).stdout
         compact = strip_line_comments(source, compact_extra=True)
+        self.assertIn('a-b,a%b,a<b,a>b', compact)
         actual = subprocess.run(['node', '-e', compact], text=True, capture_output=True, check=True).stdout
         self.assertEqual(actual, expected)
 

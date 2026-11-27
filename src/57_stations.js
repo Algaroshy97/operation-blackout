@@ -519,6 +519,8 @@ function downPlayer(attacker) {
     return;
   }
   player.downed = true;
+  resetSprintInput(keyboardSprint);
+  resetSprintInput(touchSprint);
   player.downedBy = killer;
   downT = 0;
   if (plateT > 0) plateT = 0;

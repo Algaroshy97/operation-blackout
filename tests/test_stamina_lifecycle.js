@@ -18,7 +18,7 @@ function harness() {
   const c = vm.createContext({CORE, THREE: {Vector3}, window: {},
     addEventListener: noop, document: {addEventListener: noop}, canvas: {addEventListener: noop},
     applyTouchInput: noop, getSetting: () => 1, adsAmount: 0, adsDown: () => false,
-    enemies: [], colliders: [], mapBounds: 10000, GROUND: 0, gameT: 0,
+    enemies: [], colliders: [], mapBounds: 10000, GROUND: 0, gameT: 0, gameEnded: false,
     curW: () => null, perks: [], playSound: noop, diff: () => ({regen: 1})});
   const config = source('10_config_world.js');
   vm.runInContext(config.slice(config.indexOf('const CFG ='), config.indexOf('const $id =')), c);
@@ -60,10 +60,8 @@ test('held sprint respects exhaustion until twenty percent recovered then resume
 test('tactical sprint retains its burst, speed and 2.2x drain', () => {
   const normal = harness();
   const tac = harness();
-  tac.run('lastSprintTap = gameT - .1; pressed.ShiftLeft = true;');
-  tac.step(1);
-  tac.run('delete pressed.ShiftLeft;');
-  tac.step(49);
+  tac.run("started = true; gameT = -0.1; pressSprint(keyboardSprint, 'hold'); gameT = 0; pressSprint(keyboardSprint, 'hold');");
+  tac.step(50);
   normal.step(50);
   near(normal.state().stamina, 7.5);
   near(tac.state().stamina, 6.9);

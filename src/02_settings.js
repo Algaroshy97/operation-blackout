@@ -125,6 +125,12 @@ function applySetting(key) {
         renderer.setPixelRatio(plan.pixelRatio);
       }
       break;
+    case 'keyboardSprint':
+      if (typeof resetKeyboardSprint === 'function') resetKeyboardSprint();
+      break;
+    case 'touchSprint':
+      if (typeof resetTouchSprint === 'function') resetTouchSprint();
+      break;
     case 'gyroAim':
       if (typeof setGyroAimEnabled === 'function') setGyroAimEnabled(SETTINGS.gyroAim);
       break;
