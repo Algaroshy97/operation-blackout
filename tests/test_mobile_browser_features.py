@@ -870,20 +870,29 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
             player.pos.set(500, CFG.player.height, 500);
             player.yaw = 0; player.pitch = 0;
             player.spawnProtectionT = 0;
+            player.vel.set(0, 0, 0);
+            player.onGround = true;
+            const standingY = player.pos.y;
             const attacker = spawnEnemy(1, 500, 498.5);
             const contactTime = CORE.MELEE_COOLDOWN * CORE.MELEE_CONTACT_PROGRESS + 0.001;
             doMelee();
             const windup = meleeSwing === 1;
             damagePlayer(1000, 0, 'bullet', attacker);
             const downed = player.downed && !player.dead && player.downedBy === attacker;
+            const downedFeetY = player.pos.y - eyeHeight();
             for (const enemy of enemies) enemy.dead = true;
             waveActive = true;
             waveQueue = 0;
             updateWaves(0.016);
             const revived = !waveActive && !player.downed && !player.dead &&
                 player.health === CORE.DOWN_REVIVE_HEALTH;
+            updatePlayer(0.016);
+            const grounded = player.onGround && !player.crouching && player.vel.y === 0;
+            const revivedY = player.pos.y;
 
-            const target = spawnEnemy(1, 500, 498.5);
+            // Movement clamps the out-of-arena fixture to the arena boundary.
+            // Keep the target in reach of the resulting simulation pose.
+            const target = spawnEnemy(1, player.pos.x, player.pos.z - 1.5);
             const health = target.health;
             updateWeapons(contactTime);
             const afterPendingContact = target.health;
@@ -891,7 +900,7 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
             const afterCooldown = target.health;
             doMelee();
             updateWeapons(contactTime);
-            return {windup, downed, revived, health, afterPendingContact, afterCooldown,
+            return {windup, downed, revived, grounded, standingY, downedFeetY, revivedY, health, afterPendingContact, afterCooldown,
                 freshSwingHit: target.health < afterCooldown};
         }""")
         for control in ("windup", "downed", "revived"):
@@ -899,6 +908,9 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
         self.assertEqual(result["afterPendingContact"], result["health"], result)
         self.assertEqual(result["afterCooldown"], result["health"], result)
         self.assertTrue(result["freshSwingHit"], result)
+        self.assertTrue(result["grounded"], result)
+        self.assertAlmostEqual(result["downedFeetY"], 0, places=6, msg=str(result))
+        self.assertAlmostEqual(result["revivedY"], result["standingY"], places=6, msg=str(result))
 
     def test_knife_damage_at_contact_with_world_occlusion(self):
         page = self.deployed_standalone()

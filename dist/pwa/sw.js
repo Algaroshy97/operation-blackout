@@ -1,5 +1,5 @@
-/* Operation Blackout PWA Service Worker (ob-pwa-89edcee518df) */
-const CACHE_NAME = 'ob-pwa-89edcee518df';
+/* Operation Blackout PWA Service Worker (ob-pwa-c5578fec918d) */
+const CACHE_NAME = 'ob-pwa-c5578fec918d';
 const PRECACHE_URLS = [
   './',
   './index.html',

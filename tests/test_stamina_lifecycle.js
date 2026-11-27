@@ -12,6 +12,11 @@ class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
   set(x, y, z) { Object.assign(this, {x, y, z}); return this; }
   copy(v) { return this.set(v.x, v.y, v.z); }
+  lengthSq() { return this.x ** 2 + this.y ** 2 + this.z ** 2; }
+  normalize() {
+    const length = Math.sqrt(this.lengthSq()) || 1;
+    return this.set(this.x / length, this.y / length, this.z / length);
+  }
 }
 function harness() {
   const noop = () => {};
@@ -19,7 +24,8 @@ function harness() {
     addEventListener: noop, document: {addEventListener: noop}, canvas: {addEventListener: noop},
     applyTouchInput: noop, getSetting: () => 1, adsAmount: 0, adsDown: () => false,
     enemies: [], colliders: [], mapBounds: 10000, GROUND: 0, gameT: 0, gameEnded: false,
-    curW: () => null, perks: [], playSound: noop, diff: () => ({regen: 1})});
+    curW: () => null, perks: [], playSound: noop, spawnSlideDust: noop,
+    touchRunRequested: () => true, diff: () => ({regen: 1})});
   const config = source('10_config_world.js');
   vm.runInContext(config.slice(config.indexOf('const CFG ='), config.indexOf('const $id =')), c);
   vm.runInContext(source('20_player.js'), c);
@@ -73,6 +79,38 @@ test('tactical sprint retains its burst, speed and 2.2x drain', () => {
   near(tac.state().tacT, 0);
   tac.step(50);
   assert.ok(Math.abs(tac.state().speed - normal.state().speed) < .002);
+});
+
+function doubleTapSprint(h, device) {
+  h.run(`started = true; pressSprint(${device}Sprint, 'hold'); gameT += .1; pressSprint(${device}Sprint, 'hold');`);
+}
+
+test('inactive Shift double-tap cannot interrupt touch tactical sprint', () => {
+  const h = harness();
+  h.run('window.__analogMove = {x: 0, z: 1};');
+  doubleTapSprint(h, 'touch');
+  h.step(1);
+  near(h.state().tacT, 2.49);
+  doubleTapSprint(h, 'keyboard');
+  h.step(1);
+  near(h.state().tacT, 2.48);
+});
+
+test('inactive touch RUN double-tap cannot boost a keyboard slide', () => {
+  function slide(device, switchToTouch = false) {
+    const h = harness();
+    if (device === 'keyboard') doubleTapSprint(h, device);
+    h.run('keys.KeyC = true;');
+    h.step(1);
+    assert.equal(h.run('player.sliding'), true);
+    if (switchToTouch) h.run('window.__analogMove = {x: 0, z: 1};');
+    if (device === 'touch') doubleTapSprint(h, device);
+    h.step(1);
+    return h.state().speed;
+  }
+  near(slide('touch'), slide(null));
+  near(slide('touch', true), slide(null));
+  assert.ok(slide('keyboard') > slide(null), 'deliberate keyboard tactical slide is still faster');
 });
 
 test('held sprint repeatedly exhausts and recovers with bounded stamina', () => {

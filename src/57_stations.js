@@ -527,7 +527,7 @@ function downPlayer(attacker) {
   if (plateT > 0) plateT = 0;
   breakStreak();   // the streak is what going down costs you
   player.health = 1;
-  player.crouching = true;
+  updatePlayerStance(true, 0);
   player.sprinting = false;
   player.sliding = false;
   showCenterMsg('DOWN — HOLD OUT');

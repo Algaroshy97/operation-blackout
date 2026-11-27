@@ -593,7 +593,7 @@ def run_gameplay(args, checks, console_errors):
             const saved = Object.fromEntries(Object.entries(player).map(([k,v]) =>
                 [k, v && v.isVector3 ? v.clone() : v]));
             const savedKeys = {...keys}, savedPressed = {...pressed};
-            const savedTime = gameT, savedSprint = {...keyboardSprint}, savedTacInput = tacticalSprintInput;
+            const savedTime = gameT, savedSprint = {...keyboardSprint}, savedTacInput = tacOwner;
             const near = (a,b) => Math.abs(a-b) < 1e-8;
             const step = n => { for (let i=0; i<n; i++) { gameT += .01; updatePlayer(.01); } };
             try {
@@ -628,7 +628,7 @@ def run_gameplay(args, checks, console_errors):
                 Object.assign(player, saved);
                 for (const k of Object.keys(keys)) delete keys[k]; Object.assign(keys, savedKeys);
                 for (const k of Object.keys(pressed)) delete pressed[k]; Object.assign(pressed, savedPressed);
-                gameT = savedTime; Object.assign(keyboardSprint, savedSprint); tacticalSprintInput = savedTacInput;
+                gameT = savedTime; Object.assign(keyboardSprint, savedSprint); tacOwner = savedTacInput;
             }
         }""")
         checks.extend(("stamina-" + name, ok) for name, ok in stamina.items())

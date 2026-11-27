@@ -5,27 +5,25 @@ const pressed = Object.create(null);
 let paused = false, started = false, pointerLocked = false;
 let mouse1Down = false;
 let mouseX = 0, mouseY = 0;
-const keyboardSprint = { toggled: false, lastTap: -99 };
-const touchSprint = { toggled: false, lastTap: -99 };
-let tacticalSprintInput = null, lastSprintInput = null;
+const keyboardSprint = { toggled: false, lastTap: -99, tactical: false };
+const touchSprint = { toggled: false, lastTap: -99, tactical: false };
+let tacOwner = null, lastSprintInput = null;
 
 function pressSprint(input, mode) {
   if (!started || paused || gameEnded || player.dead || player.downed || player.exhausted) return;
   const tactical = CORE.isTacSprintTriggered(gameT, input.lastTap, false, TAC_TAP_WINDOW);
   input.lastTap = tactical ? -99 : gameT;
   if (mode === 'toggle') input.toggled = tactical || !input.toggled;
-  if (tactical) {
-    player.tacT = TAC_DURATION;
-    tacticalSprintInput = input;
-  }
+  if (tactical) input.tactical = true;
 }
 
 function resetSprintInput(input) {
   input.toggled = false;
   input.lastTap = -99;
-  if (tacticalSprintInput === input) {
+  input.tactical = false;
+  if (tacOwner === input) {
     player.tacT = 0;
-    tacticalSprintInput = null;
+    tacOwner = null;
   }
 }
 
@@ -265,6 +263,7 @@ function updatePlayer(dt) {
   // A mantle owns movement while it runs. Looking around stays live, which is why
   // this sits after the look block rather than at the top of the function.
   if (player.mantleT > 0) {
+    keyboardSprint.tactical = touchSprint.tactical = false;
     const step = CORE.stepMantleProgress(player.mantleT, dt, MANTLE_TIME);
     player.mantleT = step.remainingT;
     player.pos.lerpVectors(player.mantleFrom, player.mantleTo, step.progressK);
@@ -281,8 +280,6 @@ function updatePlayer(dt) {
   const sprintInput = analogMove ? touchSprint : keyboardSprint;
   const runRequested = analogMove ? touchRunRequested()
     : getSetting('keyboardSprint') === 'toggle' ? keyboardSprint.toggled : keys.ShiftLeft;
-  const tacticalFromOtherDevice = tacticalSprintInput && tacticalSprintInput !== sprintInput;
-  if (!player.sliding && tacticalFromOtherDevice) player.tacT = 0;
   const canRun = movingInput && !keys.Mouse2 && !player.downed && player.landStunT <= 0;
 
   // ---- Slide (C/Ctrl or touch while sprinting on ground) ----
@@ -290,8 +287,18 @@ function updatePlayer(dt) {
   const crouchPressed = !!(pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'] || pressed['__slide']);
   const wasSliding = player.sliding;
   const wasSprinting = player.sprinting && lastSprintInput === sprintInput;
-  if (!wasSliding && (crouchKey || crouchPressed) && (wasSprinting || (runRequested && !player.crouching)) &&
-      player.onGround && canRun && !player.exhausted) {
+  const startsSlide = !wasSliding && (crouchKey || crouchPressed) &&
+    (wasSprinting || (runRequested && !player.crouching)) && player.onGround && canRun && !player.exhausted;
+  const wantsTac = sprintInput.tactical;
+  keyboardSprint.tactical = touchSprint.tactical = false;
+  if (!wasSliding) {
+    if (tacOwner !== sprintInput) player.tacT = 0;
+    if (wantsTac && (startsSlide || (runRequested && canRun && !crouchKey)) && !player.exhausted) {
+      player.tacT = TAC_DURATION;
+      tacOwner = sprintInput;
+    }
+  }
+  if (startsSlide) {
     startSlide(moveX, moveZ);
   }
   if (player.sliding) {
@@ -348,7 +355,7 @@ function updatePlayer(dt) {
   player.slideBlend += (slideTarget - player.slideBlend) * -Math.expm1(-(slideTarget ? 17 : 11) * dt);
 
   const wantSprint = runRequested && canRun && !player.crouching;
-  if (player.tacT > 0 && ((!player.sliding && (!wantSprint || tacticalFromOtherDevice)) || player.exhausted)) player.tacT = 0;
+  if (player.tacT > 0 && ((!player.sliding && (!wantSprint || tacOwner !== sprintInput)) || player.exhausted)) player.tacT = 0;
   else if (player.tacT > 0) player.tacT = Math.max(0, player.tacT - dt);
   const wasExhausted = player.exhausted;
   if (wantSprint && !player.exhausted) {
