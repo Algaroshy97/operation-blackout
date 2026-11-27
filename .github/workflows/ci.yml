@@ -2,60 +2,107 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  build:
+    name: Fast checks and preview
     runs-on: ubuntu-latest
-    # The probe drives a real browser. Without a cap, one hung Chromium burns the
-    # default six-hour job limit on a run that will never finish.
-    timeout-minutes: 90
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
+          cache: pip
+          cache-dependency-path: requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      # Gameplay rules (headless, no browser needed).
+      - run: python -m pip install -r requirements.txt
       - name: JavaScript regression tests
         run: node --test tests/*.js
+      - name: Release build and probe routing tests
+        run: python -m unittest tests.test_release_build tests.test_probe_matrix tests.test_probe_shards -v
+      - name: Build preview
+        run: python scripts/build.py .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: operation-blackout-preview
+          path: |
+            dist/Operation Blackout.html
+            dist/pwa/
+          if-no-files-found: error
 
-      # Build integrity + bundle parse. Also drives the node suite.
-      - name: Release build tests
-        run: python -m unittest tests.test_release_build tests.test_probe_matrix -v
-
-      # Full end-to-end run in a real browser.
+  browser:
+    name: Browser / ${{ matrix.shard }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [gameplay, lifecycle, progression, mobile-offline]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Progression verifies legacy saves against historical builds.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: operation-blackout-preview
+          path: dist/
       - name: Install browser probe deps
         run: |
-          pip install -r requirements.txt
-          playwright install --with-deps chromium
-
-      - name: Build release
-        run: python scripts/build.py .
-
-      # 28 checks against a real browser: the deploy flow, AI reachability, station
-      # reachability, the two through-floor regressions with their controls, ragdoll
-      # lifecycle, and geometry growth. Verified to actually FAIL: reintroducing the
-      # melee vertical gate bug turns no-melee-through-floor red and exits 1.
-      - name: Live gameplay probe
-        run: python scripts/probe_live.py
-
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Gameplay acceptance shard
+        if: matrix.shard != 'mobile-offline'
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: python scripts/probe_live.py --shard "$SHARD"
       - name: Mobile controls, cold shot, and offline PWA
+        if: matrix.shard == 'mobile-offline'
         run: python -m unittest tests.test_mobile_browser_features tests.test_first_shot_probe tests.test_pwa_build -v
 
+  test:
+    # Preserve the existing final check name. Skips/cancellations are not a pass.
+    needs: [build, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require all checks
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          printf 'Fast checks: %s\nBrowser matrix: %s\n' "$BUILD_RESULT" "$BROWSER_RESULT"
+          test "$BUILD_RESULT" = success && test "$BROWSER_RESULT" = success
+      - uses: actions/download-artifact@v4
+        with:
+          name: operation-blackout-preview
+          path: dist/
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: operation-blackout
           path: dist/Operation Blackout.html
-
+          if-no-files-found: error
       - name: Upload hosted PWA bundle
         uses: actions/upload-artifact@v4
         with:

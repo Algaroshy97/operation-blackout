@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class MapModeAcceptanceContract(unittest.TestCase):
     def test_full_probe_requires_movement_score_evidence(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_music_evidence']
         self.assertEqual(len(calls), 1, 'movement score evidence must be a release gate')
@@ -41,7 +41,7 @@ class MapModeAcceptanceContract(unittest.TestCase):
 import ast, pathlib
 from types import SimpleNamespace
 tree = ast.parse(pathlib.Path('scripts/probe_live.py').read_text())
-main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
 call = next(n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'probe_movement_music_evidence')
 def fail(build): raise RuntimeError('negative control reached')
 exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], type_ignores=[])), '<actual gate call>', 'exec'), {'probe_movement_music_evidence': fail, 'args': SimpleNamespace(build='fixture')})
@@ -53,7 +53,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_stage3_frame_combat_music(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_combat_music']
         self.assertEqual(len(calls), 1)
@@ -61,7 +61,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_stage3_match_restart_lifecycle(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_restart']
         self.assertEqual(len(calls), 1)
@@ -69,7 +69,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_stage3_budget_guard(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_budget']
         self.assertEqual(len(calls), 1)
@@ -77,7 +77,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_stage3_weather_lifecycle(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_weather']
         self.assertEqual(len(calls), 1)
@@ -85,7 +85,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_stage3_music_lifecycle(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage3_music']
         self.assertEqual(len(calls), 1)
@@ -104,14 +104,14 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_full_probe_invokes_matrix(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_gameplay')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_map_modes']
         self.assertEqual(len(calls), 1, 'full acceptance must execute the map/mode matrix')
 
     def test_full_probe_invokes_touch_lifecycle(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_lifecycle')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage1_touch']
         self.assertEqual(len(calls), 1, 'full acceptance must execute the production touch lifecycle')
@@ -121,7 +121,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
 
     def test_legacy_migration_probe_is_a_required_gate_with_base_history(self):
         tree = ast.parse((ROOT / 'scripts/probe_live.py').read_text())
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_progression')
         calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == 'probe_stage2_legacy_build']
         self.assertEqual(len(calls), 1)

@@ -18,11 +18,31 @@ one giant source file. It does not by itself explain frame-time problems.
 
 ## Build and test
 
+### Fast feedback for each edit
+
 From the repository root, with Python 3 and Node.js installed:
 
 ```bash
-python3 scripts/build.py .
-node --test tests/*.js
+node --test tests/*.js && python3 scripts/build.py .
+```
+
+Open `dist/Operation Blackout.html` to try the change immediately. For UI or
+input changes, also run the relevant Chromium test or isolated probe (for
+example `python3 scripts/probe_live.py --suite checkpoint`). None of these is
+a substitute for full release acceptance.
+
+Open or update a PR as soon as the fast checks and targeted regression pass.
+GitHub Actions uploads `operation-blackout-preview` from the fast job, then
+checks the same built files with four independent jobs: gameplay, lifecycle,
+progression, and mobile/offline. Download the preview from the run's Artifacts
+section without waiting for those jobs; it is not the public release. Feature
+branches use PR CI, not a second duplicate push run. To run the full workflow
+without a PR, use the Actions **Run workflow** button or `gh workflow run ci.yml
+--ref <branch>`.
+
+### Release checks
+
+```bash
 python3 -m unittest tests.test_release_build
 ```
 
@@ -44,6 +64,10 @@ On Linux, Playwright may also need system dependencies; use
 opens the local `dist/Operation Blackout.html` through `file://` and drives the real
 UI before probing gameplay state. It is not a hosted-deployment check. Require
 exit code 0, all reported checks passing and an empty `console_errors` list.
+With no arguments the probe still runs all three gameplay shards in order.
+Use `--shard gameplay`, `--shard lifecycle`, or `--shard progression` to
+reproduce one CI shard locally. The final `test` check and release-named uploads
+require all shards plus the mobile, first-shot and offline suite to pass.
 
 For a non-mutating build comparison, write outside the repository instead:
 
