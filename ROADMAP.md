@@ -378,6 +378,51 @@ Core tests check that the daily seed is deterministic.
 
 ---
 
+## 7. LAN multiplayer (1v1 → 2v2)
+
+**Goal:** two people on the same Wi-Fi, one PC as host, a compact original
+warehouse/loading-yard map, no internet, no accounts, no matchmaking.
+
+**Decisions (user-approved, 2026-11-27):** gameplay polish ships first on its own
+branch; LAN is its own branch and release. One player's PC hosts. Same network only.
+1v1 first, 2v2 after. Map is an original compact warehouse and loading yard; nothing
+copied from an existing title.
+
+**Architecture — listen server in the host's browser tab.** The game already simulates
+one player plus bot actors, so the host tab stays authoritative for both humans instead
+of porting the simulation to Node. A small LAN host script (`tools/lan-host.mjs`,
+Node stdlib only, no `npm install`, no CDN) serves the built single-file artifact over
+HTTP and relays WebSocket frames between host tab and guests. Guests send inputs; the
+host returns snapshots; guests render interpolated remote players.
+
+**Protocol v1 (JSON frames, versioned):**
+
+- `hello {v, name, slot}` → `welcome {v, slot, mapSeed, tickRate, snapshotRate}`
+- `input {seq, t, moveX, moveZ, yaw, pitch, buttons}` from guest at 30 Hz
+- `state {tick, ack, actors[], shots[], events[]}` from host at 20 Hz; actors carry
+  position, yaw, pitch, stance, health, alive, weapon, and a flags bitmask
+- `event {kind: hit|death|redeploy|score}` for effects the client cannot infer
+- `lobby {ready, countdown}`, `bye {reason}`
+
+**Rules:** host tab owns damage, hit registration, spawns and score. Guests never
+authoritative over health or hits. Disconnect drops the slot and frees the spawn;
+reconnect starts a fresh life rather than resuming state. Map seed is fixed per match
+so both sides build identical geometry.
+
+**Stages:** (a) 1v1 duel on the new map, host tab + one guest; (b) 2v2 teams with the
+existing faction and target logic; (c) polish: latency indicator, rematch, spectate on
+death.
+
+**Done when:** two real devices on one home network complete a full 1v1 match through
+the host script with the host browser authoritative, no console errors, and the same
+for 2v2. Headless loopback tests cover protocol validation, disconnect, and score
+settlement; headless results are labelled as automation evidence, not physical play.
+
+**Out of scope:** public internet play, dedicated servers, matchmaking, anti-cheat,
+voice chat.
+
+---
+
 ## Risks
 
 - **Team-aware AI refactor (M2).** It touches the hottest code in `40_enemies.js`.
