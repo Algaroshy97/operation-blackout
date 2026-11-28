@@ -4,7 +4,11 @@ __pycache__/
 *.log
 .DS_Store
 
-# Build output is committed on purpose: dist/ IS the shippable game.
+# Build output: dist/ is a deterministic derived artifact (python scripts/build.py .,
+# byte-identical on every machine) and is deliberately NOT tracked. Tracking it made
+# every branch and merge carry a 2 MB minified blob and conflict on every rebase;
+# CI fails if anything under dist/ is ever committed again.
+/dist/
 # Local convenience copies/snapshots; the public playable file stays in dist/.
 /index.html
 /Operation Blackout*.html

@@ -2,6 +2,7 @@
 import ast
 import importlib.util
 from pathlib import Path
+import re
 import subprocess
 import sys
 import unittest
@@ -128,7 +129,63 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
         self.assertFalse(any(isinstance(n, ast.Try) and calls[0] in ast.walk(n)
                              for n in ast.walk(main)), 'probe failures must propagate')
         self.assertIn('fetch-depth: 0', (ROOT / '.github/workflows/ci.yml').read_text())
-        self.assertIn('timeout-minutes: 90', (ROOT / '.github/workflows/ci.yml').read_text())
+        # The browser lane must keep headroom for the legacy migration probe. This used to
+        # pin "timeout-minutes: 90" on a single monolithic job; now the matrix job owns it.
+        browser = self.browser_job()
+        self.assertIn('fetch-depth: 0', browser, 'progression needs full history')
+        self.assertGreaterEqual(self.job_timeout(browser), 60)
+
+    # --- helpers for the two-tier workflow -------------------------------
+    def workflow(self):
+        return (ROOT / '.github/workflows/ci.yml').read_text()
+
+    def job_block(self, name):
+        text = self.workflow()
+        start = text.index(f'\n  {name}:\n')
+        nxt = text.find('\n  ', start + 3)
+        # Skip to the next line that starts a sibling job (two-space indent + name + colon).
+        while nxt != -1:
+            line = text[nxt + 3:text.index('\n', nxt + 3)]
+            if line and not line.startswith(' ') and line.endswith(':'):
+                return text[start:nxt]
+            nxt = text.find('\n  ', nxt + 3)
+        return text[start:]
+
+    def browser_job(self):
+        return self.job_block('browser')
+
+    @staticmethod
+    def job_timeout(block):
+        m = re.search(r'timeout-minutes:\s*(\d+)', block)
+        return int(m.group(1)) if m else 0
+
+    def test_fast_lane_runs_every_unit_suite_on_every_push(self):
+        build = self.job_block('build')
+        self.assertIn('node --test tests/*.js', build)
+        for suite in ('tests.test_release_build', 'tests.test_probe_matrix',
+                      'tests.test_probe_shards', 'tests.test_accept_receipts'):
+            self.assertIn(suite, build, f'{suite} must gate every push, not only the full lane')
+
+    def test_full_acceptance_is_deliberate_not_per_push(self):
+        browser = self.browser_job()
+        self.assertIn("github.event_name == 'workflow_dispatch'", browser)
+        self.assertIn("full-ci", browser, 'a PR must be able to request the matrix explicitly')
+        self.assertIn("'refs/heads/release/'", browser)
+        # Each shard must still be a separate job so one hang cannot stall the rest.
+        self.assertIn('shard: [gameplay, lifecycle, progression, mobile-offline]', browser)
+        # test_pwa_build boots a real HTTP server (~3 min); it belongs to the matrix lane.
+        self.assertIn('tests.test_pwa_build', browser)
+
+    def test_generated_build_is_not_committed(self):
+        self.assertIn('git ls-files dist', self.job_block('build'),
+                      'the fast lane must reject committed build output')
+        self.assertIn('/dist/', (ROOT / '.gitignore').read_text())
+
+    def test_gate_script_refuses_merge_without_full_run_for_head(self):
+        gate = (ROOT / 'scripts/gate.sh').read_text()
+        self.assertIn('head_sha==', gate)
+        self.assertIn('full-ci', gate)
+        self.assertIn('scripts/build.py', gate, 'merging must rebuild, never merge a stale artifact')
 
     def test_spawn_wait_allows_slow_software_rendering_without_faking_spawn(self):
         text = (ROOT / 'scripts/probe_live.py').read_text()
