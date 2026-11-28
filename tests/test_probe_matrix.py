@@ -163,7 +163,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=call)], t
         build = self.job_block('build')
         self.assertIn('node --test tests/*.js', build)
         for suite in ('tests.test_release_build', 'tests.test_probe_matrix',
-                      'tests.test_probe_shards'):
+                      'tests.test_probe_shards', 'tests.test_accept_receipts'):
             self.assertIn(suite, build, f'{suite} must gate every push, not only the full lane')
 
     def test_full_acceptance_is_deliberate_not_per_push(self):

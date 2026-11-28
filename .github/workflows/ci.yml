@@ -58,7 +58,7 @@ jobs:
       - name: JavaScript regression tests
         run: node --test tests/*.js
       - name: Release build and probe routing tests
-        run: python -m unittest tests.test_release_build tests.test_probe_matrix tests.test_probe_shards -v
+        run: python -m unittest tests.test_release_build tests.test_probe_matrix tests.test_probe_shards tests.test_accept_receipts -v
       - name: Build preview
         run: python scripts/build.py .
       - name: Record build hash

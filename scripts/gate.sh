@@ -5,7 +5,8 @@
 #   scripts/gate.sh full          ~20 min request full browser acceptance for HEAD and wait
 #   scripts/gate.sh ci            ~2 s   assert a CI run exists for HEAD and is green
 #   scripts/gate.sh merge [PR]    gate    refuse to merge unless a GREEN full run exists for the exact head
-#   scripts/gate.sh publish [PR]  gate    merge, publish, and verify the public bytes
+#   scripts/gate.sh publish [PR|-]  gate  merge, publish, and verify the public bytes
+#                                         (`-` republishes current master, no merge)
 #
 # The point of `ci`/`merge`: `gh pr checks` prints "no checks reported" (success-looking)
 # when no run was ever created for a SHA. That silently dropped the gate once. Here a
@@ -26,7 +27,7 @@ fast() {
   say "JavaScript regression tests"
   node --test tests/*.js
   say "release build and probe routing tests"
-  python3 -m unittest tests.test_release_build tests.test_probe_matrix tests.test_probe_shards
+  python3 -m unittest tests.test_release_build tests.test_probe_matrix tests.test_probe_shards tests.test_accept_receipts
   say "fast gate green: $(python3 -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path('dist/Operation Blackout.html').read_bytes()).hexdigest()[:16])")"
 }
 
@@ -51,27 +52,36 @@ ci() {
 }
 
 full() {
-  local pr=${1:-}
+  local pr=${1:-} sha branch
   if [ -z "$pr" ]; then
-    say "dispatching full acceptance for $SHA"
-    gh workflow run ci.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
+    sha=$SHA
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    say "dispatching full acceptance for ${sha:0:8} ($branch)"
+    gh workflow run ci.yml --ref "$branch"
   else
+    sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+    branch=$(gh pr view "$pr" --json headRefName --jq .headRefName)
+    # The label is how a reviewer re-runs acceptance; it must exist, and the old
+    # 6-hourly cycle created it by hand, so a fresh repo had none. Missing label
+    # killed the dispatch silently (the job died before any run was created).
+    gh label create full-ci --color FBCA04 \
+      --description "Run the full browser acceptance matrix" >/dev/null 2>&1 || true
     say "labelling PR #$pr full-ci"
-    gh pr edit "$pr" --add-label full-ci
-    say "dispatching full acceptance on PR #$pr head"
-    gh workflow run ci.yml --ref "$(gh pr view "$pr" --json headRefName --jq .headRefName)"
+    gh pr edit "$pr" --add-label full-ci >/dev/null || die "cannot label PR #$pr"
+    say "dispatching full acceptance on PR #$pr head ${sha:0:8} ($branch)"
+    gh workflow run ci.yml --ref "$branch"
   fi
   say "waiting for the run to be created"
   local id="" i
   for i in $(seq 1 24); do
-    id=$(run_id_for_sha "$SHA" workflow_dispatch)
+    id=$(run_id_for_sha "$sha" workflow_dispatch)
     [ -n "$id" ] && break
     sleep 5
   done
-  [ -n "$id" ] || die "no full run appeared for $SHA after 2 minutes"
-  say "watching run $id (~19 min)"
+  [ -n "$id" ] || die "no full run appeared for ${sha:0:8} after 2 minutes"
+  say "watching run $id (~12 min, 4 shards in parallel)"
   gh run watch "$id" --exit-status
-  say "full acceptance green for $SHA"
+  say "full acceptance green for ${sha:0:8}"
 }
 
 merge() {
@@ -109,9 +119,42 @@ merge() {
 }
 
 publish() {
-  merge "${1:-}"
+  # `publish -` republishes whatever is already on master (no PR to merge).
+  [ "${1:-}" = "-" ] || merge "${1:-}"
+  local live=${FPS_REPO:-/home/server/projects/fps-game-repo}
+  local url=https://emerald-lemon-ma9z.here.now/
+  # dist/ is generated now, so the live tree has no bytes until it builds.
+  # Chain: fast-forward live tree -> build -> write acceptance receipts -> publish.
+  say "fast-forwarding $live to origin/master"
+  git -C "$live" fetch --quiet origin master || die "cannot fetch origin/master"
+  # scripts/accept.py ships with the pipeline; a stale hand-copied file blocks the merge.
+  if ! git -C "$live" ls-files --error-unmatch scripts/accept.py >/dev/null 2>&1; then
+    rm -f "$live/scripts/accept.py"
+  fi
+  [ -z "$(git -C "$live" status --porcelain)" ] || die "$live has local changes — publish needs a clean tree"
+  git -C "$live" merge --ff-only --quiet origin/master || die "live tree cannot fast-forward to origin/master"
+  say "building in the live tree"
+  ( cd "$live" && python3 scripts/build.py . >/dev/null ) || die "build failed in $live"
+  say "writing acceptance receipts"
+  ( cd "$live" && python3 scripts/accept.py ) || die "acceptance receipts not written"
   say "publishing accepted bytes"
   /home/server/.hermes/scripts/ob-herenow-publish.sh
+  say "verifying the public bytes"
+  # The root serves the PWA index.html; /standalone.html serves the artifact.
+  # Curl to files: `$(curl ...)` strips a trailing newline and the hash lies.
+  local state=$HOME/server/maintenance/state tmp want_index want_artifact got
+  tmp=$(mktemp -d) && trap 'rm -rf "$tmp"' RETURN
+  want_artifact=$(cat "$state/fps-accepted.sha256")
+  want_index=$(awk '$2 == "index.html" {print $1}' "$state/fps-accepted-pwa.sha256")
+  [ -n "$want_index" ] || die "no index.html line in $state/fps-accepted-pwa.sha256"
+  curl -fsS --max-time 90 -o "$tmp/standalone.html" "${url}standalone.html" \
+    || die "cannot read ${url}standalone.html"
+  curl -fsS --max-time 90 -o "$tmp/index.html" "$url" || die "cannot read $url"
+  got=$(sha256sum "$tmp/standalone.html" | cut -d' ' -f1)
+  [ "$want_artifact" = "$got" ] || die "public standalone.html ${got:0:16} != accepted ${want_artifact:0:16}"
+  got=$(sha256sum "$tmp/index.html" | cut -d' ' -f1)
+  [ "$want_index" = "$got" ] || die "public index.html ${got:0:16} != accepted ${want_index:0:16}"
+  say "live and matching: $url (${want_artifact:0:16})"
 }
 
 case "${1:-}" in
