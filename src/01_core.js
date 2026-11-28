@@ -8480,8 +8480,168 @@ const CORE = (function () {
     };
   }
 
+  // ---- LAN duel netcode (host-authoritative) --------------------------------
+  // The relay moves bytes; these rules decide what those bytes are allowed to
+  // mean. Both the host tab and the guest tab run this same file, so a rule
+  // proven here is the rule both ends apply.
+  const LAN_PROTOCOL_VERSION = 1;
+  const LAN_MAX_STEP = 0.25; // metres per collision substep, well under a wall
+
+  function _lanSym(v) { return _isNum(v) ? (v < -1 ? -1 : (v > 1 ? 1 : v)) : 0; }
+  function _lanWrap(v) {
+    if (!_isNum(v)) return 0;
+    let a = v % (Math.PI * 2);
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  // A guest frame is untrusted input, including its shape. Everything that is not
+  // a finite number in range is replaced, never forwarded.
+  function lanSanitizeInput(raw) {
+    const o = _isObj(raw) ? raw : {};
+    let mx = _lanSym(o.mx), mz = _lanSym(o.mz);
+    const mag = Math.hypot(mx, mz);
+    if (mag > 1) { mx /= mag; mz /= mag; }
+    return {
+      seq: _isNum(o.seq) ? Math.max(0, Math.floor(o.seq)) : 0,
+      mx: mx, mz: mz,
+      yaw: _lanWrap(o.yaw),
+      pitch: _isNum(o.pitch) ? (o.pitch < -1.55 ? -1.55 : (o.pitch > 1.55 ? 1.55 : o.pitch)) : 0,
+      buttons: _isNum(o.buttons) ? (Math.max(0, Math.floor(o.buttons)) & 0xffff) : 0,
+      px: _isNum(o.px) ? o.px : null,
+      pz: _isNum(o.pz) ? o.pz : null
+    };
+  }
+
+  // Host-side integration of a guest's actor. Uses the same movement basis as the
+  // local player so both sides walk at the same speed in the same direction.
+  const _lanVelOut = { x: 0, z: 0 };
+  function lanStepActor(st, input, dt, opts) {
+    const s = _isObj(st) ? st : {};
+    const inp = lanSanitizeInput(input);
+    const cfg = _isObj(opts) ? opts : {};
+    const speed = _isNonNeg(cfg.speed) ? cfg.speed : 5.2;
+    const step = Math.max(0, Math.min(_isNum(dt) ? dt : 0, 0.1));
+    const yaw = inp.yaw;
+    const sprinting = !!(inp.buttons & 1);
+    const mul = sprinting && _isNonNeg(cfg.sprintMul) ? cfg.sprintMul : 1;
+    movementTargetVelocity(inp.mx, inp.mz, yaw, speed * mul, _lanVelOut);
+    const x0 = _isNum(s.x) ? s.x : 0, z0 = _isNum(s.z) ? s.z : 0;
+    const x = x0 + _lanVelOut.x * step, z = z0 + _lanVelOut.z * step;
+    return {
+      x: x, z: z,
+      y: _isNum(s.y) ? s.y : 1.7,
+      yaw: yaw, pitch: inp.pitch,
+      vx: _lanVelOut.x, vz: _lanVelOut.z,
+      moved: Math.hypot(x - x0, z - z0)
+    };
+  }
+
+  // Moves a guest from (x0,z0) toward (nx,nz) against the arena's AABB colliders.
+  // Sub-stepped so a long frame cannot tunnel a thin wall.
+  function lanResolveMove(x0, z0, nx, nz, radius, feetY, headY, colliders, stepH) {
+    const rad = _isNonNeg(radius) ? radius : 0.35;
+    const fy = _isNum(feetY) ? feetY : 0;
+    const hy = _isNum(headY) ? headY : fy + 1.7;
+    const list = Array.isArray(colliders) ? colliders : [];
+    const sh = _isNonNeg(stepH) ? stepH : 0.6;
+    let x = _isNum(x0) ? x0 : 0, z = _isNum(z0) ? z0 : 0;
+    const tx = _isNum(nx) ? nx : x, tz = _isNum(nz) ? nz : z;
+    const dx = tx - x, dz = tz - z;
+    const dist = Math.hypot(dx, dz);
+    const steps = dist > LAN_MAX_STEP ? Math.ceil(dist / LAN_MAX_STEP) : 1;
+    const sx = dx / steps, sz = dz / steps;
+    const out = { axis: 'x', val: 0 };
+    for (let s = 0; s < steps; s++) {
+      x += sx; z += sz;
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (!c || !c.min || !c.max) continue;
+        if (!isColliderRelevantXZ(c.min.y, c.max.y, fy, hy, sh)) continue;
+        if (resolveAabbXZ(x, z, rad, c, out)) {
+          if (out.axis === 'x') x = out.val; else z = out.val;
+        }
+      }
+    }
+    return { x: x, z: z };
+  }
+
+  // A snapshot from the host is also untrusted here: a guest must not apply a
+  // malformed frame to its own camera or health.
+  function lanValidSnapshot(raw) {
+    if (!_isObj(raw) || raw.t !== 's') return null;
+    if (!_isNum(raw.tick) || raw.tick < 0) return null;
+    if (!Array.isArray(raw.actors) || raw.actors.length === 0 || raw.actors.length > 8) return null;
+    const actors = [];
+    for (let i = 0; i < raw.actors.length; i++) {
+      const a = raw.actors[i];
+      if (!_isObj(a) || !_isNum(a.slot)) return null;
+      if (!_isNum(a.x) || !_isNum(a.y) || !_isNum(a.z)) return null;
+      actors.push({
+        slot: a.slot,
+        x: a.x, y: a.y, z: a.z,
+        yaw: _isNum(a.yaw) ? _lanWrap(a.yaw) : 0,
+        pitch: _isNum(a.pitch) ? a.pitch : 0,
+        hp: _isNum(a.hp) ? Math.max(0, a.hp) : 0,
+        alive: a.alive !== false,
+        kills: _isNum(a.kills) ? a.kills : 0
+      });
+    }
+    return {
+      tick: raw.tick,
+      actors: actors,
+      target: _isPos(raw.target) ? raw.target : 10,
+      over: !!raw.over,
+      winner: (raw.winner === 'host' || raw.winner === 'guest' || raw.winner === 'draw') ? raw.winner : null
+    };
+  }
+
+  // Ray vs a standing player: vertical cylinder of `radius` from feet to head. The
+  // host uses this to judge a guest's shot instead of trusting "I hit you".
+  function lanRayCapsule(ox, oy, oz, dx, dy, dz, maxDist, cx, cz, feetY, headY, radius) {
+    if (!_isNum(ox) || !_isNum(oy) || !_isNum(oz)) return -1;
+    if (!_isNum(dx) || !_isNum(dy) || !_isNum(dz)) return -1;
+    const far = _isPos(maxDist) ? maxDist : 100;
+    const rad = _isPos(radius) ? radius : 0.35;
+    const fy = _isNum(feetY) ? feetY : 0;
+    const ty = _isNum(headY) ? headY : fy + 1.7;
+    const hx = _isNum(cx) ? cx : 0, hz = _isNum(cz) ? cz : 0;
+    // Plane of the shot: solve in XZ. A vertical shot has no XZ travel.
+    const a = dx * dx + dz * dz;
+    if (a < 1e-9) return -1;
+    const fx = ox - hx, fz = oz - hz;
+    const b = 2 * (fx * dx + fz * dz);
+    const c = fx * fx + fz * fz - rad * rad;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return -1;
+    const sq = Math.sqrt(disc);
+    const t0 = (-b - sq) / (2 * a);
+    const t1 = (-b + sq) / (2 * a);
+    const t = t0 > 1e-6 ? t0 : t1;
+    if (t <= 1e-6 || t > far) return -1;
+    const hitY = oy + dy * t;
+    if (hitY < fy || hitY > ty + 0.12) return -1;
+    return t;
+  }
+
+  // Host-authoritative duel result. Ties settle as a draw rather than "first in
+  // the roster wins", and an unfinished duel has no winner at all.
+  function lanDuelResult(hostKills, guestKills, target) {
+    const a = _isNum(hostKills) ? hostKills : -1;
+    const b = _isNum(guestKills) ? guestKills : -1;
+    const t = _isPos(target) ? target : 0;
+    if (a < 0 || b < 0 || t <= 0) return null;
+    const hostDone = a >= t, guestDone = b >= t;
+    if (!hostDone && !guestDone) return null;
+    if (hostDone && guestDone) return 'draw';
+    return hostDone ? 'host' : 'guest';
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
+    LAN_PROTOCOL_VERSION, lanSanitizeInput, lanStepActor, lanResolveMove, lanValidSnapshot,
+    lanRayCapsule, lanDuelResult,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
     waveEnemyCount, waveHpMultiplier, waveRangedAccuracy, WAVE_SCORE_PER_WAVE, waveClearScore,
     RESUPPLY_MAG_RATIO, waveResupplyAmmo, aabbOverlapsXZ, blocksWalker, isSpawnValid,

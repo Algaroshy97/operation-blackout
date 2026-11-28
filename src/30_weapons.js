@@ -542,6 +542,7 @@ function traceRound(w, spreadNow, magnetize) {
 
 // Everything that happens once per trigger pull, after the round(s) are traced.
 function finishShot(s, w, hit) {
+  if (typeof lanOnShot === 'function') lanOnShot(w);
   // sniper: brief unscope on shot (recoil re-chamber feel)
   if (w.type === 'SR') {
     adsAmount = CORE.sniperUnscopeAds(adsAmount);

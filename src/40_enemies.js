@@ -256,6 +256,13 @@ function actorDamageMul(actor) {
 function damageEnemy(en, dmg, point, isHead, throughCover, weaponType, attacker, weaponName) {
   if (en.dead) return;
   if (en.spawnProtectionT > 0) return;
+  // A LAN guest's local copy of the host is a visual proxy: it shows hit feedback
+  // but owns no health, because the host tab decides whether a shot landed.
+  if (en.netProxy) {
+    if (typeof showHitmarker === 'function') showHitmarker(isHead, CORE.hitmarkerTier(1, throughCover, false));
+    if (typeof spawnBlood === 'function') spawnBlood(point, isHead, weaponType);
+    return;
+  }
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
   const isSettled = (typeof matchSettled === 'function')
     ? matchSettled()
@@ -719,6 +726,13 @@ function updateEnemies(dt) {
       en.spawnProtectionT = (typeof CORE !== 'undefined' && typeof CORE.stepSpawnProtection === 'function')
         ? CORE.stepSpawnProtection(en.spawnProtectionT, dt)
         : Math.max(0, en.spawnProtectionT - dt);
+    }
+    // A LAN net actor has a person behind it, not a brain: the host drives its
+    // position from the guest's input, so no AI state machine may also move it.
+    // It still animates, is still rendered, and is still a valid hit target.
+    if (en.netActor) {
+      animateEnemy(en, dt, distToPlayer(en));
+      continue;
     }
     // DEAD TARGET: stop all AI activity — enemies wander/idle, never attack a corpse
     const target = findHostileTarget(en);

@@ -630,6 +630,9 @@ function ffaFactionTeam(index) {
 // (CORE.isHostile), bot targeting and hostiles-only aim assist work as-is.
 function spawnFreeForAllRoster(mode, count) {
   if (typeof spawnEnemy !== 'function') return;
+  // A LAN duel is two humans, not a roster of bots: the guest's actor is spawned
+  // when its connection arrives and is driven by input, never by this loop.
+  if (mode && mode.lanDuel) return;
   const total = Math.max(2, Math.min(CORE.FREE_FOR_ALL_MAX_ACTORS, count | 0));
   for (let i = 1; i < total; i++) {
     const pt = matchSpawnPointAt(i - 1);
