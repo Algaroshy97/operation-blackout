@@ -384,6 +384,72 @@ Core tests check that the daily seed is deterministic.
 
 ---
 
+## 7. LAN multiplayer (1v1 → 2v2)
+
+**Goal:** two people on the same Wi-Fi, one PC as host, a compact original
+warehouse/loading-yard map, no internet, no accounts, no matchmaking.
+
+**Decisions (user-approved, 2026-11-27):** gameplay polish ships first on its own
+branch; LAN is its own branch and release. One player's PC hosts. Same network only.
+1v1 first, 2v2 after. Map is an original compact warehouse and loading yard; nothing
+copied from an existing title.
+
+**Architecture — listen server in the host's browser tab.** The game already simulates
+one player plus bot actors, so the host tab stays authoritative for both humans instead
+of porting the simulation to Node. A small LAN host script (`tools/lan-host.mjs`,
+Node stdlib only, no `npm install`, no CDN) serves the built single-file artifact over
+HTTP and relays WebSocket frames between host tab and guests. Guests send inputs; the
+host returns snapshots; guests render interpolated remote players.
+
+**Protocol v1 (JSON frames, versioned):**
+
+- `hello {v, name, slot}` → `welcome {v, slot, mapSeed, tickRate, snapshotRate}`
+- `input {seq, t, moveX, moveZ, yaw, pitch, buttons}` from guest at 30 Hz
+- `state {tick, ack, actors[], shots[], events[]}` from host at 20 Hz; actors carry
+  position, yaw, pitch, stance, health, alive, weapon, and a flags bitmask
+- `event {kind: hit|death|redeploy|score}` for effects the client cannot infer
+- `lobby {ready, countdown}`, `bye {reason}`
+
+**Rules:** host tab owns damage, hit registration, spawns and score. Guests never
+authoritative over health or hits. Disconnect drops the slot and frees the spawn;
+reconnect starts a fresh life rather than resuming state. Map seed is fixed per match
+so both sides build identical geometry.
+
+**Stages:** (a) 1v1 duel on the new map, host tab + one guest; (b) 2v2 teams with the
+existing faction and target logic; (c) polish: latency indicator, rematch, spectate on
+death.
+
+**Done when:** two real devices on one home network complete a full 1v1 match through
+the host script with the host browser authoritative, no console errors, and the same
+for 2v2. Headless loopback tests cover protocol validation, disconnect, and score
+settlement; headless results are labelled as automation evidence, not physical play.
+
+**Out of scope:** public internet play, dedicated servers, matchmaking, anti-cheat,
+voice chat.
+
+**Status (stage a shipped, 1v1):**
+- `src/72_lan.js` + LAN rules in `src/01_core.js`: the host tab owns the guest's body,
+  damage, score and respawns; the guest predicts itself and sends input at 30 Hz.
+  Guest shots arrive as claims and are re-tested by the host (ray vs capsule, then a
+  wall check against the arena AABBs) before anyone loses health.
+- **Loading Yard** map (`MAP_DEFS.yard`, 40 x 28 m): raised dock, two long containers,
+  a short container, forklift and pallet stacks, six spawns. Duel matches select it in
+  memory only, so a LAN match never rewrites the saved solo arena.
+- Menu: `LAN — HOST` / `LAN — JOIN`, address entry, live status line, result card.
+  `tools/lan-host.mjs` prints the address guests should open; `?lan=host` and
+  `?lan=join` start straight into a lobby.
+- Evidence: `tests/test_lan_netcode.js` (7 protocol rules) and
+  `tests/probe_lan_duel.py` (14 checks: join, movement sync both ways, damage both
+  ways, kill, score credit, respawn, zero console errors) over two real browsers and
+  the real relay. **Automation evidence only** — two physical devices on one home
+  network have not played it yet, so the "Done when" line above is still open.
+- **Build budget moved to 2.375 MiB**: the 2 MiB ceiling had 9 bytes of headroom, so
+  no feature could land under it. It stays a hard gate in `test_release_build.py`.
+- Still open: stage (b) 2v2, stage (c) latency/rematch/spectate, and the physical
+  two-device acceptance run.
+
+---
+
 ## Risks
 
 - **Team-aware AI refactor (M2).** It touches the hottest code in `40_enemies.js`.

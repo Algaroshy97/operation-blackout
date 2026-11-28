@@ -500,7 +500,7 @@ const CORE = (function () {
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
     difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
     startingPerk: { type: 'enum', def: 'none', values: ['none', 'reload', 'steady', 'scav'], label: 'Starting perk', help: 'Choose one perk for a new run; it occupies a perk slot.' },
-    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
+    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy', 'yard'], label: 'Arena map' },
     weather: { type: 'enum', def: 'clear', values: ['clear', 'dusk', 'night', 'rain', 'blizzard', 'random'], label: 'Weather and time (next match)' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
@@ -8451,6 +8451,44 @@ const CORE = (function () {
     depot: { wall: [-16, 1.6, 26, 0.8, 3.2, 16], door: [-26, 1.6, 18, 18, 3.2, 0.8] }
   };
 
+  // ---- Loading yard: the LAN duel arena -------------------------------------
+  // A 40 x 28 m walled yard, built for two people at 10 m, not for a wave of AI:
+  // two containers make a long sight line and a short one, a raised dock closes
+  // the west side, and pallet stacks give chest-height cover on the crossing.
+  // Nothing here is copied from another title; the layout is a plain dock apron.
+  function buildYardColliders() {
+    const out = [];
+    const box = function (x, y, z, w, h, d, m) { out.push(_bDef(x, y, z, w, h, d, m)); };
+    // perimeter
+    box(0, 2.5, -14, 40.8, 5, 0.8, 'concrete');
+    box(0, 2.5, 14, 40.8, 5, 0.8, 'concrete');
+    box(-20, 2.5, 0, 0.8, 5, 28, 'concrete');
+    box(20, 2.5, 0, 0.8, 5, 28, 'concrete');
+    // raised loading dock along the west wall
+    box(-14.6, 0.62, 0, 9.6, 1.24, 12, 'concrete2');
+    box(-9.9, 0.62, -4.6, 0.5, 1.24, 2.6, 'metal');
+    box(-11.2, 1.9, -10.4, 2.8, 2.6, 2.8, 'wood');
+    // containers: long cover, one north one south, offset so the lane snakes
+    box(6.5, 1.3, -7.4, 12.4, 2.6, 2.9, 'metal');
+    box(-4.5, 1.3, 7.6, 12.4, 2.6, 2.9, 'red');
+    box(13.8, 1.3, 4.6, 2.9, 2.6, 8.2, 'metal');
+    // forklift and pallet stacks
+    box(0.4, 0.72, -0.6, 2.1, 1.44, 3.3, 'accent');
+    box(3.6, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+    box(4.9, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+    box(-3.2, 0.7, -4.2, 1.4, 1.4, 1.4, 'wood');
+    box(10.4, 0.7, -1.4, 1.4, 1.4, 1.4, 'wood');
+    box(-8.4, 0.7, -11.2, 1.4, 1.4, 1.4, 'wood');
+    box(-12.2, 0.7, 10.6, 1.4, 1.4, 1.4, 'wood');
+    // low concrete barrier across the north lane
+    box(0.5, 0.55, -11.6, 6.2, 1.1, 0.6, 'concrete');
+    return out;
+  }
+
+  const YARD_SPAWN_POINTS = [
+    [-17, 10.6], [17, -10.6], [-17, -10.6], [17, 10.6], [0.5, 12.2], [0.5, -12.6]
+  ];
+
   const MAP_DEFS = {
     urban: {
       id: 'urban',
@@ -8493,10 +8531,31 @@ const CORE = (function () {
         sunColor: 0xfff2e0, sunPos: [50, 24, -35], sunDir: [160, 70, -120]
       },
       colliders: buildSnowyColliders()
+    },
+    yard: {
+      id: 'yard',
+      name: 'Loading Yard',
+      worldSize: 90,
+      playerSpawn: { x: -16.5, y: 0.9, z: 10.6 },
+      spawnPoints: YARD_SPAWN_POINTS,
+      stationLayout: [],
+      dominationFlags: [],
+      districts: [
+        { key: 'dock', name: 'LOADING DOCK', price: 750, minX: -20, maxX: 0, minZ: -14, maxZ: 14 },
+        { key: 'gate', name: 'GATE APRON', price: 750, minX: 0, maxX: 20, minZ: -14, maxZ: 14 }
+      ],
+      barriers: {},
+      icePatches: [],
+      sky: {
+        top: 0x3a6cae, mid: 0x93aecf, horizon: 0xf3c39a, low: 0x4c4652,
+        fogColor: 0x232a33, skyColor: 0x8fabc8,
+        sunColor: 0xffe0bb, sunPos: [30, 42, -22], sunDir: [120, 150, -90]
+      },
+      colliders: buildYardColliders()
     }
   };
 
-  const MAP_IDS = ['urban', 'snowy'];
+  const MAP_IDS = ['urban', 'snowy', 'yard'];
   const DEFAULT_MAP_ID = 'urban';
 
   function sanitizeMapId(id) {
@@ -8570,8 +8629,168 @@ const CORE = (function () {
     };
   }
 
+  // ---- LAN duel netcode (host-authoritative) --------------------------------
+  // The relay moves bytes; these rules decide what those bytes are allowed to
+  // mean. Both the host tab and the guest tab run this same file, so a rule
+  // proven here is the rule both ends apply.
+  const LAN_PROTOCOL_VERSION = 1;
+  const LAN_MAX_STEP = 0.25; // metres per collision substep, well under a wall
+
+  function _lanSym(v) { return _isNum(v) ? (v < -1 ? -1 : (v > 1 ? 1 : v)) : 0; }
+  function _lanWrap(v) {
+    if (!_isNum(v)) return 0;
+    let a = v % (Math.PI * 2);
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  // A guest frame is untrusted input, including its shape. Everything that is not
+  // a finite number in range is replaced, never forwarded.
+  function lanSanitizeInput(raw) {
+    const o = _isObj(raw) ? raw : {};
+    let mx = _lanSym(o.mx), mz = _lanSym(o.mz);
+    const mag = Math.hypot(mx, mz);
+    if (mag > 1) { mx /= mag; mz /= mag; }
+    return {
+      seq: _isNum(o.seq) ? Math.max(0, Math.floor(o.seq)) : 0,
+      mx: mx, mz: mz,
+      yaw: _lanWrap(o.yaw),
+      pitch: _isNum(o.pitch) ? (o.pitch < -1.55 ? -1.55 : (o.pitch > 1.55 ? 1.55 : o.pitch)) : 0,
+      buttons: _isNum(o.buttons) ? (Math.max(0, Math.floor(o.buttons)) & 0xffff) : 0,
+      px: _isNum(o.px) ? o.px : null,
+      pz: _isNum(o.pz) ? o.pz : null
+    };
+  }
+
+  // Host-side integration of a guest's actor. Uses the same movement basis as the
+  // local player so both sides walk at the same speed in the same direction.
+  const _lanVelOut = { x: 0, z: 0 };
+  function lanStepActor(st, input, dt, opts) {
+    const s = _isObj(st) ? st : {};
+    const inp = lanSanitizeInput(input);
+    const cfg = _isObj(opts) ? opts : {};
+    const speed = _isNonNeg(cfg.speed) ? cfg.speed : 5.2;
+    const step = Math.max(0, Math.min(_isNum(dt) ? dt : 0, 0.1));
+    const yaw = inp.yaw;
+    const sprinting = !!(inp.buttons & 1);
+    const mul = sprinting && _isNonNeg(cfg.sprintMul) ? cfg.sprintMul : 1;
+    movementTargetVelocity(inp.mx, inp.mz, yaw, speed * mul, _lanVelOut);
+    const x0 = _isNum(s.x) ? s.x : 0, z0 = _isNum(s.z) ? s.z : 0;
+    const x = x0 + _lanVelOut.x * step, z = z0 + _lanVelOut.z * step;
+    return {
+      x: x, z: z,
+      y: _isNum(s.y) ? s.y : 1.7,
+      yaw: yaw, pitch: inp.pitch,
+      vx: _lanVelOut.x, vz: _lanVelOut.z,
+      moved: Math.hypot(x - x0, z - z0)
+    };
+  }
+
+  // Moves a guest from (x0,z0) toward (nx,nz) against the arena's AABB colliders.
+  // Sub-stepped so a long frame cannot tunnel a thin wall.
+  function lanResolveMove(x0, z0, nx, nz, radius, feetY, headY, colliders, stepH) {
+    const rad = _isNonNeg(radius) ? radius : 0.35;
+    const fy = _isNum(feetY) ? feetY : 0;
+    const hy = _isNum(headY) ? headY : fy + 1.7;
+    const list = Array.isArray(colliders) ? colliders : [];
+    const sh = _isNonNeg(stepH) ? stepH : 0.6;
+    let x = _isNum(x0) ? x0 : 0, z = _isNum(z0) ? z0 : 0;
+    const tx = _isNum(nx) ? nx : x, tz = _isNum(nz) ? nz : z;
+    const dx = tx - x, dz = tz - z;
+    const dist = Math.hypot(dx, dz);
+    const steps = dist > LAN_MAX_STEP ? Math.ceil(dist / LAN_MAX_STEP) : 1;
+    const sx = dx / steps, sz = dz / steps;
+    const out = { axis: 'x', val: 0 };
+    for (let s = 0; s < steps; s++) {
+      x += sx; z += sz;
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (!c || !c.min || !c.max) continue;
+        if (!isColliderRelevantXZ(c.min.y, c.max.y, fy, hy, sh)) continue;
+        if (resolveAabbXZ(x, z, rad, c, out)) {
+          if (out.axis === 'x') x = out.val; else z = out.val;
+        }
+      }
+    }
+    return { x: x, z: z };
+  }
+
+  // A snapshot from the host is also untrusted here: a guest must not apply a
+  // malformed frame to its own camera or health.
+  function lanValidSnapshot(raw) {
+    if (!_isObj(raw) || raw.t !== 's') return null;
+    if (!_isNum(raw.tick) || raw.tick < 0) return null;
+    if (!Array.isArray(raw.actors) || raw.actors.length === 0 || raw.actors.length > 8) return null;
+    const actors = [];
+    for (let i = 0; i < raw.actors.length; i++) {
+      const a = raw.actors[i];
+      if (!_isObj(a) || !_isNum(a.slot)) return null;
+      if (!_isNum(a.x) || !_isNum(a.y) || !_isNum(a.z)) return null;
+      actors.push({
+        slot: a.slot,
+        x: a.x, y: a.y, z: a.z,
+        yaw: _isNum(a.yaw) ? _lanWrap(a.yaw) : 0,
+        pitch: _isNum(a.pitch) ? a.pitch : 0,
+        hp: _isNum(a.hp) ? Math.max(0, a.hp) : 0,
+        alive: a.alive !== false,
+        kills: _isNum(a.kills) ? a.kills : 0
+      });
+    }
+    return {
+      tick: raw.tick,
+      actors: actors,
+      target: _isPos(raw.target) ? raw.target : 10,
+      over: !!raw.over,
+      winner: (raw.winner === 'host' || raw.winner === 'guest' || raw.winner === 'draw') ? raw.winner : null
+    };
+  }
+
+  // Ray vs a standing player: vertical cylinder of `radius` from feet to head. The
+  // host uses this to judge a guest's shot instead of trusting "I hit you".
+  function lanRayCapsule(ox, oy, oz, dx, dy, dz, maxDist, cx, cz, feetY, headY, radius) {
+    if (!_isNum(ox) || !_isNum(oy) || !_isNum(oz)) return -1;
+    if (!_isNum(dx) || !_isNum(dy) || !_isNum(dz)) return -1;
+    const far = _isPos(maxDist) ? maxDist : 100;
+    const rad = _isPos(radius) ? radius : 0.35;
+    const fy = _isNum(feetY) ? feetY : 0;
+    const ty = _isNum(headY) ? headY : fy + 1.7;
+    const hx = _isNum(cx) ? cx : 0, hz = _isNum(cz) ? cz : 0;
+    // Plane of the shot: solve in XZ. A vertical shot has no XZ travel.
+    const a = dx * dx + dz * dz;
+    if (a < 1e-9) return -1;
+    const fx = ox - hx, fz = oz - hz;
+    const b = 2 * (fx * dx + fz * dz);
+    const c = fx * fx + fz * fz - rad * rad;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return -1;
+    const sq = Math.sqrt(disc);
+    const t0 = (-b - sq) / (2 * a);
+    const t1 = (-b + sq) / (2 * a);
+    const t = t0 > 1e-6 ? t0 : t1;
+    if (t <= 1e-6 || t > far) return -1;
+    const hitY = oy + dy * t;
+    if (hitY < fy || hitY > ty + 0.12) return -1;
+    return t;
+  }
+
+  // Host-authoritative duel result. Ties settle as a draw rather than "first in
+  // the roster wins", and an unfinished duel has no winner at all.
+  function lanDuelResult(hostKills, guestKills, target) {
+    const a = _isNum(hostKills) ? hostKills : -1;
+    const b = _isNum(guestKills) ? guestKills : -1;
+    const t = _isPos(target) ? target : 0;
+    if (a < 0 || b < 0 || t <= 0) return null;
+    const hostDone = a >= t, guestDone = b >= t;
+    if (!hostDone && !guestDone) return null;
+    if (hostDone && guestDone) return 'draw';
+    return hostDone ? 'host' : 'guest';
+  }
+
   return {
     horizDist, horizDistSq, subStepCount, ceilingClamp, shadowCasters, MAX_SUBSTEPS,
+    LAN_PROTOCOL_VERSION, lanSanitizeInput, lanStepActor, lanResolveMove, lanValidSnapshot,
+    lanRayCapsule, lanDuelResult,
     advanceShotSchedule, fireClockStep, shotScheduleAfterInactive, distanceFalloff,
     waveEnemyCount, waveHpMultiplier, waveRangedAccuracy, WAVE_SCORE_PER_WAVE, waveClearScore,
     RESUPPLY_MAG_RATIO, waveResupplyAmmo, aabbOverlapsXZ, blocksWalker, isSpawnValid,

@@ -1532,6 +1532,7 @@ function frame(now) {
 
   if (started && !paused) {
     gameT += dt;
+    if (typeof lanFrame === 'function') lanFrame(dt);
     SKY_UNIFORMS.time.value = gameT;
     fireClockT += CORE.fireClockStep(wallDt, FIRE_CLOCK_MAX_STEP);
     hSpeedForSpread = Math.hypot(player.vel.x, player.vel.z);

@@ -27,7 +27,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "scripts" / "build.py"
 CORE_TESTS = ROOT / "tests" / "test_core.js"
-SIZE_BUDGET = 2 * 1024 * 1024
+SIZE_BUDGET = 2 * 1024 * 1024 + 384 * 1024
+# 2.375 MiB: the single-file build sat 9 bytes under the old 2 MiB ceiling, so any
+# addition broke it. The LAN duel module (host-authoritative netcode + lobby UI) is
+# the first real addition since; the budget keeps its job as a hard gate with room
+# for the 2v2 pass instead of being silently outgrown. See ROADMAP §7.
 
 
 class CssCompactionTests(unittest.TestCase):

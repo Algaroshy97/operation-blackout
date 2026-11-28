@@ -479,6 +479,24 @@
   .diff-btn.on{background:linear-gradient(180deg,rgba(120,90,20,.95),rgba(60,40,10,.95));border-color:#ffdf8a;color:#ffdf8a}
   #save-note{color:rgba(255,255,255,.45);font-size:11px;letter-spacing:1px;margin:8px 0 0;text-align:center}
   #menu-stats b{color:#ffd24a}
+  /* ---- LAN duel ---- */
+  #lan-screen,#lan-result{position:absolute;inset:0;z-index:55;display:none;align-items:center;justify-content:center;
+    background:rgba(6,10,6,.9);backdrop-filter:blur(3px);padding:16px;box-sizing:border-box;overflow-y:auto}
+  #lan-screen .lan-panel,#lan-result .lan-panel{max-width:560px;width:100%;text-align:center}
+  #lan-screen h2,#lan-result h2{color:#ffdf8a;font-size:34px;letter-spacing:8px;font-weight:900;margin:0 0 10px;text-shadow:0 2px 10px #000}
+  .lan-sub{color:rgba(255,255,255,.7);font-size:13px;letter-spacing:1px;margin:0 0 16px}
+  .lan-row{color:rgba(255,255,255,.85);font-size:13px;margin:8px 0}
+  .lan-row b{color:#ffd24a}
+  #lan-address{width:min(360px,100%);padding:12px 14px;font-size:16px;letter-spacing:1px;color:#fff;
+    background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:4px;text-align:center;
+    box-sizing:border-box;margin:4px 0 8px}
+  #lan-address:focus{outline:2px solid #ffd24a;outline-offset:2px}
+  .lan-note{color:rgba(255,255,255,.5);font-size:11px;margin:0 0 14px}
+  #lan-status{color:#9fdcb0;font-size:12px;letter-spacing:2px;font-weight:700;margin:14px 0 0;text-transform:uppercase}
+  #lan-status.bad{color:#ff6a5a}
+  #lan-status.good{color:#7ee08a}
+  #lan-status.wait{color:#ffd24a}
+  .lan-actions{margin-top:10px}
   /* high-contrast enemy markers for colourblind players */
   body.cb-markers #minimap{border-color:#ffd24a}
   /* ---- Landscape prompt (mobile) ---- */
@@ -539,6 +557,8 @@
     <div class="menu-btn" id="btn-gunsmith">GUNSMITH</div>
     <div class="menu-btn" id="btn-settings">SETTINGS</div>
     <button class="menu-btn" id="btn-stats">STATISTICS</button>
+    <button class="menu-btn" id="btn-lan-host">LAN — HOST</button>
+    <button class="menu-btn" id="btn-lan-join">LAN — JOIN</button>
     <div class="menu-btn fullscreen-btn" id="btn-fullscreen-menu">FULL SCREEN</div>
     <p id="menu-stats"></p>
     <div id="challenge-list"></div>
@@ -573,4 +593,34 @@
   <div class="menu-btn" id="btn-match-quit">MAIN MENU</div>
 </div>
 <div id="match-scoreboard" class="hud" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:45;pointer-events:none"></div>
+<div id="lan-screen">
+  <div class="lan-panel">
+    <h2>LAN DUEL</h2>
+    <p class="lan-sub">Same Wi-Fi. One machine hosts, the other joins. No internet, no accounts.</p>
+    <div id="lan-host-pane" style="display:none">
+      <p class="lan-row">Guests open <b id="lan-host-hint">this machine</b> in a browser on the same network.</p>
+      <p class="lan-row">The match starts as soon as they connect. First to 10 kills.</p>
+    </div>
+    <div id="lan-join-pane" style="display:none">
+      <label class="lan-row" for="lan-address">HOST ADDRESS</label>
+      <input id="lan-address" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="192.168.1.14:8787">
+      <p class="lan-note">Leave it blank to join the machine that served this page.</p>
+      <div class="menu-btn" id="btn-lan-connect">CONNECT</div>
+    </div>
+    <p id="lan-wait-pane" class="lan-row lan-wait" style="display:none">Keep this tab open while the duel runs.</p>
+    <p id="lan-status" class="lan-status">IDLE</p>
+    <div class="lan-actions">
+      <div class="menu-btn" id="btn-lan-close">BACK</div>
+      <div class="menu-btn" id="btn-lan-quit">MAIN MENU</div>
+    </div>
+  </div>
+</div>
+<div id="lan-result">
+  <div class="lan-panel">
+    <h2 id="lan-result-title">VICTORY</h2>
+    <p id="lan-result-score" class="lan-sub"></p>
+    <div class="menu-btn" id="btn-lan-rematch">REMATCH</div>
+    <div class="menu-btn" id="btn-lan-quit-result">MAIN MENU</div>
+  </div>
+</div>
 <div id="fps-counter" class="hud"></div>
