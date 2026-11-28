@@ -4694,7 +4694,7 @@ showFps: { type: 'bool', def: true, label: 'Show FPS counter' },
 gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
 difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
 startingPerk: { type: 'enum', def: 'none', values: ['none', 'reload', 'steady', 'scav'], label: 'Starting perk', help: 'Choose one perk for a new run; it occupies a perk slot.' },
-gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
+gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy', 'yard'], label: 'Arena map' },
 weather: { type: 'enum', def: 'clear', values: ['clear', 'dusk', 'night', 'rain', 'blizzard', 'random'], label: 'Weather and time (next match)' },
 tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
 tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
@@ -11132,6 +11132,32 @@ const SNOWY_BARRIERS={
 hangar:{door:[26,1.6,-19,8,3.2,0.8]},
 depot:{wall:[-16,1.6,26,0.8,3.2,16],door:[-26,1.6,18,18,3.2,0.8]}
 };
+function buildYardColliders(){
+const out=[];
+const box=function(x,y,z,w,h,d,m){out.push(_bDef(x,y,z,w,h,d,m));};
+box(0, 2.5, -14, 40.8, 5, 0.8, 'concrete');
+box(0, 2.5, 14, 40.8, 5, 0.8, 'concrete');
+box(-20, 2.5, 0, 0.8, 5, 28, 'concrete');
+box(20, 2.5, 0, 0.8, 5, 28, 'concrete');
+box(-14.6, 0.62, 0, 9.6, 1.24, 12, 'concrete2');
+box(-9.9, 0.62, -4.6, 0.5, 1.24, 2.6, 'metal');
+box(-11.2, 1.9, -10.4, 2.8, 2.6, 2.8, 'wood');
+box(6.5, 1.3, -7.4, 12.4, 2.6, 2.9, 'metal');
+box(-4.5, 1.3, 7.6, 12.4, 2.6, 2.9, 'red');
+box(13.8, 1.3, 4.6, 2.9, 2.6, 8.2, 'metal');
+box(0.4, 0.72, -0.6, 2.1, 1.44, 3.3, 'accent');
+box(3.6, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+box(4.9, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+box(-3.2, 0.7, -4.2, 1.4, 1.4, 1.4, 'wood');
+box(10.4, 0.7, -1.4, 1.4, 1.4, 1.4, 'wood');
+box(-8.4, 0.7, -11.2, 1.4, 1.4, 1.4, 'wood');
+box(-12.2, 0.7, 10.6, 1.4, 1.4, 1.4, 'wood');
+box(0.5, 0.55, -11.6, 6.2, 1.1, 0.6, 'concrete');
+return out;
+}
+const YARD_SPAWN_POINTS=[
+[-17,10.6],[17,-10.6],[-17,-10.6],[17,10.6],[0.5,12.2],[0.5,-12.6]
+];
 const MAP_DEFS={
 urban:{
 id: 'urban',
@@ -11174,9 +11200,30 @@ fogColor:0x7892ad,skyColor:0x8eb4d8,
 sunColor:0xfff2e0,sunPos:[50,24,-35],sunDir:[160,70,-120]
 },
 colliders:buildSnowyColliders()
+},
+yard:{
+id: 'yard',
+name: 'Loading Yard',
+worldSize:90,
+playerSpawn:{x:-16.5,y:0.9,z:10.6},
+spawnPoints:YARD_SPAWN_POINTS,
+stationLayout:[],
+dominationFlags:[],
+districts:[
+{ key: 'dock', name: 'LOADING DOCK', price: 750, minX: -20, maxX: 0, minZ: -14, maxZ: 14 },
+{ key: 'gate', name: 'GATE APRON', price: 750, minX: 0, maxX: 20, minZ: -14, maxZ: 14 }
+],
+barriers:{},
+icePatches:[],
+sky:{
+top:0x3a6cae,mid:0x93aecf,horizon:0xf3c39a,low:0x4c4652,
+fogColor:0x232a33,skyColor:0x8fabc8,
+sunColor:0xffe0bb,sunPos:[30,42,-22],sunDir:[120,150,-90]
+},
+colliders:buildYardColliders()
 }
 };
-const MAP_IDS = ['urban', 'snowy'];
+const MAP_IDS = ['urban', 'snowy', 'yard'];
 const DEFAULT_MAP_ID = 'urban';
 function sanitizeMapId(id){
 return (typeof id === 'string' && MAP_IDS.indexOf(id) >= 0) ? id : DEFAULT_MAP_ID;
@@ -13077,6 +13124,17 @@ const w=+(p.maxX-p.minX).toFixed(2),d=+(p.maxZ-p.minZ).toFixed(2);
 addBox((p.minX + p.maxX) / 2, 0.02, (p.minZ + p.maxZ) / 2, w, 0.04, d, MAT.ice);
 }
 }
+function buildYardArena(){
+const def = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('yard') : null;
+const boxes=(def&&def.colliders)||[];
+for(let i=0;i<boxes.length;i++){
+const b=boxes[i];
+const mat=MAT[b.mat]||MAT.concrete;
+addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
++(b.max.x-b.min.x).toFixed(2),+(b.max.y-b.min.y).toFixed(2),+(b.max.z-b.min.z).toFixed(2),
+mat);
+}
+}
 function _regMap(id,fn){
 const d = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef(id) : {};
 return{
@@ -13089,7 +13147,7 @@ get barriers(){return CORE.getMapDef(id).barriers;},
 build:fn
 };
 }
-const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena) };
+const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena), yard: _regMap('yard', buildYardArena) };
 let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefined' && CORE.sanitizeMapId(getSetting('gameMap'))) || 'urban';
 let activeMap=MAPS[activeMapId]||MAPS.urban;
 let activeWeather = 'clear';
@@ -25802,6 +25860,9 @@ over:false,
 winner:null,
 status: 'idle',
 shots:0,
+shotsSent:0,
+shotsSeen:0,
+shotsRejected:0,
 shotWinT:0,
 corrections:0,
 joinAddr: '',
@@ -25928,10 +25989,14 @@ if(addrs)addrs.textContent=location.host;
 }
 function lanPrepareDuel(){
 if (typeof MODES === 'undefined' || !MODES.ffa) return;
+if (typeof SETTINGS !== 'undefined' && SETTINGS) SETTINGS.gameMap = 'yard';
+if (typeof setActiveMap === 'function') setActiveMap('yard');
 MODES.ffa.lanDuel=true;
 MODES.ffa.targetScore=LAN.target;
 MODES.ffa.matchDuration=600;
 if (typeof setActiveMode === 'function') setActiveMode('ffa');
+const live = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+if(live){live.lanDuel=true;live.targetScore=LAN.target;live.matchDuration=600;}
 if (typeof setSetting === 'function') setSetting('gameMode', 'ffa');
 }
 function lanPlacePlayer(pt){
@@ -25952,6 +26017,8 @@ if (start && start.classList.contains('disabled')) start.classList.remove('disab
 const menu = lanEl('start-screen');
 if (menu) menu.style.display = 'none';
 startGame();
+const live = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+if(live){live.lanDuel=true;live.targetScore=LAN.target;}
 const spawns = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : [];
 if(spawns.length)lanPlacePlayer(spawns[0]);
 lanShowScreen(LAN.role === 'guest' ? 'join' : 'host');
@@ -26060,6 +26127,7 @@ return Math.hypot(ax-bx,az-bz);
 function lanHostGuestShot(msg){
 const g=LAN.guestActor;
 if(!g||g.dead||!msg||!msg.o||!msg.d)return;
+LAN.shotsSeen++;
 const now = (typeof gameT === 'number') ? gameT : 0;
 if(now-LAN.shotWinT>1){LAN.shotWinT=now;LAN.shots=0;}
 if(LAN.shots>=LAN_MAX_SHOT_RATE)return;
@@ -26072,9 +26140,12 @@ const nx = dx / len, ny = dy / len, nz = dz / len;
 const feetY = player.pos.y - (typeof eyeHeight === 'function' ? eyeHeight() : 1.7);
 const headY=feetY+1.85;
 const t=CORE.lanRayCapsule(ox,oy,oz,nx,ny,nz,120,player.pos.x,player.pos.z,feetY,headY,0.38);
-if(t<0)return;
+LAN.lastShot={o:[ox,oy,oz],d:[nx,ny,nz],t:t,feetY:feetY,headY:headY,
+px:player.pos.x,pz:player.pos.z,wall:-2};
+if(t<0){LAN.shotsRejected++;return;}
 const wall=lanWallDistance(ox,oy,oz,nx,ny,nz,t);
-if(wall>=0&&wall<t-0.05)return;
+if(LAN.lastShot)LAN.lastShot.wall=wall;
+if(wall>=0&&wall<t-0.05){LAN.shotsRejected++;return;}
 const hitY=oy+ny*t;
 const isHead=hitY>feetY+1.45;
 const base = (typeof msg.dmg === 'number' && isFinite(msg.dmg)) ? Math.max(1, Math.min(60, msg.dmg)) : 24;
@@ -26150,6 +26221,7 @@ px:player.pos.x,pz:player.pos.z
 }
 function lanOnShot(w){
 if (LAN.role !== 'guest' || !LAN.connected) return;
+LAN.shotsSent++;
 const dir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 lanSend({
 type: 'shot',
@@ -26287,6 +26359,8 @@ window.__obLanGame={
 get player(){return player;},
 get enemies(){return enemies;},
 get started(){return started;},
+get weapon() { return (typeof wState !== 'undefined' && wState[curWeapon]) ? wState[curWeapon] : null; },
+get curWeapon() { return (typeof curWeapon !== 'undefined') ? curWeapon : null; },
 get camera(){return camera;},
 CORE:CORE
 };

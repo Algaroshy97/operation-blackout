@@ -31,6 +31,9 @@ const LAN = {
   winner: null,
   status: 'idle',
   shots: 0,
+  shotsSent: 0,
+  shotsSeen: 0,
+  shotsRejected: 0,
   shotWinT: 0,
   corrections: 0,
   joinAddr: '',
@@ -174,10 +177,19 @@ function lanHostStart() {
 
 function lanPrepareDuel() {
   if (typeof MODES === 'undefined' || !MODES.ffa) return;
+  // The duel runs on the compact loading yard, not on the 90 m survival arena.
+  // Assigned in memory on purpose: a LAN match must not rewrite the player's
+  // saved arena choice for solo play.
+  if (typeof SETTINGS !== 'undefined' && SETTINGS) SETTINGS.gameMap = 'yard';
+  if (typeof setActiveMap === 'function') setActiveMap('yard');
   MODES.ffa.lanDuel = true;
   MODES.ffa.targetScore = LAN.target;
   MODES.ffa.matchDuration = 600;
   if (typeof setActiveMode === 'function') setActiveMode('ffa');
+  // setActiveMode hands out the live mode object, which may not be the definition
+  // this function just edited: set the duel rules on the object the HUD reads.
+  const live = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+  if (live) { live.lanDuel = true; live.targetScore = LAN.target; live.matchDuration = 600; }
   if (typeof setSetting === 'function') setSetting('gameMode', 'ffa');
 }
 
@@ -202,6 +214,8 @@ function lanStartMatch() {
   const menu = lanEl('start-screen');
   if (menu) menu.style.display = 'none';
   startGame();
+  const live = (typeof getActiveMode === 'function') ? getActiveMode() : null;
+  if (live) { live.lanDuel = true; live.targetScore = LAN.target; }
   const spawns = (typeof openSpawnPoints === 'function') ? openSpawnPoints() : [];
   if (spawns.length) lanPlacePlayer(spawns[0]);
   lanShowScreen(LAN.role === 'guest' ? 'join' : 'host');
@@ -326,6 +340,7 @@ function _lanDistance(ax, az, bx, bz) {
 function lanHostGuestShot(msg) {
   const g = LAN.guestActor;
   if (!g || g.dead || !msg || !msg.o || !msg.d) return;
+  LAN.shotsSeen++;
   const now = (typeof gameT === 'number') ? gameT : 0;
   if (now - LAN.shotWinT > 1) { LAN.shotWinT = now; LAN.shots = 0; }
   if (LAN.shots >= LAN_MAX_SHOT_RATE) return;
@@ -338,9 +353,12 @@ function lanHostGuestShot(msg) {
   const feetY = player.pos.y - (typeof eyeHeight === 'function' ? eyeHeight() : 1.7);
   const headY = feetY + 1.85;
   const t = CORE.lanRayCapsule(ox, oy, oz, nx, ny, nz, 120, player.pos.x, player.pos.z, feetY, headY, 0.38);
-  if (t < 0) return;
+  LAN.lastShot = { o: [ox, oy, oz], d: [nx, ny, nz], t: t, feetY: feetY, headY: headY,
+                   px: player.pos.x, pz: player.pos.z, wall: -2 };
+  if (t < 0) { LAN.shotsRejected++; return; }
   const wall = lanWallDistance(ox, oy, oz, nx, ny, nz, t);
-  if (wall >= 0 && wall < t - 0.05) return;
+  if (LAN.lastShot) LAN.lastShot.wall = wall;
+  if (wall >= 0 && wall < t - 0.05) { LAN.shotsRejected++; return; }
   const hitY = oy + ny * t;
   const isHead = hitY > feetY + 1.45;
   const base = (typeof msg.dmg === 'number' && isFinite(msg.dmg)) ? Math.max(1, Math.min(60, msg.dmg)) : 24;
@@ -428,6 +446,7 @@ function lanGuestInput() {
 // decides whether it landed.
 function lanOnShot(w) {
   if (LAN.role !== 'guest' || !LAN.connected) return;
+  LAN.shotsSent++;
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   lanSend({
     type: 'shot',
@@ -581,6 +600,8 @@ if (typeof document !== 'undefined') {
       get player() { return player; },
       get enemies() { return enemies; },
       get started() { return started; },
+      get weapon() { return (typeof wState !== 'undefined' && wState[curWeapon]) ? wState[curWeapon] : null; },
+      get curWeapon() { return (typeof curWeapon !== 'undefined') ? curWeapon : null; },
       get camera() { return camera; },
       CORE: CORE
     };

@@ -421,6 +421,27 @@ settlement; headless results are labelled as automation evidence, not physical p
 **Out of scope:** public internet play, dedicated servers, matchmaking, anti-cheat,
 voice chat.
 
+**Status (stage a shipped, 1v1):**
+- `src/72_lan.js` + LAN rules in `src/01_core.js`: the host tab owns the guest's body,
+  damage, score and respawns; the guest predicts itself and sends input at 30 Hz.
+  Guest shots arrive as claims and are re-tested by the host (ray vs capsule, then a
+  wall check against the arena AABBs) before anyone loses health.
+- **Loading Yard** map (`MAP_DEFS.yard`, 40 x 28 m): raised dock, two long containers,
+  a short container, forklift and pallet stacks, six spawns. Duel matches select it in
+  memory only, so a LAN match never rewrites the saved solo arena.
+- Menu: `LAN — HOST` / `LAN — JOIN`, address entry, live status line, result card.
+  `tools/lan-host.mjs` prints the address guests should open; `?lan=host` and
+  `?lan=join` start straight into a lobby.
+- Evidence: `tests/test_lan_netcode.js` (7 protocol rules) and
+  `tests/probe_lan_duel.py` (14 checks: join, movement sync both ways, damage both
+  ways, kill, score credit, respawn, zero console errors) over two real browsers and
+  the real relay. **Automation evidence only** — two physical devices on one home
+  network have not played it yet, so the "Done when" line above is still open.
+- **Build budget moved to 2.375 MiB**: the 2 MiB ceiling had 9 bytes of headroom, so
+  no feature could land under it. It stays a hard gate in `test_release_build.py`.
+- Still open: stage (b) 2v2, stage (c) latency/rematch/spectate, and the physical
+  two-device acceptance run.
+
 ---
 
 ## Risks

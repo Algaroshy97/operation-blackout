@@ -644,6 +644,20 @@ function buildSnowyArena() {
   }
 }
 
+// The duel yard is pure data: every wall, container and pallet stack lives in the
+// map def, so geometry and collision can never disagree about where cover is.
+function buildYardArena() {
+  const def = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef('yard') : null;
+  const boxes = (def && def.colliders) || [];
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i];
+    const mat = MAT[b.mat] || MAT.concrete;
+    addBox((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2,
+           +(b.max.x - b.min.x).toFixed(2), +(b.max.y - b.min.y).toFixed(2), +(b.max.z - b.min.z).toFixed(2),
+           mat);
+  }
+}
+
 // ---- Map Registry ----
 function _regMap(id, fn) {
   const d = (typeof CORE !== 'undefined' && CORE.getMapDef) ? CORE.getMapDef(id) : {};
@@ -657,7 +671,7 @@ function _regMap(id, fn) {
     build: fn
   };
 }
-const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena) };
+const MAPS = { urban: _regMap('urban', buildUrbanArena), snowy: _regMap('snowy', buildSnowyArena), yard: _regMap('yard', buildYardArena) };
 
 let activeMapId = (typeof getSetting === 'function' && typeof CORE !== 'undefined' && CORE.sanitizeMapId(getSetting('gameMap'))) || 'urban';
 let activeMap = MAPS[activeMapId] || MAPS.urban;

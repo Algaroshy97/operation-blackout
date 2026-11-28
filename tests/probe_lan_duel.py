@@ -76,6 +76,32 @@ def hybrid_detail(state):
     return {"guest": state.get("guest"), "playerKills": state.get("playerKills")}
 
 
+def stage_faceoff(host_page, guest_page):
+    """Put both fighters 6 m apart in the yard's open lane, facing each other.
+
+    The duel map has real cover, and a shot through a container corner is
+    supposed to be rejected — so a damage test needs a line of sight that is
+    actually clear. x = 6, z = 3..9 is the one open north-south lane in the yard.
+    The host owns both bodies; the guest must adopt the host's copy.
+    """
+    host_page.evaluate(
+        "() => { const p = window.__obLanGame.player, g = window.__obLan.guestActor;"
+        "  p.pos.set(6, p.pos.y, 9); p.vel.set(0, 0, 0); p.spawnProtectionT = 0; p.yaw = 0; p.pitch = 0;"
+        "  if (g) { g.pos.x = 6; g.pos.z = 3; g.vel.set(0, 0, 0); }"
+        "  window.__obLan.lastShot = null; }")
+    wait_for(guest_page, "() => { const a = window.__obLan.hostAvatar, p = window.__obLanGame.player;"
+                         "  return a && Math.hypot(a.pos.x - p.pos.x, a.pos.z - p.pos.z) < 8; }", 25000)
+    time.sleep(1.0)
+
+
+def aim_at_other(page, target_selector):
+    page.evaluate(
+        "(sel) => { const t = eval(sel); const p = window.__obLanGame.player;"
+        "  if (!t) return;"
+        "  const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;"
+        "  p.yaw = Math.atan2(-dx, -dz); p.pitch = 0; }", target_selector)
+
+
 def host_state(page):
     return page.evaluate(
         "() => { const g = window.__obLan.guestActor;"
@@ -157,11 +183,9 @@ def _run(port):
             )
             check("host can see the guest body it must shoot", aim["dist"] > 0.5, aim)
             hp_before = aim["hp"]
+            stage_faceoff(host, guest)
             for _ in range(10):
-                host.evaluate("() => { const g = window.__obLan.guestActor; const p = window.__obLanGame.player;"
-                              "  if (!g || g.dead) return;"
-                              "  const dx = g.pos.x - p.pos.x, dz = g.pos.z - p.pos.z;"
-                              "  p.yaw = Math.atan2(-dx, -dz); p.pitch = -0.02; }")
+                aim_at_other(host, "window.__obLan.guestActor")
                 host.evaluate("() => window.__obLanApi.pressFire(true)")
                 time.sleep(1.0)
                 host.evaluate("() => window.__obLanApi.pressFire(false)")
@@ -175,17 +199,11 @@ def _run(port):
                   "host sees hp=%s, guest sees hp=%s" % (hs2["guest"] and hs2["guest"]["hp"], guest_state(guest)["hp"]))
 
             # --- guest shoots the host ---------------------------------------
-            guest.evaluate(
-                "() => { const a = window.__obLan.hostAvatar; const p = window.__obLanGame.player;"
-                "  const dx = a.pos.x - p.pos.x, dz = a.pos.z - p.pos.z;"
-                "  p.yaw = Math.atan2(-dx, -dz); p.pitch = 0; return true; }"
-            )
+            stage_faceoff(host, guest)
             host_hp_before = host_state(host)["playerHp"]
             shots = 0
             for _ in range(14):
-                guest.evaluate("() => { const a = window.__obLan.hostAvatar; const p = window.__obLanGame.player;"
-                               "  const dx = a.pos.x - p.pos.x, dz = a.pos.z - p.pos.z;"
-                               "  p.yaw = Math.atan2(-dx, -dz); p.pitch = 0; }")
+                aim_at_other(guest, "window.__obLan.hostAvatar")
                 guest.evaluate("() => window.__obLanApi.pressFire(true)")
                 shots += 1
                 time.sleep(1.0)
@@ -203,11 +221,8 @@ def _run(port):
             kills_before = host_state(host)["playerKills"]
             died = False
             for _ in range(14):
-                host.evaluate(
-                    "() => { const g = window.__obLan.guestActor; const p = window.__obLanGame.player;"
-                    "  if (!g || g.dead) return;"
-                    "  const dx = g.pos.x - p.pos.x, dz = g.pos.z - p.pos.z;"
-                    "  p.yaw = Math.atan2(-dx, -dz); p.pitch = -0.02; }")
+                stage_faceoff(host, guest)
+                aim_at_other(host, "window.__obLan.guestActor")
                 host.evaluate("() => window.__obLanApi.pressFire(true)")
                 time.sleep(1.0)
                 host.evaluate("() => window.__obLanApi.pressFire(false)")

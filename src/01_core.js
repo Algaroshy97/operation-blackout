@@ -468,7 +468,7 @@ const CORE = (function () {
     gameMode: { type: 'enum', def: 'survival', values: ['survival', 'tdm', 'ffa', 'domination', 'gun-game'], label: 'Game mode' },
     difficulty: { type: 'enum', def: 'regular', values: ['very-easy', 'recruit', 'regular', 'veteran'], label: 'Difficulty' },
     startingPerk: { type: 'enum', def: 'none', values: ['none', 'reload', 'steady', 'scav'], label: 'Starting perk', help: 'Choose one perk for a new run; it occupies a perk slot.' },
-    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy'], label: 'Arena map' },
+    gameMap: { type: 'enum', def: 'urban', values: ['urban', 'snowy', 'yard'], label: 'Arena map' },
     weather: { type: 'enum', def: 'clear', values: ['clear', 'dusk', 'night', 'rain', 'blizzard', 'random'], label: 'Weather and time (next match)' },
     tdmTeamSize: { type: 'number', def: 6, min: 2, max: 8, step: 1, label: 'TDM team size' },
     tdmScoreLimit: { type: 'number', def: 75, min: 2, max: 200, step: 1, label: 'TDM score limit' },
@@ -8361,6 +8361,44 @@ const CORE = (function () {
     depot: { wall: [-16, 1.6, 26, 0.8, 3.2, 16], door: [-26, 1.6, 18, 18, 3.2, 0.8] }
   };
 
+  // ---- Loading yard: the LAN duel arena -------------------------------------
+  // A 40 x 28 m walled yard, built for two people at 10 m, not for a wave of AI:
+  // two containers make a long sight line and a short one, a raised dock closes
+  // the west side, and pallet stacks give chest-height cover on the crossing.
+  // Nothing here is copied from another title; the layout is a plain dock apron.
+  function buildYardColliders() {
+    const out = [];
+    const box = function (x, y, z, w, h, d, m) { out.push(_bDef(x, y, z, w, h, d, m)); };
+    // perimeter
+    box(0, 2.5, -14, 40.8, 5, 0.8, 'concrete');
+    box(0, 2.5, 14, 40.8, 5, 0.8, 'concrete');
+    box(-20, 2.5, 0, 0.8, 5, 28, 'concrete');
+    box(20, 2.5, 0, 0.8, 5, 28, 'concrete');
+    // raised loading dock along the west wall
+    box(-14.6, 0.62, 0, 9.6, 1.24, 12, 'concrete2');
+    box(-9.9, 0.62, -4.6, 0.5, 1.24, 2.6, 'metal');
+    box(-11.2, 1.9, -10.4, 2.8, 2.6, 2.8, 'wood');
+    // containers: long cover, one north one south, offset so the lane snakes
+    box(6.5, 1.3, -7.4, 12.4, 2.6, 2.9, 'metal');
+    box(-4.5, 1.3, 7.6, 12.4, 2.6, 2.9, 'red');
+    box(13.8, 1.3, 4.6, 2.9, 2.6, 8.2, 'metal');
+    // forklift and pallet stacks
+    box(0.4, 0.72, -0.6, 2.1, 1.44, 3.3, 'accent');
+    box(3.6, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+    box(4.9, 0.7, 3.4, 1.4, 1.4, 1.4, 'wood');
+    box(-3.2, 0.7, -4.2, 1.4, 1.4, 1.4, 'wood');
+    box(10.4, 0.7, -1.4, 1.4, 1.4, 1.4, 'wood');
+    box(-8.4, 0.7, -11.2, 1.4, 1.4, 1.4, 'wood');
+    box(-12.2, 0.7, 10.6, 1.4, 1.4, 1.4, 'wood');
+    // low concrete barrier across the north lane
+    box(0.5, 0.55, -11.6, 6.2, 1.1, 0.6, 'concrete');
+    return out;
+  }
+
+  const YARD_SPAWN_POINTS = [
+    [-17, 10.6], [17, -10.6], [-17, -10.6], [17, 10.6], [0.5, 12.2], [0.5, -12.6]
+  ];
+
   const MAP_DEFS = {
     urban: {
       id: 'urban',
@@ -8403,10 +8441,31 @@ const CORE = (function () {
         sunColor: 0xfff2e0, sunPos: [50, 24, -35], sunDir: [160, 70, -120]
       },
       colliders: buildSnowyColliders()
+    },
+    yard: {
+      id: 'yard',
+      name: 'Loading Yard',
+      worldSize: 90,
+      playerSpawn: { x: -16.5, y: 0.9, z: 10.6 },
+      spawnPoints: YARD_SPAWN_POINTS,
+      stationLayout: [],
+      dominationFlags: [],
+      districts: [
+        { key: 'dock', name: 'LOADING DOCK', price: 750, minX: -20, maxX: 0, minZ: -14, maxZ: 14 },
+        { key: 'gate', name: 'GATE APRON', price: 750, minX: 0, maxX: 20, minZ: -14, maxZ: 14 }
+      ],
+      barriers: {},
+      icePatches: [],
+      sky: {
+        top: 0x3a6cae, mid: 0x93aecf, horizon: 0xf3c39a, low: 0x4c4652,
+        fogColor: 0x232a33, skyColor: 0x8fabc8,
+        sunColor: 0xffe0bb, sunPos: [30, 42, -22], sunDir: [120, 150, -90]
+      },
+      colliders: buildYardColliders()
     }
   };
 
-  const MAP_IDS = ['urban', 'snowy'];
+  const MAP_IDS = ['urban', 'snowy', 'yard'];
   const DEFAULT_MAP_ID = 'urban';
 
   function sanitizeMapId(id) {
