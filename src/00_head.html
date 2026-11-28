@@ -145,6 +145,11 @@
   #compass-strip:before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:#ffd24a;transform:translateX(-50%)}
   #compass-canvas{position:absolute;top:0;left:0;width:280px;height:18px}
   #minimap{top:20px;left:26px;width:150px;height:150px;border-radius:50%;overflow:hidden;background:rgba(10,14,10,.72);border:2px solid rgba(255,255,255,.28);box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  #minimap.targeting{top:50%;left:50%;width:220px;height:220px;transform:translate(-50%,-50%);z-index:42;pointer-events:auto;cursor:crosshair;border-color:#ffd24a;box-shadow:0 0 24px rgba(255,210,74,.55);background:rgba(10,14,10,.88);touch-action:none}
+  body.touch #minimap.targeting{top:50%;left:50%;right:auto;width:176px;height:176px;transform:translate(-50%,-50%);z-index:42;pointer-events:auto}
+  #airstrike-prompt{top:calc(50% + 122px);left:50%;transform:translateX(-50%);z-index:43;display:none;align-items:center;gap:10px;background:rgba(10,14,10,.88);border:1px solid rgba(255,210,74,.65);border-radius:4px;padding:6px 12px;color:#ffd24a;font-size:11px;font-weight:700;letter-spacing:2px;pointer-events:auto;white-space:nowrap}
+  body.touch #airstrike-prompt{top:calc(50% + 98px);font-size:10px;letter-spacing:1.5px;padding:5px 10px}
+  #airstrike-cancel{background:rgba(180,40,30,.85);border:1px solid #ff7a66;color:#fff;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:1.5px;padding:4px 9px;border-radius:3px;cursor:pointer}
   #minimap-canvas{width:100%;height:100%}
   #hit-dir-container{top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:240px}
   .hit-dir{position:absolute;opacity:0}
@@ -518,6 +523,7 @@
 </div>
 <div id="compass" class="hud"><div id="compass-strip"><canvas id="compass-canvas" width="280" height="18"></canvas></div></div>
 <div id="minimap" class="hud"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
+<div id="airstrike-prompt" class="hud"><span id="airstrike-prompt-txt">CLICK MINIMAP FOR AIRSTRIKE</span><button id="airstrike-cancel" type="button">CANCEL</button></div>
 <div id="score-hud" class="hud"><div class="lbl">SCORE</div><div class="val" id="score-val">0</div></div>
 <div id="credit-hud" class="hud"><div class="lbl">CREDITS</div><div class="val" id="credit-val">0</div></div>
 <div id="wave-hud" class="hud"><div id="wave-title">WAVE</div><div id="wave-num">1</div><div id="enemies-left">5 HOSTILES</div></div>

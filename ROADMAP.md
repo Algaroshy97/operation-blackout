@@ -1,5 +1,11 @@
 # Operation Blackout — Roadmap
 
+## Approved gameplay and LAN follow-up
+
+1. **Gameplay preview first.** Preserve body collision on large enemies while removing the excess stand-off gap and making contact knife hits reliable. Retain Off / ADS Only / Always On gyro modes and add per-axis sensitivity and inversion. Default the mobile sniper's combined ADS + Fire button to fire once on release, including quick taps; offer the existing hold-to-fire behavior in settings. Use a longer steerable slide with a more pronounced animation that ends crouched; add Hold / Toggle crouch on mobile and desktop (Hold default). Select the in-game airstrike zone on the minimap and show a clearer warning and impact. Keep the existing offline and hosted builds working.
+2. **LAN 1v1 after gameplay ships.** Add a separate same-network browser mode with one PC hosting a match on an original compact warehouse/loading-yard map. Verify two independent clients can join, complete a match, and return to the lobby. No public server or online matchmaking in this scope. Document any mobile secure-context limits separately from core LAN compatibility.
+3. **LAN 2v2 after 1v1.** Extend the verified LAN mode to four clients, two per team. Verify rules, scoring, disconnect behavior, and rematches before release.
+
 ## User-approved phased delivery plan (supersedes remaining milestone scope below)
 
 The historical milestone ledger below is retained as evidence, not as approval of

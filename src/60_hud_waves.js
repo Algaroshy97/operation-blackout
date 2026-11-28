@@ -1671,6 +1671,39 @@ function drawMinimap() {
       mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, 6, 0, 7); mmCtx.stroke();
     }
   }
+  if (typeof activeAirstrikes !== 'undefined' && activeAirstrikes.length > 0) {
+    for (let i = 0; i < activeAirstrikes.length; i++) {
+      const st = activeAirstrikes[i];
+      CORE.minimapBlipOffset(st.tx, st.tz, px, pz, scale, _mmBlipOut);
+      const zr = (st.zoneR || 11) * scale;
+      mmCtx.fillStyle = 'rgba(255,70,40,0.22)';
+      mmCtx.strokeStyle = '#ff5a3c';
+      mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, zr, 0, Math.PI * 2); mmCtx.fill(); mmCtx.stroke();
+    }
+  }
+  if (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) {
+    mmCtx.save();
+    mmCtx.strokeStyle = 'rgba(255,210,74,0.45)';
+    mmCtx.lineWidth = 1;
+    mmCtx.setLineDash([4, 4]);
+    mmCtx.beginPath();
+    mmCtx.arc(0, 0, Math.min(R - 2, (CORE.AIRSTRIKE_MAX_RANGE || 45) * scale), 0, Math.PI * 2);
+    mmCtx.stroke();
+    mmCtx.restore();
+    if (typeof airstrikeHover !== 'undefined' && airstrikeHover && airstrikeHover.active) {
+      CORE.minimapBlipOffset(airstrikeHover.worldX, airstrikeHover.worldZ, px, pz, scale, _mmBlipOut);
+      const zr = (CORE.AIRSTRIKE_ZONE_RADIUS || 11) * scale;
+      mmCtx.fillStyle = airstrikeHover.valid ? 'rgba(255,210,74,0.25)' : 'rgba(255,60,40,0.25)';
+      mmCtx.strokeStyle = airstrikeHover.valid ? '#ffd24a' : '#ff4030';
+      mmCtx.lineWidth = 1.8;
+      mmCtx.beginPath(); mmCtx.arc(_mmBlipOut.x, _mmBlipOut.z, zr, 0, Math.PI * 2); mmCtx.fill(); mmCtx.stroke();
+      mmCtx.beginPath();
+      mmCtx.moveTo(_mmBlipOut.x - 5, _mmBlipOut.z); mmCtx.lineTo(_mmBlipOut.x + 5, _mmBlipOut.z);
+      mmCtx.moveTo(_mmBlipOut.x, _mmBlipOut.z - 5); mmCtx.lineTo(_mmBlipOut.x, _mmBlipOut.z + 5);
+      mmCtx.stroke();
+    }
+  }
   mmCtx.restore();
   // player arrow (center, up)
   mmCtx.fillStyle = '#7ee08a';

@@ -29,6 +29,7 @@ function pauseGame() {
   }
   paused = true;
   stopMusic();
+  if (typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(true);
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   if (typeof clearInputState === 'function') clearInputState();
   $id('pause-menu').style.display = 'flex';
@@ -44,6 +45,8 @@ function resumeGame() {
 function killPlayer(killer) {
   if (player.dead) return;
   player.dead = true;
+  if (typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(true);
+  player.sliding = false;
   clearInputState();
   if (typeof noteModeDeath === 'function') noteModeDeath();
   const activeMode = typeof getActiveMode === 'function' ? getActiveMode() : null;
@@ -108,6 +111,7 @@ function victory() {
   gameEnded = true;
   runPhase = 'victory';
   stopMusic();
+  if (typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(true);
   if (typeof cancelGrenadeCharge === 'function') cancelGrenadeCharge();
   playSound('victory');
   if (document.pointerLockElement) document.exitPointerLock();
@@ -246,6 +250,7 @@ function resetGame() {
   player.downed = false;
   player.dead = false; player.crouching = false; player.sprinting = false;
   player.sliding = false; player.slideT = 0; player.slideBlend = 0; player.stanceOffset = 0; player.onGround = false;
+  player.crouchAfterSlide = false; player.prevCrouchHeld = false;
   player.spawnProtectionT = 0;
   player.coyoteT = 0; player.jumpBufT = 0;
   player.stamina = CFG.player.maxStamina; player.exhausted = false;
@@ -551,7 +556,9 @@ function buildSettingsUI() {
     });
   }
   for (const key in CORE.SETTINGS_SCHEMA) {
-    if ((key === 'gyroAim' || key === 'gyroSensitivity' || key === 'gyroAdsSensitivity') && !IS_TOUCH) continue;
+    if ((key === 'gyroAim' || key === 'gyroSensitivity' || key === 'gyroAdsSensitivity' ||
+         key === 'gyroSensitivityX' || key === 'gyroSensitivityY' ||
+         key === 'gyroInvertX' || key === 'gyroInvertY') && !IS_TOUCH) continue;
     const spec = CORE.SETTINGS_SCHEMA[key];
     const row = document.createElement('div');
     row.className = 'set-row';
@@ -1576,7 +1583,8 @@ function frame(now) {
     // forces an immediate redraw so snappy turns remain responsive.
     hudRedrawT += dt;
     const yawMoved = Math.abs(player.yaw - lastHudYaw);
-    if (CORE.shouldRedrawHudCanvas(hudRedrawT, yawMoved, gameT - hudFlickT, CORE.HUD_REDRAW_INTERVAL, CORE.HUD_FLICK_YAW_THRESHOLD, CORE.HUD_FLICK_COOLDOWN)) {
+    const forceMinimapRedraw = (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) || (typeof hasActiveAirstrikes === 'function' && hasActiveAirstrikes());
+    if (forceMinimapRedraw || CORE.shouldRedrawHudCanvas(hudRedrawT, yawMoved, gameT - hudFlickT, CORE.HUD_REDRAW_INTERVAL, CORE.HUD_FLICK_YAW_THRESHOLD, CORE.HUD_FLICK_COOLDOWN)) {
       hudRedrawT = 0; lastHudYaw = player.yaw;
       if (yawMoved > CORE.HUD_FLICK_YAW_THRESHOLD) hudFlickT = gameT;
       drawMinimap();
@@ -1614,7 +1622,7 @@ function frame(now) {
     const isRedMotion = !motion;
     const slideBlend = player.slideBlend;
     const isTac = player.tacT > 0;
-    const desiredMobilityFov = CORE.mobilityFovBoost(player.sliding, isTac, adsAmount, isRedMotion);
+    const desiredMobilityFov = CORE.mobilityFovBoost(player.sliding, isTac, adsAmount, isRedMotion, true);
     slideFov += (desiredMobilityFov - slideFov) * Math.min(1, 10 * dt);
     const zoom = CORE.weaponAdsZoom(curW().type);
     const targetFov = CORE.targetCameraFov(getSetting('fov'), adsAmount, zoom, slideFov);
@@ -1622,7 +1630,7 @@ function frame(now) {
     camera.fov += (targetFov - camera.fov) * Math.min(1, 12 * dt);
     if (Math.abs(camera.fov - previousFov) > 0.001) camera.updateProjectionMatrix();
 
-    CORE.cameraPositionOffsets(player.bobPhase, player.bobAmp, slideBlend, isRedMotion, _camPosOut);
+    CORE.cameraPositionOffsets(player.bobPhase, player.bobAmp, slideBlend, isRedMotion, _camPosOut, CORE.CAMERA_SLIDE_DIP_ACTIVE);
     camera.position.set(player.pos.x + _camPosOut.x, player.pos.y + player.stanceOffset + _camPosOut.y, player.pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw + player.recoilY;
@@ -1630,7 +1638,7 @@ function frame(now) {
 
     // roll: bob + slide lean + strafe banking + sway
     const strafeDir = CORE.strafeDirection(!!keys['KeyA'], !!keys['KeyD'], window.__analogMove ? window.__analogMove.x : 0);
-    camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8);
+    camera.rotation.z = CORE.cameraRoll(player.bobPhase, player.bobAmp, slideBlend, strafeDir, isRedMotion, swayX, adsAmount > 0.8, CORE.CAMERA_SLIDE_ROLL_ACTIVE);
     shotKick = CORE.decayShotKick(shotKick, dt);
   } else {
     // death cam: fall to ground

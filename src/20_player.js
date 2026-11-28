@@ -7,6 +7,8 @@ let mouse1Down = false;
 let mouseX = 0, mouseY = 0;
 const keyboardSprint = { toggled: false, lastTap: -99, tactical: false };
 const touchSprint = { toggled: false, lastTap: -99, tactical: false };
+const keyboardCrouch = { toggled: false };
+const touchCrouch = { toggled: false };
 let tacOwner = null, lastSprintInput = null;
 
 function pressSprint(input, mode) {
@@ -27,14 +29,44 @@ function resetSprintInput(input) {
   }
 }
 
-
 function resetKeyboardSprint() {
   resetSprintInput(keyboardSprint);
   delete keys.ShiftLeft;
 }
 
+function resetKeyboardCrouch() {
+  keyboardCrouch.toggled = false;
+  if (typeof player !== 'undefined' && player) {
+    player.crouchAfterSlide = false;
+    player.prevCrouchHeld = false;
+  }
+  delete keys.KeyC;
+  delete keys.ControlLeft;
+  delete keys.ControlRight;
+  delete pressed.KeyC;
+  delete pressed.ControlLeft;
+  delete pressed.ControlRight;
+}
+
+function resetTouchCrouch() {
+  touchCrouch.toggled = false;
+  if (typeof player !== 'undefined' && player) {
+    player.crouchAfterSlide = false;
+    player.prevCrouchHeld = false;
+  }
+  delete keys.__touchCrouch;
+  delete pressed.__slide;
+}
+
 addEventListener('keydown', function (e) {
   if (e.repeat) return;
+  if (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) {
+    if (e.code === 'Escape' || e.code === 'KeyZ') {
+      e.preventDefault();
+      if (typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(false);
+    }
+    return;
+  }
   keys[e.code] = true; pressed[e.code] = true;
   if (e.code === 'ShiftLeft') pressSprint(keyboardSprint, getSetting('keyboardSprint'));
   if (['Space','ArrowUp','ArrowDown','KeyW','KeyA','KeyS','KeyD'].indexOf(e.code) >= 0) e.preventDefault();
@@ -54,6 +86,10 @@ addEventListener('keyup', function (e) {
 
 canvas.addEventListener('mousedown', function (e) {
   if (!started || paused || player.dead) return;
+  if (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) {
+    if (e.button === 2 && typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(false);
+    return;
+  }
   if (!pointerLocked) { canvas.requestPointerLock(); return; }
   if (e.button === 0) mouse1Down = true;
   if (e.button === 2) keys['Mouse2'] = true;
@@ -65,27 +101,47 @@ addEventListener('mouseup', function (e) {
 function clearInputState() {
   resetSprintInput(keyboardSprint);
   resetSprintInput(touchSprint);
+  resetKeyboardCrouch();
+  resetTouchCrouch();
   player.sprinting = false;
+  if (typeof cancelTouchSniperFire === 'function') cancelTouchSniperFire();
+  if (typeof rebaselineGyro === 'function') rebaselineGyro();
   mouse1Down = false; mouseX = 0; mouseY = 0;
   for (const k in keys) delete keys[k];
   for (const k in pressed) delete pressed[k];
   if (typeof touchState !== 'undefined') {
     touchState.moveX = 0; touchState.moveZ = 0; touchState.firing = false;
-    touchState.tapFiring = false; touchState.ads = false; touchState.lookX = 0; touchState.lookY = 0;
+    touchState.tapFiring = false; touchState.sniperReleaseShot = false;
+    touchState.ads = false; touchState.lookX = 0; touchState.lookY = 0;
   }
   window.__analogMove = null;
 }
-addEventListener('blur', clearInputState);
-addEventListener('pagehide', clearInputState);
-document.addEventListener('visibilitychange', function () { if (document.hidden) clearInputState(); });
-addEventListener('contextmenu', function (e) { e.preventDefault(); });
+addEventListener('blur', function () {
+  clearInputState();
+  if (typeof cancelAirstrikeTargeting === 'function' && typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) cancelAirstrikeTargeting(true);
+});
+addEventListener('pagehide', function () {
+  clearInputState();
+  if (typeof cancelAirstrikeTargeting === 'function' && typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) cancelAirstrikeTargeting(true);
+});
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) {
+    clearInputState();
+    if (typeof cancelAirstrikeTargeting === 'function' && typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting()) cancelAirstrikeTargeting(true);
+  }
+});
+addEventListener('contextmenu', function (e) {
+  e.preventDefault();
+  if (typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting() && typeof cancelAirstrikeTargeting === 'function') cancelAirstrikeTargeting(false);
+});
 canvas.addEventListener('wheel', function (e) {
   if (started && !paused && !player.dead && !player.downed && !(typeof extraction !== 'undefined' && extraction && extraction.phase === 'cinematic')) cycleWeapon(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
 
 document.addEventListener('pointerlockchange', function () {
   pointerLocked = document.pointerLockElement === canvas;
-  if (!pointerLocked && started && !paused && !player.dead && !gameEnded) pauseGame();
+  if (!pointerLocked && started && !paused && !player.dead && !gameEnded &&
+      !(typeof isAirstrikeTargeting === 'function' && isAirstrikeTargeting())) pauseGame();
 });
 const MAX_MOUSE_EVENT_DELTA = 80; // reject pointer-lock spikes after a lost/stalled frame
 addEventListener('mousemove', function (e) {
@@ -111,6 +167,7 @@ const player = {
   recoilP: 0, recoilY: 0,   // accumulated recoil offsets (decayed)
   // slide state
   sliding: false, slideT: 0, slideBlend: 0, stanceOffset: 0, slideDir: new THREE.Vector3(),
+  crouchAfterSlide: false, prevCrouchHeld: false,
   // jump feel
   coyoteT: 0, jumpBufT: 0, lastGroundT: 0,
   // mantle (see tryMantle) and tactical-sprint burst
@@ -282,9 +339,13 @@ function updatePlayer(dt) {
     : getSetting('keyboardSprint') === 'toggle' ? keyboardSprint.toggled : keys.ShiftLeft;
   const canRun = movingInput && !keys.Mouse2 && !player.downed && player.landStunT <= 0;
 
-  // ---- Slide (C/Ctrl or touch while sprinting on ground) ----
+  // ---- Slide & Crouch (C/Ctrl or touch) ----
+  const kbCrouchMode = typeof getSetting === 'function' ? getSetting('keyboardCrouch') : 'hold';
+  const tCrouchMode = typeof getSetting === 'function' ? getSetting('touchCrouch') : 'hold';
+  const kbCrouchEdge = !!(pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight']);
+  const touchCrouchEdge = !!pressed['__slide'];
   const crouchKey = !!(keys.KeyC || keys.ControlLeft || keys.ControlRight || keys.__touchCrouch);
-  const crouchPressed = !!(pressed['KeyC'] || pressed['ControlLeft'] || pressed['ControlRight'] || pressed['__slide']);
+  const crouchPressed = kbCrouchEdge || touchCrouchEdge;
   const wasSliding = player.sliding;
   const wasSprinting = player.sprinting && lastSprintInput === sprintInput;
   const startsSlide = !wasSliding && (crouchKey || crouchPressed) &&
@@ -298,16 +359,18 @@ function updatePlayer(dt) {
       tacOwner = sprintInput;
     }
   }
+  let finishSlideCrouched = false;
   if (startsSlide) {
     startSlide(moveX, moveZ);
+    player.crouchAfterSlide = false;
   }
   if (player.sliding) {
     player.slideT += dt;
-    // A/D or a lateral stick input curves the slide.
+    // A/D or a lateral stick input curves the slide smoothly.
     if (Math.abs(moveX) > moveThreshold) {
-      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, Math.sign(moveX), player.yaw, dt, CORE.SLIDE_STEER_RATE, player.slideDir);
+      const steerRate = CORE.SLIDE_ACTIVE_STEER_RATE || CORE.SLIDE_STEER_RATE;
+      CORE.stepSlideSteering(player.slideDir.x, player.slideDir.z, Math.sign(moveX), player.yaw, dt, steerRate, player.slideDir);
     }
-    // slide keeps momentum from sprint: 1.2x sprint speed decaying to crouch speed over 0.9s
     const isTacSlide = typeof player !== 'undefined' && typeof player.tacT === 'number' && player.tacT > 0;
     const sprintBase = typeof CORE !== 'undefined' && typeof CORE.slideBaseSprintSpeed === 'function'
       ? CORE.slideBaseSprintSpeed(CFG.player.speed, CFG.player.sprintMul, isTacSlide)
@@ -315,29 +378,30 @@ function updatePlayer(dt) {
     const crouchBase = CFG.player.speed * CORE.SLIDE_END_MUL;
     const activeMId = (typeof getActiveMap === 'function') ? (getActiveMap().id || 'urban') : 'urban';
     const onIce = typeof CORE !== 'undefined' && typeof CORE.isPositionOnIce === 'function' && CORE.isPositionOnIce(player.pos.x, player.pos.z, activeMId);
-    const slideDur = typeof CORE !== 'undefined' && typeof CORE.slideDuration === 'function' ? CORE.slideDuration(onIce) : CORE.SLIDE_DURATION;
-    const slideTimeout = typeof CORE !== 'undefined' && typeof CORE.slideTimeout === 'function' ? CORE.slideTimeout(onIce) : CORE.SLIDE_TIMEOUT_T;
+    const slideDur = typeof CORE !== 'undefined' && typeof CORE.activeSlideDuration === 'function'
+      ? CORE.activeSlideDuration(onIce)
+      : (typeof CORE.slideDuration === 'function' ? CORE.slideDuration(onIce) : CORE.SLIDE_DURATION);
     const slideSpeed = CORE.slideSpeedAt(player.slideT, sprintBase, crouchBase, slideDur, CORE.SLIDE_START_MUL, CORE.SLIDE_END_MUL);
     player.vel.x = player.slideDir.x * slideSpeed;
     player.vel.z = player.slideDir.z * slideSpeed;
-    // Slide cancel. The slide used to commit for a full 0.9 s with no early-out
-    // except releasing crouch, which removed the one piece of movement tech that
-    // rewards practice. Guarded past 0.12 s so the press that STARTED the slide
-    // cannot also cancel it on the same frame.
     if (wasSliding && crouchPressed && CORE.canSlideCancel(player.slideT, CORE.SLIDE_CANCEL_MIN_T)) {
       player.sliding = false;
+      finishSlideCrouched = true;
       playSound(CORE.slideCancelSound());
       spawnSlideDust(player.pos, 'cancel', Math.hypot(player.vel.x, player.vel.z));
     }
-    // slide ends: timeout, released crouch, or stopped
-    const commitSlide = player.slideT < 0.16;
-    if (player.sliding && CORE.isSlideExpired(player.slideT, crouchKey || commitSlide, movingInput, slideTimeout, CORE.SLIDE_STOP_MIN_T)) {
+    if (player.sliding && CORE.isSlideExpired(player.slideT, true, movingInput, slideDur, CORE.SLIDE_STOP_MIN_T)) {
       player.sliding = false;
+      finishSlideCrouched = true;
       spawnSlideDust(player.pos, 'stop', Math.hypot(player.vel.x, player.vel.z));
     }
-    // slide-jump: convert momentum into a boost jump
+    // slide-jump: convert momentum into a boost jump (exits crouch/slide)
     if (pressed['Space'] && player.onGround) {
       player.sliding = false;
+      finishSlideCrouched = false;
+      player.crouchAfterSlide = false;
+      keyboardCrouch.toggled = false;
+      touchCrouch.toggled = false;
       const spd = Math.hypot(player.vel.x, player.vel.z);
       const boost = CORE.slideJumpBoost(spd, sprintBase, CORE.SLIDE_BOOST_MAX, CORE.SLIDE_BOOST_SCALE);
       player.vel.x *= boost; player.vel.z *= boost;
@@ -349,10 +413,37 @@ function updatePlayer(dt) {
       spawnSlideDust(player.pos, 'jump', spd);
     }
   }
+  if (finishSlideCrouched) {
+    // A fresh sprint press should stand and run, not toggle off the old sprint.
+    sprintInput.toggled = false;
+    const activeMode = analogMove ? tCrouchMode : kbCrouchMode;
+    if (activeMode === 'toggle') {
+      if (analogMove) touchCrouch.toggled = true;
+      else keyboardCrouch.toggled = true;
+    } else {
+      player.crouchAfterSlide = true;
+    }
+  } else if (!startsSlide && !wasSliding) {
+    if (kbCrouchEdge) {
+      if (kbCrouchMode === 'toggle') keyboardCrouch.toggled = !keyboardCrouch.toggled;
+      else player.crouchAfterSlide = false;
+    }
+    if (touchCrouchEdge) {
+      if (tCrouchMode === 'toggle') touchCrouch.toggled = !touchCrouch.toggled;
+      else player.crouchAfterSlide = false;
+    }
+    if (player.prevCrouchHeld && !crouchKey) player.crouchAfterSlide = false;
+  }
+  if (!finishSlideCrouched && !wasSliding && player.crouching && (pressed['Space'] || pressed['ShiftLeft'] || pressed['__touchSprint'])) {
+    player.crouchAfterSlide = false;
+    keyboardCrouch.toggled = false;
+    touchCrouch.toggled = false;
+  }
+  player.prevCrouchHeld = crouchKey;
 
-  updatePlayerStance(player.sliding || crouchKey || player.downed, dt);
+  updatePlayerStance(player.sliding || crouchKey || keyboardCrouch.toggled || touchCrouch.toggled || player.crouchAfterSlide || player.downed, dt);
   const slideTarget = player.sliding ? 1 : 0;
-  player.slideBlend += (slideTarget - player.slideBlend) * -Math.expm1(-(slideTarget ? 17 : 11) * dt);
+  player.slideBlend += (slideTarget - player.slideBlend) * -Math.expm1(-(slideTarget ? 12 : 8) * dt);
 
   const wantSprint = runRequested && canRun && !player.crouching;
   if (player.tacT > 0 && ((!player.sliding && (!wantSprint || tacOwner !== sprintInput)) || player.exhausted)) player.tacT = 0;

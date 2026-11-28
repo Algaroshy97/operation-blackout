@@ -791,13 +791,25 @@ class BlackoutStandaloneBrowserTests(unittest.TestCase):
             updatePlayer(0.016);
             const entered = player.sliding && !keys.__touchCrouch && player.slideBlend > 0 && player.slideBlend < 1;
             delete pressed.__slide;
-            for (let i = 0; i < 12; i++) updatePlayer(0.016);
-            const recovered = !player.sliding && player.sprinting && player.slideBlend > 0;
+            delete pressed.__touchSprint;
+            const step = () => { gameT += 0.016; updatePlayer(0.016); };
+            for (let i = 0; i < 12; i++) step();
+            const staysSliding = player.sliding;
+            for (let i = 0; i < 120 && player.sliding; i++) step();
+            const finishedCrouched = !player.sliding && player.crouching && !player.sprinting && player.slideBlend > 0;
+            for (let i = 0; i < 10; i++) step();
+            const staysCrouched = player.crouching && !player.sprinting;
+            fire(run, 'touchstart', 5, 800, 400);
+            fire(run, 'touchend', 5, 800, 400);
+            step();
+            const sprintAgain = !player.crouching && player.sprinting;
+            delete pressed.__touchSprint;
             fire(joy, 'touchcancel', 1, x, y - 24);
-            fire(joy, 'touchstart', 4, x, y - 24);
-            updatePlayer(0.016);
-            return {sprint, entered, recovered, cleared: !player.sprinting,
-                keyboardUnchanged: getSetting('keyboardSprint') === 'hold'};
+            fire(joy, 'touchstart', 4, x, y);
+            fire(joy, 'touchmove', 4, x, y - 24);
+            step();
+            return {sprint, entered, staysSliding, finishedCrouched, staysCrouched, sprintAgain,
+                cleared: !player.sprinting, keyboardUnchanged: getSetting('keyboardSprint') === 'hold'};
         }""")
         self.assertTrue(all(result.values()), result)
 

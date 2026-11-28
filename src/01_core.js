@@ -153,6 +153,9 @@ const CORE = (function () {
     return res;
   }
 
+  const GYRO_NOISE_DEADZONE = 0.035;
+  const GYRO_DRIFT_RATE_MAX = 0.45;
+  const GYRO_DRIFT_ANGLE_MAX = 0.06;
   function gyroLookDelta(betaDelta, gammaDelta, sensitivity, out) {
     const b = _isNum(betaDelta) ? betaDelta : 0;
     const g = _isNum(gammaDelta) ? gammaDelta : 0;
@@ -163,12 +166,16 @@ const CORE = (function () {
     result.pitch = -wrap(b) * s;
     return result;
   }
-  function gyroScreenLookDelta(betaDelta, gammaDelta, screenAngle, sensitivity, out) {
+  function gyroScreenLookDelta(betaDelta, gammaDelta, screenAngle, sensitivity, out, sensX, sensY) {
     const angle = ((Number(screenAngle) || 0) % 360 + 360) % 360;
-    if (angle >= 45 && angle < 135) return gyroLookDelta(gammaDelta, betaDelta, sensitivity, out);
-    if (angle >= 225 && angle < 315) return gyroLookDelta(-gammaDelta, -betaDelta, sensitivity, out);
-    if (angle >= 135 && angle < 225) return gyroLookDelta(-betaDelta, -gammaDelta, sensitivity, out);
-    return gyroLookDelta(betaDelta, gammaDelta, sensitivity, out);
+    let res;
+    if (angle >= 45 && angle < 135) res = gyroLookDelta(gammaDelta, betaDelta, sensitivity, out);
+    else if (angle >= 225 && angle < 315) res = gyroLookDelta(-gammaDelta, -betaDelta, sensitivity, out);
+    else if (angle >= 135 && angle < 225) res = gyroLookDelta(-betaDelta, -gammaDelta, sensitivity, out);
+    else res = gyroLookDelta(betaDelta, gammaDelta, sensitivity, out);
+    if (_isNum(sensX)) res.yaw *= sensX;
+    if (_isNum(sensY)) res.pitch *= sensY;
+    return res;
   }
   function normalizeGyroMode(mode) {
     if (mode === true || mode === 'true' || mode === 'always') return 'always';
@@ -187,8 +194,19 @@ const CORE = (function () {
     if (isScoped) return ads * 0.615;
     return ads;
   }
+  function _filterGyroAxis(prevVal, curVal, dtMs) {
+    const diff = ((curVal - prevVal + 540) % 360) - 180;
+    const absD = Math.abs(diff);
+    if (dtMs >= 8 && absD < GYRO_DRIFT_ANGLE_MAX && (absD / (dtMs / 1000)) <= GYRO_DRIFT_RATE_MAX) {
+      return { delta: 0, next: curVal };
+    }
+    if (absD < GYRO_NOISE_DEADZONE) {
+      return { delta: 0, next: prevVal };
+    }
+    return { delta: diff, next: curVal };
+  }
   function stepGyroSample(prev, beta, gamma, screenAngle, nowMs, active, maxGapMs, out) {
-    const res = _isObj(out) ? out : { rebaselined: false, betaDelta: 0, gammaDelta: 0 };
+    const res = _isObj(out) ? out : { rebaselined: false, betaDelta: 0, gammaDelta: 0, nextBeta: 0, nextGamma: 0 };
     res.betaDelta = 0; res.gammaDelta = 0;
     if (!active || typeof beta !== 'number' || typeof gamma !== 'number' || !isFinite(beta) || !isFinite(gamma)) {
       res.rebaselined = true;
@@ -197,19 +215,26 @@ const CORE = (function () {
     const angle = ((Number(screenAngle) || 0) % 360 + 360) % 360;
     const gap = _isPos(maxGapMs) ? maxGapMs : 250;
     const ts = _isNum(nowMs) ? nowMs : 0;
-    if (!prev || prev.angle !== angle || (_isNum(prev.ts) && ts - prev.ts > gap)) {
+    if (!prev || prev.angle !== angle || (_isNum(prev.ts) && (ts < prev.ts || ts - prev.ts > gap))) {
       res.rebaselined = true;
+      res.nextBeta = beta; res.nextGamma = gamma;
       return res;
     }
-    const db = ((beta - prev.beta + 540) % 360) - 180;
-    const dg = ((gamma - prev.gamma + 540) % 360) - 180;
-    if (Math.abs(db) > 45 || Math.abs(dg) > 45) {
+    const dbRaw = ((beta - prev.beta + 540) % 360) - 180;
+    const dgRaw = ((gamma - prev.gamma + 540) % 360) - 180;
+    if (Math.abs(dbRaw) > 45 || Math.abs(dgRaw) > 45) {
       res.rebaselined = true;
+      res.nextBeta = beta; res.nextGamma = gamma;
       return res;
     }
+    const dtMs = _isNum(prev.ts) ? Math.max(0, ts - prev.ts) : 0;
+    const bStep = _filterGyroAxis(prev.beta, beta, dtMs);
+    const gStep = _filterGyroAxis(prev.gamma, gamma, dtMs);
     res.rebaselined = false;
-    res.betaDelta = db;
-    res.gammaDelta = dg;
+    res.betaDelta = bStep.delta;
+    res.gammaDelta = gStep.delta;
+    res.nextBeta = bStep.next;
+    res.nextGamma = gStep.next;
     return res;
   }
 
@@ -442,11 +467,18 @@ const CORE = (function () {
     touchSensitivity: { type: 'number', def: 1.0, min: 0.4, max: 3.0, step: 0.1, label: 'Touch look sensitivity' },
     gyroSensitivity: { type: 'number', def: 1.0, min: 0.2, max: 4.0, step: 0.1, label: 'Gyro hipfire sensitivity', help: 'Phone-tilt aiming sensitivity while firing from the hip.' },
     gyroAdsSensitivity: { type: 'number', def: 0.65, min: 0.1, max: 4.0, step: 0.05, label: 'Gyro ADS sensitivity', help: 'Phone-tilt aiming sensitivity while aiming down sights or scoped.' },
+    gyroSensitivityX: { type: 'number', def: 1.0, min: 0.2, max: 2.5, step: 0.05, label: 'Gyro X multiplier', help: 'Independent horizontal (yaw) gyro sensitivity multiplier.' },
+    gyroSensitivityY: { type: 'number', def: 1.0, min: 0.2, max: 2.5, step: 0.05, label: 'Gyro Y multiplier', help: 'Independent vertical (pitch) gyro sensitivity multiplier.' },
+    gyroInvertX: { type: 'bool', def: false, label: 'Invert gyro X axis', help: 'Reverse horizontal gyroscope aiming direction.' },
+    gyroInvertY: { type: 'bool', def: false, label: 'Invert gyro Y axis', help: 'Reverse vertical gyroscope aiming direction.' },
     keyboardSprint: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Keyboard sprint', help: 'Hold Shift or tap Shift to toggle. Double-tap for tactical sprint. Toggle clears on pause, interruption or exhaustion.' },
     touchSprint: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Touch sprint', help: 'Hold RUN or tap RUN to toggle. Hold mode also auto-sprints at full forward stick. Double-tap RUN for tactical sprint. Toggle clears on pause, interruption or exhaustion.' },
+    keyboardCrouch: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Keyboard crouch', help: 'Hold C/Ctrl to crouch, or tap to toggle crouch. Sprint + crouch slides. Toggle clears on pause or interruption.' },
+    touchCrouch: { type: 'enum', def: 'hold', values: ['hold', 'toggle'], label: 'Touch crouch', help: 'Hold SLIDE/CROUCH to stay crouched or tap to toggle crouch. Toggle clears on pause or interruption.' },
     gyroAim: { type: 'enum', def: 'off', values: ['off', 'ads', 'always'], label: 'Gyroscope aiming', help: 'Turn your phone to aim: Off, ADS only, or Always on. Sensor access may require permission.' },
     touchLayout: { type: 'enum', def: 'standard', values: ['standard', 'left-handed', 'large buttons'], label: 'Mobile button layout' },
     fireMode: { type: 'enum', def: 'fire', values: ['fire', 'ads + fire'], label: 'FIRE button mode' },
+    sniperAdsFire: { type: 'enum', def: 'release', values: ['release', 'hold'], label: 'Sniper ADS+FIRE', help: 'Hold ADS+FIRE to aim sniper and fire once on release (including quick tap), or fire while held.' },
     fireLook: { type: 'bool', def: true, label: 'ADS button for rotation' },
     invertY: { type: 'bool', def: false, label: 'Invert vertical look' },
     fov: { type: 'number', def: 72, min: 60, max: 100, step: 1, label: 'Field of view' },
@@ -486,9 +518,10 @@ const CORE = (function () {
     { id: 'gameplay', label: 'Gameplay' }
   ];
   const _SETTING_TAB_MAP = {
-    sensitivity: 'controls', keyboardSprint: 'controls', invertY: 'controls', fov: 'controls', reducedMotion: 'controls', colorblindMarkers: 'controls',
-    touchSensitivity: 'touch', touchSprint: 'touch', gyroAim: 'touch', gyroSensitivity: 'touch', gyroAdsSensitivity: 'touch',
-    touchLayout: 'touch', fireMode: 'touch', fireLook: 'touch',
+    sensitivity: 'controls', keyboardSprint: 'controls', keyboardCrouch: 'controls', invertY: 'controls', fov: 'controls', reducedMotion: 'controls', colorblindMarkers: 'controls',
+    touchSensitivity: 'touch', touchSprint: 'touch', touchCrouch: 'touch', gyroAim: 'touch', gyroSensitivity: 'touch', gyroAdsSensitivity: 'touch',
+    gyroSensitivityX: 'touch', gyroSensitivityY: 'touch', gyroInvertX: 'touch', gyroInvertY: 'touch',
+    touchLayout: 'touch', fireMode: 'touch', sniperAdsFire: 'touch', fireLook: 'touch',
     quality: 'graphics', adaptiveResolution: 'graphics', fpsCap: 'graphics', showFps: 'graphics',
     enemyDetail: 'graphics', sceneryDetail: 'graphics', effects: 'graphics', ragdollQuality: 'graphics',
     shadowQuality: 'graphics', postProcessing: 'graphics',
@@ -1327,7 +1360,7 @@ const CORE = (function () {
   // anything that closes without a hold ends up standing inside the player's body
   // (BUG-02). Ranged kinds that orbit are the only ones exempt from *melee*, but
   // none is exempt from the push-out.
-  const ENEMY_STOP_DIST = { 0: 1.9, 1: 1.9, 2: 2.6, 3: 1.9, 4: 1.9, 5: 2.4 };
+  const ENEMY_STOP_DIST = { 0: 1.9, 1: 1.9, 2: 2.06, 3: 1.9, 4: 1.9, 5: 2.4 };
   function enemyStopDistance(kind) {
     return ENEMY_STOP_DIST[kind] === undefined ? 1.9 : ENEMY_STOP_DIST[kind];
   }
@@ -2708,7 +2741,8 @@ const CORE = (function () {
       const tz = (t.pos && _isNum(t.pos.z)) ? t.pos.z : t.z;
       const dx = tx - px, dz = tz - pz;
       const d = Math.sqrt(dx * dx + dz * dz);
-      if (d > reach || d < 1e-6) continue;
+      const extraR = (typeof t.kind === 'number') ? Math.max(0, enemyColliderRadius(t.kind) - 0.4) : 0;
+      if (Math.max(1e-6, d - extraR) > reach || d < 1e-6) continue;
       if ((dx * dirX + dz * dirZ) / d < cosHalfAngle) continue;
       if (d < bestD && (!canHit || canHit(t))) { bestD = d; best = i; }
     }
@@ -3427,6 +3461,9 @@ const CORE = (function () {
     return 'RLD';
   }
 
+  function isSniperAdsReleaseMode(fireMode, weaponType, sniperAdsFire) {
+    return fireMode === 'ads + fire' && weaponType === 'SR' && sniperAdsFire !== 'hold';
+  }
   const TOUCH_BUTTON_DEFAULT_SIZE = 56;
   const TOUCH_FIRE_DEFAULT_SIZE = 84;
   const TOUCH_PAUSE_DEFAULT_SIZE = 44;
@@ -5107,6 +5144,13 @@ const CORE = (function () {
   const SLIDE_JUMP_Y_MUL = 1.08;
   const SLIDE_ICE_DURATION = 1.30;
   const SLIDE_ICE_TIMEOUT_T = 1.30;
+  const SLIDE_ACTIVE_DURATION = 1.25;
+  const SLIDE_ACTIVE_ICE_DURATION = 1.65;
+  const SLIDE_ACTIVE_STEER_RATE = 3.0;
+
+  function activeSlideDuration(onIce) {
+    return Boolean(onIce) ? SLIDE_ACTIVE_ICE_DURATION : SLIDE_ACTIVE_DURATION;
+  }
 
   function slideDuration(onIce) {
     return Boolean(onIce) ? SLIDE_ICE_DURATION : SLIDE_DURATION;
@@ -5460,19 +5504,22 @@ const CORE = (function () {
   const CAMERA_BOB_X_SCALE = 0.025;
   const CAMERA_BOB_Y_SCALE = 0.05;
   const CAMERA_SLIDE_DIP = 0.45;
+  const CAMERA_SLIDE_DIP_ACTIVE = 0.56;
   const CAMERA_BOB_ROLL_SCALE = 0.008;
   const CAMERA_SLIDE_ROLL = 0.16;
+  const CAMERA_SLIDE_ROLL_ACTIVE = 0.24;
+  const SLIDE_FOV_BOOST_ACTIVE = 9.5;
   const CAMERA_STRAFE_ROLL_SCALE = 0.012;
 
   function weaponAdsZoom(weaponType) {
     return weaponType === 'SR' ? SNIPER_ADS_ZOOM : DEFAULT_ADS_ZOOM;
   }
 
-  function mobilityFovBoost(isSliding, isTacSprint, adsAmount, isReducedMotion) {
+  function mobilityFovBoost(isSliding, isTacSprint, adsAmount, isReducedMotion, enhanced) {
     if (isReducedMotion) return 0;
     const ads = _isNum(adsAmount) ? adsAmount : 0;
     if (ads > 0.5) return 0;
-    if (isSliding) return SLIDE_FOV_BOOST;
+    if (isSliding) return enhanced ? SLIDE_FOV_BOOST_ACTIVE : SLIDE_FOV_BOOST;
     if (isTacSprint) return TAC_SPRINT_FOV_BOOST;
     return 0;
   }
@@ -5496,14 +5543,15 @@ const CORE = (function () {
     return 0;
   }
 
-  function cameraRoll(bobPhase, bobAmp, slideBlend, strafeDir, isReducedMotion, swayX, isScoped) {
+  function cameraRoll(bobPhase, bobAmp, slideBlend, strafeDir, isReducedMotion, swayX, isScoped, slideRollScale) {
     const motionMul = isReducedMotion ? 0 : 1;
     const phase = _isNum(bobPhase) ? bobPhase : 0;
     const amp = _isNum(bobAmp) ? bobAmp : 0;
     const slide = _isNum(slideBlend) ? _clamp01(slideBlend) : 0;
     const strafe = _isNum(strafeDir) ? Math.max(-1, Math.min(1, strafeDir)) : 0;
     const bobRoll = Math.sin(phase) * amp * CAMERA_BOB_ROLL_SCALE;
-    const slideRoll = slide * CAMERA_SLIDE_ROLL;
+    const sRoll = _isPos(slideRollScale) ? slideRollScale : CAMERA_SLIDE_ROLL;
+    const slideRoll = slide * (sRoll + strafe * 0.04);
     const strafeRoll = strafe * CAMERA_STRAFE_ROLL_SCALE;
     const motionRoll = (bobRoll + slideRoll + strafeRoll) * motionMul;
     const sx = _isNum(swayX) ? swayX : 0;
@@ -5511,7 +5559,7 @@ const CORE = (function () {
     return motionRoll + swayRoll;
   }
 
-  function cameraPositionOffsets(bobPhase, bobAmp, slideBlend, isReducedMotion, out) {
+  function cameraPositionOffsets(bobPhase, bobAmp, slideBlend, isReducedMotion, out, slideDip) {
     const o = out || { x: 0, y: 0 };
     if (isReducedMotion) {
       o.x = 0;
@@ -5521,8 +5569,9 @@ const CORE = (function () {
     const phase = _isNum(bobPhase) ? bobPhase : 0;
     const amp = _isNum(bobAmp) ? bobAmp : 0;
     const slide = _isNum(slideBlend) ? _clamp01(slideBlend) : 0;
+    const dip = _isPos(slideDip) ? slideDip : CAMERA_SLIDE_DIP;
     o.x = Math.sin(phase) * amp * CAMERA_BOB_X_SCALE;
-    o.y = Math.abs(Math.sin(phase)) * amp * CAMERA_BOB_Y_SCALE - slide * CAMERA_SLIDE_DIP;
+    o.y = Math.abs(Math.sin(phase)) * amp * CAMERA_BOB_Y_SCALE - slide * dip;
     return o;
   }
 
@@ -6328,6 +6377,8 @@ const CORE = (function () {
   const AIRSTRIKE_BASE_DELAY = 700;
   const AIRSTRIKE_STEP_DELAY = 260;
   const AIRSTRIKE_JITTER = 6;
+  const AIRSTRIKE_MAX_RANGE = 45;
+  const AIRSTRIKE_ZONE_RADIUS = 11;
   const ENEMY_GRENADE_MIN_SPEED = 6;
   const ENEMY_GRENADE_MAX_SPEED = 13;
   const ENEMY_GRENADE_SPEED_DIST_SCALE = 0.32;
@@ -6388,6 +6439,45 @@ const CORE = (function () {
     const res = out || { x: 0, z: 0 };
     res.x = px + dx * lead + dx * i * sp + (_isNum(jitterX) ? jitterX : 0);
     res.z = pz + dz * lead + dz * i * sp + (_isNum(jitterZ) ? jitterZ : 0);
+    return res;
+  }
+
+  function minimapScreenToWorld(cx, cy, canvasRadius, playerX, playerZ, yaw, scale, out) {
+    const R = _isPos(canvasRadius) ? canvasRadius : 75;
+    const s = _isPos(scale) ? scale : 1;
+    const px = _isNum(playerX) ? playerX : 0, pz = _isNum(playerZ) ? playerZ : 0;
+    const y = _isNum(yaw) ? yaw : 0;
+    const dx = (_isNum(cx) ? cx : R) - R;
+    const dy = (_isNum(cy) ? cy : R) - R;
+    const cos = Math.cos(y), sin = Math.sin(y);
+    const lx = dx * cos + dy * sin;
+    const lz = -dx * sin + dy * cos;
+    const res = _isObj(out) ? out : { x: 0, z: 0 };
+    res.x = px + lx / s;
+    res.z = pz + lz / s;
+    return res;
+  }
+
+  function validateAirstrikeTarget(worldX, worldZ, playerX, playerZ, discNormSq, maxRange, mapBounds) {
+    if (!_isNum(worldX) || !_isNum(worldZ) || !_isNum(playerX) || !_isNum(playerZ)) return { valid: false, reason: 'invalid' };
+    if (_isNum(discNormSq) && discNormSq > 1) return { valid: false, reason: 'disc' };
+    const maxR = _isPos(maxRange) ? maxRange : AIRSTRIKE_MAX_RANGE;
+    const bounds = _isPos(mapBounds) ? mapBounds : 43;
+    if (Math.abs(worldX) > bounds || Math.abs(worldZ) > bounds) return { valid: false, reason: 'bounds' };
+    if (horizDist(worldX, worldZ, playerX, playerZ) > maxR) return { valid: false, reason: 'range' };
+    return { valid: true, reason: '' };
+  }
+
+  function airstrikeZoneBombCoord(targetX, targetZ, dirX, dirZ, index, count, spacing, jitterX, jitterZ, out) {
+    const tx = _isNum(targetX) ? targetX : 0, tz = _isNum(targetZ) ? targetZ : 0;
+    const dx = _isNum(dirX) ? dirX : 0, dz = _isNum(dirZ) ? dirZ : 0;
+    const n = _isPos(count) ? count : AIRSTRIKE_BOMB_COUNT;
+    const sp = _isNum(spacing) ? spacing : AIRSTRIKE_SPACING;
+    const i = _isNum(index) ? Math.max(0, index) : 0;
+    const offset = (i - (n - 1) * 0.5) * sp;
+    const res = out || { x: 0, z: 0 };
+    res.x = tx + dx * offset + (_isNum(jitterX) ? jitterX : 0);
+    res.z = tz + dz * offset + (_isNum(jitterZ) ? jitterZ : 0);
     return res;
   }
 
@@ -9073,6 +9163,10 @@ const CORE = (function () {
     MAP_IDS, DEFAULT_MAP_ID, sanitizeMapId, getMapDef, MAP_DEFS,
     URBAN_BARRIERS, SNOWY_BARRIERS,
     isPositionOnIce, SLIDE_ICE_DURATION, SLIDE_ICE_TIMEOUT_T, slideDuration, slideTimeout,
+    SLIDE_ACTIVE_DURATION, SLIDE_ACTIVE_ICE_DURATION, SLIDE_ACTIVE_STEER_RATE, activeSlideDuration,
+    CAMERA_SLIDE_DIP_ACTIVE, CAMERA_SLIDE_ROLL_ACTIVE, SLIDE_FOV_BOOST_ACTIVE,
+    isSniperAdsReleaseMode,
+    AIRSTRIKE_MAX_RANGE, AIRSTRIKE_ZONE_RADIUS, minimapScreenToWorld, validateAirstrikeTarget, airstrikeZoneBombCoord,
     ENEMY_STEP_SNOW_SOUND, ENEMY_STEP_SNOW_HEAVY_SOUND, ENEMY_STEP_ICE_SOUND, ENEMY_STEP_ICE_HEAVY_SOUND,
     MELEE_SURFACE_SNOW_SOUND, MELEE_SURFACE_ICE_SOUND,
     isSnowfallEnabled, snowfallVfxParams, isColdBreathEnabled, breathMistInterval, breathMistVfxParams,
